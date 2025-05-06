@@ -27,7 +27,7 @@ var (
 type Model struct {
 	Prev tea.Model
 
-	Drivers []dbc.DriverInfo
+	Drivers []DriverInfo
 	list    list.Model
 }
 
@@ -38,7 +38,7 @@ var (
 	configStyle   = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
 )
 
-type driverItem dbc.DriverInfo
+type driverItem DriverInfo
 
 func (d driverItem) FilterValue() string { return d.ID }
 func (d driverItem) String() string {
@@ -56,7 +56,7 @@ func (d driverItem) View() string {
 	return sb.String()
 }
 
-func toListItems(drivers []dbc.DriverInfo) []list.Item {
+func toListItems(drivers []DriverInfo) []list.Item {
 	items := make([]list.Item, len(drivers))
 	for i, d := range drivers {
 		items[i] = driverItem(d)
@@ -66,14 +66,14 @@ func toListItems(drivers []dbc.DriverInfo) []list.Item {
 
 func (m Model) Init() tea.Cmd {
 	return func() tea.Msg {
-		return append(dbc.FindDriverConfigs(envDriversDir),
-			dbc.FindDriverConfigs(systemDriversDir)...)
+		return append(FindDriverConfigs(envDriversDir),
+			FindDriverConfigs(systemDriversDir)...)
 	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case []dbc.DriverInfo:
+	case []DriverInfo:
 		m.list = list.New(toListItems(msg), dbc.SimpleItemDelegate{Prompt: ">"}, 20, 14)
 		m.list.Title = "Available Drivers"
 		m.list.SetShowStatusBar(false)
