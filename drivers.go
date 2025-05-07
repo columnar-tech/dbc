@@ -23,7 +23,7 @@ const baseURL = "http://localhost:8000"
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 	resp, err := http.Get(baseURL + "/manifest.yaml")
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch drivers: %s", resp.Status)
+		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -97,30 +97,80 @@ func (p PkgInfo) DownloadPackage() (*os.File, error) {
 	return output, err
 }
 
+type pkginfo struct {
+	Version  string `yaml:"version"`
+	Packages []struct {
+		Platform string `yaml:"platform"`
+		URL      string `yaml:"url"`
+	} `yaml:"packages"`
+}
+
 type Driver struct {
-	Title     string   `yaml:"name"`
-	Desc      string   `yaml:"description"`
-	License   string   `yaml:"license"`
-	Path      string   `yaml:"path"`
-	URLs      []string `yaml:"urls"`
-	Versions  []string `yaml:"versions"`
-	Platforms []string `yaml:"platforms"`
+	Title   string    `yaml:"name"`
+	Desc    string    `yaml:"description"`
+	License string    `yaml:"license"`
+	Path    string    `yaml:"path"`
+	URLs    []string  `yaml:"urls"`
+	PkgInfo []pkginfo `yaml:"pkginfo"`
+}
+
+func (d Driver) Versions(platformTuple string) []string {
+	versions := make([]string, 0, len(d.PkgInfo))
+	for _, pkg := range d.PkgInfo {
+		for _, p := range pkg.Packages {
+			if p.Platform == platformTuple {
+				versions = append(versions, pkg.Version)
+			}
+		}
+	}
+
+	semver.Sort(versions)    // puts oldest version first
+	slices.Reverse(versions) // puts newest version first
+	return versions
 }
 
 func (d Driver) GetPackage(version, platformTuple string) PkgInfo {
+	var pkg pkginfo
 	if version == "" {
-		version = slices.MaxFunc(d.Versions, semver.Compare)
+		pkg = slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
+			return semver.Compare(a.Version, b.Version)
+		})
+	} else {
+		idx := slices.IndexFunc(d.PkgInfo, func(p pkginfo) bool {
+			return p.Version == version
+		})
+		if idx == -1 {
+			return PkgInfo{}
+		}
+		pkg = d.PkgInfo[idx]
 	}
 
-	pkg, _ := url.JoinPath(baseURL, d.Path, version[1:], d.Path+"_"+
-		platformTuple+"-"+version[1:]+".tar.gz")
-	uri, _ := url.Parse(pkg)
-	return PkgInfo{
-		Driver:   d,
-		Version:  version,
-		Platform: platformTuple,
-		Path:     uri,
+	base, _ := url.Parse(baseURL)
+	for _, p := range pkg.Packages {
+		if p.Platform == platformTuple {
+			var uri *url.URL
+
+			if p.URL != "" {
+				uri, _ = url.Parse(p.URL)
+				if !uri.IsAbs() {
+					uri = base.JoinPath(p.URL)
+				}
+
+			} else {
+				uri = base.JoinPath(d.Path, version[1:],
+					d.Path+"_"+platformTuple+"-"+version[1:]+".tar.gz")
+			}
+
+			return PkgInfo{
+				Driver:   d,
+				Version:  pkg.Version,
+				Platform: platformTuple,
+				Path:     uri,
+			}
+		}
 	}
+
+	return PkgInfo{}
 }
 
 func GetDriverList() ([]Driver, error) {

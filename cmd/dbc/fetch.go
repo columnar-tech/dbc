@@ -4,7 +4,6 @@ package main
 
 import (
 	"runtime"
-	"slices"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -86,13 +85,9 @@ func emptyEnumerator(_ list.Items, _ int) string {
 func viewDrivers(d []dbc.Driver) string {
 	l := list.New().ItemStyle(nameStyle)
 	for _, driver := range d {
-		if !slices.Contains(driver.Platforms, platformTuple) {
-			continue
-		}
-
 		versionTree := tree.Root("Versions").
 			Enumerator(tree.RoundedEnumerator)
-		for _, v := range driver.Versions {
+		for _, v := range driver.Versions(platformTuple) {
 			versionTree.Child(v)
 		}
 

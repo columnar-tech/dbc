@@ -70,7 +70,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			i, ok := m.list.SelectedItem().(item)
 			if ok {
 				versions := []list.Item{}
-				for _, v := range i.d.Versions {
+				for _, v := range i.d.Versions(platformTuple) {
 					versions = append(versions, versionOption(v))
 				}
 
