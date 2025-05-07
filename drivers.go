@@ -23,7 +23,7 @@ const baseURL = "http://localhost:8000"
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 	resp, err := http.Get(baseURL + "/manifest.yaml")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to fetch drivers: %s", resp.Status)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -37,7 +37,7 @@ var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 
 	err = yaml.NewDecoder(resp.Body).Decode(&drivers)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse driver manifest: %s", err)
 	}
 
 	return drivers.Drivers, nil
