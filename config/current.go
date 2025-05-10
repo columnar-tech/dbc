@@ -3,7 +3,6 @@
 package config
 
 import (
-	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -31,11 +30,8 @@ type Model struct {
 	list    list.Model
 }
 
-const systemDriversDir = "/etc/adbc_drivers"
-
 var (
-	envDriversDir = os.Getenv("ADBC_DRIVERS_DIR")
-	configStyle   = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
+	configStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
 )
 
 type driverItem DriverInfo
@@ -66,8 +62,8 @@ func toListItems(drivers []DriverInfo) []list.Item {
 
 func (m Model) Init() tea.Cmd {
 	return func() tea.Msg {
-		return append(FindDriverConfigs(envDriversDir),
-			FindDriverConfigs(systemDriversDir)...)
+		return append(FindDriverConfigs(ConfigUser),
+			FindDriverConfigs(ConfigSystem)...)
 	}
 }
 
@@ -101,8 +97,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var sb strings.Builder
 	sb.WriteString("DBC Driver Config\n\n")
-	sb.WriteString(configStyle.Render("System Driver Directory:      "+systemDriversDir,
-		"\nEnvironment Driver Directory: "+envDriversDir+"\n"))
+	// sb.WriteString(configStyle.Render("System Driver Directory:      "+systemDriversDir,
+	// 	"\nEnvironment Driver Directory: "+envDriversDir+"\n"))
 
 	sb.WriteString("\n")
 

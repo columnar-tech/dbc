@@ -135,6 +135,7 @@ func (d Driver) GetPackage(version, platformTuple string) PkgInfo {
 		pkg = slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
 			return semver.Compare(a.Version, b.Version)
 		})
+		version = pkg.Version
 	} else {
 		idx := slices.IndexFunc(d.PkgInfo, func(p pkginfo) bool {
 			return p.Version == version

@@ -34,6 +34,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// f, err := tea.LogToFile("debug.log", "debug")
+	// if err != nil {
+	// 	fmt.Println("Error creating log file:", err)
+	// 	os.Exit(1)
+	// }
+	// defer f.Close()
+
 	m := p.Subcommand().(modelCmd).GetModel()
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
