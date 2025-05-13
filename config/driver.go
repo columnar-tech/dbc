@@ -3,11 +3,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -34,33 +34,8 @@ type DriverInfo struct {
 	}
 }
 
-func FindDriverConfigs(dir string) []DriverInfo {
-	out := []DriverInfo{}
-	if dir == "" {
-		return out
-	}
-
-	fsys := os.DirFS(dir)
-	matches, _ := fs.Glob(fsys, "*.toml")
-	for _, m := range matches {
-		var di DriverInfo
-		f, err := fsys.Open(m)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		if err := toml.NewDecoder(f).Decode(&di); err != nil {
-			panic(err)
-		}
-
-		di.ID = strings.TrimSuffix(m, ".toml")
-		out = append(out, di)
-	}
-	return out
-}
-
-func GetDriver(dir, driverName string) (DriverInfo, error) {
-	manifest := filepath.Join(dir, driverName+".toml")
+func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
+	manifest := filepath.Join(prefix, driverName+".toml")
 	f, err := os.Open(manifest)
 	if err != nil {
 		return DriverInfo{}, fmt.Errorf("error opening manifest %s: %w", manifest, err)
@@ -73,4 +48,24 @@ func GetDriver(dir, driverName string) (DriverInfo, error) {
 	}
 	di.ID = driverName
 	return di, nil
+}
+
+func createDriverManifest(location string, driver DriverInfo) error {
+	if _, err := os.Stat(location); errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(location, 0755); err != nil {
+			return fmt.Errorf("error creating driver location %s: %w", location, err)
+		}
+	}
+
+	f, err := os.Create(filepath.Join(location, driver.ID+".toml"))
+	if err != nil {
+		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
+	}
+	defer f.Close()
+
+	if err := toml.NewEncoder(f).Encode(driver); err != nil {
+		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
+	}
+
+	return nil
 }

@@ -27,7 +27,7 @@ func (m simpleViewConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case map[config.ConfigLevel]config.Config:
 		return m, tea.Sequence(
-			tea.Println(viewConfig(msg[config.ConfigEnv])),
+			// tea.Println(viewConfig(msg[config.ConfigEnv])),
 			tea.Println(viewConfig(msg[config.ConfigUser])),
 			tea.Println(viewConfig(msg[config.ConfigSystem])),
 			tea.Quit)

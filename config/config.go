@@ -6,9 +6,20 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
+
+const adbcEnvVar = "ADBC_DRIVERS_DIR"
+
+type Config struct {
+	Level    ConfigLevel
+	Location string
+	Drivers  map[string]DriverInfo
+	Exists   bool
+	Err      error
+}
 
 type ConfigLevel int
 
@@ -46,28 +57,6 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	return nil
 }
 
-type Config struct {
-	Level    ConfigLevel
-	Location string
-	Drivers  map[string]DriverInfo
-	Exists   bool
-	Err      error
-}
-
-const (
-	systemConfigDir = "/etc/adbc_drivers"
-	adbcEnvVar      = "ADBC_DRIVERS_DIR"
-)
-
-var userConfigDir string
-
-func init() {
-	userConfigDir, _ = os.UserConfigDir()
-	if userConfigDir != "" {
-		userConfigDir = filepath.Join(userConfigDir, "adbc_drivers")
-	}
-}
-
 func loadDir(lvl ConfigLevel, dir string) Config {
 	ret := Config{Location: dir, Level: lvl}
 
@@ -79,23 +68,22 @@ func loadDir(lvl ConfigLevel, dir string) Config {
 	}
 
 	ret.Exists, ret.Drivers = true, make(map[string]DriverInfo)
-	for _, di := range FindDriverConfigs(dir) {
+
+	fsys := os.DirFS(dir)
+	matches, _ := fs.Glob(fsys, "*.toml")
+	for _, m := range matches {
+		var di DriverInfo
+		f, err := fsys.Open(m)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+		if err := toml.NewDecoder(f).Decode(&di); err != nil {
+			panic(err)
+		}
+
+		di.ID = strings.TrimSuffix(m, ".toml")
 		ret.Drivers[di.ID] = di
 	}
 	return ret
-}
-
-func Get() map[ConfigLevel]Config {
-	configs := make(map[ConfigLevel]Config)
-	configs[ConfigSystem] = loadDir(ConfigSystem, systemConfigDir)
-	if userConfigDir != "" {
-		configs[ConfigUser] = loadDir(ConfigUser, userConfigDir)
-	}
-
-	if envDir := os.Getenv(adbcEnvVar); envDir != "" {
-		dir, _ := filepath.Abs(envDir)
-		configs[ConfigEnv] = loadDir(ConfigEnv, dir)
-	}
-
-	return configs
 }

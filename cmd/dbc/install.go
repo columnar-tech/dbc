@@ -137,7 +137,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 				tea.Println(descStyle.Render("Located driver..."), ""),
 				tea.Println(t.String())}
 
-			di, err := config.GetDriver(m.cfg.Location, m.Driver)
+			di, err := config.GetDriver(m.cfg, m.Driver)
 			if !errors.Is(err, fs.ErrNotExist) {
 				cmds = append(cmds, func() tea.Msg {
 					return conflictMsg(di)
@@ -168,7 +168,7 @@ func (m simpleInstallModel) handleConflict(msg conflictMsg) (tea.Model, tea.Cmd)
 
 	m.confirmModel = createConfirmModel("Remove existing driver? (y/[N]): ")
 	return m, tea.Sequence(
-		tea.Printf("\nFound %s existing local driver in %s", s, m.cfg.Location),
+		tea.Printf("\nFound %s existing local driver at %s", s, m.conflict.Driver.Shared),
 		tea.Println("Local Driver: ", msg.Name, " (", msg.Version, ")"),
 		m.confirmModel.Focus())
 }
@@ -178,25 +178,15 @@ func (m simpleInstallModel) removeConflictingDriver() (tea.Model, tea.Cmd) {
 	m.confirmModel = createConfirmModel("Install new driver? (y/[N]): ")
 	m.state = installStateConfirm
 
-	toRemove := m.conflict.Driver.Shared
 	msg := "Removing driver: " + m.conflict.Driver.Shared
 	if m.conflict.Source == "dbc" {
-		toRemove = filepath.Dir(m.conflict.Driver.Shared)
-		msg = "Removing directory: " + toRemove
+		msg = "Removing directory: " + filepath.Dir(m.conflict.Driver.Shared)
 	}
 
 	return m, tea.Sequence(tea.Println(prev),
 		tea.Println(msg),
 		func() tea.Msg {
-			if err := os.RemoveAll(toRemove); err != nil {
-				return fmt.Errorf("could not remove existing driver (%s): %w", toRemove, err)
-			}
-
-			if err := os.Remove(filepath.Join(m.cfg.Location, m.Driver+".toml")); err != nil {
-				return fmt.Errorf("could not remove existing driver manifest: %w", err)
-			}
-
-			return nil
+			return config.DeleteDriver(m.cfg, config.DriverInfo(m.conflict))
 		},
 		tea.Println("Driver removed successfully!"),
 		m.confirmModel.Focus(),
@@ -319,6 +309,7 @@ func (m simpleInstallModel) startInstalling(msg downloadedMsg) (tea.Model, tea.C
 			return fmt.Errorf("could not extract tarball: %w", err)
 		}
 
+		manifest.DriverInfo.ID = m.Driver
 		manifest.DriverInfo.Source = "dbc"
 		manifest.DriverInfo.Driver.Shared = filepath.Join(m.cfg.Location, base, manifest.Files.Driver)
 		return manifest
@@ -388,17 +379,7 @@ func (m simpleInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case writeDriverManifestMsg:
 		m.state = installStateDone
 		return m, tea.Sequence(func() tea.Msg {
-			f, err := os.Create(filepath.Join(m.cfg.Location, m.Driver+".toml"))
-			if err != nil {
-				return fmt.Errorf("error creating driver manifest: %w", err)
-			}
-			defer f.Close()
-
-			if err := toml.NewEncoder(f).Encode(msg.DriverInfo); err != nil {
-				return fmt.Errorf("error writing driver manifest: %w", err)
-			}
-
-			return nil
+			return config.CreateManifest(m.cfg, msg.DriverInfo)
 		}, tea.Println("Driver installed successfully!"), tea.Quit)
 
 	case error:
