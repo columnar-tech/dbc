@@ -10,16 +10,18 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
 
-const (
-	ConfigUnknown ConfigLevel = iota
-	ConfigSystem
-	ConfigUser
-)
+var userConfigDir string
+
+func init() {
+	userConfigDir, _ = os.UserConfigDir()
+	if userConfigDir != "" {
+		userConfigDir = filepath.Join(userConfigDir, "ADBC", "drivers")
+	}
+}
 
 func (c ConfigLevel) key() registry.Key {
 	switch c {
@@ -44,29 +46,6 @@ func (c ConfigLevel) driverLocation() string {
 	}
 
 	return filepath.Join(prefix, "ADBC", "drivers")
-}
-
-func (c ConfigLevel) String() string {
-	switch c {
-	case ConfigSystem:
-		return "system"
-	case ConfigUser:
-		return "user"
-	default:
-		return "unknown"
-	}
-}
-
-func (c *ConfigLevel) UnmarshalText(b []byte) error {
-	switch strings.ToLower(strings.TrimSpace(string(b))) {
-	case "system":
-		*c = ConfigSystem
-	case "user":
-		*c = ConfigUser
-	default:
-		return errors.New("unknown config level")
-	}
-	return nil
 }
 
 const (
@@ -139,7 +118,6 @@ func loadConfig(lvl ConfigLevel) Config {
 
 	info, err := k.Stat()
 	if err != nil {
-		log.Println(err)
 		return ret
 	}
 
@@ -168,10 +146,21 @@ func loadConfig(lvl ConfigLevel) Config {
 }
 
 func Get() map[ConfigLevel]Config {
-	return map[ConfigLevel]Config{
+	configs := map[ConfigLevel]Config{
 		ConfigSystem: loadConfig(ConfigSystem),
 		ConfigUser:   loadConfig(ConfigUser),
 	}
+
+	if !configs[ConfigUser].Exists && userConfigDir != "" {
+		configs[ConfigUser] = loadDir(ConfigUser, userConfigDir)
+	}
+
+	if envDir := os.Getenv(adbcEnvVar); envDir != "" {
+		dir, _ := filepath.Abs(envDir)
+		configs[ConfigEnv] = loadDir(ConfigEnv, dir)
+	}
+
+	return configs
 }
 
 func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
@@ -181,6 +170,12 @@ func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
 func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 	k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.READ)
 	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			switch cfg.Level {
+			case ConfigEnv, ConfigUser:
+				return loadDriverFromManifest(cfg.Location, driverName)
+			}
+		}
 		return DriverInfo{}, err
 	}
 	defer k.Close()
@@ -189,6 +184,13 @@ func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 }
 
 func CreateManifest(cfg Config, driver DriverInfo) (err error) {
+	if cfg.Level == ConfigEnv {
+		if cfg.Location == "" {
+			return fmt.Errorf("cannot write manifest to env config without %s set", adbcEnvVar)
+		}
+		return createDriverManifest(cfg.Location, driver)
+	}
+
 	var k registry.Key
 
 	if !cfg.Exists {
@@ -246,6 +248,10 @@ func DeleteDriver(cfg Config, info DriverInfo) error {
 	}
 	defer k.Close()
 
+	if err := registry.DeleteKey(k, info.ID); err != nil {
+		return fmt.Errorf("failed to delete driver registry key: %w", err)
+	}
+
 	if info.Source == "dbc" {
 		if err := os.RemoveAll(filepath.Dir(info.Driver.Shared)); err != nil {
 			return fmt.Errorf("failed to remove driver directory: %w", err)
@@ -254,10 +260,6 @@ func DeleteDriver(cfg Config, info DriverInfo) error {
 		if err := os.Remove(info.Driver.Shared); err != nil {
 			return fmt.Errorf("failed to remove driver: %w", err)
 		}
-	}
-
-	if err := registry.DeleteKey(k, info.ID); err != nil {
-		return fmt.Errorf("failed to delete driver registry key: %w", err)
 	}
 
 	return nil
