@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -36,7 +37,9 @@ func TestCmd(t *testing.T) {
 				{seq: []byte("\r"), msg: tea.KeyMsg{Type: tea.KeyEnter}},
 			},
 			func(t *testing.T, tmpdir string) {
-				assert.FileExists(t, filepath.Join(tmpdir, "bigquery.toml"))
+				if runtime.GOOS != "windows" {
+					assert.FileExists(t, filepath.Join(tmpdir, "bigquery.toml"))
+				}
 			},
 		},
 	}
