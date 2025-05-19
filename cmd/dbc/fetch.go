@@ -38,11 +38,11 @@ func init() {
 	platformTuple = os + "_" + arch
 }
 
-type FetchCmd struct {
+type ListCmd struct {
 	// URI url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 }
 
-func (f FetchCmd) GetModel() tea.Model {
+func (f ListCmd) GetModel() tea.Model {
 	return simpleFetchModel{}
 }
 
