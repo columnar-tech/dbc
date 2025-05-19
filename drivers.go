@@ -18,7 +18,7 @@ import (
 	"golang.org/x/mod/semver"
 )
 
-const baseURL = "http://localhost:8000"
+const baseURL = "https://d3ew30buy1ow3v.cloudfront.net"
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 	resp, err := http.Get(baseURL + "/manifest.yaml")
