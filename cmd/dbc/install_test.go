@@ -23,7 +23,6 @@ type seqTest struct {
 }
 
 func TestCmd(t *testing.T) {
-
 	tests := []struct {
 		name      string
 		cmd       modelCmd
