@@ -22,7 +22,7 @@ type modelCmd interface {
 
 func main() {
 	var args struct {
-		List    *ListCmd       `arg:"subcommand" help:"Fetch list of drivers"`
+		List    *ListCmd       `arg:"subcommand" help:"List available drivers"`
 		Config  *ViewConfigCmd `arg:"subcommand" help:"View driver config"`
 		Install *InstallCmd    `arg:"subcommand" help:"Install driver"`
 		Tui     *TuiCmd        `arg:"subcommand"`
