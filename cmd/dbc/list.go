@@ -85,14 +85,14 @@ func emptyEnumerator(_ list.Items, _ int) string {
 func viewDrivers(d []dbc.Driver) string {
 	l := list.New().ItemStyle(nameStyle)
 	for _, driver := range d {
-		versionTree := tree.Root("Versions").
+		versionTree := tree.Root(bold.Render("Versions:")).
 			Enumerator(tree.RoundedEnumerator)
 		for _, v := range driver.Versions(platformTuple) {
 			versionTree.Child(v)
 		}
 
-		l.Item(driver.Title).Item(
-			list.New(descStyle.Render(driver.Desc),
+		l.Item(driver.Path).Item(
+			list.New(bold.Render("Title: ")+descStyle.Render(driver.Title), bold.Render("Description: ")+descStyle.Render(driver.Desc),
 				bold.Render("License: ")+driver.License,
 				versionTree,
 			).Enumerator(emptyEnumerator))
