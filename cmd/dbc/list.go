@@ -26,8 +26,6 @@ func init() {
 	os := runtime.GOOS
 	switch os {
 	case "darwin":
-		// TODO use golang.org/x/sys/unix to check uts.Sysname/uts.Release
-		// to find the actual release version such as 10_15 vs 11_00 etc.
 		os = "macosx"
 	case "windows":
 		os = "win"
