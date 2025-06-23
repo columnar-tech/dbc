@@ -129,7 +129,7 @@ func (d Driver) Versions(platformTuple string) []string {
 	return versions
 }
 
-func (d Driver) GetPackage(version, platformTuple string) PkgInfo {
+func (d Driver) GetPackage(version, platformTuple string) (PkgInfo, error) {
 	var pkg pkginfo
 	if version == "" {
 		pkg = slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
@@ -141,7 +141,7 @@ func (d Driver) GetPackage(version, platformTuple string) PkgInfo {
 			return p.Version == version
 		})
 		if idx == -1 {
-			return PkgInfo{}
+			return PkgInfo{}, fmt.Errorf("version %s not found", version)
 		}
 		pkg = d.PkgInfo[idx]
 	}
@@ -167,11 +167,11 @@ func (d Driver) GetPackage(version, platformTuple string) PkgInfo {
 				Version:  pkg.Version,
 				Platform: platformTuple,
 				Path:     uri,
-			}
+			}, nil
 		}
 	}
 
-	return PkgInfo{}
+	return PkgInfo{}, fmt.Errorf("driver not found for platform '%s'", platformTuple)
 }
 
 func GetDriverList() ([]Driver, error) {

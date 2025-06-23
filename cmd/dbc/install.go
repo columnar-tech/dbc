@@ -123,7 +123,12 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 	for _, d := range msg {
 		if d.Path == m.Driver {
 			m.state = installStateConfirm
-			m.DriverPackage = d.GetPackage(m.VersionInput, platformTuple)
+			pkg, err := d.GetPackage(m.VersionInput, platformTuple)
+			if err != nil {
+				return m, tea.Sequence(
+					tea.Println(errStyle.Render(fmt.Sprintf("Failed to find installable version of driver '%s': %s.", m.Driver, err))), tea.Quit)
+			}
+			m.DriverPackage = pkg
 			m.confirmModel = createConfirmModel("Install driver? (y/[N]): ")
 
 			t := tree.Root(m.DriverPackage.Driver.Title).
