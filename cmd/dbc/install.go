@@ -151,7 +151,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 	}
 
 	return m, tea.Sequence(
-		tea.Println(errStyle.Render("Driver not found")), tea.Quit)
+		tea.Println(errStyle.Render(fmt.Sprintf("Driver '%s' not found.", m.Driver))), tea.Quit)
 }
 
 func (m simpleInstallModel) handleConflict(msg conflictMsg) (tea.Model, tea.Cmd) {
