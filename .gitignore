@@ -26,3 +26,6 @@ go.work.sum
 
 # vscode IDE files
 .vscode/
+
+# mkdocs
+site

@@ -1,0 +1,55 @@
+site_name: dbc
+site_author: columnar-tech
+site_description: dbc is a command line tool for installing and managing ADBC drivers
+site_url: http://example.com
+repo_url: https://github.com/columnar-tech/dbc
+repo_name: dbc
+copyright: Copyright &copy; 2025 Columnar Technologies, Inc.
+nav:
+  - Introduction: index.md
+  - Getting Started:
+      - Installation: getting_started/installation.md
+      - First steps: getting_started/first_steps.md
+      - FAQ: getting_started/faq.md
+  - Guides:
+      - guides/index.md
+  - Concepts:
+      - Driver: concepts/driver.md
+      - Driver Manager: concepts/driver_manager.md
+      - Manifest: concepts/manifest.md
+      - Channel: concepts/channel.md
+  - Reference:
+      - Commands: reference/cli.md
+      - Config: reference/config.md
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/favicon.ico
+  palette:
+    - media: "(prefers-color-scheme)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.path
+    - navigation.sections
+    - navigation.tracking
+    - content.code.copy
+    - content.tabs.link
