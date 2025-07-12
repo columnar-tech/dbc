@@ -1,0 +1,89 @@
+name: Release dbc
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # we can cross-compile
+    strategy:
+      matrix:
+        goos: ["darwin", "linux", "windows"]
+        goarch: ["amd64", "arm64"]
+        include:
+          - goos: "darwin"
+            binary_name: "dbc"
+          - goos: "linux"
+            binary_name: "dbc"
+          - goos: "windows"
+            binary_name: "dbc.exe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: './go.mod'
+
+      - name: Build dbc
+        run: |
+          go build -o ${{ matrix.binary_name }} ./cmd/dbc
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+
+      - name: Test
+        run: |
+          go test -v ./...
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbc-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ matrix.binary_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Set executable permissions on Unix-likes
+        if: matrix.goos != 'windows'
+        run: |
+          find artifacts -name "dbc*" -type f -exec chmod +x {} \;
+
+      - name: Create archive and include extra files
+        run: |
+          mkdir packages
+
+          for artifact in artifacts/*; do
+              base_name=$(basename "$artifact")
+              mkdir "packages/$base_name"
+
+              cp "$artifact" "packages/$base_name/dbc"
+              cp README.md "packages/$base_name/"
+              cp LICENSE "packages/$base_name/"
+
+              tar -czvf "${base_name}-${{ github.ref_name }}.tar.gz" -C "packages/$base_name" .
+          done
+
+      - name: Create Release
+        run: |
+          gh release create ${{ github.ref_name }} \
+            --title "dbc ${{ github.ref_name }}" \
+            --generate-notes \
+            *.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
