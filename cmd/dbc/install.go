@@ -183,9 +183,9 @@ func (m simpleInstallModel) removeConflictingDriver() (tea.Model, tea.Cmd) {
 	m.confirmModel = createConfirmModel("Install new driver? (y/[N]): ")
 	m.state = installStateConfirm
 
-	msg := "Removing driver: " + m.conflict.Driver.Shared
+	msg := "Removing driver: " + m.conflict.Driver.Shared[platformTuple]
 	if m.conflict.Source == "dbc" {
-		msg = "Removing directory: " + filepath.Dir(m.conflict.Driver.Shared)
+		msg = "Removing directory: " + filepath.Dir(m.conflict.Driver.Shared[platformTuple])
 	}
 
 	return m, tea.Sequence(tea.Println(prev),
@@ -221,13 +221,13 @@ type Manifest struct {
 
 func verifySignature(m Manifest) tea.Cmd {
 	return func() tea.Msg {
-		lib, err := os.Open(m.Driver.Shared)
+		lib, err := os.Open(m.Driver.Shared[platformTuple])
 		if err != nil {
 			return fmt.Errorf("could not open driver file: %w", err)
 		}
 		defer lib.Close()
 
-		sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared), m.Files.Signature))
+		sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared[platformTuple]), m.Files.Signature))
 		if err != nil {
 			return fmt.Errorf("could not open signature file: %w", err)
 		}
@@ -316,7 +316,7 @@ func (m simpleInstallModel) startInstalling(msg downloadedMsg) (tea.Model, tea.C
 
 		manifest.DriverInfo.ID = m.Driver
 		manifest.DriverInfo.Source = "dbc"
-		manifest.DriverInfo.Driver.Shared = filepath.Join(m.cfg.Location, base, manifest.Files.Driver)
+		manifest.DriverInfo.Driver.Shared[platformTuple] = filepath.Join(m.cfg.Location, base, manifest.Files.Driver)
 		return manifest
 	}
 }

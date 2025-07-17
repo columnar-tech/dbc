@@ -30,7 +30,7 @@ type DriverInfo struct {
 	} `toml:"ADBC"`
 
 	Driver struct {
-		Shared string `toml:"shared"`
+		Shared map[string]string `toml:"shared"`
 	}
 }
 

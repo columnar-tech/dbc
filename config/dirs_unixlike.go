@@ -21,44 +21,36 @@ var userConfigDir string
 func init() {
 	userConfigDir, _ = os.UserConfigDir()
 	if userConfigDir != "" {
-		userConfigDir = filepath.Join(userConfigDir, "adbc_drivers")
+		userConfigDir = filepath.Join(userConfigDir, "adbc")
+	}
+}
+
+func (c ConfigLevel) driverLocation() string {
+	switch c {
+	case ConfigSystem:
+		return systemConfigDir
+	case ConfigUser:
+		return userConfigDir
+	case ConfigEnv:
+		return os.Getenv(adbcEnvVar)
+	default:
+		panic("unknown config level")
 	}
 }
 
 func Get() map[ConfigLevel]Config {
 	configs := make(map[ConfigLevel]Config)
-	configs[ConfigSystem] = loadDir(ConfigSystem, systemConfigDir)
+	configs[ConfigSystem] = loadConfig(ConfigSystem)
 	if userConfigDir != "" {
-		configs[ConfigUser] = loadDir(ConfigUser, userConfigDir)
+		configs[ConfigUser] = loadConfig(ConfigUser)
 	}
-
-	if envDir := os.Getenv(adbcEnvVar); envDir != "" {
-		dir, _ := filepath.Abs(envDir)
-		configs[ConfigEnv] = loadDir(ConfigEnv, dir)
-	}
+	configs[ConfigEnv] = loadConfig(ConfigEnv)
 
 	return configs
 }
 
 func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
-	out := []DriverInfo{}
-
-	var dir string
-	switch lvl {
-	case ConfigSystem:
-		dir = systemConfigDir
-	case ConfigUser:
-		dir = userConfigDir
-	case ConfigEnv:
-		dir = os.Getenv(adbcEnvVar)
-	}
-
-	if dir == "" {
-		return out
-	}
-
-	drv := loadDir(lvl, dir)
-	return slices.Collect(maps.Values(drv.Drivers))
+	return slices.Collect(maps.Values(loadConfig(lvl).Drivers))
 }
 
 func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
@@ -71,12 +63,16 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 
 func DeleteDriver(cfg Config, info DriverInfo) error {
 	if info.Source == "dbc" {
-		if err := os.RemoveAll(filepath.Dir(info.Driver.Shared)); err != nil {
-			return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+		for _, sharedPath := range info.Driver.Shared {
+			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
 		}
 	} else {
-		if err := os.Remove(info.Driver.Shared); err != nil {
-			return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+		for _, sharedPath := range info.Driver.Shared {
+			if err := os.Remove(sharedPath); err != nil {
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
 		}
 	}
 

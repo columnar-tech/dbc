@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 
 	"golang.org/x/sys/windows/registry"
@@ -103,12 +104,12 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 	di.License = keyOptional(dkey, "license")
 	di.Version = keyMust(dkey, "version")
 	di.Source = keyOptional(dkey, "source")
-	di.Driver.Shared = keyMust(dkey, "driver")
+	di.Driver.Shared[runtime.GOOS+"_"+runtime.GOARCH] = keyMust(dkey, "driver")
 
 	return
 }
 
-func loadConfig(lvl ConfigLevel) Config {
+func loadRegistryConfig(lvl ConfigLevel) Config {
 	ret := Config{Level: lvl, Location: lvl.driverLocation()}
 	k, err := registry.OpenKey(lvl.key(), regKeyADBC, registry.READ)
 	if err != nil {
@@ -147,17 +148,19 @@ func loadConfig(lvl ConfigLevel) Config {
 
 func Get() map[ConfigLevel]Config {
 	configs := map[ConfigLevel]Config{
-		ConfigSystem: loadConfig(ConfigSystem),
 		ConfigUser:   loadConfig(ConfigUser),
+		ConfigSystem: loadConfig(ConfigSystem),
+		ConfigEnv:    loadConfig(ConfigEnv),
 	}
 
-	if !configs[ConfigUser].Exists && userConfigDir != "" {
-		configs[ConfigUser] = loadDir(ConfigUser, userConfigDir)
+	regUser := loadRegistryConfig(ConfigUser)
+	if regUser.Exists {
+		maps.Copy(configs[ConfigUser].Drivers, regUser.Drivers)
 	}
 
-	if envDir := os.Getenv(adbcEnvVar); envDir != "" {
-		dir, _ := filepath.Abs(envDir)
-		configs[ConfigEnv] = loadDir(ConfigEnv, dir)
+	regSys := loadRegistryConfig(ConfigSystem)
+	if regSys.Exists {
+		maps.Copy(configs[ConfigSystem].Drivers, regSys.Drivers)
 	}
 
 	return configs
@@ -237,7 +240,7 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	setKeyMust(dkey, "license", driver.License)
 	setKeyMust(dkey, "version", driver.Version)
 	setKeyMust(dkey, "source", driver.Source)
-	setKeyMust(dkey, "driver", driver.Driver.Shared)
+	setKeyMust(dkey, "driver", driver.Driver.Shared[runtime.GOOS+"_"+runtime.GOARCH])
 	return nil
 }
 
@@ -253,12 +256,16 @@ func DeleteDriver(cfg Config, info DriverInfo) error {
 	}
 
 	if info.Source == "dbc" {
-		if err := os.RemoveAll(filepath.Dir(info.Driver.Shared)); err != nil {
-			return fmt.Errorf("failed to remove driver directory: %w", err)
+		for _, sharedPath := range info.Driver.Shared {
+			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
+				return fmt.Errorf("failed to remove driver directory: %w", err)
+			}
 		}
 	} else {
-		if err := os.Remove(info.Driver.Shared); err != nil {
-			return fmt.Errorf("failed to remove driver: %w", err)
+		for _, sharedPath := range info.Driver.Shared {
+			if err := os.Remove(sharedPath); err != nil {
+				return fmt.Errorf("failed to remove driver: %w", err)
+			}
 		}
 	}
 
