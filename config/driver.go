@@ -113,7 +113,7 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
 
-	if !md.IsDefined("Driver.shared") {
+	if !md.IsDefined("Driver", "shared") {
 		return DriverInfo{}, fmt.Errorf("manifest %s does not define 'Driver.shared'", manifest)
 	}
 
