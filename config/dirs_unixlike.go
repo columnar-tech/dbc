@@ -63,13 +63,13 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 
 func DeleteDriver(cfg Config, info DriverInfo) error {
 	if info.Source == "dbc" {
-		for _, sharedPath := range info.Driver.Shared {
+		for sharedPath := range info.Driver.Shared.Paths() {
 			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
 				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 			}
 		}
 	} else {
-		for _, sharedPath := range info.Driver.Shared {
+		for sharedPath := range info.Driver.Shared.Paths() {
 			if err := os.Remove(sharedPath); err != nil {
 				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 			}

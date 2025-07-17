@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/BurntSushi/toml"
 )
 
 const adbcEnvVar = "ADBC_CONFIG_PATH"
@@ -72,12 +72,7 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 	matches, _ := fs.Glob(fsys, "*.toml")
 	for _, m := range matches {
 		var di DriverInfo
-		f, err := fsys.Open(m)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		if err := toml.NewDecoder(f).Decode(&di); err != nil {
+		if _, err := toml.DecodeFile(filepath.Join(dir, m), &di); err != nil {
 			panic(err)
 		}
 

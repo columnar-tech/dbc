@@ -49,9 +49,7 @@ func (d driverItem) View() string {
 	sb.WriteString("Source: " + d.Source + "\n")
 	sb.WriteString("\n\n")
 	sb.WriteString("Driver Location: \n")
-	for platform, sharedPath := range d.Driver.Shared {
-		sb.WriteString("  - " + platform + ": " + sharedPath + "\n")
-	}
+	sb.WriteString(d.Driver.Shared.String() + "\n")
 	return configStyle.Render(sb.String())
 }
 

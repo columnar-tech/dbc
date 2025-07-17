@@ -30,6 +30,8 @@ supported = ['bulk_insert', 'prepared statement']
 unsupported = ['async']
 
 [Driver]
+entrypoint = 'AdbcDriverInit'
+
 [Driver.shared]
 linux_amd64 = '/path/to/majestik/moose/file'
 	`), 0644))

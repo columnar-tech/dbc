@@ -104,7 +104,7 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 	di.License = keyOptional(dkey, "license")
 	di.Version = keyMust(dkey, "version")
 	di.Source = keyOptional(dkey, "source")
-	di.Driver.Shared[runtime.GOOS+"_"+runtime.GOARCH] = keyMust(dkey, "driver")
+	di.Driver.Shared.defaultPath = keyMust(dkey, "driver")
 
 	return
 }
@@ -240,7 +240,7 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	setKeyMust(dkey, "license", driver.License)
 	setKeyMust(dkey, "version", driver.Version)
 	setKeyMust(dkey, "source", driver.Source)
-	setKeyMust(dkey, "driver", driver.Driver.Shared[runtime.GOOS+"_"+runtime.GOARCH])
+	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(runtime.GOOS+"_"+runtime.GOARCH))
 	return nil
 }
 
@@ -256,13 +256,13 @@ func DeleteDriver(cfg Config, info DriverInfo) error {
 	}
 
 	if info.Source == "dbc" {
-		for _, sharedPath := range info.Driver.Shared {
+		for sharedPath := range info.Driver.Shared.Paths() {
 			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
 				return fmt.Errorf("failed to remove driver directory: %w", err)
 			}
 		}
 	} else {
-		for _, sharedPath := range info.Driver.Shared {
+		for sharedPath := range info.Driver.Shared.Paths() {
 			if err := os.Remove(sharedPath); err != nil {
 				return fmt.Errorf("failed to remove driver: %w", err)
 			}
