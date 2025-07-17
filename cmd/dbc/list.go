@@ -26,7 +26,7 @@ func init() {
 	os := runtime.GOOS
 	switch os {
 	case "darwin":
-		os = "osx"
+		os = "macosx"
 	case "freebsd", "linux", "windows":
 	default:
 		os = "unknown"

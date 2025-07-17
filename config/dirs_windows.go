@@ -42,6 +42,8 @@ func (c ConfigLevel) driverLocation() string {
 		prefix = "C:\\Program Files"
 	case ConfigUser:
 		prefix, _ = os.UserConfigDir()
+	case ConfigEnv:
+		return os.Getenv(adbcEnvVar)
 	default:
 		panic("unknown config level")
 	}
