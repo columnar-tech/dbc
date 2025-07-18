@@ -266,7 +266,7 @@ func DeleteDriver(cfg Config, info DriverInfo) error {
 	} else {
 		for sharedPath := range info.Driver.Shared.Paths() {
 			if err := os.Remove(sharedPath); err != nil {
-				return fmt.Errorf("failed to remove driver: %w", err)
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 			}
 		}
 	}
