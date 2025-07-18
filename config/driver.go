@@ -114,7 +114,7 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 	}
 
 	if !md.IsDefined("Driver", "shared") {
-		return DriverInfo{}, fmt.Errorf("manifest %s does not define 'Driver.shared'", manifest)
+		return DriverInfo{}, fmt.Errorf("manifest %s does not define 'Driver.shared' which is a required field", manifest)
 	}
 
 	di.ID = driverName
