@@ -33,30 +33,30 @@ type DriverInfo struct {
 
 	Driver struct {
 		Entrypoint string    `toml:"entrypoint,omitempty"`
-		Shared     DriverMap `toml:"shared"`
+		Shared     driverMap `toml:"shared"`
 	}
 }
 
-type DriverMap struct {
+type driverMap struct {
 	platformMap map[string]string
 	defaultPath string
 }
 
-func (d *DriverMap) Set(platformTuple, path string) {
+func (d *driverMap) Set(platformTuple, path string) {
 	if d.platformMap == nil {
 		d.platformMap = make(map[string]string)
 	}
 	d.platformMap[platformTuple] = path
 }
 
-func (d DriverMap) Get(platformTuple string) string {
+func (d driverMap) Get(platformTuple string) string {
 	if d.defaultPath != "" {
 		return d.defaultPath
 	}
 	return d.platformMap[platformTuple]
 }
 
-func (d DriverMap) Paths() iter.Seq[string] {
+func (d driverMap) Paths() iter.Seq[string] {
 	if d.defaultPath != "" {
 		return func(yield func(string) bool) {
 			yield(d.defaultPath)
@@ -72,7 +72,7 @@ func (d DriverMap) Paths() iter.Seq[string] {
 	}
 }
 
-func (d DriverMap) String() string {
+func (d driverMap) String() string {
 	if d.defaultPath != "" {
 		return "\t" + d.defaultPath
 	}
@@ -86,7 +86,7 @@ func (d DriverMap) String() string {
 	return sb.String()
 }
 
-func (d *DriverMap) UnmarshalTOML(data any) error {
+func (d *driverMap) UnmarshalTOML(data any) error {
 	switch v := data.(type) {
 	case string:
 		d.defaultPath = v
