@@ -83,7 +83,7 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 }
 
 func loadConfig(lvl ConfigLevel) Config {
-	cfg := Config{Level: lvl, Location: lvl.driverLocation()}
+	cfg := Config{Level: lvl, Location: lvl.configLocation()}
 	if cfg.Location == "" {
 		return cfg
 	}

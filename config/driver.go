@@ -42,18 +42,18 @@ type DriverMap struct {
 	defaultPath string
 }
 
-func (d *DriverMap) Set(platform, path string) {
+func (d *DriverMap) Set(platformTuple, path string) {
 	if d.platformMap == nil {
 		d.platformMap = make(map[string]string)
 	}
-	d.platformMap[platform] = path
+	d.platformMap[platformTuple] = path
 }
 
-func (d DriverMap) Get(platform string) string {
+func (d DriverMap) Get(platformTuple string) string {
 	if d.defaultPath != "" {
 		return d.defaultPath
 	}
-	return d.platformMap[platform]
+	return d.platformMap[platformTuple]
 }
 
 func (d DriverMap) Paths() iter.Seq[string] {

@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	systemConfigDir = "/etc/adbc_drivers"
+	systemConfigDir  = "/etc/adbc"
+	userConfigSuffix = "adbc"
 )
 
 var userConfigDir string
@@ -21,11 +22,11 @@ var userConfigDir string
 func init() {
 	userConfigDir, _ = os.UserConfigDir()
 	if userConfigDir != "" {
-		userConfigDir = filepath.Join(userConfigDir, "adbc")
+		userConfigDir = filepath.Join(userConfigDir, userConfigSuffix)
 	}
 }
 
-func (c ConfigLevel) driverLocation() string {
+func (c ConfigLevel) configLocation() string {
 	switch c {
 	case ConfigSystem:
 		return systemConfigDir

@@ -135,7 +135,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 				RootStyle(nameStyle).
 				Child(m.DriverPackage.Version).
 				Child(descStyle.Render(m.DriverPackage.Driver.Desc)).
-				Child(archStyle.Render(m.DriverPackage.Platform)).
+				Child(archStyle.Render(m.DriverPackage.PlatformTuple)).
 				Child(path.Base(m.DriverPackage.Path.Path))
 
 			cmds := []tea.Cmd{

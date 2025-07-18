@@ -56,9 +56,9 @@ var getVerifier = sync.OnceValues(func() (crypto.PGPVerify, error) {
 })
 
 type PkgInfo struct {
-	Driver   Driver
-	Version  string
-	Platform string
+	Driver        Driver
+	Version       string
+	PlatformTuple string
 
 	Path *url.URL
 }
@@ -100,8 +100,8 @@ func (p PkgInfo) DownloadPackage() (*os.File, error) {
 type pkginfo struct {
 	Version  string `yaml:"version"`
 	Packages []struct {
-		Platform string `yaml:"platform"`
-		URL      string `yaml:"url"`
+		PlatformTuple string `yaml:"platform"`
+		URL           string `yaml:"url"`
 	} `yaml:"packages"`
 }
 
@@ -118,7 +118,7 @@ func (d Driver) Versions(platformTuple string) []string {
 	versions := make([]string, 0, len(d.PkgInfo))
 	for _, pkg := range d.PkgInfo {
 		for _, p := range pkg.Packages {
-			if p.Platform == platformTuple {
+			if p.PlatformTuple == platformTuple {
 				versions = append(versions, pkg.Version)
 			}
 		}
@@ -148,7 +148,7 @@ func (d Driver) GetPackage(version, platformTuple string) (PkgInfo, error) {
 
 	base, _ := url.Parse(baseURL)
 	for _, p := range pkg.Packages {
-		if p.Platform == platformTuple {
+		if p.PlatformTuple == platformTuple {
 			var uri *url.URL
 
 			if p.URL != "" {
@@ -163,10 +163,10 @@ func (d Driver) GetPackage(version, platformTuple string) (PkgInfo, error) {
 			}
 
 			return PkgInfo{
-				Driver:   d,
-				Version:  pkg.Version,
-				Platform: platformTuple,
-				Path:     uri,
+				Driver:        d,
+				Version:       pkg.Version,
+				PlatformTuple: platformTuple,
+				Path:          uri,
 			}, nil
 		}
 	}

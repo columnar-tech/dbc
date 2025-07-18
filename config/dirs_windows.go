@@ -35,7 +35,7 @@ func (c ConfigLevel) key() registry.Key {
 	}
 }
 
-func (c ConfigLevel) driverLocation() string {
+func (c ConfigLevel) configLocation() string {
 	var prefix string
 	switch c {
 	case ConfigSystem:
@@ -112,7 +112,7 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 }
 
 func loadRegistryConfig(lvl ConfigLevel) Config {
-	ret := Config{Level: lvl, Location: lvl.driverLocation()}
+	ret := Config{Level: lvl, Location: lvl.configLocation()}
 	k, err := registry.OpenKey(lvl.key(), regKeyADBC, registry.READ)
 	if err != nil {
 		return ret
