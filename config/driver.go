@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/BurntSushi/toml"
 )
 
 type DriverInfo struct {
@@ -30,22 +32,91 @@ type DriverInfo struct {
 	} `toml:"ADBC"`
 
 	Driver struct {
-		Shared string `toml:"shared"`
+		Entrypoint string    `toml:"entrypoint,omitempty"`
+		Shared     driverMap `toml:"shared"`
 	}
+}
+
+type driverMap struct {
+	platformMap map[string]string
+	defaultPath string
+}
+
+func (d *driverMap) Set(platformTuple, path string) {
+	if d.platformMap == nil {
+		d.platformMap = make(map[string]string)
+	}
+	d.platformMap[platformTuple] = path
+}
+
+func (d driverMap) Get(platformTuple string) string {
+	if d.defaultPath != "" {
+		return d.defaultPath
+	}
+	return d.platformMap[platformTuple]
+}
+
+func (d driverMap) Paths() iter.Seq[string] {
+	if d.defaultPath != "" {
+		return func(yield func(string) bool) {
+			yield(d.defaultPath)
+		}
+	}
+
+	return func(yield func(string) bool) {
+		for _, path := range d.platformMap {
+			if !yield(path) {
+				return
+			}
+		}
+	}
+}
+
+func (d driverMap) String() string {
+	if d.defaultPath != "" {
+		return "\t" + d.defaultPath
+	}
+	if len(d.platformMap) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for platform, path := range d.platformMap {
+		sb.WriteString(fmt.Sprintf("\t- %s: %s\n", platform, path))
+	}
+	return sb.String()
+}
+
+func (d *driverMap) UnmarshalTOML(data any) error {
+	switch v := data.(type) {
+	case string:
+		d.defaultPath = v
+	case map[string]any:
+		d.platformMap = make(map[string]string, len(v))
+		for k, val := range v {
+			if strVal, ok := val.(string); ok {
+				d.platformMap[k] = strVal
+			} else {
+				return fmt.Errorf("expected string value for platform %s, got %T", k, val)
+			}
+		}
+	default:
+		return fmt.Errorf("expected string or map[string]string, got %T", data)
+	}
+	return nil
 }
 
 func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 	manifest := filepath.Join(prefix, driverName+".toml")
-	f, err := os.Open(manifest)
-	if err != nil {
-		return DriverInfo{}, fmt.Errorf("error opening manifest %s: %w", manifest, err)
-	}
-	defer f.Close()
-
 	var di DriverInfo
-	if err := toml.NewDecoder(f).Decode(&di); err != nil {
+	md, err := toml.DecodeFile(manifest, &di)
+	if err != nil {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
+
+	if !md.IsDefined("Driver", "shared") {
+		return DriverInfo{}, fmt.Errorf("manifest %s does not define 'Driver.shared' which is a required field", manifest)
+	}
+
 	di.ID = driverName
 	return di, nil
 }

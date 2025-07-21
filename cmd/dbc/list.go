@@ -27,11 +27,23 @@ func init() {
 	switch os {
 	case "darwin":
 		os = "macosx"
-	case "windows":
-		os = "win"
+	case "freebsd", "linux", "windows":
+	default:
+		os = "unknown"
 	}
 
 	arch := runtime.GOARCH
+	switch arch {
+	case "386":
+		arch = "x86"
+	case "riscv64":
+		arch = "riscv"
+	case "ppc64", "ppc64le":
+		arch = "powerpc"
+	case "390x", "arm64", "amd64", "arm":
+	default:
+		arch = "unknown"
+	}
 
 	platformTuple = os + "_" + arch
 }

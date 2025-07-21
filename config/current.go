@@ -48,8 +48,9 @@ func (d driverItem) View() string {
 	sb.WriteString("License: " + d.License + "\n")
 	sb.WriteString("Source: " + d.Source + "\n")
 	sb.WriteString("\n\n")
-	sb.WriteString("Driver Location: " + d.Driver.Shared + "\n")
-	return sb.String()
+	sb.WriteString("Driver Location: \n")
+	sb.WriteString(d.Driver.Shared.String() + "\n")
+	return configStyle.Render(sb.String())
 }
 
 func toListItems(drivers []DriverInfo) []list.Item {

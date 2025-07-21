@@ -4,14 +4,18 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/BurntSushi/toml"
 )
 
-const adbcEnvVar = "ADBC_DRIVERS_DIR"
+const adbcEnvVar = "ADBC_CONFIG_PATH"
 
 type Config struct {
 	Level    ConfigLevel
@@ -57,33 +61,56 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	return nil
 }
 
-func loadDir(lvl ConfigLevel, dir string) Config {
-	ret := Config{Location: dir, Level: lvl}
-
+func loadDir(dir string) (map[string]DriverInfo, error) {
 	if _, err := os.Stat(dir); err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			ret.Err = err
-		}
-		return ret
+		return nil, err
 	}
 
-	ret.Exists, ret.Drivers = true, make(map[string]DriverInfo)
+	ret := make(map[string]DriverInfo)
 
 	fsys := os.DirFS(dir)
 	matches, _ := fs.Glob(fsys, "*.toml")
 	for _, m := range matches {
 		var di DriverInfo
-		f, err := fsys.Open(m)
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-		if err := toml.NewDecoder(f).Decode(&di); err != nil {
+		if _, err := toml.DecodeFile(filepath.Join(dir, m), &di); err != nil {
 			panic(err)
 		}
 
 		di.ID = strings.TrimSuffix(m, ".toml")
-		ret.Drivers[di.ID] = di
+		ret[di.ID] = di
 	}
-	return ret
+	return ret, nil
+}
+
+func loadConfig(lvl ConfigLevel) Config {
+	cfg := Config{Level: lvl, Location: lvl.configLocation()}
+	if cfg.Location == "" {
+		return cfg
+	}
+
+	if lvl == ConfigEnv {
+		pathList := filepath.SplitList(cfg.Location)
+		slices.Reverse(pathList)
+		finalDrivers := make(map[string]DriverInfo)
+		for _, p := range pathList {
+			drivers, err := loadDir(p)
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				cfg.Err = fmt.Errorf("error loading drivers from %s: %w", p, err)
+				return cfg
+			}
+			maps.Copy(finalDrivers, drivers)
+		}
+		cfg.Exists, cfg.Drivers = len(finalDrivers) > 0, finalDrivers
+	}
+
+	drivers, err := loadDir(cfg.Location)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			cfg.Err = fmt.Errorf("error loading drivers from %s: %w", cfg.Location, err)
+		}
+		return cfg
+	}
+
+	cfg.Exists, cfg.Drivers = true, drivers
+	return cfg
 }

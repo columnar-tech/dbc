@@ -46,8 +46,8 @@ func TestCmd(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpdir := t.TempDir()
-			require.NoError(t, os.Setenv("ADBC_DRIVERS_DIR", tmpdir))
-			defer os.Unsetenv("ADBC_DRIVERS_DIR")
+			require.NoError(t, os.Setenv("ADBC_CONFIG_PATH", tmpdir))
+			defer os.Unsetenv("ADBC_CONFIG_PATH")
 
 			var in bytes.Buffer
 			var out bytes.Buffer

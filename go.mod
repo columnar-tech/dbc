@@ -3,13 +3,13 @@ module github.com/columnar-tech/dbc
 go 1.24.2
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/ProtonMail/gopenpgp/v3 v3.2.1
 	github.com/alexflint/go-arg v1.5.1
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.5
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/goccy/go-yaml v1.17.1
-	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/mod v0.24.0
 	golang.org/x/sys v0.33.0

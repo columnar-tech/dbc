@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,7 +22,6 @@ import (
 	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
-	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/mod/semver"
 )
 
@@ -135,7 +135,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 				RootStyle(nameStyle).
 				Child(m.DriverPackage.Version).
 				Child(descStyle.Render(m.DriverPackage.Driver.Desc)).
-				Child(archStyle.Render(m.DriverPackage.Platform)).
+				Child(archStyle.Render(m.DriverPackage.PlatformTuple)).
 				Child(path.Base(m.DriverPackage.Path.Path))
 
 			cmds := []tea.Cmd{
@@ -183,9 +183,9 @@ func (m simpleInstallModel) removeConflictingDriver() (tea.Model, tea.Cmd) {
 	m.confirmModel = createConfirmModel("Install new driver? (y/[N]): ")
 	m.state = installStateConfirm
 
-	msg := "Removing driver: " + m.conflict.Driver.Shared
+	msg := "Removing driver: " + m.conflict.Driver.Shared.Get(platformTuple)
 	if m.conflict.Source == "dbc" {
-		msg = "Removing directory: " + filepath.Dir(m.conflict.Driver.Shared)
+		msg = "Removing directory: " + filepath.Dir(m.conflict.Driver.Shared.Get(platformTuple))
 	}
 
 	return m, tea.Sequence(tea.Println(prev),
@@ -221,13 +221,13 @@ type Manifest struct {
 
 func verifySignature(m Manifest) tea.Cmd {
 	return func() tea.Msg {
-		lib, err := os.Open(m.Driver.Shared)
+		lib, err := os.Open(m.Driver.Shared.Get(platformTuple))
 		if err != nil {
 			return fmt.Errorf("could not open driver file: %w", err)
 		}
 		defer lib.Close()
 
-		sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared), m.Files.Signature))
+		sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared.Get(platformTuple)), m.Files.Signature))
 		if err != nil {
 			return fmt.Errorf("could not open signature file: %w", err)
 		}
@@ -278,7 +278,7 @@ func inflateTarball(f *os.File, outDir string) (Manifest, error) {
 			}
 			next.Close()
 		} else {
-			if err := toml.NewDecoder(t).Decode(&m); err != nil {
+			if _, err := toml.NewDecoder(t).Decode(&m); err != nil {
 				return m, fmt.Errorf("could not decode manifest: %w", err)
 			}
 		}
@@ -316,7 +316,7 @@ func (m simpleInstallModel) startInstalling(msg downloadedMsg) (tea.Model, tea.C
 
 		manifest.DriverInfo.ID = m.Driver
 		manifest.DriverInfo.Source = "dbc"
-		manifest.DriverInfo.Driver.Shared = filepath.Join(m.cfg.Location, base, manifest.Files.Driver)
+		manifest.DriverInfo.Driver.Shared.Set(platformTuple, filepath.Join(m.cfg.Location, base, manifest.Files.Driver))
 		return manifest
 	}
 }
