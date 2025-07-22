@@ -13,16 +13,28 @@ import (
 )
 
 const (
-	systemConfigDir  = "/etc/adbc"
-	userConfigSuffix = "adbc"
+	defaultSysConfigDir = "/etc/adbc"
+	userConfigSuffix    = "adbc"
 )
 
-var userConfigDir string
+var (
+	userConfigDir   string
+	systemConfigDir = defaultSysConfigDir
+)
 
 func init() {
 	userConfigDir, _ = os.UserConfigDir()
 	if userConfigDir != "" {
 		userConfigDir = filepath.Join(userConfigDir, userConfigSuffix)
+	}
+
+	// check for venv first, then a conda environment if we're not in
+	// a python venv. In both cases, if we're in a virtual environment,
+	// then use the virtual environment as a prefix for the system dir
+	if venv, ok := os.LookupEnv("VIRTUAL_ENV"); ok && venv != "" {
+		systemConfigDir = filepath.Join(venv, defaultSysConfigDir)
+	} else if venv, ok := os.LookupEnv("CONDA_PREFIX"); ok && venv != "" {
+		systemConfigDir = filepath.Join(venv, defaultSysConfigDir)
 	}
 }
 
