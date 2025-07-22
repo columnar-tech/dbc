@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"slices"
 
+	"github.com/Masterminds/semver/v3"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -104,7 +105,7 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 	di.Name = keyMust(dkey, "name")
 	di.Publisher = keyOptional(dkey, "publisher")
 	di.License = keyOptional(dkey, "license")
-	di.Version = keyMust(dkey, "version")
+	di.Version = semver.MustParse(keyMust(dkey, "version"))
 	di.Source = keyOptional(dkey, "source")
 	di.Driver.Shared.defaultPath = keyMust(dkey, "driver")
 
@@ -240,7 +241,7 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	setKeyMust(dkey, "name", driver.Name)
 	setKeyMust(dkey, "publisher", driver.Publisher)
 	setKeyMust(dkey, "license", driver.License)
-	setKeyMust(dkey, "version", driver.Version)
+	setKeyMust(dkey, "version", driver.Version.String())
 	setKeyMust(dkey, "source", driver.Source)
 	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(runtime.GOOS+"_"+runtime.GOARCH))
 	return nil

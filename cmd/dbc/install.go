@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,35 +23,23 @@ import (
 	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
-	"golang.org/x/mod/semver"
 )
 
 var (
 	errStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
 )
 
-type version string
-
-func (v *version) UnmarshalText(text []byte) error {
-	if !semver.IsValid(string(text)) {
-		return fmt.Errorf("invalid version arg: %s", text)
-	}
-
-	*v = version(semver.Canonical(string(text)))
-	return nil
-}
-
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 	Driver  string             `arg:"positional,required" help:"Driver to install"`
-	Version version            `arg:"-v" help:"Version to install"`
+	Version *semver.Version    `arg:"-v" help:"Version to install"`
 	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to" default:"user"`
 }
 
 func (c InstallCmd) GetModel() tea.Model {
 	return simpleInstallModel{
 		Driver:       c.Driver,
-		VersionInput: string(c.Version),
+		VersionInput: c.Version,
 		cfg:          config.Get()[c.Level],
 	}
 }
@@ -76,7 +65,7 @@ type conflictMsg config.DriverInfo
 
 type simpleInstallModel struct {
 	Driver       string
-	VersionInput string
+	VersionInput *semver.Version
 	cfg          config.Config
 
 	state         installState
@@ -162,7 +151,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 func (m simpleInstallModel) handleConflict(msg conflictMsg) (tea.Model, tea.Cmd) {
 	m.conflict, m.state = msg, installStateConflict
 	var s string
-	switch semver.Compare(m.DriverPackage.Version, msg.Version) {
+	switch m.DriverPackage.Version.Compare(msg.Version) {
 	case -1:
 		s = "newer"
 	case 0:

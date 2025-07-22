@@ -12,16 +12,17 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/semver/v3"
 )
 
 type DriverInfo struct {
 	ID string `toml:"-"`
 
-	Name      string `toml:"name"`
-	Publisher string `toml:"publisher"`
-	License   string `toml:"license"`
-	Version   string `toml:"version"`
-	Source    string `toml:"source"`
+	Name      string          `toml:"name"`
+	Publisher string          `toml:"publisher"`
+	License   string          `toml:"license"`
+	Version   *semver.Version `toml:"version"`
+	Source    string          `toml:"source"`
 
 	AdbcInfo struct {
 		Version  string `toml:"version"`

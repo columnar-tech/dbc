@@ -50,7 +50,7 @@ func viewConfig(cfg config.Config) string {
 	} else {
 		for _, d := range cfg.Drivers {
 			t.Child(tree.New().Root(d.Name).
-				Child(descStyle.Render(d.ID) + " (" + d.Version + ")"))
+				Child(descStyle.Render(d.ID) + " (" + d.Version.String() + ")"))
 		}
 	}
 

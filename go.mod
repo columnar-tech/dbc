@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/ProtonMail/gopenpgp/v3 v3.2.1
 	github.com/alexflint/go-arg v1.5.1
 	github.com/charmbracelet/bubbles v0.21.0
@@ -11,7 +12,6 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/goccy/go-yaml v1.17.1
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/mod v0.24.0
 	golang.org/x/sys v0.33.0
 )
 

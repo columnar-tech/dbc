@@ -6,16 +6,18 @@ import (
 	_ "embed"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"slices"
+	"sort"
 	"sync"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/goccy/go-yaml"
-	"golang.org/x/mod/semver"
 )
 
 const baseURL = "https://dbc-cdn.columnar.tech"
@@ -57,7 +59,7 @@ var getVerifier = sync.OnceValues(func() (crypto.PGPVerify, error) {
 
 type PkgInfo struct {
 	Driver        Driver
-	Version       string
+	Version       *semver.Version
 	PlatformTuple string
 
 	Path *url.URL
@@ -98,11 +100,53 @@ func (p PkgInfo) DownloadPackage() (*os.File, error) {
 }
 
 type pkginfo struct {
-	Version  string `yaml:"version"`
+	Version  *semver.Version `yaml:"version"`
 	Packages []struct {
 		PlatformTuple string `yaml:"platform"`
 		URL           string `yaml:"url"`
 	} `yaml:"packages"`
+}
+
+func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
+	if len(p.Packages) == 0 {
+		return PkgInfo{}, fmt.Errorf("no packages available for version %s", p.Version)
+	}
+
+	base, _ := url.Parse(baseURL)
+	for _, pkg := range p.Packages {
+		if pkg.PlatformTuple == platformTuple {
+			var uri *url.URL
+
+			if pkg.URL != "" {
+				uri, _ = url.Parse(pkg.URL)
+				if !uri.IsAbs() {
+					uri = base.JoinPath(pkg.URL)
+				}
+			} else {
+				uri = base.JoinPath(d.Path, p.Version.String(),
+					d.Path+"_"+platformTuple+"-"+p.Version.String()+".tar.gz")
+			}
+
+			return PkgInfo{
+				Driver:        d,
+				Version:       p.Version,
+				PlatformTuple: platformTuple,
+				Path:          uri,
+			}, nil
+		}
+	}
+
+	return PkgInfo{}, fmt.Errorf("no package found for platform '%s'", platformTuple)
+}
+
+func filter[T any](items iter.Seq[T], predicate func(T) bool) iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for item := range items {
+			if predicate(item) && !yield(item) {
+				return
+			}
+		}
+	}
 }
 
 type Driver struct {
@@ -114,8 +158,40 @@ type Driver struct {
 	PkgInfo []pkginfo `yaml:"pkginfo"`
 }
 
-func (d Driver) Versions(platformTuple string) []string {
-	versions := make([]string, 0, len(d.PkgInfo))
+func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (PkgInfo, error) {
+	if len(d.PkgInfo) == 0 {
+		return PkgInfo{}, fmt.Errorf("no package info available for driver %s", d.Path)
+	}
+
+	itr := filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
+		if !c.Check(p.Version) {
+			return false
+		}
+
+		return slices.ContainsFunc(p.Packages, func(p struct {
+			PlatformTuple string `yaml:"platform"`
+			URL           string `yaml:"url"`
+		}) bool {
+			return p.PlatformTuple == platformTuple
+		})
+	})
+
+	var result *pkginfo
+	for pkg := range itr {
+		if result == nil || pkg.Version.GreaterThan(result.Version) {
+			result = &pkg
+		}
+	}
+
+	if result == nil {
+		return PkgInfo{}, fmt.Errorf("no package found for driver %s that satisfies constraints %s", d.Path, c)
+	}
+
+	return result.GetPackage(d, platformTuple)
+}
+
+func (d Driver) Versions(platformTuple string) semver.Collection {
+	versions := make(semver.Collection, 0, len(d.PkgInfo))
 	for _, pkg := range d.PkgInfo {
 		for _, p := range pkg.Packages {
 			if p.PlatformTuple == platformTuple {
@@ -124,16 +200,15 @@ func (d Driver) Versions(platformTuple string) []string {
 		}
 	}
 
-	semver.Sort(versions)    // puts oldest version first
-	slices.Reverse(versions) // puts newest version first
+	sort.Sort(versions)
 	return versions
 }
 
-func (d Driver) GetPackage(version, platformTuple string) (PkgInfo, error) {
+func (d Driver) GetPackage(version *semver.Version, platformTuple string) (PkgInfo, error) {
 	var pkg pkginfo
-	if version == "" {
+	if version == nil {
 		pkg = slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
-			return semver.Compare(a.Version, b.Version)
+			return a.Version.Compare(b.Version)
 		})
 		version = pkg.Version
 	} else {
@@ -146,32 +221,7 @@ func (d Driver) GetPackage(version, platformTuple string) (PkgInfo, error) {
 		pkg = d.PkgInfo[idx]
 	}
 
-	base, _ := url.Parse(baseURL)
-	for _, p := range pkg.Packages {
-		if p.PlatformTuple == platformTuple {
-			var uri *url.URL
-
-			if p.URL != "" {
-				uri, _ = url.Parse(p.URL)
-				if !uri.IsAbs() {
-					uri = base.JoinPath(p.URL)
-				}
-
-			} else {
-				uri = base.JoinPath(d.Path, version[1:],
-					d.Path+"_"+platformTuple+"-"+version[1:]+".tar.gz")
-			}
-
-			return PkgInfo{
-				Driver:        d,
-				Version:       pkg.Version,
-				PlatformTuple: platformTuple,
-				Path:          uri,
-			}, nil
-		}
-	}
-
-	return PkgInfo{}, fmt.Errorf("driver not found for platform '%s'", platformTuple)
+	return pkg.GetPackage(d, platformTuple)
 }
 
 func GetDriverList() ([]Driver, error) {

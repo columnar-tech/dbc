@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -71,6 +73,50 @@ func TestCmd(t *testing.T) {
 			p.Wait()
 			require.NoError(t, err, out.String())
 			tt.postCheck(t, tmpdir)
+		})
+	}
+}
+
+func TestManifestList(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+		expected []dbc.PkgInfo
+		err      error
+	}{
+		{"basic", "[drivers]\nbigquery = '1.6.0'\nflightsql = '1.6.0'", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.6.0")},
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
+		}, nil},
+		{"less", "[drivers]\nbigquery = '<1.6.0'\nflightsql = '<=1.6.0'", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.5.0")},
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
+		}, nil},
+		{"greater", "[drivers]\nbigquery = '>1.5.0'\nflightsql = '>=1.6.0'", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.6.0")},
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
+		}, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpdir := t.TempDir()
+			manifestPath := filepath.Join(tmpdir, "manifest.txt")
+			require.NoError(t, os.WriteFile(manifestPath, []byte(tt.contents), 0644))
+
+			pkgs, err := GetDriverList(manifestPath, platformTuple)
+			if tt.err != nil {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.err.Error())
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, pkgs, len(tt.expected))
+			for i, pkg := range pkgs {
+				assert.Equal(t, tt.expected[i].Driver.Path, pkg.Driver.Path)
+				assert.Truef(t, tt.expected[i].Version.Equal(pkg.Version), "expected %s to equal %s", tt.expected[i].Version, pkg.Version)
+			}
 		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -71,7 +72,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if ok {
 				versions := []list.Item{}
 				for _, v := range i.d.Versions(platformTuple) {
-					versions = append(versions, versionOption(v))
+					versions = append(versions, versionOption(*v))
 				}
 
 				m.chooseVersion = versionModel{
@@ -106,10 +107,10 @@ func (m model) View() string {
 	return "\n" + m.list.View()
 }
 
-type versionOption string
+type versionOption semver.Version
 
-func (v versionOption) FilterValue() string { return string(v) }
-func (v versionOption) String() string      { return string(v) }
+func (v versionOption) FilterValue() string { return v.String() }
+func (v versionOption) String() string      { return v.String() }
 
 type versionModel struct {
 	list   list.Model
