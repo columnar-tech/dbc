@@ -4,10 +4,12 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
@@ -113,6 +115,14 @@ func TestManifestList(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Len(t, pkgs, len(tt.expected))
+
+			slices.SortFunc(pkgs, func(a, b dbc.PkgInfo) int {
+				return cmp.Compare(a.Driver.Path, b.Driver.Path)
+			})
+			slices.SortFunc(tt.expected, func(a, b dbc.PkgInfo) int {
+				return cmp.Compare(a.Driver.Path, b.Driver.Path)
+			})
+
 			for i, pkg := range pkgs {
 				assert.Equal(t, tt.expected[i].Driver.Path, pkg.Driver.Path)
 				assert.Truef(t, tt.expected[i].Version.Equal(pkg.Version), "expected %s to equal %s", tt.expected[i].Version, pkg.Version)
