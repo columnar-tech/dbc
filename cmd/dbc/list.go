@@ -27,7 +27,9 @@ func init() {
 	switch os {
 	case "darwin":
 		os = "macosx"
-	case "freebsd", "linux", "windows":
+	case "windows": // change this when we update the manifest.yaml
+		os = "win"
+	case "freebsd", "linux":
 	default:
 		os = "unknown"
 	}
