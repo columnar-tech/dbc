@@ -132,12 +132,18 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 				tea.Println(t.String())}
 
 			di, err := config.GetDriver(m.cfg, m.Driver)
-			if !errors.Is(err, fs.ErrNotExist) {
+			if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return m, tea.Sequence(
+					tea.Println(errStyle.Render(fmt.Sprintf("Error checking for existing driver: %s", err))),
+					tea.Quit)
+			}
+
+			if errors.Is(err, fs.ErrNotExist) {
+				cmds = append(cmds, m.confirmModel.Focus())
+			} else {
 				cmds = append(cmds, func() tea.Msg {
 					return conflictMsg(di)
 				})
-			} else {
-				cmds = append(cmds, m.confirmModel.Focus())
 			}
 
 			return m, tea.Sequence(cmds...)
