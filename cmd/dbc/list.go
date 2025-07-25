@@ -58,7 +58,13 @@ func (f ListCmd) GetModel() tea.Model {
 	return simpleFetchModel{}
 }
 
-type simpleFetchModel struct{}
+type simpleFetchModel struct {
+	status int
+}
+
+func (m simpleFetchModel) Status() int {
+	return m.status
+}
 
 func (m simpleFetchModel) Init() tea.Cmd {
 	return tea.Sequence(
@@ -79,6 +85,7 @@ func (m simpleFetchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(
 			tea.Println(viewDrivers(msg)), tea.Quit)
 	case error:
+		m.status = 1
 		return m, tea.Sequence(
 			tea.Println("Error fetching drivers:", msg),
 			tea.Quit)
