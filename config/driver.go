@@ -135,7 +135,10 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	}
 	defer f.Close()
 
-	if err := toml.NewEncoder(f).Encode(driver); err != nil {
+	enc := toml.NewEncoder(f)
+	enc.Indent = ""
+
+	if err := enc.Encode(driver); err != nil {
 		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
 	}
 
