@@ -38,12 +38,12 @@ type driverItem DriverInfo
 
 func (d driverItem) FilterValue() string { return d.ID }
 func (d driverItem) String() string {
-	return d.Name + " (" + d.Version + ")"
+	return d.Name + " (" + d.Version.String() + ")"
 }
 
 func (d driverItem) View() string {
 	var sb strings.Builder
-	sb.WriteString(d.Name + "(" + d.Version + ")\n")
+	sb.WriteString(d.Name + "(" + d.Version.String() + ")\n")
 	sb.WriteString("Publisher: " + d.Publisher + "\n")
 	sb.WriteString("License: " + d.License + "\n")
 	sb.WriteString("Source: " + d.Source + "\n")
