@@ -20,6 +20,16 @@ type modelCmd interface {
 	GetModel() tea.Model
 }
 
+func errCmd(format string, a ...any) tea.Cmd {
+	return func() tea.Msg {
+		return fmt.Errorf(format, a...)
+	}
+}
+
+type HasStatus interface {
+	Status() int
+}
+
 func main() {
 	var args struct {
 		List    *ListCmd       `arg:"subcommand" help:"List available drivers"`
@@ -41,9 +51,14 @@ func main() {
 	// }
 	// defer f.Close()
 
+	var err error
 	m := p.Subcommand().(modelCmd).GetModel()
-	if _, err := tea.NewProgram(m).Run(); err != nil {
+	if m, err = tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
+	}
+
+	if h, ok := m.(HasStatus); ok {
+		os.Exit(h.Status())
 	}
 }

@@ -75,6 +75,12 @@ type simpleInstallModel struct {
 	downloaded downloadedMsg
 	conflict   conflictMsg
 	spinner    spinner.Model
+
+	status int
+}
+
+func (m simpleInstallModel) Status() int {
+	return m.status
 }
 
 func (m simpleInstallModel) Init() tea.Cmd {
@@ -114,9 +120,9 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 			m.state = installStateConfirm
 			pkg, err := d.GetPackage(m.VersionInput, platformTuple)
 			if err != nil {
-				return m, tea.Sequence(
-					tea.Println(errStyle.Render(fmt.Sprintf("Failed to find installable version of driver '%s': %s.", m.Driver, err))), tea.Quit)
+				return m, errCmd("failed to find installable version of driver '%s': %w", m.Driver, err)
 			}
+
 			m.DriverPackage = pkg
 			m.confirmModel = createConfirmModel("Install driver? (y/[N]): ")
 
@@ -133,9 +139,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 
 			di, err := config.GetDriver(m.cfg, m.Driver)
 			if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return m, tea.Sequence(
-					tea.Println(errStyle.Render(fmt.Sprintf("Error checking for existing driver: %s", err))),
-					tea.Quit)
+				return m, errCmd("Error checking for existing driver: %s", err)
 			}
 
 			if errors.Is(err, fs.ErrNotExist) {
@@ -150,8 +154,7 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 		}
 	}
 
-	return m, tea.Sequence(
-		tea.Println(errStyle.Render(fmt.Sprintf("Driver '%s' not found.", m.Driver))), tea.Quit)
+	return m, errCmd("Driver '%s' not found.", m.Driver)
 }
 
 func (m simpleInstallModel) handleConflict(msg conflictMsg) (tea.Model, tea.Cmd) {
@@ -362,9 +365,7 @@ func (m simpleInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case downloadedMsg:
 		if msg.err != nil {
-			return m, tea.Sequence(
-				tea.Println("Error downloading driver: ", msg.err),
-				tea.Quit)
+			return m, errCmd("Error downloading driver: %w", msg.err)
 		}
 
 		return m.startInstalling(msg)
@@ -383,9 +384,10 @@ func (m simpleInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}, tea.Println("Driver installed successfully!"), tea.Quit)
 
 	case error:
+		m.confirmModel.Blur()
+		m.status = 1
 		return m, tea.Sequence(
 			tea.Println(errStyle.Render(msg.Error())),
-			tea.Println(""),
 			tea.Quit)
 	}
 
