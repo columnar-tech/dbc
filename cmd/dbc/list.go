@@ -52,14 +52,18 @@ func init() {
 
 type ListCmd struct {
 	// URI url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
+	Verbose bool `arg:"-v" help:"Enable verbose output"`
 }
 
 func (f ListCmd) GetModel() tea.Model {
-	return simpleFetchModel{}
+	return simpleFetchModel{
+		verbose: f.Verbose,
+	}
 }
 
 type simpleFetchModel struct {
-	status int
+	status  int
+	verbose bool
 }
 
 func (m simpleFetchModel) Status() int {
@@ -71,7 +75,7 @@ func (m simpleFetchModel) Init() tea.Cmd {
 		tea.Printf(archStyle.Render("Current System: %s"), platformTuple),
 		tea.Println(),
 		func() tea.Msg {
-			drivers, err := dbc.GetDriverList()
+			drivers, err := getDriverList()
 			if err != nil {
 				return err
 			}
@@ -83,7 +87,7 @@ func (m simpleFetchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case []dbc.Driver:
 		return m, tea.Sequence(
-			tea.Println(viewDrivers(msg)), tea.Quit)
+			tea.Println(viewDrivers(msg, m.verbose)), tea.Quit)
 	case error:
 		m.status = 1
 		return m, tea.Sequence(
@@ -101,9 +105,16 @@ func emptyEnumerator(_ list.Items, _ int) string {
 	return ""
 }
 
-func viewDrivers(d []dbc.Driver) string {
+func viewDrivers(d []dbc.Driver, verbose bool) string {
 	l := list.New().ItemStyle(nameStyle)
 	for _, driver := range d {
+		if !verbose {
+			l.Item(driver.Path).Item(
+				list.New(descStyle.Render(driver.Desc)).Enumerator(emptyEnumerator),
+			)
+			continue
+		}
+
 		versionTree := tree.Root(bold.Render("Versions:")).
 			Enumerator(tree.RoundedEnumerator)
 		for _, v := range driver.Versions(platformTuple) {
