@@ -9,12 +9,14 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 )
 
 const (
-	defaultSysConfigDir = "/etc/adbc"
-	userConfigSuffix    = "adbc"
+	defaultSysConfigDir    = "/etc/adbc"
+	userConfigSuffixDarwin = "ADBC"
+	userConfigSuffixOther  = "adbc"
 )
 
 var (
@@ -22,10 +24,20 @@ var (
 	systemConfigDir = defaultSysConfigDir
 )
 
+func platformUserConfigSuffix() string {
+	os := runtime.GOOS
+
+	if os == "darwin" {
+		return userConfigSuffixDarwin
+	}
+
+	return userConfigSuffixOther
+}
+
 func init() {
 	userConfigDir, _ = os.UserConfigDir()
 	if userConfigDir != "" {
-		userConfigDir = filepath.Join(userConfigDir, userConfigSuffix)
+		userConfigDir = filepath.Join(userConfigDir, platformUserConfigSuffix())
 	}
 
 	// check for venv first, then a conda environment if we're not in
