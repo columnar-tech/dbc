@@ -47,8 +47,8 @@ func TestOutput(t *testing.T) {
 		expected string
 	}{
 		{"list", ListCmd{Verbose: false}, "Current System: " + platformTuple + "\r\n" +
-			"\r\n• test-driver-1\r\n   This is a test driver\r\n" +
-			"• test-driver-2\r\n   This is another test driver\r\n\r"},
+			"\r\n• test-driver-1 - This is a test driver\r\n" +
+			"• test-driver-2 - This is another test driver\r\n\r"},
 		{"list verbose", ListCmd{Verbose: true}, "Current System: " + platformTuple + "\r\n" +
 			"\r\n• test-driver-1\r\n   Title: Test Driver 1\r\n   Description: This is a test driver\r\n" +
 			"   License: MIT\r\n   Versions:\r\n" +
@@ -67,8 +67,9 @@ func TestOutput(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
-			p := tea.NewProgram(tt.cmd.GetModel(), tea.WithInput(nil), tea.WithOutput(&out),
-				tea.WithContext(ctx))
+			p := tea.NewProgram(tt.cmd.GetModel(),
+				tea.WithInput(nil), tea.WithOutput(&out),
+				tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=xterm")))
 
 			_, err := p.Run()
 			require.NoError(t, err)

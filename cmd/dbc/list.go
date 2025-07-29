@@ -106,12 +106,10 @@ func emptyEnumerator(_ list.Items, _ int) string {
 }
 
 func viewDrivers(d []dbc.Driver, verbose bool) string {
-	l := list.New().ItemStyle(nameStyle)
+	l := list.New()
 	for _, driver := range d {
 		if !verbose {
-			l.Item(driver.Path).Item(
-				list.New(descStyle.Render(driver.Desc)).Enumerator(emptyEnumerator),
-			)
+			l.Item(nameStyle.Render(driver.Path) + " - " + descStyle.Render(driver.Desc))
 			continue
 		}
 
