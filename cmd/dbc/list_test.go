@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -12,23 +13,21 @@ import (
 	"github.com/columnar-tech/dbc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func getTestDriverList() ([]dbc.Driver, error) {
-	return []dbc.Driver{
-		{
-			Title:   "Test Driver 1",
-			Desc:    "This is a test driver",
-			License: "MIT",
-			Path:    "test-driver-1",
-		},
-		{
-			Title:   "Test Driver 2",
-			Desc:    "This is another test driver",
-			License: "Apache-2.0",
-			Path:    "test-driver-2",
-		},
-	}, nil
+	drivers := struct {
+		Drivers []dbc.Driver `yaml:"drivers"`
+	}{}
+
+	f, err := os.Open("testdata/test_manifest.yaml")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return drivers.Drivers, yaml.NewDecoder(f).Decode(&drivers)
 }
 
 func TestOutput(t *testing.T) {
@@ -47,9 +46,18 @@ func TestOutput(t *testing.T) {
 		cmd      modelCmd
 		expected string
 	}{
-		{"list", ListCmd{Verbose: false}, "Current System: linux_amd64\r\n" +
+		{"list", ListCmd{Verbose: false}, "Current System: " + platformTuple + "\r\n" +
 			"\r\n• test-driver-1\r\n   This is a test driver\r\n" +
 			"• test-driver-2\r\n   This is another test driver\r\n\r"},
+		{"list verbose", ListCmd{Verbose: true}, "Current System: " + platformTuple + "\r\n" +
+			"\r\n• test-driver-1\r\n   Title: Test Driver 1\r\n   Description: This is a test driver\r\n" +
+			"   License: MIT\r\n   Versions:\r\n" +
+			"    ├── 1.0.0\r\n" +
+			"    ╰── 1.1.0\r\n" +
+			"• test-driver-2\r\n   Title: Test Driver 2\r\n   Description: This is another test driver\r\n" +
+			"   License: Apache-2.0\r\n   Versions:\r\n" +
+			"    ├── 2.0.0\r\n" +
+			"    ╰── 2.1.0\r\n\r"},
 	}
 
 	for _, tt := range tests {
