@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexflint/go-arg"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/columnar-tech/dbc"
 )
 
 type TuiCmd struct{}
@@ -29,6 +30,9 @@ func errCmd(format string, a ...any) tea.Cmd {
 type HasStatus interface {
 	Status() int
 }
+
+// use this so we can override this in tests
+var getDriverList = dbc.GetDriverList
 
 func main() {
 	var args struct {
