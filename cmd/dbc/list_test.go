@@ -69,7 +69,11 @@ func TestOutput(t *testing.T) {
 
 			p := tea.NewProgram(tt.cmd.GetModel(),
 				tea.WithInput(nil), tea.WithOutput(&out),
-				tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=xterm")))
+				tea.WithContext(ctx),
+				// this is so that the output is tested without the colors
+				// this way we ensure consistent output test regardless of running
+				// in an interactive terminal or not which supports colors
+				tea.WithEnvironment(append(os.Environ(), "TERM=xterm")))
 
 			_, err := p.Run()
 			require.NoError(t, err)
