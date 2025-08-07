@@ -19,6 +19,9 @@ func TestInit(t *testing.T) {
 	dir := t.TempDir()
 
 	custom := filepath.Join(dir, "custom.toml")
+	cur, err := os.Getwd()
+	require.NoError(t, err)
+	defer os.Chdir(cur)
 	require.NoError(t, os.Chdir(dir))
 
 	tests := []struct {
