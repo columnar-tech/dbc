@@ -15,6 +15,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAlreadyExists(t *testing.T) {
+	dir := t.TempDir()
+	filePath := filepath.Join(dir, "dbc.toml")
+
+	// Create the file to simulate it already existing
+	require.NoError(t, os.WriteFile(filePath, []byte("existing content"), 0644))
+	t.Cleanup(func() {
+		os.Remove(filePath)
+	})
+	m := InitCmd{Path: filePath}.GetModel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	var out bytes.Buffer
+	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
+		tea.WithContext(ctx))
+
+	_, err := p.Run()
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "dbc.toml already exists")
+}
+
 func TestInit(t *testing.T) {
 	dir := t.TempDir()
 
@@ -40,7 +63,7 @@ func TestInit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			m := InitCmd{Path: tt.path}.GetModel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
 			var out bytes.Buffer

@@ -67,10 +67,10 @@ func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case error:
 		m.status = 1
-		tea.Println("Error:", msg.Error())
-		return m, tea.Quit
+		return m, tea.Sequence(
+			tea.Println("Error: ", msg.Error()), tea.Quit)
 	}
-	return m, tea.Quit
+	return m, nil
 }
 
 func (m initModel) View() string { return "" }
