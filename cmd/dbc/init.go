@@ -51,7 +51,7 @@ func (m initModel) Init() tea.Cmd {
 			return fmt.Errorf("file %s already exists", p)
 		}
 
-		if err = os.MkdirAll(filepath.Dir(p), 0644); err != nil {
+		if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 			return fmt.Errorf("error creating directory for %s: %w", p, err)
 		}
 
