@@ -3,7 +3,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -11,7 +13,7 @@ import (
 )
 
 type InitCmd struct {
-	Path string `arg:"-p" placeholder:"PATH" default:"./dbc.toml" help:"File to create"`
+	Path string `arg:"positional" default:"./dbc.toml" help:"File to create"`
 }
 
 func (f InitCmd) GetModel() tea.Model {
@@ -40,9 +42,17 @@ func (m initModel) Init() tea.Cmd {
 			return fmt.Errorf("invalid path: %w", err)
 		}
 
-		info, err := os.Stat(p)
-		if err == nil && info.IsDir() {
+		if filepath.Ext(p) == "" {
 			p = filepath.Join(p, "dbc.toml")
+		}
+
+		_, err = os.Stat(p)
+		if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("file %s already exists", p)
+		}
+
+		if err = os.MkdirAll(filepath.Dir(p), 0644); err != nil {
+			return fmt.Errorf("error creating directory for %s: %w", p, err)
 		}
 
 		if err := os.WriteFile(p, []byte(initialList), 0644); err != nil {
