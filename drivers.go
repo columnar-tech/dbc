@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"runtime"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"sync"
@@ -22,8 +24,35 @@ import (
 
 const baseURL = "https://dbc-cdn.columnar.tech"
 
+var version = "unknown"
+
+func init() {
+	info, ok := debug.ReadBuildInfo()
+	if ok {
+		version = info.Main.Version
+	}
+}
+
+func makereq(u string) (resp *http.Response, err error) {
+	uri, err := url.Parse(u)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
+	}
+
+	req := http.Request{
+		Method: http.MethodGet,
+		URL:    uri,
+		Header: http.Header{
+			"User-Agent": []string{fmt.Sprintf("dbc-cli/%s (%s; %s)",
+				version, runtime.GOOS, runtime.GOARCH)},
+		},
+	}
+
+	return http.DefaultClient.Do(&req)
+}
+
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	resp, err := http.Get(baseURL + "/manifest.yaml")
+	resp, err := makereq(baseURL + "/manifest.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
@@ -71,7 +100,7 @@ func (p PkgInfo) DownloadPackage() (*os.File, error) {
 	}
 
 	location := p.Path.String()
-	rsp, err := http.Get(location)
+	rsp, err := makereq(location)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver: %w", err)
 	}
