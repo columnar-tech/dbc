@@ -24,7 +24,7 @@ type initModel struct {
 	status int
 }
 
-const initialList = `# DBC Manifest List
+const initialList = `# dbc driver list
 
 [drivers]
 `
