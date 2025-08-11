@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -31,6 +32,8 @@ func TestCmd(t *testing.T) {
 		name      string
 		cmd       modelCmd
 		input     []seqTest
+		output    string
+		setup     func(t *testing.T, tmpdir string)
 		postCheck func(t *testing.T, tmpdir string)
 	}{
 		{"install bigquery",
@@ -39,7 +42,29 @@ func TestCmd(t *testing.T) {
 				{seq: []byte("y"), msg: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}},
 				{seq: []byte("\r"), msg: tea.KeyMsg{Type: tea.KeyEnter}},
 			},
+			"",
+			nil,
 			func(t *testing.T, tmpdir string) {
+				if runtime.GOOS != "windows" {
+					assert.FileExists(t, filepath.Join(tmpdir, "bigquery.toml"))
+				}
+			},
+		},
+		{"install with invalid manifest",
+			InstallCmd{Driver: "bigquery", Level: config.ConfigEnv},
+			[]seqTest{
+				{seq: []byte("y"), msg: tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")}},
+				{seq: []byte("\r"), msg: tea.KeyMsg{Type: tea.KeyEnter}},
+			},
+			"version to compare with was nil",
+			func(t *testing.T, tmpdir string) {
+				// Create an invalid bigquery.toml
+				invalid := `name = "BigQuery ADBC Driver"
+
+[Driver]
+[Driver.shared]`
+				os.WriteFile(path.Join(tmpdir, "bigquery.toml"), []byte(invalid), 0644)
+			}, func(t *testing.T, tmpdir string) {
 				if runtime.GOOS != "windows" {
 					assert.FileExists(t, filepath.Join(tmpdir, "bigquery.toml"))
 				}
@@ -52,6 +77,10 @@ func TestCmd(t *testing.T) {
 			tmpdir := t.TempDir()
 			require.NoError(t, os.Setenv("ADBC_CONFIG_PATH", tmpdir))
 			defer os.Unsetenv("ADBC_CONFIG_PATH")
+
+			if tt.setup != nil {
+				tt.setup(t, tmpdir)
+			}
 
 			var in bytes.Buffer
 			var out bytes.Buffer
@@ -74,6 +103,12 @@ func TestCmd(t *testing.T) {
 
 			p.Wait()
 			require.NoError(t, err, out.String())
+
+			// Check output
+			if tt.output != "" {
+				assert.Contains(t, out.String(), tt.output, "test did not produce expected output")
+			}
+
 			tt.postCheck(t, tmpdir)
 		})
 	}

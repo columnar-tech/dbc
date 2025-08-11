@@ -158,6 +158,9 @@ func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd
 }
 
 func (m simpleInstallModel) handleConflict(msg conflictMsg) (tea.Model, tea.Cmd) {
+	if msg.Version == nil {
+		return m, errCmd("when comparing existing version to candidate version, version to compare with was nil. This indicates the existing manifest may be invalid.")
+	}
 	m.conflict, m.state = msg, installStateConflict
 	var s string
 	switch m.DriverPackage.Version.Compare(msg.Version) {
