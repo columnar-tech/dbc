@@ -39,6 +39,7 @@ func main() {
 		List    *ListCmd       `arg:"subcommand" help:"List available drivers"`
 		Config  *ViewConfigCmd `arg:"subcommand" help:"View driver config"`
 		Init    *InitCmd       `arg:"subcommand" help:"Initialize a new DBC manifest list"`
+		Add     *AddCmd        `arg:"subcommand" help:"Add a driver to the manifest list"`
 		Install *InstallCmd    `arg:"subcommand" help:"Install driver"`
 		Tui     *TuiCmd        `arg:"subcommand"`
 	}

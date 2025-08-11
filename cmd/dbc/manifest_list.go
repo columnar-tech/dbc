@@ -4,46 +4,30 @@ package main
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
+	"github.com/pelletier/go-toml/v2"
 )
 
 type ManifestList struct {
-	Drivers map[string]driverSpec `toml:"drivers"`
+	Drivers map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
 type driverSpec struct {
-	Version *semver.Constraints
-}
-
-func (d *driverSpec) UnmarshalTOML(data any) (err error) {
-	switch v := data.(type) {
-	case string:
-		d.Version, err = semver.NewConstraint(v)
-	case map[string]any:
-		if ver, ok := v["version"]; ok {
-			d.Version, err = semver.NewConstraint(fmt.Sprintf("%v", ver))
-		} else {
-			return fmt.Errorf("missing version in driver spec")
-		}
-	default:
-		return fmt.Errorf("invalid driver spec format: %T", data)
-	}
-
-	return
+	Version *semver.Constraints `toml:"version"`
 }
 
 func GetDriverList(fname, platformTuple string) ([]dbc.PkgInfo, error) {
 	var m ManifestList
-	md, err := toml.DecodeFile(fname, &m)
+	f, err := os.Open(fname)
 	if err != nil {
-		return nil, fmt.Errorf("error decoding manifest file %s: %w", fname, err)
+		return nil, fmt.Errorf("error opening manifest file %s: %w", fname, err)
 	}
-
-	if !md.IsDefined("drivers") {
-		return nil, fmt.Errorf("no drivers defined in manifest file %s", fname)
+	defer f.Close()
+	if err = toml.NewDecoder(f).Decode(&m); err != nil {
+		return nil, fmt.Errorf("error decoding manifest file %s: %w", fname, err)
 	}
 
 	drivers, err := dbc.GetDriverList()
