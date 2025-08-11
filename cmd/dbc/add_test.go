@@ -10,11 +10,17 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/columnar-tech/dbc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestAdd(t *testing.T) {
+	defer func(fn func() ([]dbc.Driver, error)) {
+		getDriverList = fn
+	}(getDriverList)
+	getDriverList = getTestDriverList
+
 	dir := t.TempDir()
 
 	cur, err := os.Getwd()
@@ -43,7 +49,7 @@ func TestAdd(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: "./dbc.toml", Driver: "foobar"}.GetModel()
+		m := AddCmd{Path: "./dbc.toml", Driver: "test-driver-1"}.GetModel()
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -54,7 +60,6 @@ func TestAdd(t *testing.T) {
 
 		var err error
 		m, err = p.Run()
-
 		require.NoError(t, err)
 		assert.Equal(t, 0, m.(HasStatus).Status())
 
@@ -62,7 +67,7 @@ func TestAdd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, `# dbc driver list
 [drivers]
-[drivers.foobar]
+[drivers.test-driver-1]
 `, string(data))
 	}
 }
