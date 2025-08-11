@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,16 +23,9 @@ func TestAdd(t *testing.T) {
 	getDriverList = getTestDriverList
 
 	dir := t.TempDir()
-
-	cur, err := os.Getwd()
-	require.NoError(t, err)
-	require.NoError(t, os.Chdir(dir))
-	t.Cleanup(func() {
-		os.Chdir(cur)
-	})
-
+	var err error
 	{
-		m := InitCmd{Path: "./dbc.toml"}.GetModel()
+		m := InitCmd{Path: filepath.Join(dir, "dbc.toml")}.GetModel()
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -45,11 +39,11 @@ func TestAdd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 0, m.(HasStatus).Status())
 
-		assert.FileExists(t, "./dbc.toml")
+		assert.FileExists(t, filepath.Join(dir, "dbc.toml"))
 	}
 
 	{
-		m := AddCmd{Path: "./dbc.toml", Driver: "test-driver-1"}.GetModel()
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -63,7 +57,7 @@ func TestAdd(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 0, m.(HasStatus).Status())
 
-		data, err := os.ReadFile("./dbc.toml")
+		data, err := os.ReadFile(filepath.Join(dir, "dbc.toml"))
 		require.NoError(t, err)
 		assert.Equal(t, `# dbc driver list
 [drivers]

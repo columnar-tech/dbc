@@ -39,7 +39,7 @@ func (m addModel) Status() int {
 	return m.status
 }
 
-var drvArgRegexp = regexp.MustCompile(`(\w+)([<>=]{1,2}\d+(\.\d+){0,2})?`)
+var drvArgRegexp = regexp.MustCompile(`([\w-]+)([<>=]{1,2}\d+(\.\d+){0,2})?`)
 
 func (m addModel) Init() tea.Cmd {
 	matches := drvArgRegexp.FindStringSubmatch(m.Driver)
