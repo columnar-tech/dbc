@@ -24,6 +24,8 @@ type seqTest struct {
 }
 
 func TestCmd(t *testing.T) {
+	tmpdir := t.TempDir()
+
 	tests := []struct {
 		name      string
 		cmd       modelCmd
@@ -70,7 +72,6 @@ func TestCmd(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpdir := t.TempDir()
 			require.NoError(t, os.Setenv("ADBC_CONFIG_PATH", tmpdir))
 			defer os.Unsetenv("ADBC_CONFIG_PATH")
 
