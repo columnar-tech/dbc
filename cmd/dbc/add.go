@@ -96,7 +96,7 @@ func (m addModel) Init() tea.Cmd {
 
 		current, ok := m.list.Drivers[driverName]
 		if ok {
-			result = msgStyle.Render(fmt.Sprintf("replacing existing driver %s (new constraint: %s)",
+			result = msgStyle.Render(fmt.Sprintf("replacing existing driver %s (old constraint: %s)",
 				driverName, current.Version)) + "\n"
 		}
 
@@ -111,7 +111,11 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		result += "use `dbc sync` to install the drivers in the list"
+		result += nameStyle.Render("added", driverName, "to driver list")
+		if vers != nil {
+			result += nameStyle.Render(" with constraint", vers.String())
+		}
+		result += "\nuse `dbc sync` to install the drivers in the list"
 		return result
 	}
 }
