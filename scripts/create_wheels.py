@@ -234,7 +234,7 @@ def create_wheel(version: str, platform: str, archive: bytes):
     if not bin_found:
         raise RuntimeError("No binary found in archive. Stopping now.")
 
-    # Set the content of the PyPi README as the description
+    # Set the content of the PyPI README as the description
     with open(os.path.join(__file__, "README.pypi.md")) as f:
         description = f.read()
 

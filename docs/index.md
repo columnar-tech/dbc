@@ -1,6 +1,10 @@
+<!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
+
 # dbc
 
 `dbc` is a command-line tool that makes installing and managing [ADBC](https://arrow.apache.org/adbc) drivers easy as A, B, C.
+
+TODO: terminal screenshot or code showing dbc install?
 
 ## Features
 
@@ -15,6 +19,15 @@
 
 ## Installation
 
-Quick installation info here.
+`dbc` can be installed from [PyPI](https://pypi.org/project/dbc/) or [GitHub Releases](https://github.com/columnar-tech/dbc/releases/latest).
+
+To install `dbc` from [PyPI](https://pypi.org/project/dbc/), create a virtual environment and install `dbc` into it:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install dbc
+dbc # dbc is now in your $PATH
+```
 
 See our detailed [Installation](./getting_started/installation.md) guide for other installation options.

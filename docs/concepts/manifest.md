@@ -1,3 +1,0 @@
-# Manifest
-
-Manifest concept guide.

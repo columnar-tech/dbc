@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Columnar Technologies.  All rights reserved.
+
 site_name: dbc
 site_author: columnar-tech
 site_description: dbc is a command line tool for installing and managing ADBC drivers
@@ -5,6 +7,16 @@ site_url: http://example.com
 repo_url: https://github.com/columnar-tech/dbc
 repo_name: dbc
 copyright: Copyright &copy; 2025 Columnar Technologies, Inc.
+markdown_extensions:
+  - admonition
+  - def_list
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
 nav:
   - Introduction: index.md
   - Getting Started:
@@ -16,11 +28,12 @@ nav:
   - Concepts:
       - Driver: concepts/driver.md
       - Driver Manager: concepts/driver_manager.md
-      - Manifest: concepts/manifest.md
-      - Channel: concepts/channel.md
+      - Driver Manifest: concepts/driver_manifest.md
+      - Drivers List: concepts/drivers_list.md
   - Reference:
-      - Commands: reference/cli.md
+      - dbc CLI: reference/cli.md
       - Config: reference/config.md
+      - dbc.toml: reference/dbc.toml.md
 theme:
   name: material
   logo: assets/logo.svg
@@ -47,6 +60,7 @@ theme:
   icon:
     repo: fontawesome/brands/github
   features:
+    - content.code.annotate
     - navigation.instant
     - navigation.path
     - navigation.sections
