@@ -174,11 +174,15 @@ func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
 }
 
 func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
+	if cfg.Level == ConfigEnv {
+		return loadDriverFromManifest(cfg.Location, driverName)
+	}
+
 	k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.READ)
 	if err != nil {
 		if errors.Is(err, registry.ErrNotExist) {
 			switch cfg.Level {
-			case ConfigEnv, ConfigUser:
+			case ConfigUser:
 				return loadDriverFromManifest(cfg.Location, driverName)
 			}
 		}
