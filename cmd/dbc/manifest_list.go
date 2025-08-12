@@ -11,7 +11,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-type ManifestList struct {
+type DriversList struct {
 	Drivers map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
@@ -20,7 +20,7 @@ type driverSpec struct {
 }
 
 func GetDriverList(fname, platformTuple string) ([]dbc.PkgInfo, error) {
-	var m ManifestList
+	var m DriversList
 	f, err := os.Open(fname)
 	if err != nil {
 		return nil, fmt.Errorf("error opening manifest file %s: %w", fname, err)

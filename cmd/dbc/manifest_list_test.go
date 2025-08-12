@@ -76,7 +76,7 @@ func must[T any](v T, err error) T {
 }
 
 func TestMarshalManifestList(t *testing.T) {
-	data, err := toml.Marshal(ManifestList{
+	data, err := toml.Marshal(DriversList{
 		Drivers: map[string]driverSpec{
 			"bigquery":  {Version: must(semver.NewConstraint(">=1.6.0"))},
 			"flightsql": {Version: must(semver.NewConstraint(">=1.6.0"))},

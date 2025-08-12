@@ -5,8 +5,8 @@ package main
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,7 +19,7 @@ var msgStyle = lipgloss.NewStyle().Faint(true)
 
 type AddCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to add"`
-	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver manifest list to add to"`
+	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to add to"`
 }
 
 func (c AddCmd) GetModel() tea.Model {
@@ -30,7 +30,7 @@ type addModel struct {
 	Driver string
 	Path   string
 
-	list ManifestList
+	list DriversList
 
 	status int
 }
@@ -39,22 +39,20 @@ func (m addModel) Status() int {
 	return m.status
 }
 
-var drvArgRegexp = regexp.MustCompile(`([\w-]+)([<>=]{1,2}\d+(\.\d+){0,2})?`)
-
 func (m addModel) Init() tea.Cmd {
-	matches := drvArgRegexp.FindStringSubmatch(m.Driver)
-	if matches == nil {
-		return errCmd("invalid driver argument: %s, should be of the form <driver>[<version spec>]", m.Driver)
-	}
-
+	m.Driver = strings.TrimSpace(m.Driver)
+	splitIdx := strings.IndexAny(m.Driver, " <>=!")
 	var (
 		err        error
-		driverName = matches[1]
+		driverName string
 		vers       *semver.Constraints
 	)
 
-	if matches[2] != "" {
-		vers, err = semver.NewConstraint(matches[2])
+	if splitIdx == -1 {
+		driverName = m.Driver
+	} else {
+		driverName = m.Driver[:splitIdx]
+		vers, err = semver.NewConstraint(strings.TrimSpace(m.Driver[splitIdx:]))
 		if err != nil {
 			return errCmd("invalid version constraint: %w", err)
 		}
@@ -71,7 +69,7 @@ func (m addModel) Init() tea.Cmd {
 		})
 
 		if idx == -1 {
-			return fmt.Errorf("driver %s not found", driverName)
+			return fmt.Errorf("driver `%s` not found in driver index", driverName)
 		}
 
 		if vers != nil {
@@ -83,7 +81,7 @@ func (m addModel) Init() tea.Cmd {
 
 		f, err := os.Open(m.Path)
 		if err != nil {
-			return fmt.Errorf("error opening manifest file %s: %w", m.Path, err)
+			return fmt.Errorf("error opening drivers list file %s: %w\ndid you run `dbc init`?", m.Path, err)
 		}
 		defer f.Close()
 
