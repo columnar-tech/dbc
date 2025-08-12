@@ -60,7 +60,8 @@ func TestCmd(t *testing.T) {
 				invalid := `name = "BigQuery ADBC Driver"
 
 [Driver]
-[Driver.shared]`
+shared = '/path/to/shared.so'
+`
 				os.WriteFile(path.Join(tmpdir, "bigquery.toml"), []byte(invalid), 0644)
 			}, func(t *testing.T, tmpdir string) {
 				if runtime.GOOS != "windows" {
