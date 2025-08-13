@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/BurntSushi/toml"
 )
 
 const adbcEnvVar = "ADBC_CONFIG_PATH"
@@ -71,12 +69,12 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 	fsys := os.DirFS(dir)
 	matches, _ := fs.Glob(fsys, "*.toml")
 	for _, m := range matches {
-		var di DriverInfo
-		if _, err := toml.DecodeFile(filepath.Join(dir, m), &di); err != nil {
-			panic(err)
+		p := filepath.Join(dir, m)
+		di, err := loadDriverFromManifest(filepath.Dir(p), filepath.Base(p))
+		if err != nil {
+			return nil, fmt.Errorf("error opening driver file %s: %w", m, err)
 		}
 
-		di.ID = strings.TrimSuffix(m, ".toml")
 		ret[di.ID] = di
 	}
 	return ret, nil

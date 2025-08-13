@@ -4,19 +4,15 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"testing"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +24,8 @@ type seqTest struct {
 }
 
 func TestCmd(t *testing.T) {
+	tmpdir := t.TempDir()
+
 	tests := []struct {
 		name      string
 		cmd       modelCmd
@@ -62,7 +60,8 @@ func TestCmd(t *testing.T) {
 				invalid := `name = "BigQuery ADBC Driver"
 
 [Driver]
-[Driver.shared]`
+shared = '/path/to/shared.so'
+`
 				os.WriteFile(path.Join(tmpdir, "bigquery.toml"), []byte(invalid), 0644)
 			}, func(t *testing.T, tmpdir string) {
 				if runtime.GOOS != "windows" {
@@ -74,7 +73,6 @@ func TestCmd(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpdir := t.TempDir()
 			require.NoError(t, os.Setenv("ADBC_CONFIG_PATH", tmpdir))
 			defer os.Unsetenv("ADBC_CONFIG_PATH")
 
@@ -110,58 +108,6 @@ func TestCmd(t *testing.T) {
 			}
 
 			tt.postCheck(t, tmpdir)
-		})
-	}
-}
-
-func TestManifestList(t *testing.T) {
-	tests := []struct {
-		name     string
-		contents string
-		expected []dbc.PkgInfo
-		err      error
-	}{
-		{"basic", "[drivers]\nbigquery = '1.6.0'\nflightsql = '1.6.0'", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.6.0")},
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
-		}, nil},
-		{"less", "[drivers]\nbigquery = '<1.6.0'\nflightsql = '<=1.6.0'", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.5.0")},
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
-		}, nil},
-		{"greater", "[drivers]\nbigquery = '>1.5.0'\nflightsql = '>=1.6.0'", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.6.0")},
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
-		}, nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpdir := t.TempDir()
-			manifestPath := filepath.Join(tmpdir, "manifest.txt")
-			require.NoError(t, os.WriteFile(manifestPath, []byte(tt.contents), 0644))
-
-			pkgs, err := GetDriverList(manifestPath, platformTuple)
-			if tt.err != nil {
-				require.Error(t, err)
-				assert.ErrorContains(t, err, tt.err.Error())
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Len(t, pkgs, len(tt.expected))
-
-			slices.SortFunc(pkgs, func(a, b dbc.PkgInfo) int {
-				return cmp.Compare(a.Driver.Path, b.Driver.Path)
-			})
-			slices.SortFunc(tt.expected, func(a, b dbc.PkgInfo) int {
-				return cmp.Compare(a.Driver.Path, b.Driver.Path)
-			})
-
-			for i, pkg := range pkgs {
-				assert.Equal(t, tt.expected[i].Driver.Path, pkg.Driver.Path)
-				assert.Truef(t, tt.expected[i].Version.Equal(pkg.Version), "expected %s to equal %s", tt.expected[i].Version, pkg.Version)
-			}
 		})
 	}
 }

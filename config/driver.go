@@ -11,21 +11,21 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
+	"github.com/pelletier/go-toml/v2"
 )
 
 type DriverInfo struct {
-	ID string `toml:"-"`
+	ID string
 
-	Name      string          `toml:"name"`
-	Publisher string          `toml:"publisher"`
-	License   string          `toml:"license"`
-	Version   *semver.Version `toml:"version"`
-	Source    string          `toml:"source"`
+	Name      string
+	Publisher string
+	License   string
+	Version   *semver.Version
+	Source    string
 
 	AdbcInfo struct {
-		Version  string `toml:"version"`
+		Version  *semver.Version `toml:"version"`
 		Features struct {
 			Supported   []string `toml:"supported,omitempty"`
 			Unsupported []string `toml:"unsupported,omitempty"`
@@ -33,8 +33,8 @@ type DriverInfo struct {
 	} `toml:"ADBC"`
 
 	Driver struct {
-		Entrypoint string    `toml:"entrypoint,omitempty"`
-		Shared     driverMap `toml:"shared"`
+		Entrypoint string
+		Shared     driverMap
 	}
 }
 
@@ -87,39 +87,69 @@ func (d driverMap) String() string {
 	return sb.String()
 }
 
-func (d *driverMap) UnmarshalTOML(data any) error {
-	switch v := data.(type) {
-	case string:
-		d.defaultPath = v
-	case map[string]any:
-		d.platformMap = make(map[string]string, len(v))
-		for k, val := range v {
-			if strVal, ok := val.(string); ok {
-				d.platformMap[k] = strVal
-			} else {
-				return fmt.Errorf("expected string value for platform %s, got %T", k, val)
-			}
-		}
-	default:
-		return fmt.Errorf("expected string or map[string]string, got %T", data)
+type tomlDriverInfo struct {
+	Name      string          `toml:"name"`
+	Publisher string          `toml:"publisher"`
+	License   string          `toml:"license"`
+	Version   *semver.Version `toml:"version"`
+	Source    string          `toml:"source"`
+
+	AdbcInfo struct {
+		Version  *semver.Version `toml:"version"`
+		Features struct {
+			Supported   []string `toml:"supported,omitempty"`
+			Unsupported []string `toml:"unsupported,omitempty"`
+		} `toml:"features,omitempty"`
+	} `toml:"ADBC"`
+
+	Driver struct {
+		Entrypoint string `toml:"entrypoint,omitempty"`
+		Shared     any    `toml:"shared"`
 	}
-	return nil
 }
 
 func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
+	driverName = strings.TrimSuffix(driverName, ".toml")
 	manifest := filepath.Join(prefix, driverName+".toml")
-	var di DriverInfo
-	md, err := toml.DecodeFile(manifest, &di)
+	var di tomlDriverInfo
+	f, err := os.Open(manifest)
 	if err != nil {
+		return DriverInfo{}, fmt.Errorf("error opening manifest %s: %w", manifest, err)
+	}
+	defer f.Close()
+
+	if err := toml.NewDecoder(f).Decode(&di); err != nil {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
 
-	if !md.IsDefined("Driver", "shared") {
-		return DriverInfo{}, fmt.Errorf("manifest %s does not define 'Driver.shared' which is a required field", manifest)
+	result := DriverInfo{
+		ID:        driverName,
+		Name:      di.Name,
+		Publisher: di.Publisher,
+		License:   di.License,
+		Version:   di.Version,
+		Source:    di.Source,
+		AdbcInfo:  di.AdbcInfo,
 	}
 
-	di.ID = driverName
-	return di, nil
+	result.Driver.Entrypoint = di.Driver.Entrypoint
+	switch s := di.Driver.Shared.(type) {
+	case string:
+		result.Driver.Shared.defaultPath = s
+	case map[string]any:
+		result.Driver.Shared.platformMap = make(map[string]string)
+		for k, v := range s {
+			if strVal, ok := v.(string); ok {
+				result.Driver.Shared.platformMap[k] = strVal
+			} else {
+				return DriverInfo{}, fmt.Errorf("invalid type for platform %s in manifest %s, expected string", k, manifest)
+			}
+		}
+	default:
+		return DriverInfo{}, fmt.Errorf("invalid type for 'Driver.shared' in manifest %s, expected string or table", manifest)
+	}
+
+	return result, nil
 }
 
 func createDriverManifest(location string, driver DriverInfo) error {
@@ -135,10 +165,25 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	}
 	defer f.Close()
 
-	enc := toml.NewEncoder(f)
-	enc.Indent = ""
+	toEncode := tomlDriverInfo{
+		Name:      driver.Name,
+		Publisher: driver.Publisher,
+		License:   driver.License,
+		Version:   driver.Version,
+		Source:    driver.Source,
+		AdbcInfo:  driver.AdbcInfo,
+	}
 
-	if err := enc.Encode(driver); err != nil {
+	toEncode.Driver.Entrypoint = driver.Driver.Entrypoint
+	if driver.Driver.Shared.defaultPath != "" {
+		toEncode.Driver.Shared = driver.Driver.Shared.defaultPath
+	} else if len(driver.Driver.Shared.platformMap) > 0 {
+		toEncode.Driver.Shared = driver.Driver.Shared.platformMap
+	}
+
+	enc := toml.NewEncoder(f).SetIndentTables(false)
+
+	if err := enc.Encode(toEncode); err != nil {
 		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
 	}
 

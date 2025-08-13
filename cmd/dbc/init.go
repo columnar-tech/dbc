@@ -16,8 +16,8 @@ type InitCmd struct {
 	Path string `arg:"positional" default:"./dbc.toml" help:"File to create"`
 }
 
-func (f InitCmd) GetModel() tea.Model {
-	return initModel{Path: f.Path}
+func (c InitCmd) GetModel() tea.Model {
+	return initModel{Path: c.Path}
 }
 
 type initModel struct {
@@ -51,11 +51,11 @@ func (m initModel) Init() tea.Cmd {
 			return fmt.Errorf("file %s already exists", p)
 		}
 
-		if err = os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		if err = os.MkdirAll(filepath.Dir(p), 0777); err != nil {
 			return fmt.Errorf("error creating directory for %s: %w", p, err)
 		}
 
-		if err := os.WriteFile(p, []byte(initialList), 0644); err != nil {
+		if err := os.WriteFile(p, []byte(initialList), 0666); err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
 

@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -23,6 +22,7 @@ import (
 	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/pelletier/go-toml/v2"
 )
 
 var (
@@ -279,7 +279,7 @@ func inflateTarball(f *os.File, outDir string) (Manifest, error) {
 			}
 			next.Close()
 		} else {
-			if _, err := toml.NewDecoder(t).Decode(&m); err != nil {
+			if err := toml.NewDecoder(t).Decode(&m); err != nil {
 				return m, fmt.Errorf("could not decode manifest: %w", err)
 			}
 		}
