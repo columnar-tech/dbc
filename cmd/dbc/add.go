@@ -95,9 +95,23 @@ func (m addModel) Init() tea.Cmd {
 		}
 
 		current, ok := m.list.Drivers[driverName]
+		m.list.Drivers[driverName] = driverSpec{Version: vers}
+		new := m.list.Drivers[driverName]
+		currentString := func() string {
+			if current.Version != nil {
+				return current.Version.String()
+			}
+			return "any"
+		}()
+		newStr := func() string {
+			if new.Version != nil {
+				return new.Version.String()
+			}
+			return "any"
+		}()
 		if ok {
-			result = msgStyle.Render(fmt.Sprintf("replacing existing driver %s (old constraint: %s)",
-				driverName, current.Version)) + "\n"
+			result = msgStyle.Render(fmt.Sprintf("replacing existing driver %s (old constraint: %s; new constraint: %s)",
+				driverName, currentString, newStr)) + "\n"
 		}
 
 		m.list.Drivers[driverName] = driverSpec{Version: vers}
