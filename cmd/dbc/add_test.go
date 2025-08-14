@@ -17,11 +17,6 @@ import (
 )
 
 func TestAdd(t *testing.T) {
-	defer func(fn func() ([]dbc.Driver, error)) {
-		getDriverList = fn
-	}(getDriverList)
-	getDriverList = getTestDriverList
-
 	dir := t.TempDir()
 	var err error
 	{
@@ -43,7 +38,8 @@ func TestAdd(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModelCustom(
+			baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -95,7 +91,8 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModelCustom(
+			baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -118,7 +115,8 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1>=1.0.0"}.GetModel()
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1>=1.0.0"}.GetModelCustom(
+			baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()

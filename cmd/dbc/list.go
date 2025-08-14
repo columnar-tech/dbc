@@ -55,19 +55,25 @@ type ListCmd struct {
 	Verbose bool `arg:"-v" help:"Enable verbose output"`
 }
 
+func (f ListCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return simpleFetchModel{
+		verbose:   f.Verbose,
+		baseModel: baseModel,
+	}
+}
+
 func (f ListCmd) GetModel() tea.Model {
 	return simpleFetchModel{
 		verbose: f.Verbose,
+		baseModel: baseModel{
+			getDriverList: getDriverList,
+		},
 	}
 }
 
 type simpleFetchModel struct {
-	status  int
+	baseModel
 	verbose bool
-}
-
-func (m simpleFetchModel) Status() int {
-	return m.status
 }
 
 func (m simpleFetchModel) Init() tea.Cmd {
@@ -75,7 +81,7 @@ func (m simpleFetchModel) Init() tea.Cmd {
 		tea.Printf(archStyle.Render("Current System: %s"), platformTuple),
 		tea.Println(),
 		func() tea.Msg {
-			drivers, err := getDriverList()
+			drivers, err := m.getDriverList()
 			if err != nil {
 				return err
 			}

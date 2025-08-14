@@ -20,6 +20,14 @@ type AddCmd struct {
 	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to add to"`
 }
 
+func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return addModel{
+		baseModel: baseModel,
+		Driver:    c.Driver,
+		Path:      c.Path,
+	}
+}
+
 func (c AddCmd) GetModel() tea.Model {
 	return addModel{
 		Driver: c.Driver,
