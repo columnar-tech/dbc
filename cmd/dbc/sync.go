@@ -59,6 +59,8 @@ type syncModel struct {
 	locked LockFile
 	cfg    config.Config
 
+	// the list of drivers in the drivers list file
+	list DriversList
 	// cdn driver index
 	driverIndex []dbc.Driver
 	// the list of package+version to install
@@ -73,13 +75,30 @@ type syncModel struct {
 	done bool
 }
 
+type driversListMsg struct {
+	path string
+	list DriversList
+}
+
 func (s syncModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		drivers, err := s.getDriverList()
+		p, err := filepath.Abs(s.Path)
 		if err != nil {
 			return err
 		}
-		return drivers
+
+		if filepath.Ext(p) == "" {
+			p = filepath.Join(p, "dbc.toml")
+		}
+
+		drivers, err := loadDriverList(p)
+		if err != nil {
+			return err
+		}
+		return driversListMsg{
+			path: p,
+			list: drivers,
+		}
 	}
 }
 
@@ -264,36 +283,26 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.progress = newModel
 		}
 		return s, cmd
-	case []dbc.Driver:
-		p, err := filepath.Abs(s.Path)
-		if err != nil {
-			s.status = 1
-			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
-		}
-
-		if filepath.Ext(p) == "" {
-			p = filepath.Join(p, "dbc.toml")
-		}
-
-		s.Path = p
-		s.LockFilePath = strings.TrimSuffix(p, filepath.Ext(p)) + ".lock"
-		s.driverIndex = msg
+	case driversListMsg:
+		s.Path = msg.path
+		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
+		s.list = msg.list
 		return s, func() tea.Msg {
-			list, err := loadDriverList(s.Path)
+			drivers, err := s.getDriverList()
 			if err != nil {
 				return err
 			}
-			return list
+			return drivers
 		}
-	case DriversList:
+	case []dbc.Driver:
+		s.driverIndex = msg
 		return s, func() tea.Msg {
-			items, err := s.createInstallList(msg)
+			items, err := s.createInstallList(s.list)
 			if err != nil {
 				return err
 			}
 			return items
 		}
-
 	case []installItem:
 		s.spinner = spinner.New()
 		s.progress = progress.New(
