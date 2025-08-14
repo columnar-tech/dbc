@@ -41,6 +41,8 @@ func (c InstallCmd) GetModel() tea.Model {
 		Driver:       c.Driver,
 		VersionInput: c.Version,
 		cfg:          config.Get()[c.Level],
+		baseModel: baseModel{
+			getDriverList: getDriverList, downloadPkg: downloadPkg},
 	}
 }
 
