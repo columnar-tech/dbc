@@ -21,20 +21,23 @@ type AddCmd struct {
 }
 
 func (c AddCmd) GetModel() tea.Model {
-	return addModel{Driver: c.Driver, Path: c.Path}
+	return addModel{
+		Driver: c.Driver,
+		Path:   c.Path,
+		baseModel: baseModel{
+			getDriverList: getDriverList,
+			downloadPkg:   downloadPkg,
+		},
+	}
 }
 
 type addModel struct {
+	baseModel
+
 	Driver string
 	Path   string
 
 	list DriversList
-
-	status int
-}
-
-func (m addModel) Status() int {
-	return m.status
 }
 
 func (m addModel) Init() tea.Cmd {
@@ -57,7 +60,7 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		drivers, err := getDriverList()
+		drivers, err := m.getDriverList()
 		if err != nil {
 			return fmt.Errorf("error getting driver list: %w", err)
 		}
@@ -131,13 +134,13 @@ func (m addModel) Init() tea.Cmd {
 
 func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case error:
-		m.status = 1
-		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 	case string:
 		return m, tea.Sequence(tea.Println(msg), tea.Quit)
 	default:
-		return m, nil
+		bm, cmd := m.baseModel.Update(msg)
+		m.baseModel = bm.(baseModel)
+
+		return m, cmd
 	}
 }
 

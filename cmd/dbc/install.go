@@ -64,6 +64,8 @@ type downloadedMsg struct {
 type conflictMsg config.DriverInfo
 
 type simpleInstallModel struct {
+	baseModel
+
 	Driver       string
 	VersionInput *semver.Version
 	cfg          config.Config
@@ -75,12 +77,6 @@ type simpleInstallModel struct {
 	downloaded downloadedMsg
 	conflict   conflictMsg
 	spinner    spinner.Model
-
-	status int
-}
-
-func (m simpleInstallModel) Status() int {
-	return m.status
 }
 
 func (m simpleInstallModel) Init() tea.Cmd {
@@ -89,7 +85,7 @@ func (m simpleInstallModel) Init() tea.Cmd {
 		tea.Printf(archStyle.Render("Install To: %s"), m.cfg.Location),
 		tea.Println(),
 		func() tea.Msg {
-			drivers, err := dbc.GetDriverList()
+			drivers, err := m.getDriverList()
 			if err != nil {
 				return err
 			}
@@ -203,7 +199,7 @@ func (m simpleInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	m.spinner = spinner.New()
 	m.spinner.Spinner = spinner.Dot
 	return m, tea.Sequence(tea.Println(), tea.Println(m.confirmModel.View()), tea.Batch(m.spinner.Tick, func() tea.Msg {
-		output, err := m.DriverPackage.DownloadPackage()
+		output, err := m.downloadPkg(m.DriverPackage)
 		return downloadedMsg{
 			file: output,
 			err:  err,

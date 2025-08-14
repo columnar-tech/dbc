@@ -30,11 +30,28 @@ type SyncCmd struct {
 	Level config.ConfigLevel `arg:"-l" help:"Config level to install to" default:"user"`
 }
 
+func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return syncModel{
+		baseModel: baseModel,
+		Path:      c.Path,
+		cfg:       config.Get()[c.Level],
+	}
+}
+
 func (c SyncCmd) GetModel() tea.Model {
-	return syncModel{Path: c.Path, cfg: config.Get()[c.Level]}
+	return syncModel{
+		Path: c.Path,
+		cfg:  config.Get()[c.Level],
+		baseModel: baseModel{
+			getDriverList: getDriverList,
+			downloadPkg:   downloadPkg,
+		},
+	}
 }
 
 type syncModel struct {
+	baseModel
+
 	Path         string
 	LockFilePath string
 	locked       LockFile
@@ -48,15 +65,12 @@ type syncModel struct {
 	progress      progress.Model
 	width, height int
 
-	done   bool
-	status int
+	done bool
 }
-
-func (s syncModel) Status() int { return s.status }
 
 func (s syncModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		drivers, err := getDriverList()
+		drivers, err := s.getDriverList()
 		if err != nil {
 			return err
 		}
@@ -134,19 +148,27 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 	return items, nil
 }
 
-func ensureConfigLocation(cfg config.Config) error {
-	// TODO: split list if cfg is Env
-	if _, err := os.Stat(cfg.Location); err != nil {
+func ensureConfigLocation(cfg config.Config) (string, error) {
+	loc := cfg.Location
+	if cfg.Level == config.ConfigEnv {
+		list := filepath.SplitList(loc)
+		if len(list) == 0 {
+			return "", fmt.Errorf("invalid config location: %s", loc)
+		}
+		loc = list[0]
+	}
+
+	if _, err := os.Stat(loc); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			if err := os.MkdirAll(cfg.Location, 0755); err != nil {
-				return fmt.Errorf("failed to create config directory %s: %w", cfg.Location, err)
+			if err := os.MkdirAll(loc, 0755); err != nil {
+				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
 			}
 		} else {
-			return fmt.Errorf("failed to stat config directory %s: %w", cfg.Location, err)
+			return "", fmt.Errorf("failed to stat config directory %s: %w", loc, err)
 		}
 	}
 
-	return nil
+	return loc, nil
 }
 
 type installedDrvMsg struct {
@@ -159,7 +181,7 @@ type alreadyInstalledDrvMsg struct {
 	item installItem
 }
 
-func installDriver(cfg config.Config, item installItem) tea.Cmd {
+func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
 		var removedDriver *config.DriverInfo
 		if cfg.Exists {
@@ -190,17 +212,18 @@ func installDriver(cfg config.Config, item installItem) tea.Cmd {
 			}
 		}
 
-		output, err := item.Package.DownloadPackage()
+		output, err := s.downloadPkg(item.Package)
 		if err != nil {
 			return fmt.Errorf("failed to download driver: %w", err)
 		}
 
-		if err := ensureConfigLocation(cfg); err != nil {
+		var loc string
+		if loc, err = ensureConfigLocation(cfg); err != nil {
 			return fmt.Errorf("failed to ensure config location: %w", err)
 		}
 
 		base := strings.TrimSuffix(path.Base(item.Package.Path.Path), ".tar.gz")
-		finalDir := filepath.Join(cfg.Location, base)
+		finalDir := filepath.Join(loc, base)
 		if err := os.MkdirAll(finalDir, 0755); err != nil {
 			return fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
 		}
@@ -293,7 +316,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		s.installItems = msg
 
-		return s, tea.Batch(installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
+		return s, tea.Batch(s.installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
 	case alreadyInstalledDrvMsg:
 		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
 			Name:     msg.info.ID,
@@ -315,7 +338,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return s, tea.Batch(
 			progressCmd,
 			tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
-			installDriver(s.cfg, s.installItems[s.index]),
+			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case installedDrvMsg:
 		chksum, err := checksum(msg.info.Driver.Shared.Get(platformTuple))
@@ -351,19 +374,14 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return s, tea.Batch(
 			progressCmd,
 			printCmd,
-			installDriver(s.cfg, s.installItems[s.index]),
+			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
-
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyCtrlD, tea.KeyEsc:
-			return s, tea.Quit
-		}
-	case error:
-		s.status = 1
-		return s, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 	}
-	return s, nil
+
+	bm, cmd := s.baseModel.Update(msg)
+	s.baseModel = bm.(baseModel)
+
+	return s, cmd
 }
 
 func (s syncModel) View() string {

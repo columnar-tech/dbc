@@ -46,6 +46,38 @@ func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	return drivers[idx], nil
 }
 
+func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
+	return p.DownloadPackage()
+}
+
+type baseModel struct {
+	getDriverList func() ([]dbc.Driver, error)
+	downloadPkg   func(p dbc.PkgInfo) (*os.File, error)
+
+	status int
+}
+
+func (m baseModel) Init() tea.Cmd { return nil }
+func (m baseModel) View() string  { return "" }
+
+func (m baseModel) Status() int {
+	return m.status
+}
+
+func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyCtrlD, tea.KeyEsc:
+			return m, tea.Quit
+		}
+	case error:
+		m.status = 1
+		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
+	}
+	return m, nil
+}
+
 func main() {
 	var args struct {
 		List    *ListCmd       `arg:"subcommand" help:"List available drivers"`
