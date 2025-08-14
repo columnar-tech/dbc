@@ -52,14 +52,19 @@ func (c SyncCmd) GetModel() tea.Model {
 type syncModel struct {
 	baseModel
 
+	// path to drivers list
 	Path         string
 	LockFilePath string
-	locked       LockFile
-	cfg          config.Config
+	// information to write the new lockfile
+	locked LockFile
+	cfg    config.Config
 
-	driverIndex  []dbc.Driver
+	// cdn driver index
+	driverIndex []dbc.Driver
+	// the list of package+version to install
 	installItems []installItem
-	index        int
+	// the index of the next driver to install in installItems
+	index int
 
 	spinner       spinner.Model
 	progress      progress.Model
@@ -104,12 +109,13 @@ type installItem struct {
 }
 
 func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
-	// Load the lock file
+	// Load the lock file if it exists
 	lf, err := loadLockFile(s.LockFilePath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 
+	// construct our list of driver+version to install
 	var items []installItem
 	for name, spec := range list.Drivers {
 		var info lockInfo
@@ -117,17 +123,21 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 			info = lf.lockinfo[name]
 		}
 
+		// locate the driver info in the CDN driver index
 		drv, err := findDriver(name, s.driverIndex)
 		if err != nil {
 			return nil, err
 		}
 
 		var pkg dbc.PkgInfo
+		// if the lockfile specified a version and either the driver list doesn't
+		// specify a version constraint or the version in the locked file is valid
+		// for that constraint, then we want to install the version in the lockfile
 		if info.Version != nil && (spec.Version == nil || spec.Version.Check(info.Version)) {
 			// install the locked version and verify checksum
 			pkg, err = drv.GetPackage(info.Version, platformTuple)
 		} else {
-			// no locked version or driver list doesn't match locked file
+			// no locked version or driver list version doesn't match locked file
 			if spec.Version != nil {
 				pkg, err = drv.GetWithConstraint(spec.Version, platformTuple)
 			} else {
@@ -146,29 +156,6 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		})
 	}
 	return items, nil
-}
-
-func ensureConfigLocation(cfg config.Config) (string, error) {
-	loc := cfg.Location
-	if cfg.Level == config.ConfigEnv {
-		list := filepath.SplitList(loc)
-		if len(list) == 0 {
-			return "", fmt.Errorf("invalid config location: %s", loc)
-		}
-		loc = list[0]
-	}
-
-	if _, err := os.Stat(loc); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			if err := os.MkdirAll(loc, 0755); err != nil {
-				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
-			}
-		} else {
-			return "", fmt.Errorf("failed to stat config directory %s: %w", loc, err)
-		}
-	}
-
-	return loc, nil
 }
 
 type installedDrvMsg struct {
@@ -218,7 +205,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 		}
 
 		var loc string
-		if loc, err = ensureConfigLocation(cfg); err != nil {
+		if loc, err = config.EnsureLocation(cfg); err != nil {
 			return fmt.Errorf("failed to ensure config location: %w", err)
 		}
 
