@@ -5,13 +5,11 @@ package main
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/columnar-tech/dbc"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -64,16 +62,13 @@ func (m addModel) Init() tea.Cmd {
 			return fmt.Errorf("error getting driver list: %w", err)
 		}
 
-		idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
-			return d.Path == driverName
-		})
-
-		if idx == -1 {
-			return fmt.Errorf("driver `%s` not found in driver index", driverName)
+		drv, err := findDriver(driverName, drivers)
+		if err != nil {
+			return err
 		}
 
 		if vers != nil {
-			_, err = drivers[idx].GetWithConstraint(vers, platformTuple)
+			_, err = drv.GetWithConstraint(vers, platformTuple)
 			if err != nil {
 				return fmt.Errorf("error getting driver: %w", err)
 			}

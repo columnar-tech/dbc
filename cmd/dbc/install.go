@@ -220,26 +220,24 @@ type Manifest struct {
 	} `toml:"Files"`
 }
 
-func verifySignature(m Manifest) tea.Cmd {
-	return func() tea.Msg {
-		lib, err := os.Open(m.Driver.Shared.Get(platformTuple))
-		if err != nil {
-			return fmt.Errorf("could not open driver file: %w", err)
-		}
-		defer lib.Close()
-
-		sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared.Get(platformTuple)), m.Files.Signature))
-		if err != nil {
-			return fmt.Errorf("could not open signature file: %w", err)
-		}
-		defer sig.Close()
-
-		if err := dbc.SignedByColumnar(lib, sig); err != nil {
-			return fmt.Errorf("signature verification failed: %w", err)
-		}
-
-		return writeDriverManifestMsg{DriverInfo: m.DriverInfo}
+func verifySignature(m Manifest) error {
+	lib, err := os.Open(m.Driver.Shared.Get(platformTuple))
+	if err != nil {
+		return fmt.Errorf("could not open driver file: %w", err)
 	}
+	defer lib.Close()
+
+	sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared.Get(platformTuple)), m.Files.Signature))
+	if err != nil {
+		return fmt.Errorf("could not open signature file: %w", err)
+	}
+	defer sig.Close()
+
+	if err := dbc.SignedByColumnar(lib, sig); err != nil {
+		return fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	return nil
 }
 
 type writeDriverManifestMsg struct {
@@ -378,7 +376,12 @@ func (m simpleInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds,
 			tea.Printf("%s Downloaded %s. Installing...", m.spinner.View(), path.Base(m.DriverPackage.Path.Path)),
 			tea.Println("Verifying signature..."),
-			verifySignature(msg))
+			func() tea.Msg {
+				if err := verifySignature(msg); err != nil {
+					return err
+				}
+				return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
+			})
 
 	case writeDriverManifestMsg:
 		m.state = installStateDone

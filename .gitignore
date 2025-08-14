@@ -29,3 +29,6 @@ go.work.sum
 
 # mkdocs
 site
+
+dbc.toml
+dbc.lock

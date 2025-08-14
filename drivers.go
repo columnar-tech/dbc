@@ -242,7 +242,7 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string) (PkgIn
 		version = pkg.Version
 	} else {
 		idx := slices.IndexFunc(d.PkgInfo, func(p pkginfo) bool {
-			return p.Version == version
+			return p.Version.Equal(version)
 		})
 		if idx == -1 {
 			return PkgInfo{}, fmt.Errorf("version %s not found", version)

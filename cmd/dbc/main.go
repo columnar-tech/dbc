@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/alexflint/go-arg"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,17 @@ type HasStatus interface {
 // use this so we can override this in tests
 var getDriverList = dbc.GetDriverList
 
+func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
+	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
+		return d.Path == name
+	})
+
+	if idx == -1 {
+		return dbc.Driver{}, fmt.Errorf("driver `%s` not found in driver index", name)
+	}
+	return drivers[idx], nil
+}
+
 func main() {
 	var args struct {
 		List    *ListCmd       `arg:"subcommand" help:"List available drivers"`
@@ -41,6 +53,7 @@ func main() {
 		Init    *InitCmd       `arg:"subcommand" help:"Initialize a new DBC drivers list"`
 		Add     *AddCmd        `arg:"subcommand" help:"Add a driver to the drivers list"`
 		Install *InstallCmd    `arg:"subcommand" help:"Install driver"`
+		Sync    *SyncCmd       `arg:"subcommand" help:"Sync drivers from driver list"`
 		Tui     *TuiCmd        `arg:"subcommand"`
 	}
 
