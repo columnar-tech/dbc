@@ -85,7 +85,7 @@ func main() {
 		Init    *InitCmd       `arg:"subcommand" help:"Initialize a new DBC drivers list"`
 		Add     *AddCmd        `arg:"subcommand" help:"Add a driver to the drivers list"`
 		Install *InstallCmd    `arg:"subcommand" help:"Install driver"`
-		Sync    *SyncCmd       `arg:"subcommand" help:"Sync drivers from driver list"`
+		Sync    *SyncCmd       `arg:"subcommand" help:"Sync installed drivers with drivers in the active drivers list"`
 		Tui     *TuiCmd        `arg:"subcommand"`
 	}
 
