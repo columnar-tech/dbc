@@ -93,6 +93,13 @@ func (suite *SubcommandTestSuite) TestSync() {
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+
+	m = SyncCmd{
+		Path:  filepath.Join(suite.tempdir, "dbc.toml"),
+		Level: config.ConfigEnv,
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))
 }
 
 func TestSubcommands(t *testing.T) {

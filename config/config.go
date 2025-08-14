@@ -72,7 +72,7 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 		p := filepath.Join(dir, m)
 		di, err := loadDriverFromManifest(filepath.Dir(p), filepath.Base(p))
 		if err != nil {
-			return nil, fmt.Errorf("error opening driver file %s: %w", m, err)
+			continue
 		}
 
 		ret[di.ID] = di
