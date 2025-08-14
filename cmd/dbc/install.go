@@ -60,6 +60,10 @@ type Manifest struct {
 		Driver    string `toml:"driver"`
 		Signature string `toml:"signature"`
 	} `toml:"Files"`
+
+	PostInstall struct {
+		Messages []string `toml:"messages,inline"`
+	} `toml:"PostInstall"`
 }
 
 func verifySignature(m Manifest) error {
