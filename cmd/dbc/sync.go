@@ -108,8 +108,13 @@ func (s syncModel) Init() tea.Cmd {
 func loadDriverList(path string) (DriversList, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return DriversList{}, fmt.Errorf("error opening drivers list file %s: %w\ndid you run `dbc init`?",
-			path, err)
+		var outError error
+		if errors.Is(err, os.ErrNotExist) {
+			outError = fmt.Errorf("error opening drivers list file: %s doesn't exist\ndid you run `dbc init`?", path)
+		} else {
+			outError = fmt.Errorf("error opening drivers list file at %s: %w", path, err)
+		}
+		return DriversList{}, outError
 	}
 	defer f.Close()
 
