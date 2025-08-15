@@ -32,16 +32,18 @@ type SyncCmd struct {
 
 func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return syncModel{
-		baseModel: baseModel,
-		Path:      c.Path,
-		cfg:       config.Get()[c.Level],
+		baseModel:   baseModel,
+		Path:        c.Path,
+		cfg:         config.Get()[c.Level],
+		termProgram: os.Getenv("TERM_PROGRAM"),
 	}
 }
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path: c.Path,
-		cfg:  config.Get()[c.Level],
+		Path:        c.Path,
+		cfg:         config.Get()[c.Level],
+		termProgram: os.Getenv("TERM_PROGRAM"),
 		baseModel: baseModel{
 			getDriverList: getDriverList,
 			downloadPkg:   downloadPkg,
@@ -72,7 +74,8 @@ type syncModel struct {
 	progress      progress.Model
 	width, height int
 
-	done bool
+	termProgram string
+	done        bool
 }
 
 type driversListMsg struct {
@@ -401,7 +404,12 @@ func (s syncModel) View() string {
 	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + driverName)
 
 	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))
-	gap := strings.Repeat(" ", cellsRemaining)
+	// Fix rendering under macOS Terminal.app. Without this, wrapping behavior
+	// causes the view to wrap which breaks rendering
+	if s.termProgram == "Apple_Terminal" {
+		cellsRemaining -= 1
+	}
+	gap := strings.Repeat(" ", max(0, cellsRemaining))
 
 	return spin + info + gap + prog + driverCount
 }
