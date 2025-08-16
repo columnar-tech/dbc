@@ -3,15 +3,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/columnar-tech/dbc"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -22,21 +21,32 @@ type AddCmd struct {
 	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to add to"`
 }
 
+func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return addModel{
+		baseModel: baseModel,
+		Driver:    c.Driver,
+		Path:      c.Path,
+	}
+}
+
 func (c AddCmd) GetModel() tea.Model {
-	return addModel{Driver: c.Driver, Path: c.Path}
+	return addModel{
+		Driver: c.Driver,
+		Path:   c.Path,
+		baseModel: baseModel{
+			getDriverList: getDriverList,
+			downloadPkg:   downloadPkg,
+		},
+	}
 }
 
 type addModel struct {
+	baseModel
+
 	Driver string
 	Path   string
 
 	list DriversList
-
-	status int
-}
-
-func (m addModel) Status() int {
-	return m.status
 }
 
 func (m addModel) Init() tea.Cmd {
@@ -59,21 +69,18 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		drivers, err := getDriverList()
+		drivers, err := m.getDriverList()
 		if err != nil {
 			return fmt.Errorf("error getting driver list: %w", err)
 		}
 
-		idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
-			return d.Path == driverName
-		})
-
-		if idx == -1 {
-			return fmt.Errorf("driver `%s` not found in driver index", driverName)
+		drv, err := findDriver(driverName, drivers)
+		if err != nil {
+			return err
 		}
 
 		if vers != nil {
-			_, err = drivers[idx].GetWithConstraint(vers, platformTuple)
+			_, err = drv.GetWithConstraint(vers, platformTuple)
 			if err != nil {
 				return fmt.Errorf("error getting driver: %w", err)
 			}
@@ -81,7 +88,11 @@ func (m addModel) Init() tea.Cmd {
 
 		f, err := os.Open(m.Path)
 		if err != nil {
-			return fmt.Errorf("error opening drivers list file %s: %w\ndid you run `dbc init`?", m.Path, err)
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("error opening drivers list file: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+			} else {
+				return fmt.Errorf("error opening drivers list file at %s: %w", m.Path, err)
+			}
 		}
 		defer f.Close()
 
@@ -136,13 +147,13 @@ func (m addModel) Init() tea.Cmd {
 
 func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case error:
-		m.status = 1
-		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 	case string:
 		return m, tea.Sequence(tea.Println(msg), tea.Quit)
 	default:
-		return m, nil
+		bm, cmd := m.baseModel.Update(msg)
+		m.baseModel = bm.(baseModel)
+
+		return m, cmd
 	}
 }
 

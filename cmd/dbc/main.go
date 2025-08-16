@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/alexflint/go-arg"
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +35,49 @@ type HasStatus interface {
 // use this so we can override this in tests
 var getDriverList = dbc.GetDriverList
 
+func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
+	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
+		return d.Path == name
+	})
+
+	if idx == -1 {
+		return dbc.Driver{}, fmt.Errorf("driver `%s` not found in driver index", name)
+	}
+	return drivers[idx], nil
+}
+
+func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
+	return p.DownloadPackage()
+}
+
+type baseModel struct {
+	getDriverList func() ([]dbc.Driver, error)
+	downloadPkg   func(p dbc.PkgInfo) (*os.File, error)
+
+	status int
+}
+
+func (m baseModel) Init() tea.Cmd { return nil }
+func (m baseModel) View() string  { return "" }
+
+func (m baseModel) Status() int {
+	return m.status
+}
+
+func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyCtrlD, tea.KeyEsc:
+			return m, tea.Quit
+		}
+	case error:
+		m.status = 1
+		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
+	}
+	return m, nil
+}
+
 func main() {
 	var args struct {
 		List    *ListCmd       `arg:"subcommand" help:"List available drivers"`
@@ -41,6 +85,7 @@ func main() {
 		Init    *InitCmd       `arg:"subcommand" help:"Initialize a new DBC drivers list"`
 		Add     *AddCmd        `arg:"subcommand" help:"Add a driver to the drivers list"`
 		Install *InstallCmd    `arg:"subcommand" help:"Install driver"`
+		Sync    *SyncCmd       `arg:"subcommand" help:"Sync installed drivers with drivers in the active drivers list"`
 		Tui     *TuiCmd        `arg:"subcommand"`
 	}
 

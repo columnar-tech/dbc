@@ -31,11 +31,6 @@ func getTestDriverList() ([]dbc.Driver, error) {
 }
 
 func TestOutput(t *testing.T) {
-	defer func(fn func() ([]dbc.Driver, error)) {
-		getDriverList = fn
-	}(getDriverList)
-	getDriverList = getTestDriverList
-
 	const (
 		terminalPrefix = "\x1b[?25l\x1b[?2004h"
 		terminalSuffix = " \x1b[D\x1b[2K\r\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l"
@@ -43,7 +38,7 @@ func TestOutput(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		cmd      modelCmd
+		cmd      ListCmd
 		expected string
 	}{
 		{"list", ListCmd{Verbose: false}, "Current System: " + platformTuple + "\r\n" +
@@ -67,7 +62,7 @@ func TestOutput(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
 
-			p := tea.NewProgram(tt.cmd.GetModel(),
+			p := tea.NewProgram(tt.cmd.GetModelCustom(baseModel{getDriverList: getTestDriverList}),
 				tea.WithInput(nil), tea.WithOutput(&out),
 				tea.WithContext(ctx),
 				// this is so that the output is tested without the colors

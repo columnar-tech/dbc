@@ -59,6 +59,29 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	return nil
 }
 
+func EnsureLocation(cfg Config) (string, error) {
+	loc := cfg.Location
+	if cfg.Level == ConfigEnv {
+		list := filepath.SplitList(loc)
+		if len(list) == 0 {
+			return "", fmt.Errorf("invalid config location: %s", loc)
+		}
+		loc = list[0]
+	}
+
+	if _, err := os.Stat(loc); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			if err := os.MkdirAll(loc, 0755); err != nil {
+				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
+			}
+		} else {
+			return "", fmt.Errorf("failed to stat config directory %s: %w", loc, err)
+		}
+	}
+
+	return loc, nil
+}
+
 func loadDir(dir string) (map[string]DriverInfo, error) {
 	if _, err := os.Stat(dir); err != nil {
 		return nil, err
@@ -72,7 +95,7 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 		p := filepath.Join(dir, m)
 		di, err := loadDriverFromManifest(filepath.Dir(p), filepath.Base(p))
 		if err != nil {
-			return nil, fmt.Errorf("error opening driver file %s: %w", m, err)
+			continue
 		}
 
 		ret[di.ID] = di
