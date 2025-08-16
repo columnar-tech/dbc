@@ -408,12 +408,7 @@ func (s syncModel) View() string {
 	driverName := s.installItems[s.index].Driver.Path
 	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + driverName)
 
-	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))
-	// Fix rendering under macOS Terminal.app. Without this, wrapping behavior
-	// causes the view to wrap which breaks rendering
-	if s.termProgram == "Apple_Terminal" {
-		cellsRemaining -= 1
-	}
+	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount)-1)
 	gap := strings.Repeat(" ", max(0, cellsRemaining))
 
 	return spin + info + gap + prog + driverCount
