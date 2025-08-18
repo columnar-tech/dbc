@@ -32,10 +32,8 @@ type HasStatus interface {
 	Status() int
 }
 
-// Aliases so we can override in tests
+// use this so we can override this in tests
 var getDriverList = dbc.GetDriverList
-var downloadPackage = (*dbc.PkgInfo).DownloadPackage
-var signedByColumnar = dbc.SignedByColumnar
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
