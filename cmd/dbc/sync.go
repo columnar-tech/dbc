@@ -238,7 +238,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 
 		base := strings.TrimSuffix(path.Base(item.Package.Path.Path), ".tar.gz")
 		finalDir := filepath.Join(loc, base)
-		if err := os.MkdirAll(finalDir, 0755); err != nil {
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
 			return fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
 		}
 
