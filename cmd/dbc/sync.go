@@ -27,7 +27,7 @@ var (
 
 type SyncCmd struct {
 	Path  string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to sync from"`
-	Level config.ConfigLevel `arg:"-l" help:"Config level to install to" default:"user"`
+	Level config.ConfigLevel `arg:"-l" help:"Config level to install to (env, user, system)" default:"user"`
 }
 
 func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {

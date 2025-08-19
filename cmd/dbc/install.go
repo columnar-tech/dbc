@@ -26,7 +26,7 @@ type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 	Driver  string             `arg:"positional,required" help:"Driver to install"`
 	Version *semver.Version    `arg:"-v" help:"Version to install"`
-	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to" default:"user"`
+	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to (env, user, system)" default:"user"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
