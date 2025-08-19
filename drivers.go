@@ -22,14 +22,21 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-const baseURL = "https://dbc-cdn.columnar.tech"
+const defaultURL = "https://dbc-cdn.columnar.tech"
 
-var version = "unknown"
+var (
+	baseURL = defaultURL
+	version = "unknown"
+)
 
 func init() {
 	info, ok := debug.ReadBuildInfo()
 	if ok {
 		version = info.Main.Version
+	}
+
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		baseURL = val
 	}
 }
 
