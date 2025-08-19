@@ -16,6 +16,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
@@ -60,6 +61,10 @@ type Manifest struct {
 		Driver    string `toml:"driver"`
 		Signature string `toml:"signature"`
 	} `toml:"Files"`
+
+	PostInstall struct {
+		Messages []string `toml:"messages,inline"`
+	} `toml:"PostInstall"`
 }
 
 func verifySignature(m Manifest) error {
@@ -160,8 +165,9 @@ type progressiveInstallModel struct {
 	VersionInput *semver.Version
 	cfg          config.Config
 
-	DriverPackage   dbc.PkgInfo
-	conflictingInfo config.DriverInfo
+	DriverPackage      dbc.PkgInfo
+	conflictingInfo    config.DriverInfo
+	postInstallMessage string
 
 	state   installState
 	spinner spinner.Model
@@ -270,6 +276,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.startInstalling(msg)
 	case Manifest:
 		m.state = stVerifying
+		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {
 			if err := verifySignature(msg); err != nil {
 				return err
@@ -294,6 +301,8 @@ func checkbox(label string, checked bool) string {
 	}
 	return fmt.Sprintf("[ ] %s", label)
 }
+
+var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 func (m progressiveInstallModel) View() string {
 	if m.status != 0 {
@@ -325,6 +334,10 @@ func (m progressiveInstallModel) View() string {
 
 		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
 			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+
+		if m.postInstallMessage != "" {
+			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+		}
 	}
 	return b.String()
 }
