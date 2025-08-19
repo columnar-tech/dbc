@@ -302,7 +302,7 @@ func (m progressiveInstallModel) View() string {
 
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return fmt.Sprintf("\nDriver %s v%s already installed at %s\n",
+			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
 				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 		}
 	}
@@ -319,11 +319,11 @@ func (m progressiveInstallModel) View() string {
 
 	if m.state == stDone {
 		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: v%s)",
+			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
 				m.conflictingInfo.ID, m.conflictingInfo.Version))
 		}
 
-		b.WriteString(fmt.Sprintf("\nInstalled %s v%s to %s\n",
+		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
 			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
 	}
 	return b.String()
