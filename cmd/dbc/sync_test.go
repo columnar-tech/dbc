@@ -56,6 +56,21 @@ func (suite *SubcommandTestSuite) TearDownSuite() {
 	getDriverList = suite.getDriverListFn
 }
 
+func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var out bytes.Buffer
+	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
+		tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=linux")))
+
+	var err error
+	m, err = p.Run()
+	suite.Require().NoError(err)
+	suite.Equal(1, m.(HasStatus).Status())
+	return out.String()
+}
+
 func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -71,7 +71,7 @@ func EnsureLocation(cfg Config) (string, error) {
 
 	if _, err := os.Stat(loc); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			if err := os.MkdirAll(loc, 0755); err != nil {
+			if err := os.MkdirAll(loc, 0o755); err != nil {
 				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
 			}
 		} else {

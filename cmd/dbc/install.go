@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -16,17 +15,10 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
-)
-
-var (
-	errStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
 )
 
 type InstallCmd struct {
@@ -36,177 +28,29 @@ type InstallCmd struct {
 	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to" default:"user"`
 }
 
-func (c InstallCmd) GetModel() tea.Model {
-	return simpleInstallModel{
+func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return progressiveInstallModel{
 		Driver:       c.Driver,
 		VersionInput: c.Version,
+		spinner:      spinner.New(),
+		cfg:          config.Get()[c.Level],
+		baseModel:    baseModel,
+	}
+}
+
+func (c InstallCmd) GetModel() tea.Model {
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
+	return progressiveInstallModel{
+		Driver:       c.Driver,
+		VersionInput: c.Version,
+		spinner:      s,
 		cfg:          config.Get()[c.Level],
 		baseModel: baseModel{
-			getDriverList: getDriverList, downloadPkg: downloadPkg},
-	}
-}
-
-type installState int
-
-const (
-	installStateNone installState = iota
-	installStateConflict
-	installStateConfirm
-	installStateDownloading
-	installStateInstalling
-	installStateVerifySignature
-	installStateDone
-)
-
-type downloadedMsg struct {
-	file *os.File
-	err  error
-}
-
-type conflictMsg config.DriverInfo
-
-type simpleInstallModel struct {
-	baseModel
-
-	Driver       string
-	VersionInput *semver.Version
-	cfg          config.Config
-
-	state         installState
-	DriverPackage dbc.PkgInfo
-	confirmModel  textinput.Model
-
-	downloaded downloadedMsg
-	conflict   conflictMsg
-	spinner    spinner.Model
-}
-
-func (m simpleInstallModel) Init() tea.Cmd {
-	return tea.Sequence(
-		tea.Printf(archStyle.Render("Current System: %s"), platformTuple),
-		tea.Printf(archStyle.Render("Install To: %s"), m.cfg.Location),
-		tea.Println(),
-		func() tea.Msg {
-			drivers, err := m.getDriverList()
-			if err != nil {
-				return err
-			}
-			return drivers
-		})
-}
-
-func createConfirmModel(prompt string) textinput.Model {
-	confirmModel := textinput.New()
-	confirmModel.Prompt = prompt
-	confirmModel.CharLimit = 1
-	confirmModel.Width = 3
-	confirmModel.Validate = func(s string) error {
-		v := strings.ToLower(s)
-		switch v {
-		case "", "y", "n":
-			return nil
-		}
-
-		return errors.New("please enter y or n")
-	}
-	return confirmModel
-}
-
-func (m simpleInstallModel) toConfirmState(msg []dbc.Driver) (tea.Model, tea.Cmd) {
-	for _, d := range msg {
-		if d.Path == m.Driver {
-			m.state = installStateConfirm
-			pkg, err := d.GetPackage(m.VersionInput, platformTuple)
-			if err != nil {
-				return m, errCmd("failed to find installable version of driver '%s': %w", m.Driver, err)
-			}
-
-			m.DriverPackage = pkg
-			m.confirmModel = createConfirmModel("Install driver? (y/[N]): ")
-
-			t := tree.Root(m.DriverPackage.Driver.Title).
-				RootStyle(nameStyle).
-				Child(m.DriverPackage.Version).
-				Child(descStyle.Render(m.DriverPackage.Driver.Desc)).
-				Child(archStyle.Render(m.DriverPackage.PlatformTuple)).
-				Child(path.Base(m.DriverPackage.Path.Path))
-
-			cmds := []tea.Cmd{
-				tea.Println(descStyle.Render("Located driver..."), ""),
-				tea.Println(t.String())}
-
-			di, err := config.GetDriver(m.cfg, m.Driver)
-			if err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return m, errCmd("Error checking for existing driver: %s", err)
-			}
-
-			if errors.Is(err, fs.ErrNotExist) {
-				cmds = append(cmds, m.confirmModel.Focus())
-			} else {
-				cmds = append(cmds, func() tea.Msg {
-					return conflictMsg(di)
-				})
-			}
-
-			return m, tea.Sequence(cmds...)
-		}
-	}
-
-	return m, errCmd("Driver '%s' not found.", m.Driver)
-}
-
-func (m simpleInstallModel) handleConflict(msg conflictMsg) (tea.Model, tea.Cmd) {
-	if msg.Version == nil {
-		return m, errCmd("when comparing existing version to candidate version, version to compare with was nil. This indicates the existing manifest may be invalid.")
-	}
-	m.conflict, m.state = msg, installStateConflict
-	var s string
-	switch m.DriverPackage.Version.Compare(msg.Version) {
-	case -1:
-		s = "newer"
-	case 0:
-		s = "the same"
-	case 1:
-		s = "older"
-	}
-
-	m.confirmModel = createConfirmModel("Remove existing driver? (y/[N]): ")
-	return m, tea.Sequence(
-		tea.Printf("\nFound %s existing local driver at %s", s, m.conflict.Driver.Shared),
-		tea.Println("Local Driver: ", msg.Name, " (", msg.Version, ")"),
-		m.confirmModel.Focus())
-}
-
-func (m simpleInstallModel) removeConflictingDriver() (tea.Model, tea.Cmd) {
-	prev := m.confirmModel.View()
-	m.confirmModel = createConfirmModel("Install new driver? (y/[N]): ")
-	m.state = installStateConfirm
-
-	msg := "Removing driver: " + m.conflict.Driver.Shared.Get(platformTuple)
-	if m.conflict.Source == "dbc" {
-		msg = "Removing directory: " + filepath.Dir(m.conflict.Driver.Shared.Get(platformTuple))
-	}
-
-	return m, tea.Sequence(tea.Println(prev),
-		tea.Println(msg),
-		func() tea.Msg {
-			return config.DeleteDriver(m.cfg, config.DriverInfo(m.conflict))
+			getDriverList: getDriverList,
+			downloadPkg:   downloadPkg,
 		},
-		tea.Println("Driver removed successfully!"),
-		m.confirmModel.Focus(),
-	)
-}
-
-func (m simpleInstallModel) startDownloading() (tea.Model, tea.Cmd) {
-	m.spinner = spinner.New()
-	m.spinner.Spinner = spinner.Dot
-	return m, tea.Sequence(tea.Println(), tea.Println(m.confirmModel.View()), tea.Batch(m.spinner.Tick, func() tea.Msg {
-		output, err := m.downloadPkg(m.DriverPackage)
-		return downloadedMsg{
-			file: output,
-			err:  err,
-		}
-	}))
+	}
 }
 
 type Manifest struct {
@@ -284,140 +128,203 @@ func inflateTarball(f *os.File, outDir string) (Manifest, error) {
 	return m, nil
 }
 
-func (m simpleInstallModel) startInstalling(msg downloadedMsg) (tea.Model, tea.Cmd) {
-	m.state, m.downloaded = installStateInstalling, msg
+type installState int
+
+const (
+	stSearching installState = iota
+	stDownloading
+	stInstalling
+	stVerifying
+	stDone
+)
+
+func (s installState) String() string {
+	switch s {
+	case stSearching:
+		return "searching"
+	case stDownloading:
+		return "downloading"
+	case stVerifying:
+		return "verifying signature"
+	case stInstalling:
+		return "installing"
+	default:
+		return "done"
+	}
+}
+
+type progressiveInstallModel struct {
+	baseModel
+
+	Driver       string
+	VersionInput *semver.Version
+	cfg          config.Config
+
+	DriverPackage   dbc.PkgInfo
+	conflictingInfo config.DriverInfo
+
+	state   installState
+	spinner spinner.Model
+}
+
+func (m progressiveInstallModel) Init() tea.Cmd {
+	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		drivers, err := m.getDriverList()
+		if err != nil {
+			return err
+		}
+		return drivers
+	})
+}
+
+func (m progressiveInstallModel) searchForDriver(d dbc.Driver) tea.Cmd {
+	return func() tea.Msg {
+		pkg, err := d.GetPackage(m.VersionInput, platformTuple)
+		if err != nil {
+			return err
+		}
+
+		return pkg
+	}
+}
+
+func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
+	m.state = stDownloading
+	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			m.state = stDone
+			return m, tea.Quit
+		}
+	}
 
 	return m, func() tea.Msg {
-		if _, err := os.Stat(m.cfg.Location); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				if err = os.MkdirAll(m.cfg.Location, 0755); err != nil {
-					return fmt.Errorf("could not create config dir: %w", err)
-				}
-			} else {
-				return fmt.Errorf("could not stat config dir: %w", err)
+		output, err := m.downloadPkg(m.DriverPackage)
+		if err != nil {
+			return err
+		}
+		return output
+	}
+}
+
+func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model, tea.Cmd) {
+	m.state = stInstalling
+	return m, func() tea.Msg {
+		if m.conflictingInfo.ID != "" {
+			if err := config.DeleteDriver(m.cfg, m.conflictingInfo); err != nil {
+				return err
 			}
 		}
 
+		var (
+			loc string
+			err error
+		)
+		if loc, err = config.EnsureLocation(m.cfg); err != nil {
+			return fmt.Errorf("could not ensure config location: %w", err)
+		}
+
 		base := strings.TrimSuffix(path.Base(m.DriverPackage.Path.Path), ".tar.gz")
-
-		finalDir := filepath.Join(m.cfg.Location, base)
-		if err := os.Mkdir(finalDir, 0755); err != nil && !errors.Is(err, fs.ErrExist) {
-			return fmt.Errorf("could not create driver dir: %w", err)
+		finalDir := filepath.Join(loc, base)
+		if err := os.MkdirAll(finalDir, 0o755); err != nil {
+			return fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
 		}
 
-		m.downloaded.file.Seek(0, io.SeekStart)
-		manifest, err := inflateTarball(m.downloaded.file, finalDir)
+		downloaded.Seek(0, io.SeekStart)
+		manifest, err := inflateTarball(downloaded, finalDir)
 		if err != nil {
-			return fmt.Errorf("could not extract tarball: %w", err)
+			return fmt.Errorf("failed to extract tarball: %w", err)
 		}
+
+		driverPath := filepath.Join(finalDir, manifest.Files.Driver)
 
 		manifest.DriverInfo.ID = m.Driver
 		manifest.DriverInfo.Source = "dbc"
-		manifest.DriverInfo.Driver.Shared.Set(platformTuple, filepath.Join(m.cfg.Location, base, manifest.Files.Driver))
+		manifest.DriverInfo.Driver.Shared.Set(platformTuple, driverPath)
+
 		return manifest
 	}
 }
 
-func (m simpleInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	cmds := make([]tea.Cmd, 0)
-
+func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 	case []dbc.Driver:
-		return m.toConfirmState(msg)
-
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "ctrl+d", "esc":
-			if m.downloaded.file != nil {
-				m.downloaded.file.Close()
-				os.RemoveAll(filepath.Dir(m.downloaded.file.Name()))
-			}
-			return m, tea.Quit
-		case "enter":
-			if m.state == installStateConfirm || m.state == installStateConflict {
-				m.confirmModel.Blur()
-				cmds = append(cmds,
-					tea.Println(),
-					tea.Println(m.confirmModel.View()))
-				if m.confirmModel.Err != nil {
-					cmds = append(cmds,
-						tea.Println(errStyle.Render(m.confirmModel.Err.Error())),
-						m.confirmModel.Focus())
-					m.confirmModel.Reset()
-				} else {
-					if strings.ToLower(m.confirmModel.Value()) == "y" {
-						switch m.state {
-						case installStateConfirm:
-							return m.startDownloading()
-						case installStateConflict:
-							return m.removeConflictingDriver()
-						}
-					} else {
-						return m, tea.Quit
-					}
-				}
-			}
+		d, err := findDriver(m.Driver, msg)
+		if err != nil {
+			return m, errCmd("could not find driver: %w", err)
 		}
 
-	case conflictMsg:
-		return m.handleConflict(msg)
-
-	case downloadedMsg:
-		if msg.err != nil {
-			return m, errCmd("Error downloading driver: %w", msg.err)
+		return m, m.searchForDriver(d)
+	case dbc.PkgInfo:
+		m.DriverPackage = msg
+		di, err := config.GetDriver(m.cfg, m.Driver)
+		if err == nil {
+			m.conflictingInfo = di
 		}
 
+		return m.startDownloading()
+	case *os.File:
 		return m.startInstalling(msg)
-
 	case Manifest:
-		m.state = installStateVerifySignature
-		cmds = append(cmds,
-			tea.Printf("%s Downloaded %s. Installing...", m.spinner.View(), path.Base(m.DriverPackage.Path.Path)),
-			tea.Println("Verifying signature..."),
-			func() tea.Msg {
-				if err := verifySignature(msg); err != nil {
-					return err
-				}
-				return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
-			})
-
+		m.state = stVerifying
+		return m, func() tea.Msg {
+			if err := verifySignature(msg); err != nil {
+				return err
+			}
+			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
+		}
 	case writeDriverManifestMsg:
-		m.state = installStateDone
+		m.state = stDone
 		return m, tea.Sequence(func() tea.Msg {
 			return config.CreateManifest(m.cfg, msg.DriverInfo)
-		}, tea.Println("Driver installed successfully!"), tea.Quit)
-
-	case error:
-		m.confirmModel.Blur()
-		m.status = 1
-		return m, tea.Sequence(
-			tea.Println(errStyle.Render(msg.Error())),
-			tea.Quit)
+		}, tea.Quit)
 	}
 
-	var cmd tea.Cmd
-	switch m.state {
-	case installStateConfirm, installStateConflict:
-		m.confirmModel, cmd = m.confirmModel.Update(msg)
-	case installStateDownloading, installStateInstalling:
-		m.spinner, cmd = m.spinner.Update(msg)
-	}
-	cmds = append(cmds, cmd)
-
-	return m, tea.Sequence(cmds...)
+	base, cmd := m.baseModel.Update(msg)
+	m.baseModel = base.(baseModel)
+	return m, cmd
 }
 
-func (m simpleInstallModel) View() string {
-	switch m.state {
-	case installStateConfirm, installStateConflict:
-		return "\n" + m.confirmModel.View() + "\n"
-	case installStateDownloading:
-		return fmt.Sprintf("%s Downloading %s...",
-			m.spinner.View(), path.Base(m.DriverPackage.Path.Path)) + "\n"
-	case installStateInstalling:
-		return fmt.Sprintf("%s Downloaded %s. Installing...",
-			m.spinner.View(), path.Base(m.DriverPackage.Path.Path)) + "\n"
+func checkbox(label string, checked bool) string {
+	if checked {
+		return fmt.Sprintf("[%s] %s", checkMark, label)
+	}
+	return fmt.Sprintf("[ ] %s", label)
+}
+
+func (m progressiveInstallModel) View() string {
+	if m.status != 0 {
+		return ""
 	}
 
-	return ""
+	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
+				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+		}
+	}
+
+	var b strings.Builder
+	for s := range stDone {
+		if s == m.state {
+			b.WriteString(fmt.Sprintf("[%s] %s...", m.spinner.View(), s.String()))
+		} else {
+			b.WriteString(checkbox(s.String(), s < m.state))
+		}
+		b.WriteByte('\n')
+	}
+
+	if m.state == stDone {
+		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
+				m.conflictingInfo.ID, m.conflictingInfo.Version))
+		}
+
+		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
+			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+	}
+	return b.String()
 }
