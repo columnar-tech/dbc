@@ -15,7 +15,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 	out := suite.runCmd(m)
 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 v1.1.0 to "+suite.tempdir+"\r\n", out)
+		"\r\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\r\n", out)
 	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 	}
