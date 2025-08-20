@@ -64,7 +64,7 @@ func EnsureLocation(cfg Config) (string, error) {
 	if cfg.Level == ConfigEnv {
 		list := filepath.SplitList(loc)
 		if len(list) == 0 {
-			return "", fmt.Errorf("invalid config location: %s", loc)
+			return "", errors.New("ADBC_CONFIG_PATH is empty, must be set to valid path to use")
 		}
 		loc = list[0]
 	}

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 
@@ -25,4 +26,11 @@ func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver index\r\n\r ", suite.runCmdErr(m))
+}
+
+func (suite *SubcommandTestSuite) TestInstallEnvNotSet() {
+	os.Unsetenv("ADBC_CONFIG_PATH")
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Error: could not ensure config location: ADBC_CONFIG_PATH is empty, must be set to valid path to use\r\n\r ", suite.runCmdErr(m))
 }
