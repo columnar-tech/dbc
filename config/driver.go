@@ -16,7 +16,8 @@ import (
 )
 
 type DriverInfo struct {
-	ID string
+	ID       string
+	FilePath string
 
 	Name      string
 	Publisher string

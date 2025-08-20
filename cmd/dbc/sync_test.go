@@ -15,7 +15,22 @@ import (
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
+	"gopkg.in/yaml.v3"
 )
+
+func getTestDriverList() ([]dbc.Driver, error) {
+	drivers := struct {
+		Drivers []dbc.Driver `yaml:"drivers"`
+	}{}
+
+	f, err := os.Open("testdata/test_manifest.yaml")
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	return drivers.Drivers, yaml.NewDecoder(f).Decode(&drivers)
+}
 
 func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 	switch pkg.Driver.Path {

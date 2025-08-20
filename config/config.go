@@ -39,7 +39,7 @@ func (c ConfigLevel) String() string {
 	case ConfigUser:
 		return "user"
 	case ConfigEnv:
-		return "env (" + adbcEnvVar + ")"
+		return "env"
 	default:
 		return "unknown"
 	}
@@ -98,6 +98,7 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 			continue
 		}
 
+		di.FilePath = filepath.Dir(p)
 		ret[di.ID] = di
 	}
 	return ret, nil
