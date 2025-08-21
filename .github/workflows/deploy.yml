@@ -46,7 +46,7 @@ jobs:
 
       - name: Download release artifacts
         run: |
-          gh release download ${{ inputs.release_tag }}
+          gh release download ${{ inputs.release_tag }} --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ github.token }}
       
