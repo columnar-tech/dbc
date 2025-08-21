@@ -3,8 +3,7 @@ name: Release dbc
 on:
   push:
     tags:
-      - "v*"
-  pull_request:
+      - "v*"  
 
 permissions:
   contents: write
@@ -102,9 +101,13 @@ jobs:
       - name: Create Release
         if: github.event_name == 'push'
         run: |
+          VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
+          if [ "${VERSION#*-}" ]; then
+            PRE_RELEASE="-p"
+          fi
           gh release create ${{ github.ref_name }} \
             --title "dbc ${{ github.ref_name }}" \
-            --generate-notes \
+            --generate-notes $PRE_RELEASE \
             *.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
