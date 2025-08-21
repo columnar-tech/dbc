@@ -4,24 +4,40 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
 
 permissions:
   contents: write
 
 jobs:
+  build-linux-arm:
+    runs-on: ubuntu-latest # ubuntu-arm isn't available for private repos yet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: './go.mod'
+
+      - name: Build dbc
+        run: |
+          go build ./cmd/dbc
+        env:
+          GOARCH: arm64
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbc-linux-arm64
+          path: dbc*
+
   build:
-    runs-on: ubuntu-latest # we can cross-compile
+    runs-on: ${{ matrix.image }} # we can cross-compile
     strategy:
       matrix:
-        goos: ["darwin", "linux", "windows"]
-        goarch: ["amd64", "arm64"]
-        include:
-          - goos: "darwin"
-            binary_name: "dbc"
-          - goos: "linux"
-            binary_name: "dbc"
-          - goos: "windows"
-            binary_name: "dbc.exe"
+        image: [
+          "ubuntu-latest", "macos-latest", "macos-latest-large", "windows-latest"]
 
     steps:
       - uses: actions/checkout@v4
@@ -33,23 +49,26 @@ jobs:
 
       - name: Build dbc
         run: |
-          go build -o ${{ matrix.binary_name }} ./cmd/dbc
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          go build ./cmd/dbc
 
       - name: Test
         run: |
           go test -v ./...
 
+      - name: downcase
+        shell: bash
+        run: |
+          echo "OS=$(go env GOOS)" >> ${GITHUB_ENV}
+          echo "ARCH=$(go env GOARCH)" >> ${GITHUB_ENV}        
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dbc-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ${{ matrix.binary_name }}
+          name: dbc-${{ env.OS }}-${{ env.ARCH }}
+          path: dbc*
 
   release:
-    needs: build
+    needs: [build, build-linux-arm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,7 +79,7 @@ jobs:
           path: ./artifacts
 
       - name: Set executable permissions on Unix-likes
-        if: matrix.goos != 'windows'
+        if: runner.os != 'Windows'
         run: |
           find artifacts -name "dbc*" -type f -exec chmod +x {} \;
 
@@ -72,14 +91,16 @@ jobs:
               base_name=$(basename "$artifact")
               mkdir "packages/$base_name"
 
-              cp "$artifact" "packages/$base_name/dbc"
+              cp -r "$artifact" "packages/$base_name/dbc"
               cp README.md "packages/$base_name/"
               cp LICENSE "packages/$base_name/"
 
-              tar -czvf "${base_name}-${{ github.ref_name }}.tar.gz" -C "packages/$base_name" .
+              FULLNAME="${base_name}-${{ github.ref_name }}"
+              tar -czvf "${FULLNAME%/*}.tar.gz" -C "packages/$base_name" .
           done
 
       - name: Create Release
+        if: github.event_name == 'push'
         run: |
           gh release create ${{ github.ref_name }} \
             --title "dbc ${{ github.ref_name }}" \
