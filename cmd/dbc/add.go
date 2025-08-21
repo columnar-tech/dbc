@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -15,6 +16,18 @@ import (
 )
 
 var msgStyle = lipgloss.NewStyle().Faint(true)
+
+func driverListPath(path string) (string, error) {
+	p, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("invalid path: %w", err)
+	}
+
+	if filepath.Ext(p) == "" {
+		p = filepath.Join(p, "dbc.toml")
+	}
+	return p, nil
+}
 
 type AddCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to add"`
@@ -86,7 +99,12 @@ func (m addModel) Init() tea.Cmd {
 			}
 		}
 
-		f, err := os.Open(m.Path)
+		p, err := driverListPath(m.Path)
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Open(p)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("error opening drivers list file: %s doesn't exist\nDid you run `dbc init`?", m.Path)
@@ -126,9 +144,9 @@ func (m addModel) Init() tea.Cmd {
 		}
 
 		m.list.Drivers[driverName] = driverSpec{Version: vers}
-		f, err = os.Create(m.Path)
+		f, err = os.Create(p)
 		if err != nil {
-			return fmt.Errorf("error creating file %s: %w", m.Path, err)
+			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
 		defer f.Close()
 

@@ -37,13 +37,9 @@ func (m initModel) Status() int {
 
 func (m initModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		p, err := filepath.Abs(m.Path)
+		p, err := driverListPath(m.Path)
 		if err != nil {
-			return fmt.Errorf("invalid path: %w", err)
-		}
-
-		if filepath.Ext(p) == "" {
-			p = filepath.Join(p, "dbc.toml")
+			return err
 		}
 
 		_, err = os.Stat(p)
