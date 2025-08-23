@@ -62,6 +62,7 @@ changelog:
       - "^test:"
 
 release:
+  prerelease: auto
   footer: >-
 
     ---
