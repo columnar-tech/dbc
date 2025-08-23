@@ -3,7 +3,7 @@
 
 # The lines below are called `modelines`. See `:help modeline`
 # Feel free to remove those if you don't want/need to use them.
-# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# yaml-language-server: $schema=https://goreleaser.com/static/schema-pro.json
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
 
 version: 2
@@ -72,6 +72,34 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+
+dockers:
+  - image_templates:
+    - "columnar/dbc:{{ .Version }}-amd64"
+    use: buildx
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+  - image_templates:
+    - "columnar/dbc:{{ .Version }}-arm64v8"
+    use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile
+    build_flag_templates:      
+      - "--platform=linux/arm64/v8"
+
+docker_manifests:
+  - name_template: "columnar/dbc:{{ .Version }}"
+    image_templates:
+      - "columnar/dbc:{{ .Version }}-amd64"
+      - "columnar/dbc:{{ .Version }}-arm64v8"
+
+dockerhub:
+  - username: "columnar"
+    secret_name: "DOCKER_TOKEN"
+    images:
+      - "columnar/dbc:{{ .Version }}-amd64"
+      - "columnar/dbc:{{ .Version }}-arm64v8"
 
 release:
   prerelease: auto
