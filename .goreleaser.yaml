@@ -20,6 +20,8 @@ project_name: dbc
 builds:
   - main: ./cmd/dbc
     binary: dbc
+    ldflags:
+      - -s -w
     env:
       - CGO_ENABLED=0
     goos:
@@ -37,11 +39,11 @@ archives:
   - formats: [tar.gz]
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
-      {{ .ProjectName }}_
-      {{- .Os }}_      
+      {{ .ProjectName }}-
+      {{- .Os }}-
       {{- if eq .Arch "386" }}x86
       {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Tag }}
     # use zip for windows archives
     format_overrides:
       - goos: windows
@@ -56,6 +58,16 @@ blobs:
 
 changelog:
   sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+      
   filters:
     exclude:
       - "^docs:"
