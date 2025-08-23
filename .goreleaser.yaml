@@ -49,7 +49,7 @@ archives:
 
 blobs:  
   - provider: s3
-    region: us-east-1
+    region: us-east-2
     bucket: dbc-distribution
     directory: "{{ .Tag }}"  
     include_meta: true
