@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Columnar Technologies, Inc.  All rights reserved.
+
 name: Release dbc
 
 on:
@@ -7,107 +9,136 @@ on:
 
 permissions:
   contents: write
+  id-token: write # For AWS auth
 
 jobs:
-  build-linux-arm:
-    runs-on: ubuntu-latest # ubuntu-arm isn't available for private repos yet
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: './go.mod'
-
-      - name: Build dbc
-        run: |
-          go build ./cmd/dbc
-        env:
-          GOARCH: arm64
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbc-linux-arm64
-          path: dbc*
-
-  build:
-    runs-on: ${{ matrix.image }} # we can cross-compile
-    strategy:
-      matrix:
-        image: [
-          "ubuntu-latest", "macos-latest", "macos-latest-large", "windows-latest"]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: './go.mod'
-
-      - name: Build dbc
-        run: |
-          go build ./cmd/dbc
-
-      - name: Test
-        run: |
-          go test -v ./...
-
-      - name: downcase
-        shell: bash
-        run: |
-          echo "OS=$(go env GOOS)" >> ${GITHUB_ENV}
-          echo "ARCH=$(go env GOARCH)" >> ${GITHUB_ENV}        
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbc-${{ env.OS }}-${{ env.ARCH }}
-          path: dbc*
-
-  release:
-    needs: [build, build-linux-arm]
+  goreleaser:
     runs-on: ubuntu-latest
+    environment: production
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
         with:
-          path: ./artifacts
-
-      - name: Set executable permissions on Unix-likes
-        if: runner.os != 'Windows'
-        run: |
-          find artifacts -name "dbc*" -type f -exec chmod +x {} \;
-
-      - name: Create archive and include extra files
-        run: |
-          mkdir packages
-
-          for artifact in artifacts/*; do
-              base_name=$(basename "$artifact")
-              mkdir "packages/$base_name"
-
-              cp -r "$artifact" "packages/$base_name/dbc"
-              cp README.md "packages/$base_name/"
-              cp LICENSE "packages/$base_name/"
-
-              FULLNAME="${base_name}-${{ github.ref_name }}"
-              tar -czvf "${FULLNAME%/*}.tar.gz" -C "packages/$base_name" .
-          done
-
-      - name: Create Release
-        if: github.event_name == 'push'
-        run: |
-          VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
-          if [ "${VERSION#*-}" ]; then
-            PRE_RELEASE="-p"
-          fi
-          gh release create ${{ github.ref_name }} \
-            --title "dbc ${{ github.ref_name }}" \
-            --generate-notes $PRE_RELEASE \
-            *.tar.gz
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: './go.mod'
+      
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          role-session-name: deploy-production-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION }}
+    
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # build-linux-arm:
+  #   runs-on: ubuntu-latest # ubuntu-arm isn't available for private repos yet
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: './go.mod'
+
+  #     - name: Build dbc
+  #       run: |
+  #         go build ./cmd/dbc
+  #       env:
+  #         GOARCH: arm64
+
+  #     - name: Upload artifacts
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: dbc-linux-arm64
+  #         path: dbc*
+
+  # build:
+  #   runs-on: ${{ matrix.image }} # we can cross-compile
+  #   strategy:
+  #     matrix:
+  #       image: [
+  #         "ubuntu-latest", "macos-latest", "macos-latest-large", "windows-latest"]
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Set up Go
+  #       uses: actions/setup-go@v4
+  #       with:
+  #         go-version-file: './go.mod'
+
+  #     - name: Build dbc
+  #       run: |
+  #         go build ./cmd/dbc
+
+  #     - name: Test
+  #       run: |
+  #         go test -v ./...
+
+  #     - name: downcase
+  #       shell: bash
+  #       run: |
+  #         echo "OS=$(go env GOOS)" >> ${GITHUB_ENV}
+  #         echo "ARCH=$(go env GOARCH)" >> ${GITHUB_ENV}        
+
+  #     - name: Upload artifacts
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: dbc-${{ env.OS }}-${{ env.ARCH }}
+  #         path: dbc*
+
+  # release:
+  #   needs: [build, build-linux-arm]
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Download all artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: ./artifacts
+
+  #     - name: Set executable permissions on Unix-likes
+  #       if: runner.os != 'Windows'
+  #       run: |
+  #         find artifacts -name "dbc*" -type f -exec chmod +x {} \;
+
+  #     - name: Create archive and include extra files
+  #       run: |
+  #         mkdir packages
+
+  #         for artifact in artifacts/*; do
+  #             base_name=$(basename "$artifact")
+  #             mkdir "packages/$base_name"
+
+  #             cp -r "$artifact" "packages/$base_name/dbc"
+  #             cp README.md "packages/$base_name/"
+  #             cp LICENSE "packages/$base_name/"
+
+  #             FULLNAME="${base_name}-${{ github.ref_name }}"
+  #             tar -czvf "${FULLNAME%/*}.tar.gz" -C "packages/$base_name" .
+  #         done
+
+  #     - name: Create Release
+  #       if: github.event_name == 'push'
+  #       run: |
+  #         VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
+  #         if [ "${VERSION#*-}" ]; then
+  #           PRE_RELEASE="-p"
+  #         fi
+  #         gh release create ${{ github.ref_name }} \
+  #           --title "dbc ${{ github.ref_name }}" \
+  #           --generate-notes $PRE_RELEASE \
+  #           *.tar.gz
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

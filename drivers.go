@@ -26,13 +26,13 @@ const defaultURL = "https://dbc-cdn.columnar.tech"
 
 var (
 	baseURL = defaultURL
-	version = "unknown"
+	Version = "unknown"
 )
 
 func init() {
 	info, ok := debug.ReadBuildInfo()
 	if ok {
-		version = info.Main.Version
+		Version = info.Main.Version
 	}
 
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
@@ -51,7 +51,7 @@ func makereq(u string) (resp *http.Response, err error) {
 		URL:    uri,
 		Header: http.Header{
 			"User-Agent": []string{fmt.Sprintf("dbc-cli/%s (%s; %s)",
-				version, runtime.GOOS, runtime.GOARCH)},
+				Version, runtime.GOOS, runtime.GOARCH)},
 		},
 	}
 
