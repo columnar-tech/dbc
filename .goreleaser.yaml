@@ -60,10 +60,10 @@ changelog:
   sort: asc
   groups:
     - title: Features
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?feat(\([[:word:]]+(/[[:word:]]+)*\))??!?:.+$'
       order: 0
     - title: "Bug fixes"
-      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?fix(\([[:word:]]+(/[[:word:]]+)*\))??!?:.+$'
       order: 1
     - title: Others
       order: 999
