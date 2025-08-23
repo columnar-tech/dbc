@@ -40,3 +40,14 @@ jobs:
           args: release -p 10 --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  
+      - name: Update CF Latest Key
+        if: contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
+        run: |
+          ETAG=$(aws cloudfront-keyvaluestore describe-key-value-store \
+            --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} | jq -r '.ETag')
+          aws cloudfront-keyvaluestore put-key \
+            --if-match=$ETAG \
+            --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} \
+            --key=latest \
+            --value=${{ fromJSON(steps.gorelease.outputs.metadata).tag }}
