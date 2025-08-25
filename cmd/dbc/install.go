@@ -3,13 +3,8 @@
 package main
 
 import (
-	"archive/tar"
-	"compress/gzip"
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 
@@ -19,7 +14,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
-	"github.com/pelletier/go-toml/v2"
 )
 
 type InstallCmd struct {
@@ -54,27 +48,14 @@ func (c InstallCmd) GetModel() tea.Model {
 	}
 }
 
-type Manifest struct {
-	config.DriverInfo
-
-	Files struct {
-		Driver    string `toml:"driver"`
-		Signature string `toml:"signature"`
-	} `toml:"Files"`
-
-	PostInstall struct {
-		Messages []string `toml:"messages,inline"`
-	} `toml:"PostInstall"`
-}
-
-func verifySignature(m Manifest) error {
-	lib, err := os.Open(m.Driver.Shared.Get(platformTuple))
+func verifySignature(m config.Manifest) error {
+	lib, err := os.Open(m.Driver.Shared.Get(config.PlatformTuple()))
 	if err != nil {
 		return fmt.Errorf("could not open driver file: %w", err)
 	}
 	defer lib.Close()
 
-	sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared.Get(platformTuple)), m.Files.Signature))
+	sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple())), m.Files.Signature))
 	if err != nil {
 		return fmt.Errorf("could not open signature file: %w", err)
 	}
@@ -89,48 +70,6 @@ func verifySignature(m Manifest) error {
 
 type writeDriverManifestMsg struct {
 	DriverInfo config.DriverInfo
-}
-
-func inflateTarball(f *os.File, outDir string) (Manifest, error) {
-	defer f.Close()
-	var m Manifest
-
-	rdr, err := gzip.NewReader(f)
-	if err != nil {
-		return m, fmt.Errorf("could not create gzip reader: %w", err)
-	}
-	defer rdr.Close()
-
-	t := tar.NewReader(rdr)
-	for {
-		hdr, err := t.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			return m, fmt.Errorf("error reading tarball: %w", err)
-		}
-
-		if hdr.Name != "MANIFEST" {
-			next, err := os.Create(filepath.Join(outDir, hdr.Name))
-			if err != nil {
-				return m, fmt.Errorf("could not create file %s: %w", hdr.Name, err)
-			}
-
-			if _, err = io.Copy(next, t); err != nil {
-				next.Close()
-				return m, fmt.Errorf("could not write file from tarball %s: %w", hdr.Name, err)
-			}
-			next.Close()
-		} else {
-			if err := toml.NewDecoder(t).Decode(&m); err != nil {
-				return m, fmt.Errorf("could not decode manifest: %w", err)
-			}
-		}
-	}
-
-	return m, nil
 }
 
 type installState int
@@ -185,7 +124,7 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 
 func (m progressiveInstallModel) searchForDriver(d dbc.Driver) tea.Cmd {
 	return func() tea.Msg {
-		pkg, err := d.GetPackage(m.VersionInput, platformTuple)
+		pkg, err := d.GetPackage(m.VersionInput, config.PlatformTuple())
 		if err != nil {
 			return err
 		}
@@ -221,32 +160,10 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 			}
 		}
 
-		var (
-			loc string
-			err error
-		)
-		if loc, err = config.EnsureLocation(m.cfg); err != nil {
-			return fmt.Errorf("could not ensure config location: %w", err)
-		}
-
-		base := strings.TrimSuffix(path.Base(m.DriverPackage.Path.Path), ".tar.gz")
-		finalDir := filepath.Join(loc, base)
-		if err := os.MkdirAll(finalDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
-		}
-
-		downloaded.Seek(0, io.SeekStart)
-		manifest, err := inflateTarball(downloaded, finalDir)
+		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded)
 		if err != nil {
-			return fmt.Errorf("failed to extract tarball: %w", err)
+			return err
 		}
-
-		driverPath := filepath.Join(finalDir, manifest.Files.Driver)
-
-		manifest.DriverInfo.ID = m.Driver
-		manifest.DriverInfo.Source = "dbc"
-		manifest.DriverInfo.Driver.Shared.Set(platformTuple, driverPath)
-
 		return manifest
 	}
 }
@@ -274,7 +191,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.startDownloading()
 	case *os.File:
 		return m.startInstalling(msg)
-	case Manifest:
+	case config.Manifest:
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {

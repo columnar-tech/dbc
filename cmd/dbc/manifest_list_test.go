@@ -43,7 +43,7 @@ func TestUnmarshalManifestList(t *testing.T) {
 			manifestPath := filepath.Join(tmpdir, "manifest.txt")
 			require.NoError(t, os.WriteFile(manifestPath, []byte(tt.contents), 0644))
 
-			pkgs, err := GetDriverList(manifestPath, platformTuple)
+			pkgs, err := GetDriverList(manifestPath)
 			if tt.err != nil {
 				require.Error(t, err)
 				assert.ErrorContains(t, err, tt.err.Error())

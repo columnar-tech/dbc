@@ -12,6 +12,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -93,7 +94,7 @@ func (m addModel) Init() tea.Cmd {
 		}
 
 		if vers != nil {
-			_, err = drv.GetWithConstraint(vers, platformTuple)
+			_, err = drv.GetWithConstraint(vers, config.PlatformTuple())
 			if err != nil {
 				return fmt.Errorf("error getting driver: %w", err)
 			}

@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 )
 
 const defaultWidth = 40
@@ -71,7 +72,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			i, ok := m.list.SelectedItem().(item)
 			if ok {
 				versions := []list.Item{}
-				for _, v := range i.d.Versions(platformTuple) {
+				for _, v := range i.d.Versions(config.PlatformTuple()) {
 					versions = append(versions, versionOption(*v))
 				}
 

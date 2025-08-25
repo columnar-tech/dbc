@@ -3,17 +3,58 @@
 package config
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 const adbcEnvVar = "ADBC_CONFIG_PATH"
+
+var platformTuple string
+
+func init() {
+	os := runtime.GOOS
+	switch os {
+	case "darwin":
+		os = "macosx"
+	case "windows": // change this when we update the manifest.yaml
+		os = "win"
+	case "freebsd", "linux":
+	default:
+		os = "unknown"
+	}
+
+	arch := runtime.GOARCH
+	switch arch {
+	case "386":
+		arch = "x86"
+	case "riscv64":
+		arch = "riscv"
+	case "ppc64", "ppc64le":
+		arch = "powerpc"
+	case "390x", "arm64", "amd64", "arm":
+	default:
+		arch = "unknown"
+	}
+
+	platformTuple = os + "_" + arch
+}
+
+func PlatformTuple() string {
+	return platformTuple
+}
 
 type Config struct {
 	Level    ConfigLevel
@@ -135,4 +176,78 @@ func loadConfig(lvl ConfigLevel) Config {
 
 	cfg.Exists, cfg.Drivers = true, drivers
 	return cfg
+}
+
+func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {
+	var (
+		loc string
+		err error
+	)
+	if loc, err = EnsureLocation(cfg); err != nil {
+		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
+	}
+	base := strings.TrimSuffix(path.Base(downloaded.Name()), ".tar.gz")
+	finalDir := filepath.Join(loc, base)
+
+	if err := os.MkdirAll(finalDir, 0o755); err != nil {
+		return Manifest{}, fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
+	}
+
+	manifest, err := InflateTarball(downloaded, finalDir)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("failed to extract tarball: %w", err)
+	}
+
+	driverPath := filepath.Join(finalDir, manifest.Files.Driver)
+
+	manifest.DriverInfo.ID = shortName
+	manifest.DriverInfo.Source = "dbc"
+	manifest.DriverInfo.Driver.Shared.Set(PlatformTuple(), driverPath)
+
+	return manifest, nil
+}
+
+// TODO: Unexport once we refactor sync.go. sync.go has it's own separate
+// installation routine which it probably shouldn't.
+func InflateTarball(f *os.File, outDir string) (Manifest, error) {
+	defer f.Close()
+	var m Manifest
+
+	f.Seek(0, io.SeekStart)
+	rdr, err := gzip.NewReader(f)
+	if err != nil {
+		return m, fmt.Errorf("could not create gzip reader: %w", err)
+	}
+	defer rdr.Close()
+
+	t := tar.NewReader(rdr)
+	for {
+		hdr, err := t.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		if err != nil {
+			return m, fmt.Errorf("error reading tarball: %w", err)
+		}
+
+		if hdr.Name != "MANIFEST" {
+			next, err := os.Create(filepath.Join(outDir, hdr.Name))
+			if err != nil {
+				return m, fmt.Errorf("could not create file %s: %w", hdr.Name, err)
+			}
+
+			if _, err = io.Copy(next, t); err != nil {
+				next.Close()
+				return m, fmt.Errorf("could not write file from tarball %s: %w", hdr.Name, err)
+			}
+			next.Close()
+		} else {
+			if err := toml.NewDecoder(t).Decode(&m); err != nil {
+				return m, fmt.Errorf("could not decode manifest: %w", err)
+			}
+		}
+	}
+
+	return m, nil
 }

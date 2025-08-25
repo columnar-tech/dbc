@@ -15,6 +15,19 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+type Manifest struct {
+	DriverInfo
+
+	Files struct {
+		Driver    string `toml:"driver"`
+		Signature string `toml:"signature"`
+	} `toml:"Files"`
+
+	PostInstall struct {
+		Messages []string `toml:"messages,inline"`
+	} `toml:"PostInstall"`
+}
+
 type DriverInfo struct {
 	ID       string
 	FilePath string

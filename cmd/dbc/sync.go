@@ -162,13 +162,13 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// for that constraint, then we want to install the version in the lockfile
 		if info.Version != nil && (spec.Version == nil || spec.Version.Check(info.Version)) {
 			// install the locked version and verify checksum
-			pkg, err = drv.GetPackage(info.Version, platformTuple)
+			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple())
 		} else {
 			// no locked version or driver list version doesn't match locked file
 			if spec.Version != nil {
-				pkg, err = drv.GetWithConstraint(spec.Version, platformTuple)
+				pkg, err = drv.GetWithConstraint(spec.Version, config.PlatformTuple())
 			} else {
-				pkg, err = drv.GetPackage(nil, platformTuple)
+				pkg, err = drv.GetPackage(nil, config.PlatformTuple())
 			}
 		}
 
@@ -197,12 +197,14 @@ type alreadyInstalledDrvMsg struct {
 
 func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
+		// TODO: Factor this out into config package, remove duplication with
+		// config.InstallDriver
 		var removedDriver *config.DriverInfo
 		if cfg.Exists {
 			// is driver installed already?
 			if drv, ok := cfg.Drivers[item.Driver.Path]; ok {
 				if item.Package.Version.Equal(drv.Version) {
-					chksum, err := checksum(drv.Driver.Shared.Get(platformTuple))
+					chksum, err := checksum(drv.Driver.Shared.Get(config.PlatformTuple()))
 					if err != nil {
 						return fmt.Errorf("failed to compute checksum: %w", err)
 					}
@@ -243,7 +245,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 		}
 
 		output.Seek(0, io.SeekStart)
-		manifest, err := inflateTarball(output, finalDir)
+		manifest, err := config.InflateTarball(output, finalDir)
 		if err != nil {
 			return fmt.Errorf("failed to extract tarball: %w", err)
 		}
@@ -252,7 +254,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 
 		manifest.DriverInfo.ID = item.Driver.Path
 		manifest.DriverInfo.Source = "dbc"
-		manifest.DriverInfo.Driver.Shared.Set(platformTuple, driverPath)
+		manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
 
 		if err := verifySignature(manifest); err != nil {
 			return fmt.Errorf("failed to verify signature: %w", err)
@@ -325,7 +327,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
 			Name:     msg.info.ID,
 			Version:  msg.info.Version,
-			Platform: platformTuple,
+			Platform: config.PlatformTuple(),
 			Checksum: msg.item.Checksum,
 		})
 
@@ -345,7 +347,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case installedDrvMsg:
-		chksum, err := checksum(msg.info.Driver.Shared.Get(platformTuple))
+		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
 		if err != nil {
 			s.status = 1
 			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
@@ -353,7 +355,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
 			Name:     msg.info.ID,
 			Version:  msg.info.Version,
-			Platform: platformTuple,
+			Platform: config.PlatformTuple(),
 			Checksum: chksum,
 		})
 

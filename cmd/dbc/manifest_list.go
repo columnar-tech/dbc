@@ -8,6 +8,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -19,7 +20,7 @@ type driverSpec struct {
 	Version *semver.Constraints `toml:"version"`
 }
 
-func GetDriverList(fname, platformTuple string) ([]dbc.PkgInfo, error) {
+func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	var m DriversList
 	f, err := os.Open(fname)
 	if err != nil {
@@ -48,7 +49,7 @@ func GetDriverList(fname, platformTuple string) ([]dbc.PkgInfo, error) {
 			return nil, fmt.Errorf("driver %s not found", name)
 		}
 
-		pkg, err := drv.GetWithConstraint(spec.Version, platformTuple)
+		pkg, err := drv.GetWithConstraint(spec.Version, config.PlatformTuple())
 		if err != nil {
 			return nil, fmt.Errorf("error finding version for driver %s: %w", name, err)
 		}
