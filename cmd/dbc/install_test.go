@@ -34,3 +34,17 @@ func (suite *SubcommandTestSuite) TestInstallEnvNotSet() {
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: could not ensure config location: ADBC_CONFIG_PATH is empty, must be set to valid path to use\r\n\r ", suite.runCmdErr(m))
 }
+
+func (suite *SubcommandTestSuite) TestInstallSystemFake() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	installModel := m.(progressiveInstallModel)
+	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
+	m = installModel // <- We need to reassign to make the change stick
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
+}

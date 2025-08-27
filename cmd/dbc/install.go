@@ -155,7 +155,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	m.state = stInstalling
 	return m, func() tea.Msg {
 		if m.conflictingInfo.ID != "" {
-			if err := config.DeleteDriver(m.cfg, m.conflictingInfo); err != nil {
+			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
 				return err
 			}
 		}

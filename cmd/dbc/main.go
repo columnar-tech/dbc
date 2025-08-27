@@ -9,7 +9,12 @@ import (
 
 	"github.com/alexflint/go-arg"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
+)
+
+var (
+	errStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
 )
 
 type TuiCmd struct{}
@@ -79,14 +84,15 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type cmds struct {
-	Config  *ViewConfigCmd `arg:"subcommand" help:"View driver config"`
-	Install *InstallCmd    `arg:"subcommand" help:"Install driver"`
-	Init    *InitCmd       `arg:"subcommand" help:"Initialize a new DBC drivers list"`
-	Add     *AddCmd        `arg:"subcommand" help:"Add a driver to the drivers list"`
-	Sync    *SyncCmd       `arg:"subcommand" help:"Sync installed drivers with drivers in the active drivers list"`
-	Search  *SearchCmd     `arg:"subcommand" help:"Search for a driver"`
-	Remove  *RemoveCmd     `arg:"subcommand" help:"Remove a driver from the drivers list"`
-	Tui     *TuiCmd        `arg:"subcommand"`
+	Config    *ViewConfigCmd `arg:"subcommand" help:"View driver config"`
+	Install   *InstallCmd    `arg:"subcommand" help:"Install driver"`
+	Uninstall *UninstallCmd  `arg:"subcommand" help:"Uninstall driver"`
+	Init      *InitCmd       `arg:"subcommand" help:"Initialize a new DBC drivers list"`
+	Add       *AddCmd        `arg:"subcommand" help:"Add a driver to the drivers list"`
+	Sync      *SyncCmd       `arg:"subcommand" help:"Sync installed drivers with drivers in the active drivers list"`
+	Search    *SearchCmd     `arg:"subcommand" help:"Search for a driver"`
+	Remove    *RemoveCmd     `arg:"subcommand" help:"Remove a driver from the drivers list"`
+	Tui       *TuiCmd        `arg:"subcommand"`
 }
 
 func (cmds) Version() string {

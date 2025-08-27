@@ -49,3 +49,14 @@ drivers:
             url: test-driver-2/2.1.0/test_driver_macosx_11_0_arm64-2.1.0.tar.gz
           - platform: win_amd64
             url: test-driver-2/2.1.0/test_driver_win_amd64-2.1.0.tar.gz
+  - name: Test Driver Manifest Only
+    description: This is manifest-only driver
+    license: Apache-2.0
+    path: test-driver-manifest-only
+    pkginfo:
+      - version: v0.1.0
+        packages:
+          - platform: linux_amd64
+          - platform: macosx_amd64
+          - platform: macosx_arm64
+          - platform: win_amd64

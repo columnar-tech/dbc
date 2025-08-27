@@ -41,6 +41,8 @@ func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 		return os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
 	case "test-driver-2":
 		return os.Open(filepath.Join("testdata", "test-driver-2.tar.gz"))
+	case "test-driver-manifest-only":
+		return os.Open(filepath.Join("testdata", "test-driver-manifest-only.tar.gz"))
 	default:
 		return nil, fmt.Errorf("unknown driver: %s", pkg.Driver.Path)
 	}
@@ -82,7 +84,7 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	var err error
 	m, err = p.Run()
 	suite.Require().NoError(err)
-	suite.Equal(1, m.(HasStatus).Status())
+	suite.Equal(1, m.(HasStatus).Status(), "The subcommand did not exit with a status of 1 as expected.")
 	return out.String()
 }
 
@@ -97,7 +99,7 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	var err error
 	m, err = p.Run()
 	suite.Require().NoError(err)
-	suite.Equal(0, m.(HasStatus).Status())
+	suite.Equal(0, m.(HasStatus).Status(), "The command exited with a non-zero status.")
 	return out.String()
 }
 

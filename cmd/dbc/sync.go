@@ -220,7 +220,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 
 					return alreadyInstalledDrvMsg{info: drv, item: item}
 				} else {
-					if err := config.DeleteDriver(cfg, drv); err != nil {
+					if err := config.UninstallDriver(cfg, drv); err != nil {
 						return fmt.Errorf("failed when deleting driver %s-%s: %w", drv.ID, drv.Version, err)
 					}
 					removedDriver = &drv
