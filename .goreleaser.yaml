@@ -53,7 +53,7 @@ archives:
         # build wheels for each platform we built for
         - if: '{{ ne .Os "freebsd" }}'
           cmd: >-
-            uv run ./scripts/create_wheels.py --binary_version {{ .Version }}
+            uv run ./scripts/create_wheels.py --binary_version {{ .RawVersion }}{{ .Prerelease }}
             --platform={{ .Os }}-{{- if eq .Arch "386" }}x86{{else}}{{ .Arch }}{{ end }} --archive=dist/{{ .ProjectName }}-
             {{- .Os }}-
             {{- if eq .Arch "386" }}x86
