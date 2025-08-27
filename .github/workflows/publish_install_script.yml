@@ -8,6 +8,7 @@ on:
       - 'main'
     paths:
       - 'scripts/install.sh'
+      - 'scripts/install.ps1'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.workflow }}
@@ -19,7 +20,7 @@ permissions:
 
 jobs:
   publish_install:
-    name: Publish install.sh
+    name: Publish install scripts
     runs-on: ubuntu-latest
     environment: production
 
@@ -38,3 +39,4 @@ jobs:
       - name: Upload install.sh
         run: |
           aws s3 cp scripts/install.sh s3://${{ vars.AWS_BUCKET }}/install.sh
+          aws s3 cp scripts/install.ps1 s3://${{ vars.AWS_BUCKET }}/install.ps1

@@ -2,7 +2,10 @@
 # shellcheck shell=dash
 # shellcheck disable=SC2039  # local is non-POSIX
 #
-# Copyright (c) 2025 Columnar Technologies, Inc.  All rights reserved.
+# Licensed under the MIT license
+# <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+# option. This file may not be copied, modified, or distributed
+# except according to those terms.
 #
 # Based on uv https://astral.sh/uv/install.sh
 
