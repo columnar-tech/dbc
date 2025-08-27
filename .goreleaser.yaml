@@ -43,11 +43,22 @@ archives:
       {{- .Os }}-
       {{- if eq .Arch "386" }}x86
       {{- else }}{{ .Arch }}{{ end }}
-      {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Tag }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Version }}
     # use zip for windows archives
     format_overrides:
       - goos: windows
         formats: [zip]
+    hooks:
+      after:
+        # build wheels for each platform we built for
+        - if: '{{ ne .Os "freebsd" }}'
+          cmd: >-
+            uv run ./scripts/create_wheels.py --binary_version {{ .RawVersion }} 
+            --platform={{ .Os }}-{{- if eq .Arch "386" }}x86{{else}}{{ .Arch }}{{ end }} --archive=dist/{{ .ProjectName }}-
+            {{- .Os }}-
+            {{- if eq .Arch "386" }}x86
+            {{- else }}{{ .Arch }}{{ end }}
+            {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Version }}{{ if eq .Os "windows" }}.zip{{ else }}.tar.gz{{ end }}
 
 blobs:  
   - provider: s3

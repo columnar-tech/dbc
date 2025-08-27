@@ -47,6 +47,7 @@ import urllib.request
 import json
 from wheel.wheelfile import WheelFile
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+import tarfile
 from typing import List
 
 
@@ -60,11 +61,18 @@ OUT_DIR = "./dist"
 
 # Map Golang GOOS and GOARCH to Python packaging platforms
 PLATFORMS_MAP = {
-    "windows-amd64": "win_amd64",
-    "linux-amd64": "manylinux_2_12_x86_64",
-    "linux-arm64": "manylinux_2_17_aarch64",
-    "darwin-amd64": "macosx_12_0_x86_64",
-    "darwin-arm64": "macosx_12_0_arm64",
+    'windows-amd64': 'win_amd64',
+    'windows-arm64': 'win_arm64',
+    'windows-x86':    'win32',
+    'darwin-amd64':   'macosx_12_0_x86_64',
+    'darwin-arm64':   'macosx_12_0_arm64',
+    'linux-x86':     'manylinux_2_12_i686.manylinux2010_i686',
+    'linux-arm64':
+        'manylinux_2_17_aarch64.manylinux2014_aarch64',
+    'linux-armv7a':   'manylinux_2_17_armv7l.manylinux2014_armv7l',
+    'linux-powerpc64le':  'manylinux_2_17_ppc64le.manylinux2014_ppc64le',
+    'linux-s390x':     'manylinux_2_17_s390x.manylinux2014_s390x',
+    'linux-riscv64':   'manylinux_2_31_riscv64',
 }
 
 
@@ -108,19 +116,20 @@ def get_github_release(repo_owner, repo_name, release_tag):
         print(f"Error fetching release data: {e}")
         return None
 
-
 def iter_archive_contents(archive):
-    with ZipFile(io.BytesIO(archive)) as zip_file:
-        for entry in zip_file.infolist():
-            if not entry.is_dir():
-                # Note: external_attr is shifted 16 bits because ZIP stores
-                # UNIX permissions in the upper 16 bits the external_attr
-                # field. See the corresponding operation in
-                # ReproducibleWheelFile.writestr
-                yield entry.filename, (
-                    entry.external_attr >> 16
-                ) & 0xFFFF, zip_file.read(entry)
-
+    magic = archive[:4]
+    if magic[:3] == b"\x1F\x8B\x08":
+        with tarfile.open(mode="r|gz", fileobj=io.BytesIO(archive)) as tar:
+            for entry in tar:
+                if entry.isreg():
+                    yield entry.name, entry.mode | (1 << 15), tar.extractfile(entry).read()
+    elif magic[:4] == b"PK\x03\x04":
+        with ZipFile(io.BytesIO(archive)) as zip_file:
+            for entry in zip_file.infolist():
+                if not entry.is_dir():
+                    yield entry.filename, entry.external_attr >> 16, zip_file.read(entry)
+    else:
+        raise RuntimeError("Unsupported archive format")
 
 def make_message(headers, payload=None):
     msg = EmailMessage()
@@ -172,6 +181,8 @@ def write_wheel(out_dir, *, name, version, tag, metadata, description, contents)
         os.path.join(out_dir, wheel_name),
         {
             **contents,
+            f"{dist_info}/entry_points.txt": make_message([],
+               '[console_scripts]\ndbc = dbc.__main__:dummy'),
             f"{dist_info}/METADATA": make_message(
                 [
                     ("Metadata-Version", "2.4"),
@@ -205,7 +216,7 @@ def create_wheel(version: str, platform: str, archive: bytes):
     found_license_files = set()
 
     # Scan the binary archive and extract what we need from it
-    bin_prefix = PACKAGE_NAME
+    bin_prefix = PACKAGE_NAME[:-3]
     bin_found = False
 
     # Copy all files from the source zip into the wheel
@@ -213,16 +224,7 @@ def create_wheel(version: str, platform: str, archive: bytes):
         if not entry_name:
             continue
 
-        # Treat the binary specially, putting it in the foo.v.data/scripts
-        # folder
-        if entry_name.startswith(bin_prefix):
-            bin_found = True
-            zip_info = ZipInfo(
-                os.path.join(f"{PACKAGE_NAME}-{version}.data", "scripts", PACKAGE_NAME)
-            )
-        else:
-            zip_info = ZipInfo(f"{PACKAGE_NAME}/{entry_name}")
-
+        zip_info = ZipInfo(f"{PACKAGE_NAME}/{entry_name}")
         zip_info.external_attr = (entry_mode & 0xFFFF) << 16
         contents[zip_info] = entry_data
 
@@ -231,11 +233,24 @@ def create_wheel(version: str, platform: str, archive: bytes):
             license_files[entry_name] = entry_data
             found_license_files.add(entry_name)
 
+        if entry_name.startswith(bin_prefix):
+            bin_found = True
+            contents[f"{PACKAGE_NAME}/__main__.py"] = f'''\
+import os, sys
+argv = [os.path.join(os.path.dirname(__file__), "{entry_name}"), *sys.argv[1:]]
+if os.name == 'posix':
+    os.execv(argv[0], argv)
+else:
+    import subprocess; sys.exit(subprocess.call(argv))
+
+def dummy(): """Dummy function for an entrypoint. dbc is executed as a side effect of the import."""
+'''.encode('ascii')
+
     if not bin_found:
         raise RuntimeError("No binary found in archive. Stopping now.")
 
     # Set the content of the PyPI README as the description
-    with open(os.path.join(__file__, "README.pypi.md")) as f:
+    with open(os.path.join(os.path.dirname(__file__), "README.pypi.md")) as f:
         description = f.read()
 
     # Add licenses we found
@@ -249,7 +264,7 @@ def create_wheel(version: str, platform: str, archive: bytes):
 
     path = write_wheel(
         OUT_DIR,
-        name=PACKAGE_NAME,
+        name=f"{PACKAGE_NAME}",
         version=version,
         tag=f"py3-none-{platform}",
         metadata=[
@@ -347,12 +362,24 @@ def parse_args() -> argparse.ArgumentParser:
         default="all",
         help="Platform(s) to create wheels for. Defaults to 'all' which creates wheels for all supported platforms. Platform strings follow the pattern <GOOS>-<GOARCH> and a full platform string can be provided or just GOOS or GOARCH (e.g., linux-amd64, linux, amd64.). Multiple values can be separated with a comma.",
     )
+    parser.add_argument(
+        "--archive",
+        help="Path to a local archive to use instead of downloading from GitHub.",
+    )
     return parser
 
 
 def main():
     args = parse_args().parse_args()
+    if args.archive:
+        # If an archive is provided, use it
+        with open(args.archive, "rb") as f:
+            archive = f.read()
 
+        target = PLATFORMS_MAP[f"{args.platform}"]
+        create_wheel(args.binary_version, target, archive)
+        return
+    
     platforms = parse_platforms(args.platform)
     if len(platforms) <= 0:
         raise RuntimeError("No platforms provided. See usage with --help.")
