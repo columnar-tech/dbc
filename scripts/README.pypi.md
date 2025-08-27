@@ -15,7 +15,7 @@ Create and activate a virtual environment and then install dbc:
 
 ```sh
 python -m venv .venv
-source .venv/bin/activatae
+source .venv/bin/activate
 pip install dbc
 ```
 
