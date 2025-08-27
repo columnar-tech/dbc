@@ -13,7 +13,7 @@ project_name: dbc
 # before:
   # hooks:
     # You may remove this if you don't use go modules.
-    # - go mod tidy
+    # - mkdir -p dist/python
     # you may remove this if you don't need go generate
     # - go generate ./...
 
@@ -111,6 +111,11 @@ dockerhub:
     images:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
+
+after:
+  hooks:
+    - mkdir -p dist/python
+    - cmd: sh -c "mv dist/*.whl dist/python/"
 
 release:
   prerelease: auto

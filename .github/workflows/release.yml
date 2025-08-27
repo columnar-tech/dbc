@@ -66,6 +66,8 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # 1.12.4
+        with:
+          packages-dir: dist/python/
 
       - name: Update CF Latest Key
         if: contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
