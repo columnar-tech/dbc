@@ -5,7 +5,6 @@ package main
 import (
 	"fmt"
 	"regexp"
-	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,37 +21,7 @@ var (
 	bold      = lipgloss.NewStyle().Bold(true)
 
 	archStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))
-
-	platformTuple string
 )
-
-func init() {
-	os := runtime.GOOS
-	switch os {
-	case "darwin":
-		os = "macosx"
-	case "windows": // change this when we update the manifest.yaml
-		os = "win"
-	case "freebsd", "linux":
-	default:
-		os = "unknown"
-	}
-
-	arch := runtime.GOARCH
-	switch arch {
-	case "386":
-		arch = "x86"
-	case "riscv64":
-		arch = "riscv"
-	case "ppc64", "ppc64le":
-		arch = "powerpc"
-	case "390x", "arm64", "amd64", "arm":
-	default:
-		arch = "unknown"
-	}
-
-	platformTuple = os + "_" + arch
-}
 
 type SearchCmd struct {
 	Verbose   bool           `arg:"-v" help:"Enable verbose output"`
@@ -176,7 +145,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 
 		versionTree := tree.Root(bold.Render("Available Versions:")).
 			Enumerator(tree.RoundedEnumerator)
-		for _, v := range driver.Versions(platformTuple) {
+		for _, v := range driver.Versions(config.PlatformTuple()) {
 			versionTree.Child(v)
 		}
 
