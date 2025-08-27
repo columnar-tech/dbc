@@ -9,7 +9,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 
 	"github.com/Masterminds/semver/v3"
@@ -247,7 +246,7 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	setKeyMust(dkey, "license", driver.License)
 	setKeyMust(dkey, "version", driver.Version.String())
 	setKeyMust(dkey, "source", driver.Source)
-	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(runtime.GOOS+"_"+runtime.GOARCH))
+	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(PlatformTuple()))
 	return nil
 }
 
