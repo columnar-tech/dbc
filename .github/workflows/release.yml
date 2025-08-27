@@ -15,8 +15,6 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     environment: production
-    env:
-      UV_SYSTEM_PYTHON: 1
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,7 +38,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
 
       - name: Install Wheel
-        run: uv pip install wheel
+        run: pip install wheel
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
