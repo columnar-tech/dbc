@@ -14,7 +14,11 @@ import (
 )
 
 const (
-	defaultSysConfigDir    = "/etc/adbc"
+	// defaultSysConfigDir is used on non-macOS but also on macOS when in a
+	// python/conda environment (i.e., $VIRTUAL_ENV/etc/adbc)
+	defaultSysConfigDir = "/etc/adbc"
+	sysConfigDirDarwin  = "/Library/Application Support/ADBC"
+
 	userConfigSuffixDarwin = "ADBC"
 	userConfigSuffixOther  = "adbc"
 )
@@ -38,6 +42,12 @@ func init() {
 	userConfigDir, _ = os.UserConfigDir()
 	if userConfigDir != "" {
 		userConfigDir = filepath.Join(userConfigDir, platformUserConfigSuffix())
+	}
+
+	if runtime.GOOS == "darwin" {
+		systemConfigDir = sysConfigDirDarwin
+	} else {
+		systemConfigDir = defaultSysConfigDir
 	}
 
 	// check for venv first, then a conda environment if we're not in
