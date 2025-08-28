@@ -27,23 +27,21 @@ var (
 
 type SyncCmd struct {
 	Path  string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to sync from"`
-	Level config.ConfigLevel `arg:"-l" help:"Config level to install to (env, user, system)" default:"user"`
+	Level config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 }
 
 func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return syncModel{
-		baseModel:   baseModel,
-		Path:        c.Path,
-		cfg:         config.Get()[c.Level],
-		termProgram: os.Getenv("TERM_PROGRAM"),
+		baseModel: baseModel,
+		Path:      c.Path,
+		cfg:       getConfig(c.Level),
 	}
 }
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path:        c.Path,
-		cfg:         config.Get()[c.Level],
-		termProgram: os.Getenv("TERM_PROGRAM"),
+		Path: c.Path,
+		cfg:  getConfig(c.Level),
 		baseModel: baseModel{
 			getDriverList: getDriverList,
 			downloadPkg:   downloadPkg,
@@ -74,8 +72,7 @@ type syncModel struct {
 	progress      progress.Model
 	width, height int
 
-	termProgram string
-	done        bool
+	done bool
 }
 
 type driversListMsg struct {

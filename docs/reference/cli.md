@@ -74,7 +74,7 @@ dbc install [OPTIONS] <DRIVER>
 
 `--level`
 
-:   The configuration level to install the driver to (`env`, `user`, or `system`). See [Config](config.md)
+:   The configuration level to install the driver to (`user`, or `system`). See [Config](config.md).
 
 ## uninstall
 
@@ -96,7 +96,7 @@ dbc uninstall [OPTIONS] <DRIVER>
 
 `--level`
 
-:   The configuration level to uninstall the driver from (`env`, `user`, or `system`). See [Config](config.md)
+:   The configuration level to uninstall the driver from (`user`, or `system`). See [Config](config.md).
 
 ## init
 
@@ -183,7 +183,7 @@ dbc sync --file dbc.toml
 
 `--level`
 
-:   The configuration level to install drivers to (`env`, `user`, or `system`). See [Config](config.md).
+:   The configuration level to install drivers to (`user`, or `system`). See [Config](config.md).
 
 ## list
 
@@ -199,7 +199,7 @@ dbc list [OPTIONS]
 
 `--level`
 
-:   The configuration level to list drivers in (`env`, `user`, or `system`). See [Config](config.md).
+:   The configuration level to list drivers in (`user`, or `system`). See [Config](config.md).
 
 ## config
 
@@ -215,4 +215,4 @@ dbc config [OPTIONS]
 
 `--level`
 
-:   The configuration level to show the configuration for (`env`, `user`, or `system`). Defaults to showing drivers at all levels. See [Config](config.md).
+:   The configuration level to show the configuration for (`user`, or `system`). Defaults to showing drivers at all levels. See [Config](config.md).

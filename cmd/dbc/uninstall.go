@@ -13,14 +13,14 @@ type driverDidUninstallMsg struct{}
 
 type UninstallCmd struct {
 	Driver string             `arg:"positional,required" help:"Driver to uninstall"`
-	Level  config.ConfigLevel `arg:"-l" help:"Config level to uninstall from" default:"user"`
+	Level  config.ConfigLevel `arg:"-l" help:"Config level to uninstall from (user, system)"`
 }
 
 func (c UninstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return uninstallModel{
 		baseModel: baseModel,
 		Driver:    c.Driver,
-		cfg:       config.Get()[c.Level],
+		cfg:       getConfig(c.Level),
 	}
 }
 
@@ -31,7 +31,7 @@ func (c UninstallCmd) GetModel() tea.Model {
 			downloadPkg:   downloadPkg,
 		},
 		Driver: c.Driver,
-		cfg:    config.Get()[c.Level],
+		cfg:    getConfig(c.Level),
 	}
 }
 

@@ -51,15 +51,6 @@ func init() {
 	} else {
 		systemConfigDir = defaultSysConfigDir
 	}
-
-	// check for venv first, then a conda environment if we're not in
-	// a python venv. In both cases, if we're in a virtual environment,
-	// then use the virtual environment as a prefix for the system dir
-	if venv, ok := os.LookupEnv("VIRTUAL_ENV"); ok && venv != "" {
-		systemConfigDir = filepath.Join(venv, defaultSysConfigDir)
-	} else if venv, ok := os.LookupEnv("CONDA_PREFIX"); ok && venv != "" {
-		systemConfigDir = filepath.Join(venv, defaultSysConfigDir)
-	}
 }
 
 func (c ConfigLevel) configLocation() string {
@@ -69,7 +60,7 @@ func (c ConfigLevel) configLocation() string {
 	case ConfigUser:
 		return userConfigDir
 	case ConfigEnv:
-		return os.Getenv(adbcEnvVar)
+		return getEnvConfigDir()
 	default:
 		panic("unknown config level")
 	}

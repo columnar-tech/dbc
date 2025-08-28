@@ -28,11 +28,38 @@ func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver index\r\n\r ", suite.runCmdErr(m))
 }
 
-func (suite *SubcommandTestSuite) TestInstallEnvNotSet() {
+func (suite *SubcommandTestSuite) TestInstallUserFake() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
 	os.Unsetenv("ADBC_CONFIG_PATH")
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+
+	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Error: could not ensure config location: ADBC_CONFIG_PATH is empty, must be set to valid path to use\r\n\r ", suite.runCmdErr(m))
+	installModel := m.(progressiveInstallModel)
+	suite.Equal(installModel.cfg.Level, config.ConfigUser)
+	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
+	m = installModel // <- We need to reassign to make the change stick
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
+}
+
+func (suite *SubcommandTestSuite) TestInstallUserFakeExplicit() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	os.Unsetenv("ADBC_CONFIG_PATH")
+
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	installModel := m.(progressiveInstallModel)
+	suite.Equal(installModel.cfg.Level, config.ConfigUser)
+	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
+	m = installModel // <- We need to reassign to make the change stick
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 }
 
 func (suite *SubcommandTestSuite) TestInstallSystemFake() {
@@ -43,7 +70,47 @@ func (suite *SubcommandTestSuite) TestInstallSystemFake() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	installModel := m.(progressiveInstallModel)
+	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
+	m = installModel // <- We need to reassign to make the change stick
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
+}
+
+func (suite *SubcommandTestSuite) TestInstallVenv() {
+	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Setenv("VIRTUAL_ENV", suite.tempdir)
+	defer os.Unsetenv("VIRTUAL_ENV")
+
+	m := InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
+		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc")+"\r\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
+	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Setenv("CONDA_PREFIX", suite.tempdir)
+	defer os.Unsetenv("CONDA_PREFIX")
+
+	m := InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
+		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc")+"\r\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	// If the user explicitly sets level, it should override ADBC_CONFIG_PATH
+	// which, when testing, is set to tempdir
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	installModel := m.(progressiveInstallModel)
+	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
+	installModel.cfg.Location = filepath.Join(suite.tempdir, "user", installModel.cfg.Location)
 	m = installModel // <- We need to reassign to make the change stick
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))

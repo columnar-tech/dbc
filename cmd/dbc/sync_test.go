@@ -13,7 +13,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/columnar-tech/dbc"
-	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
 	"gopkg.in/yaml.v3"
 )
@@ -120,15 +119,66 @@ func (suite *SubcommandTestSuite) TestSync() {
 	suite.runCmd(m)
 
 	m = SyncCmd{
-		Path:  filepath.Join(suite.tempdir, "dbc.toml"),
-		Level: config.ConfigEnv,
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	m = SyncCmd{
-		Path:  filepath.Join(suite.tempdir, "dbc.toml"),
-		Level: config.ConfigEnv,
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
+	os.Unsetenv("ADBC_CONFIG_PATH")
+
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+	suite.runCmd(m)
+
+	os.Setenv("VIRTUAL_ENV", suite.tempdir)
+	defer os.Unsetenv("VIRTUAL_ENV")
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "test-driver-1.toml"))
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
+	os.Unsetenv("ADBC_CONFIG_PATH")
+
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+	suite.runCmd(m)
+
+	os.Setenv("CONDA_PREFIX", suite.tempdir)
+	defer os.Unsetenv("CONDA_PREFIX")
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "test-driver-1.toml"))
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))

@@ -44,7 +44,7 @@ func (c ConfigLevel) configLocation() string {
 	case ConfigUser:
 		prefix, _ = os.UserConfigDir()
 	case ConfigEnv:
-		return os.Getenv(adbcEnvVar)
+		return getEnvConfigDir()
 	default:
 		panic("unknown config level")
 	}

@@ -17,7 +17,8 @@ func (suite *SubcommandTestSuite) TestUninstallNotFound() {
 	}
 
 	m := UninstallCmd{Driver: "notfound"}.GetModel()
-	suite.validateOutput("Error: failed to find driver `notfound` in order to uninstall it: error opening manifest notfound.toml: open notfound.toml: no such file or directory\r\n\r ", suite.runCmdErr(m))
+	suite.validateOutput("Error: failed to find driver `notfound` in order to uninstall it: error opening manifest "+
+		filepath.Join(suite.tempdir, "notfound.toml")+": open "+filepath.Join(suite.tempdir, "notfound.toml")+": no such file or directory\r\n\r ", suite.runCmdErr(m))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {

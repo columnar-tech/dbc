@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 )
 
 var (
@@ -53,6 +54,19 @@ func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 
 func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
 	return p.DownloadPackage()
+}
+
+func getConfig(c config.ConfigLevel) config.Config {
+	switch c {
+	case config.ConfigSystem, config.ConfigUser:
+		return config.Get()[c]
+	default:
+		cfg := config.Get()[config.ConfigEnv]
+		if cfg.Location != "" {
+			return cfg
+		}
+		return config.Get()[config.ConfigUser]
+	}
 }
 
 type baseModel struct {

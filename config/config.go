@@ -92,8 +92,6 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 		*c = ConfigSystem
 	case "user":
 		*c = ConfigUser
-	case "env":
-		*c = ConfigEnv
 	default:
 		return errors.New("unknown config level")
 	}
@@ -176,6 +174,23 @@ func loadConfig(lvl ConfigLevel) Config {
 
 	cfg.Exists, cfg.Drivers = true, drivers
 	return cfg
+}
+
+func getEnvConfigDir() string {
+	envConfigLoc := filepath.SplitList(os.Getenv(adbcEnvVar))
+	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
+		envConfigLoc = append(envConfigLoc, filepath.Join(venv, "etc", "adbc"))
+	}
+
+	if conda := os.Getenv("CONDA_PREFIX"); conda != "" {
+		envConfigLoc = append(envConfigLoc, filepath.Join(conda, "etc", "adbc"))
+	}
+
+	envConfigLoc = slices.DeleteFunc(envConfigLoc, func(s string) bool {
+		return s == ""
+	})
+
+	return strings.Join(envConfigLoc, string(filepath.ListSeparator))
 }
 
 func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {

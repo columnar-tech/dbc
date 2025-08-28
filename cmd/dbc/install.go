@@ -20,7 +20,7 @@ type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 	Driver  string             `arg:"positional,required" help:"Driver to install"`
 	Version *semver.Version    `arg:"-v" help:"Version to install"`
-	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to (env, user, system)" default:"user"`
+	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -28,7 +28,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		Driver:       c.Driver,
 		VersionInput: c.Version,
 		spinner:      spinner.New(),
-		cfg:          config.Get()[c.Level],
+		cfg:          getConfig(c.Level),
 		baseModel:    baseModel,
 	}
 }
@@ -40,7 +40,7 @@ func (c InstallCmd) GetModel() tea.Model {
 		Driver:       c.Driver,
 		VersionInput: c.Version,
 		spinner:      s,
-		cfg:          config.Get()[c.Level],
+		cfg:          getConfig(c.Level),
 		baseModel: baseModel{
 			getDriverList: getDriverList,
 			downloadPkg:   downloadPkg,
