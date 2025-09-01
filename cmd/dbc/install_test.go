@@ -33,7 +33,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFake() {
 		suite.T().Skip()
 	}
 
-	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Unsetenv("ADBC_DRIVER_PATH")
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
@@ -50,7 +50,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFakeExplicit() {
 		suite.T().Skip()
 	}
 
-	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Unsetenv("ADBC_DRIVER_PATH")
 
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
@@ -78,7 +78,7 @@ func (suite *SubcommandTestSuite) TestInstallSystemFake() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
-	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Unsetenv("ADBC_DRIVER_PATH")
 	os.Setenv("VIRTUAL_ENV", suite.tempdir)
 	defer os.Unsetenv("VIRTUAL_ENV")
 
@@ -89,7 +89,7 @@ func (suite *SubcommandTestSuite) TestInstallVenv() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
-	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Unsetenv("ADBC_DRIVER_PATH")
 	os.Setenv("CONDA_PREFIX", suite.tempdir)
 	defer os.Unsetenv("CONDA_PREFIX")
 
@@ -104,7 +104,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
 		suite.T().Skip()
 	}
 
-	// If the user explicitly sets level, it should override ADBC_CONFIG_PATH
+	// If the user explicitly sets level, it should override ADBC_DRIVER_PATH
 	// which, when testing, is set to tempdir
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})

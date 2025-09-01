@@ -61,11 +61,11 @@ func (suite *SubcommandTestSuite) SetupSuite() {
 
 func (suite *SubcommandTestSuite) SetupTest() {
 	suite.tempdir = suite.T().TempDir()
-	suite.Require().NoError(os.Setenv("ADBC_CONFIG_PATH", suite.tempdir))
+	suite.Require().NoError(os.Setenv("ADBC_DRIVER_PATH", suite.tempdir))
 }
 
 func (suite *SubcommandTestSuite) TearDownTest() {
-	suite.Require().NoError(os.Unsetenv("ADBC_CONFIG_PATH"))
+	suite.Require().NoError(os.Unsetenv("ADBC_DRIVER_PATH"))
 }
 
 func (suite *SubcommandTestSuite) TearDownSuite() {
@@ -133,7 +133,7 @@ func (suite *SubcommandTestSuite) TestSync() {
 }
 
 func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
-	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Unsetenv("ADBC_DRIVER_PATH")
 
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
@@ -159,7 +159,7 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 }
 
 func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
-	os.Unsetenv("ADBC_CONFIG_PATH")
+	os.Unsetenv("ADBC_DRIVER_PATH")
 
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)

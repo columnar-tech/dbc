@@ -56,7 +56,7 @@ dbc search [FILTER]
 Install a driver.
 
 If a driver with the same name already exists, you will be prompted to first remove the existing driver.
-To install multiple versions of the same driver on the same system, it's recommend to use `--level env` in conjunction with `ADBC_CONFIG_PATH`. See [Config](config.md).
+To install multiple versions of the same driver on the same system, it's recommend to use `--level env` in conjunction with `ADBC_DRIVER_PATH`. See [Config](config.md).
 
 <h3>Usage</h3>
 
