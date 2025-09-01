@@ -28,10 +28,8 @@ func init() {
 	os := runtime.GOOS
 	switch os {
 	case "darwin":
-		os = "macosx"
-	case "windows": // change this when we update the manifest.yaml
-		os = "win"
-	case "freebsd", "linux":
+		os = "macos"
+	case "windows", "freebsd", "linux", "openbsd":
 	default:
 		os = "unknown"
 	}
@@ -40,13 +38,15 @@ func init() {
 	switch arch {
 	case "386":
 		arch = "x86"
-	case "riscv64":
-		arch = "riscv"
-	case "ppc64", "ppc64le":
+	case "ppc":
 		arch = "powerpc"
-	case "390x", "arm64", "amd64", "arm":
+	case "ppc64":
+		arch = "powerpc64"
+	case "ppc64le":
+		arch = "powerpc64le"
+	case "wasm":
+		arch = "wasm64"
 	default:
-		arch = "unknown"
 	}
 
 	platformTuple = os + "_" + arch
