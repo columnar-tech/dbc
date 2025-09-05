@@ -9,6 +9,12 @@
 version: 2
 
 project_name: dbc
+metadata:
+  description: "A CLI utility for managing ADBC drivers"
+  license: Apache-2.0
+  homepage: "https://columnar.tech/dbc"
+  maintainers:
+    - "Columnar <hello@columnar.tech>"
 
 # before:
   # hooks:
@@ -32,11 +38,12 @@ builds:
     goarch:
       - amd64
       - '386'
-      - arm64      
+      - arm64
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
-  - formats: [tar.gz]
+  - id: archives
+    formats: [tar.gz]
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
       {{ .ProjectName }}-
@@ -44,6 +51,11 @@ archives:
       {{- if eq .Arch "386" }}x86
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Version }}
+    files:
+      - 'LICENSE*'
+      - 'README*'
+      - src: '{{ .ArtifactPath }}*.sig'
+        strip_parent: true
     # use zip for windows archives
     format_overrides:
       - goos: windows
@@ -60,12 +72,17 @@ archives:
             {{- else }}{{ .Arch }}{{ end }}
             {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Version }}{{ if eq .Os "windows" }}.zip{{ else }}.tar.gz{{ end }}
 
-blobs:  
+blobs:
   - provider: s3
     region: us-east-2
     bucket: dbc-distribution
-    directory: "{{ .Tag }}"  
+    directory: "{{ .Tag }}"
     include_meta: true
+
+binary_signs:
+  - id: signs
+    args: ["--output", "${signature}.sig", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
+    stdin: "{{ .Env.SIGNING_PASSWORD }}"
 
 changelog:
   sort: asc
@@ -78,7 +95,7 @@ changelog:
       order: 1
     - title: Others
       order: 999
-      
+
   filters:
     exclude:
       - "^docs:"
@@ -96,7 +113,7 @@ dockers:
     use: buildx
     goarch: arm64
     dockerfile: Dockerfile
-    build_flag_templates:      
+    build_flag_templates:
       - "--platform=linux/arm64/v8"
 
 docker_manifests:
@@ -112,13 +129,94 @@ dockerhub:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
 
+nfpms:
+  - id: pkgs
+    package_name: dbc
+    file_name_template: "{{ .ConventionalFileName }}"
+    if: '{{ eq .Os "linux" }}'
+    vendor: Columnar
+    description: >-
+      A CLI utility for managing ADBC drivers
+
+    formats:
+      - deb
+      - rpm
+    meta: false
+
+snapcrafts:
+  - id: snaps
+    name: dbc
+    summary: CLI for managing ADBC drivers
+    description: A command-line interface for interacting with ADBC drivers.
+    icon: ./resources/dbc.png
+    hooks:
+      install:
+        - network
+    base: bare
+    confinement: classic
+    publish: false
+    plugs:
+      system-files:
+        read:
+          - /etc/adbc
+        write:
+          - /etc/adbc
+      personal-files:
+        read:
+          - $HOME/.config/adbc
+        write:
+          - $HOME/.config/adbc
+
+msi:
+  - id: msi
+    name: "dbc-{{ .MsiArch }}"
+    wxs: ./resources/dbc.wxs
+    extensions:
+      - ui
+    extra_files:
+      - ./resources/dbc.ico
+      - ./resources/dbc.bmp
+      - ./ui/bitmaps/dlgbmp.bmp
+      - ./ui/bitmaps/bannrbmp.bmp
+
+signs:
+  - artifacts: all
+    ids:
+      - msi
+      - archives
+    args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
+
 after:
   hooks:
     - mkdir -p dist/python
     - cmd: sh -c "mv dist/*.whl dist/python/"
 
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      sign:
+        certificate: "{{ .Env.MACOS_SIGN_P12 }}"
+        password: "{{ .Env.MACOS_SIGN_PASSWORD }}"
+
+      notarize:
+        issuer_id: "{{ .Env.MACOS_NOTARY_ISSUER_ID }}"
+        key: "{{ .Env.MACOS_NOTARY_KEY }}"
+        key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
+        wait: true
+        timeout: 30m
+
 release:
+  ids:
+    - archives
+    - msi
+    - snaps
+    - pkgs
   prerelease: auto
+  extra_files:
+    - glob: ./dist/*.whl
+  header: >-
+    ## dbc Release ({{ .Date }})
+
   footer: >-
 
     ---

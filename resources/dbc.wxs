@@ -1,0 +1,77 @@
+<?xml version='1.0' encoding='windows-1252'?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  {{ if eq .MsiArch "x64" }}
+  <?define ArchString = "(64 bit)" ?>
+  <?define Win64 = "yes" ?>
+  <?define ProgramFilesFolder = "ProgramFiles64Folder" ?>
+  {{ else }}
+  <?define ArchString = "" ?>
+  <?define Win64 = "no" ?>
+  <?define ProgramFilesFolder = "ProgramFilesFolder" ?>
+  {{ end }}   
+  <Fragment>    
+    <UI Id="WixUI_Minimal">
+        <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
+        <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
+        <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
+        <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+        <Property Id="WixUI_Mode" Value="Minimal" />
+        <DialogRef Id="ErrorDlg" />
+        <DialogRef Id="FatalError" />
+        <DialogRef Id="FilesInUse" />
+        <DialogRef Id="MsiRMFilesInUse" />
+        <DialogRef Id="PrepareDlg" />
+        <DialogRef Id="ProgressDlg" />
+        <DialogRef Id="ResumeDlg" />
+        <DialogRef Id="UserExit" />
+        <DialogRef Id="WelcomeDlg" />
+        <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="PrepareDlg">1</Publish>
+        <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
+        <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+        <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+        <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+        <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+        <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>        
+    </UI>
+  </Fragment>
+  <Product Id="5B742771-61E1-4DC1-9276-6E1287282B3F" Name="dbc"
+           Manufacturer="Columnar Technologies, Inc." Version="{{ .Version }}"
+           UpgradeCode="3BC2470F-54EE-47F0-973C-A789684BF95E">
+
+    <Package Id="C72A9A3A-3BDE-43A3-BBDA-4AD8FFEDC819"
+        Keywords="Installer" Description="DBC Installer"
+        Comments="ADBC is awesome" Manufacturer="Columnar Technologies, Inc."
+        InstallerVersion="200" Compressed="yes" SummaryCodepage='1252' />
+
+    <Media Id="1" Cabinet="dbc.cab" EmbedCab="yes" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." RemoveFeatures="Complete" Schedule="afterInstallExecute" />
+    <Property Id="DiskPrompt" Value="{{ .ProjectName }} {{.Version}} Installation [1]" />
+    
+    <UIRef Id="WixUI_Common" />
+
+    <Icon Id="ProductIcon.ico" SourceFile="resources/dbc.ico" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="$(var.ProgramFilesFolder)" Name="PFiles">
+        <Directory Id="Columnar" Name="Columnar">
+            <Directory Id="INSTALLDIR" Name="dbc">
+
+                <Component Win64="$(var.Win64)" Id="MainExecutable" Guid="21002ec5-93ff-4c29-8864-9b1ca5a07e05">
+                    <File Id="{{ .Binary }}.exe" Name="{{ .ArtifactName }}" Source="{{ .ArtifactName }}" KeyPath="yes" />
+                    <Environment Id="UpdatePath" Name="PATH" Action="set" Permanent="no" System="yes" Part="last" Value="[INSTALLDIR]" />
+                </Component>
+
+            </Directory>
+        </Directory>
+      </Directory>
+    </Directory>
+
+    <Feature Id="Complete" Title="dbc Install" Description="dbc is awesome" Display="expand" Level="1">
+      <Feature Id="MainProgram" Title="Program" Description="The main executable." Level="1">
+          <ComponentRef Id="MainExecutable" />
+      </Feature>
+    </Feature>
+
+    <Property Id="Setup" Value="Setup" />    
+    <Property Id="ARPPRODUCTICON" Value="ProductIcon.ico" />
+  </Product>
+</Wix>

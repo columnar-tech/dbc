@@ -6,6 +6,7 @@ on:
   push:
     tags:
       - "v*"
+  pull_request:
 
 permissions:
   contents: write
@@ -23,6 +24,33 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: './go.mod'
+
+      # pull more recent version of wixl than in the ubuntu repos
+      # needed for Path Env update support
+      - name: Install wixl
+        run: |
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
+          sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
+
+      - name: install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Install Snapcraft
+        uses: samuelmeuli/action-snapcraft@fceeb3c308e76f3487e72ef608618de625fb7fe8 # v3
+
+      - name: Import signing GPG key
+        env:
+          COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+        run: |                    
+          echo "$COLUMNAR_GPG_KEY" | gpg --batch --import
+          KEY_ID=$(gpg -K | sed -n '/^\s/s/\s*//p')
+          printf "trust\n5\ny\nquit\n" | gpg --batch --no-tty --command-fd 0 --edit-key "$KEY_ID"
+          echo "default-cache-ttl 46000" >> ~/.gnupg/gpg-agent.conf
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpg-connect-agent "RELOADAGENT" /bye
+          KEYGRIP=$(gpg -K --with-keygrip | grep -m 1 "Keygrip =" | awk '{print $3}')
+          gpg-connect-agent "PRESET_PASSPHRASE $KEYGRIP -1 $(echo -n '${{ secrets.SIGNING_PASSWORD }}' | od -An -t x1 | tr -d ' ')"
 
       - name: AWS Login
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
@@ -52,25 +80,72 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # cross-platform macos notarization/signing
+      - name: Install anchore/quill
+        run: |
+          curl -sSfL https://get.anchore.io/quill | sudo sh -s -- -b /usr/local/bin
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         id: gorelease
+        if: github.event_name == 'push'
         with:
           distribution: goreleaser-pro
           version: "~> v2"
-          args: release -p 10 --clean
+          args: release -p 20 --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN}}          
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN}}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+
+      - name: Run GoReleaser Snapshot
+        uses: goreleaser/goreleaser-action@v6
+        id: gorelease-snapshot
+        if: github.event_name == 'pull_request'
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: release -p 20 --clean --snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN}}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+
+      - name: Upload Snapshot Artifacts
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-artifacts
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sig
+            dist/*.snap
+            dist/*.deb
+            dist/*.rpm
+            dist/msi/**/*.msi
+            dist/python/*
 
       - name: Publish to PyPI
+        if: github.event_name == 'push'
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # 1.12.4
         with:
           packages-dir: dist/python/
 
       - name: Update CF Latest Key
-        if: contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
+        if: github.event_name == 'push' && contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
         run: |
           ETAG=$(aws cloudfront-keyvaluestore describe-key-value-store \
             --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} | jq -r '.ETag')
