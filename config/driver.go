@@ -15,6 +15,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+const currentManifestVersion = 1
+
 type Manifest struct {
 	DriverInfo
 
@@ -102,11 +104,12 @@ func (d driverMap) String() string {
 }
 
 type tomlDriverInfo struct {
-	Name      string          `toml:"name"`
-	Publisher string          `toml:"publisher"`
-	License   string          `toml:"license"`
-	Version   *semver.Version `toml:"version"`
-	Source    string          `toml:"source"`
+	ManifestVersion int32           `toml:"manifest_version"`
+	Name            string          `toml:"name"`
+	Publisher       string          `toml:"publisher"`
+	License         string          `toml:"license"`
+	Version         *semver.Version `toml:"version"`
+	Source          string          `toml:"source"`
 
 	AdbcInfo struct {
 		Version  *semver.Version `toml:"version"`
@@ -162,12 +165,13 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	defer f.Close()
 
 	toEncode := tomlDriverInfo{
-		Name:      driver.Name,
-		Publisher: driver.Publisher,
-		License:   driver.License,
-		Version:   driver.Version,
-		Source:    driver.Source,
-		AdbcInfo:  driver.AdbcInfo,
+		ManifestVersion: currentManifestVersion,
+		Name:            driver.Name,
+		Publisher:       driver.Publisher,
+		License:         driver.License,
+		Version:         driver.Version,
+		Source:          driver.Source,
+		AdbcInfo:        driver.AdbcInfo,
 	}
 
 	toEncode.Driver.Entrypoint = driver.Driver.Entrypoint

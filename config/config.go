@@ -275,6 +275,11 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 		return Manifest{}, fmt.Errorf("error decoding manifest: %w", err)
 	}
 
+	if di.ManifestVersion > currentManifestVersion {
+		return Manifest{}, fmt.Errorf("manifest version %d is unsupported, only %d and lower are supported by this version of dbc",
+			di.ManifestVersion, currentManifestVersion)
+	}
+
 	result := Manifest{
 		DriverInfo: DriverInfo{
 			ID:        driverName,

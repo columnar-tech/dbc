@@ -64,6 +64,17 @@ func keyMust(k registry.Key, name string) string {
 	return val
 }
 
+func keyIntOptional(k registry.Key, name string) uint32 {
+	val, _, err := k.GetIntegerValue(name)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return 0
+		}
+		panic(err)
+	}
+	return uint32(val)
+}
+
 func keyOptional(k registry.Key, name string) string {
 	val, _, err := k.GetStringValue(name)
 	if err != nil {
@@ -77,6 +88,12 @@ func keyOptional(k registry.Key, name string) string {
 
 func setKeyMust(k registry.Key, name, value string) {
 	if err := k.SetStringValue(name, value); err != nil {
+		panic(err)
+	}
+}
+
+func setKeyIntMust(k registry.Key, name string, value uint32) {
+	if err := k.SetDWordValue(name, value); err != nil {
 		panic(err)
 	}
 }
@@ -100,6 +117,11 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 			}
 		}
 	}()
+
+	ver := keyIntOptional(dkey, "manifest_version")
+	if ver > currentManifestVersion {
+		return DriverInfo{}, fmt.Errorf("manifest version %d is unsupported, only %d and lower are supported by this version of dbc", ver, currentManifestVersion)
+	}
 
 	di.ID = driverName
 	di.Name = keyMust(dkey, "name")
@@ -243,6 +265,7 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	}()
 
 	setKeyMust(dkey, "name", driver.Name)
+	setKeyIntMust(dkey, "manifest_version", currentManifestVersion)
 	setKeyMust(dkey, "publisher", driver.Publisher)
 	setKeyMust(dkey, "license", driver.License)
 	setKeyMust(dkey, "version", driver.Version.String())

@@ -74,7 +74,8 @@ func TestCreateDriverManifest(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t,
-		`name = 'Test Driver'
+		`manifest_version = 1
+name = 'Test Driver'
 publisher = 'Test Publisher'
 license = 'MIT'
 version = '1.0.0'
@@ -93,4 +94,22 @@ entrypoint = 'AdbcDriverInit'
 [Driver.shared]
 linux_amd64 = '/path/to/driver.so'
 `, string(data))
+}
+
+func TestLoadDriverFromUnsupportedManifest(t *testing.T) {
+	prefix := t.TempDir()
+	driverName := "test_driver"
+	manifestPath := filepath.Join(prefix, driverName+".toml")
+
+	require.NoError(t, os.WriteFile(manifestPath, []byte(`
+manifest_version = 100
+
+name = 'test_driver'
+publisher = 'bar'
+license = 'Apache-2.0'
+version = '0.1.0'
+	`), 0644))
+
+	_, err := loadDriverFromManifest(prefix, driverName)
+	require.ErrorContains(t, err, "manifest version 100 is unsupported, only 1 and lower are supported by this version of dbc")
 }
