@@ -102,7 +102,7 @@ type cmds struct {
 	Uninstall *UninstallCmd `arg:"subcommand" help:"Uninstall a driver"`
 	Init      *InitCmd      `arg:"subcommand" help:"Initialize a new dbc drivers list"`
 	Add       *AddCmd       `arg:"subcommand" help:"Add a driver to the drivers list"`
-	Sync      *SyncCmd      `arg:"subcommand" help:"Sync installed drivers with drivers in the active drivers list"`
+	Sync      *SyncCmd      `arg:"subcommand" help:"Sync installed drivers with drivers in the drivers list"`
 	Search    *SearchCmd    `arg:"subcommand" help:"Search for a driver"`
 	Remove    *RemoveCmd    `arg:"subcommand" help:"Remove a driver from the drivers list"`
 }
