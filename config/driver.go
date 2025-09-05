@@ -19,13 +19,13 @@ type Manifest struct {
 	DriverInfo
 
 	Files struct {
-		Driver    string `toml:"driver"`
-		Signature string `toml:"signature"`
-	} `toml:"Files"`
+		Driver    string `toml:"driver,omitempty"`
+		Signature string `toml:"signature,omitempty"`
+	} `toml:"Files,omitempty"`
 
 	PostInstall struct {
-		Messages []string `toml:"messages,inline"`
-	} `toml:"PostInstall"`
+		Messages []string `toml:"messages,inline,omitempty"`
+	} `toml:"PostInstall,omitempty"`
 }
 
 type DriverInfo struct {
@@ -120,50 +120,32 @@ type tomlDriverInfo struct {
 		Entrypoint string `toml:"entrypoint,omitempty"`
 		Shared     any    `toml:"shared"`
 	}
+
+	Files struct {
+		Driver    string `toml:"driver,omitempty"`
+		Signature string `toml:"signature,omitempty"`
+	} `toml:"Files,omitempty"`
+
+	PostInstall struct {
+		Messages []string `toml:"messages,inline,omitempty"`
+	} `toml:"PostInstall,omitempty"`
 }
 
 func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 	driverName = strings.TrimSuffix(driverName, ".toml")
 	manifest := filepath.Join(prefix, driverName+".toml")
-	var di tomlDriverInfo
 	f, err := os.Open(manifest)
 	if err != nil {
 		return DriverInfo{}, fmt.Errorf("error opening manifest %s: %w", manifest, err)
 	}
 	defer f.Close()
 
-	if err := toml.NewDecoder(f).Decode(&di); err != nil {
+	m, err := decodeManifest(f, driverName, true)
+	if err != nil {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
 
-	result := DriverInfo{
-		ID:        driverName,
-		Name:      di.Name,
-		Publisher: di.Publisher,
-		License:   di.License,
-		Version:   di.Version,
-		Source:    di.Source,
-		AdbcInfo:  di.AdbcInfo,
-	}
-
-	result.Driver.Entrypoint = di.Driver.Entrypoint
-	switch s := di.Driver.Shared.(type) {
-	case string:
-		result.Driver.Shared.defaultPath = s
-	case map[string]any:
-		result.Driver.Shared.platformMap = make(map[string]string)
-		for k, v := range s {
-			if strVal, ok := v.(string); ok {
-				result.Driver.Shared.platformMap[k] = strVal
-			} else {
-				return DriverInfo{}, fmt.Errorf("invalid type for platform %s in manifest %s, expected string", k, manifest)
-			}
-		}
-	default:
-		return DriverInfo{}, fmt.Errorf("invalid type for 'Driver.shared' in manifest %s, expected string or table", manifest)
-	}
-
-	return result, nil
+	return m.DriverInfo, nil
 }
 
 func createDriverManifest(location string, driver DriverInfo) error {

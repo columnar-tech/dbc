@@ -258,11 +258,55 @@ func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 			}
 			next.Close()
 		} else {
-			if err := toml.NewDecoder(t).Decode(&m); err != nil {
+			m, err = decodeManifest(t, "", false)
+			if err != nil {
 				return m, fmt.Errorf("could not decode manifest: %w", err)
 			}
+
 		}
 	}
 
 	return m, nil
+}
+
+func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifest, error) {
+	var di tomlDriverInfo
+	if err := toml.NewDecoder(r).Decode(&di); err != nil {
+		return Manifest{}, fmt.Errorf("error decoding manifest: %w", err)
+	}
+
+	result := Manifest{
+		DriverInfo: DriverInfo{
+			ID:        driverName,
+			Name:      di.Name,
+			Publisher: di.Publisher,
+			License:   di.License,
+			Version:   di.Version,
+			Source:    di.Source,
+			AdbcInfo:  di.AdbcInfo,
+		},
+		Files:       di.Files,
+		PostInstall: di.PostInstall,
+	}
+
+	result.Driver.Entrypoint = di.Driver.Entrypoint
+	switch s := di.Driver.Shared.(type) {
+	case string:
+		result.Driver.Shared.defaultPath = s
+	case map[string]any:
+		result.Driver.Shared.platformMap = make(map[string]string)
+		for k, v := range s {
+			if strVal, ok := v.(string); ok {
+				result.Driver.Shared.platformMap[k] = strVal
+			} else {
+				return Manifest{}, fmt.Errorf("invalid type for platform %s, expected string", k)
+			}
+		}
+	default:
+		if requireShared {
+			return Manifest{}, errors.New("invalid type for 'Driver.shared' in manifest, expected string or table")
+		}
+	}
+
+	return result, nil
 }

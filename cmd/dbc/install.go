@@ -49,13 +49,19 @@ func (c InstallCmd) GetModel() tea.Model {
 }
 
 func verifySignature(m config.Manifest) error {
-	lib, err := os.Open(m.Driver.Shared.Get(config.PlatformTuple()))
+	if m.Files.Driver == "" {
+		return nil
+	}
+
+	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
+
+	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
 	if err != nil {
 		return fmt.Errorf("could not open driver file: %w", err)
 	}
 	defer lib.Close()
 
-	sig, err := os.Open(filepath.Join(filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple())), m.Files.Signature))
+	sig, err := os.Open(filepath.Join(path, m.Files.Signature))
 	if err != nil {
 		return fmt.Errorf("could not open signature file: %w", err)
 	}

@@ -183,8 +183,9 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 }
 
 type installedDrvMsg struct {
-	removed *config.DriverInfo
-	info    config.DriverInfo
+	removed     *config.DriverInfo
+	info        config.DriverInfo
+	postInstall []string
 }
 
 type alreadyInstalledDrvMsg struct {
@@ -261,7 +262,11 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 			return fmt.Errorf("failed to create driver manifest: %w", err)
 		}
 
-		return installedDrvMsg{removed: removedDriver, info: manifest.DriverInfo}
+		return installedDrvMsg{
+			removed:     removedDriver,
+			info:        manifest.DriverInfo,
+			postInstall: manifest.PostInstall.Messages,
+		}
 	}
 }
 
@@ -362,6 +367,15 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				printCmd,
 				tea.Printf("%s   removed %s-%s", checkMark, msg.removed.ID, msg.removed.Version),
 			)
+		}
+
+		if len(msg.postInstall) > 0 {
+			for _, m := range msg.postInstall {
+				printCmd = tea.Sequence(
+					printCmd,
+					tea.Printf("%s   post-install: %s", checkMark, m),
+				)
+			}
 		}
 
 		if s.index >= len(s.installItems)-1 {
