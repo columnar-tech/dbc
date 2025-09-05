@@ -18,11 +18,11 @@ import (
 const (
 	// defaultSysConfigDir is used on non-macOS but also on macOS when in a
 	// python/conda environment (i.e., $VIRTUAL_ENV/etc/adbc)
-	defaultSysConfigDir = "/etc/adbc"
-	sysConfigDirDarwin  = "/Library/Application Support/ADBC"
+	defaultSysConfigDir = "/etc/adbc/drivers"
+	sysConfigDirDarwin  = "/Library/Application Support/ADBC/Drivers"
 
-	userConfigSuffixDarwin = "ADBC"
-	userConfigSuffixOther  = "adbc"
+	userConfigSuffixDarwin = "ADBC/Drivers"
+	userConfigSuffixOther  = "adbc/drivers"
 )
 
 var (

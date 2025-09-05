@@ -149,7 +149,7 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
-	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "test-driver-1.toml"))
+	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
@@ -175,7 +175,7 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
-	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "test-driver-1.toml"))
+	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),

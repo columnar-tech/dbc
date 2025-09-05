@@ -21,7 +21,7 @@ var userConfigDir string
 func init() {
 	userConfigDir, _ = os.UserConfigDir()
 	if userConfigDir != "" {
-		userConfigDir = filepath.Join(userConfigDir, "ADBC", "drivers")
+		userConfigDir = filepath.Join(userConfigDir, "ADBC", "Drivers")
 	}
 }
 
@@ -49,7 +49,7 @@ func (c ConfigLevel) configLocation() string {
 		panic("unknown config level")
 	}
 
-	return filepath.Join(prefix, "ADBC", "drivers")
+	return filepath.Join(prefix, "ADBC", "Drivers")
 }
 
 const (

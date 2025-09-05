@@ -12,8 +12,8 @@ When `--level` is provided, dbc searches _only_ the provided level and will also
 The following environment variables are searched, in order:
 
 1. `ADBC_DRIVER_PATH`: When set, installs or locates drivers at `$ADBC_DRIVER_PATH`.
-2. `VIRTUAL_ENV`: When set, installs or locates drivers at `$VIRTUAL_ENV/etc/adbc`. This variable is automatically set when you have activated a [Python virtual environment](https://docs.python.org/3/tutorial/venv.html).
-3. `CONDA_PREFIX`: When set, installs or locates drivers at `$CONDA_PREFIX/etc/adbc`. This variable is automatically set when you have activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html).
+2. `VIRTUAL_ENV`: When set, installs or locates drivers at `$VIRTUAL_ENV/etc/adbc/drivers`. This variable is automatically set when you have activated a [Python virtual environment](https://docs.python.org/3/tutorial/venv.html).
+3. `CONDA_PREFIX`: When set, installs or locates drivers at `$CONDA_PREFIX/etc/adbc/drivers`. This variable is automatically set when you have activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html).
 
 Note that dbc will stop searching for a driver when one is found.
 For example, if you are in a Python virtual environment, you can still override the location where dbc installs or locates drivers by setting `$ADBC_DRIVER_PATH` to a directory of your choice.
@@ -22,8 +22,8 @@ For example, if you are in a Python virtual environment, you can still override 
 
 `--level` value `user`.
 
-- On Linux (and other Unix-like platforms), this is `$XDG_CONFIG_HOME/adbc` (if `$XDG_CONFIG_HOME` is set) or `~/.config/adbc`.
-- On macOS, this is `~/Library/Application Support/ADBC`.
+- On Linux (and other Unix-like platforms), this is `$XDG_CONFIG_HOME/adbc/drivers` (if `$XDG_CONFIG_HOME` is set) or `~/.config/adbc/drivers`.
+- On macOS, this is `~/Library/Application Support/ADBC/Drivers`.
 - On Windows, this is either the registry under `HKEY_CURRENT_USER\SOFTWARE\ADBC\Drivers\` or `%LOCAL_APPDATA%\ADBC\drivers`.
 
 ## System
@@ -34,8 +34,8 @@ For example, if you are in a Python virtual environment, you can still override 
 
     Depending on your environment, you may need elevated privileges to use the `--level system` option (such as `sudo` on Unix-likes and Administrator on Windows).
 
-- On Linux (and other Unix-like platforms), this is `/etc/adbc`.
-- On macOS, this is `/Library/Application Support/ADBC`.
+- On Linux (and other Unix-like platforms), this is `/etc/adbc/drivers`.
+- On macOS, this is `/Library/Application Support/ADBC/Drivers`.
 - On Windows, this is in the registry under `HKEY_LOCAL_MACHINE\SOFTWARE\ADBC\Drivers\`
 
 ## More Info

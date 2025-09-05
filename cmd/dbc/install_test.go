@@ -85,7 +85,7 @@ func (suite *SubcommandTestSuite) TestInstallVenv() {
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc")+"\r\n", suite.runCmd(m))
+		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\r\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
@@ -96,7 +96,7 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc")+"\r\n", suite.runCmd(m))
+		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\r\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {

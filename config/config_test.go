@@ -28,15 +28,19 @@ func TestConfigEnvVarHierarchy(t *testing.T) {
 	os.Setenv("CONDA_PREFIX", "some_conda_prefix")
 
 	cfg := loadConfig(ConfigEnv)
-	assert.Equal(t, "some_adbc_driver_path"+string(filepath.ListSeparator)+filepath.Join("some_virtual_env", "etc", "adbc")+string(filepath.ListSeparator)+filepath.Join("some_conda_prefix", "etc", "adbc"), cfg.Location)
+	assert.Equal(t, "some_adbc_driver_path"+string(filepath.ListSeparator)+
+		filepath.Join("some_virtual_env", "etc", "adbc", "drivers")+
+		string(filepath.ListSeparator)+
+		filepath.Join("some_conda_prefix", "etc", "adbc", "drivers"), cfg.Location)
 
 	os.Setenv("ADBC_DRIVER_PATH", "")
 	cfg = loadConfig(ConfigEnv)
-	assert.Equal(t, filepath.Join("some_virtual_env", "etc", "adbc")+string(filepath.ListSeparator)+filepath.Join("some_conda_prefix", "etc", "adbc"), cfg.Location)
+	assert.Equal(t, filepath.Join("some_virtual_env", "etc", "adbc", "drivers")+string(filepath.ListSeparator)+
+		filepath.Join("some_conda_prefix", "etc", "adbc", "drivers"), cfg.Location)
 
 	os.Setenv("VIRTUAL_ENV", "")
 	cfg = loadConfig(ConfigEnv)
-	assert.Equal(t, filepath.Join("some_conda_prefix", "etc", "adbc"), cfg.Location)
+	assert.Equal(t, filepath.Join("some_conda_prefix", "etc", "adbc", "drivers"), cfg.Location)
 	os.Setenv("CONDA_PREFIX", "")
 	cfg = loadConfig(ConfigEnv)
 	assert.Equal(t, "", cfg.Location)

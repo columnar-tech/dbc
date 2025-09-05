@@ -179,11 +179,11 @@ func loadConfig(lvl ConfigLevel) Config {
 func getEnvConfigDir() string {
 	envConfigLoc := filepath.SplitList(os.Getenv(adbcEnvVar))
 	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
-		envConfigLoc = append(envConfigLoc, filepath.Join(venv, "etc", "adbc"))
+		envConfigLoc = append(envConfigLoc, filepath.Join(venv, "etc", "adbc", "drivers"))
 	}
 
 	if conda := os.Getenv("CONDA_PREFIX"); conda != "" {
-		envConfigLoc = append(envConfigLoc, filepath.Join(conda, "etc", "adbc"))
+		envConfigLoc = append(envConfigLoc, filepath.Join(conda, "etc", "adbc", "drivers"))
 	}
 
 	envConfigLoc = slices.DeleteFunc(envConfigLoc, func(s string) bool {
