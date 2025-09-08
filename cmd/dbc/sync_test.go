@@ -105,7 +105,7 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 func (suite *SubcommandTestSuite) validateOutput(expected, actual string) {
 	const (
 		terminalPrefix = "\x1b[?25l\x1b[?2004h"
-		terminalSuffix = "\x1b[D\x1b[2K\r\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l"
+		terminalSuffix = "\r\x1b[2K\r\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l"
 	)
 
 	suite.Equal(terminalPrefix+expected+terminalSuffix, actual)

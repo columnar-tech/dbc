@@ -421,7 +421,7 @@ func (s syncModel) View() string {
 	driverName := s.installItems[s.index].Driver.Path
 	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + driverName)
 
-	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount)-1)
+	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))
 	gap := strings.Repeat(" ", max(0, cellsRemaining))
 
 	return spin + info + gap + prog + driverCount
