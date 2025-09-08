@@ -13,9 +13,91 @@ permissions:
   id-token: write # For AWS auth
 
 jobs:
-  goreleaser:
+  snapshot:
+    runs-on: ubuntu-latest
+    environment: snapshot
+    if: github.ref != 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: './go.mod'
+
+      # pull more recent version of wixl than in the ubuntu repos
+      # needed for Path Env update support
+      - name: Install wixl
+        run: |
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
+          sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
+
+      - name: install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Install Snapcraft
+        uses: samuelmeuli/action-snapcraft@fceeb3c308e76f3487e72ef608618de625fb7fe8 # v3
+
+      - name: Import signing GPG key
+        env:
+          COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+        run: |                    
+          echo "$COLUMNAR_GPG_KEY" | gpg --batch --import
+          KEY_ID=$(gpg -K | sed -n '/^\s/s/\s*//p')
+          printf "trust\n5\ny\nquit\n" | gpg --batch --no-tty --command-fd 0 --edit-key "$KEY_ID"
+          echo "default-cache-ttl 46000" >> ~/.gnupg/gpg-agent.conf
+          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
+          gpg-connect-agent "RELOADAGENT" /bye
+          KEYGRIP=$(gpg -K --with-keygrip | grep -m 1 "Keygrip =" | awk '{print $3}')
+          gpg-connect-agent "PRESET_PASSPHRASE $KEYGRIP -1 $(echo -n '${{ secrets.SIGNING_PASSWORD }}' | od -An -t x1 | tr -d ' ')"
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Wheel
+        run: pip install wheel
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run GoReleaser Snapshot
+        uses: goreleaser/goreleaser-action@v6
+        id: gorelease-snapshot        
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: release -p 20 --clean --snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}          
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+      - name: Upload Snapshot Artifacts        
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-artifacts
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sig
+            dist/*.snap
+            dist/*.deb
+            dist/*.rpm
+            dist/msi/**/*.msi
+            dist/python/*
+
+  production_deploy:
     runs-on: ubuntu-latest
     environment: production
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -104,48 +186,13 @@ jobs:
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
 
-      - name: Run GoReleaser Snapshot
-        uses: goreleaser/goreleaser-action@v6
-        id: gorelease-snapshot
-        if: github.event_name == 'pull_request'
-        with:
-          distribution: goreleaser-pro
-          version: "~> v2"
-          args: release -p 20 --clean --snapshot
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN}}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
-          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
-          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
-          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
-          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
-
-      - name: Upload Snapshot Artifacts
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapshot-artifacts
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/*.sig
-            dist/*.snap
-            dist/*.deb
-            dist/*.rpm
-            dist/msi/**/*.msi
-            dist/python/*
-
-      - name: Publish to PyPI
-        if: github.event_name == 'push'
+      - name: Publish to PyPI        
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # 1.12.4
         with:
           packages-dir: dist/python/
 
       - name: Update CF Latest Key
-        if: github.event_name == 'push' && contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
+        if: contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
         run: |
           ETAG=$(aws cloudfront-keyvaluestore describe-key-value-store \
             --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} | jq -r '.ETag')
