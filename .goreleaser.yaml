@@ -16,13 +16,6 @@ metadata:
   maintainers:
     - "Columnar <hello@columnar.tech>"
 
-# before:
-  # hooks:
-    # You may remove this if you don't use go modules.
-    # - mkdir -p dist/python
-    # you may remove this if you don't need go generate
-    # - go generate ./...
-
 builds:
   - main: ./cmd/dbc
     binary: dbc
@@ -133,6 +126,7 @@ docker_manifests:
 dockerhub:
   - username: "columnar"
     secret_name: "DOCKER_TOKEN"
+    disable: "{{ not .IsSnapshot }}"
     images:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
@@ -214,6 +208,9 @@ notarize:
         key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
         wait: true
         timeout: 30m
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
 
 release:
   ids:
