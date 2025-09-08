@@ -135,7 +135,7 @@ docker_manifests:
 dockerhub:
   - username: "columnar"
     secret_name: "DOCKER_TOKEN"
-    disable: "{{ not .IsRelease }}"
+    disable: "{{ or (not .IsRelease) (ne .Prerelease '') }}"
     images:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
