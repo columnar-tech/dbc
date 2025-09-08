@@ -74,7 +74,8 @@ blobs:
 
 binary_signs:
   - id: signs
-    args: ["--output", "${signature}.sig", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
+    signature: '${artifact}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}.sig'
+    args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
     stdin: "{{ .Env.SIGNING_PASSWORD }}"
 
 changelog:
