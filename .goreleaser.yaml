@@ -66,7 +66,9 @@ archives:
             {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Version }}{{ if eq .Os "windows" }}.zip{{ else }}.tar.gz{{ end }}
 
 blobs:
-  - provider: s3
+  - ids:
+      - archives
+    provider: s3
     region: us-east-2
     bucket: dbc-distribution
     directory: "{{ .Tag }}"
@@ -96,7 +98,8 @@ changelog:
       - "^test:"
 
 dockers:
-  - image_templates:
+  - id: docker-amd64
+    image_templates:
     - "columnar/dbc:{{ .Version }}-amd64"
     - "columnar/dbc:latest-amd64"
     use: buildx
@@ -104,7 +107,8 @@ dockers:
     skip_push: auto
     build_flag_templates:
       - "--platform=linux/amd64"
-  - image_templates:
+  - id: docker-arm64
+    image_templates:
     - "columnar/dbc:{{ .Version }}-arm64v8"
     - "columnar/dbc:latest-arm64v8"
     use: buildx
@@ -115,11 +119,13 @@ dockers:
       - "--platform=linux/arm64/v8"
 
 docker_manifests:
-  - name_template: "columnar/dbc:{{ .Version }}"
+  - id: docker-manifest-tagged
+    name_template: "columnar/dbc:{{ .Version }}"
     image_templates:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
-  - name_template: "columnar/dbc:latest"
+  - id: docker-manifest-latest
+    name_template: "columnar/dbc:latest"
     image_templates:
       - "columnar/dbc:latest-amd64"
       - "columnar/dbc:latest-arm64v8"
