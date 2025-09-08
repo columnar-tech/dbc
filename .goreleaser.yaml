@@ -121,11 +121,13 @@ dockers:
 docker_manifests:
   - id: docker-manifest-tagged
     name_template: "columnar/dbc:{{ .Version }}"
+    skip_push: auto
     image_templates:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
   - id: docker-manifest-latest
     name_template: "columnar/dbc:latest"
+    skip_push: auto
     image_templates:
       - "columnar/dbc:latest-amd64"
       - "columnar/dbc:latest-arm64v8"
@@ -133,7 +135,7 @@ docker_manifests:
 dockerhub:
   - username: "columnar"
     secret_name: "DOCKER_TOKEN"
-    disable: "{{ not .IsSnapshot }}"
+    disable: "{{ not .IsRelease }}"
     images:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
