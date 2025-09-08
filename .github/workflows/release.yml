@@ -16,7 +16,7 @@ jobs:
   snapshot:
     runs-on: ubuntu-latest
     environment: snapshot
-    if: github.ref != 'refs/heads/main'
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -97,7 +97,7 @@ jobs:
   production_deploy:
     runs-on: ubuntu-latest
     environment: production
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v5
         with:
@@ -169,8 +169,7 @@ jobs:
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
-        id: gorelease
-        if: github.event_name == 'push'
+        id: gorelease        
         with:
           distribution: goreleaser-pro
           version: "~> v2"
