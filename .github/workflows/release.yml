@@ -115,6 +115,7 @@ jobs:
           wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
           wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
           sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
+          rm ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
 
       - name: install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
