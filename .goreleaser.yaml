@@ -72,8 +72,9 @@ archives:
 
 blobs:
   - ids:
-      - archives    
+      - archives
     provider: s3
+    if: '{{ not (contains .ArtifactName ".msi.sig" )}}'
     region: us-east-2
     bucket: dbc-distribution
     directory: "{{ .Tag }}"
@@ -232,10 +233,11 @@ msi:
       - ./resources/dbc.ico
       - ./resources/dbc.bmp
       - ./ui/bitmaps/dlgbmp.bmp
-      - ./ui/bitmaps/bannrbmp.bmp
+      - ./ui/bitmaps/bannrbmp.bmp    
 
 signs:
-  - artifacts: all
+  - id: signature-archives
+    artifacts: archive
     ids:      
       - archives
     args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
