@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -314,4 +315,38 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 	}
 
 	return result, nil
+}
+
+// Common, non-platform-specific code for uninstalling a driver. Called by
+// platform-specific UninstallDriver function.
+func UninstallDriverShared(cfg Config, info DriverInfo) error {
+	for sharedPath := range info.Driver.Shared.Paths() {
+
+		// dbc installs drivers in a folder, other tools may not so we handle each
+		// differently.
+		if info.Source == "dbc" {
+			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
+				// Ignore only when not found. This supports manifest-only drivers.
+				// TODO: Come up with a better mechanism to handle manifest-only drivers
+				// and remove this continue when we do
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
+		} else {
+			if err := os.Remove(sharedPath); err != nil {
+				// Ignore only when not found. This supports manifest-only drivers.
+				// TODO: Come up with a better mechanism to handle manifest-only drivers
+				// and remove this continue when we do
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
+		}
+
+	}
+
+	return nil
 }

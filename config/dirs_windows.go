@@ -5,7 +5,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"maps"
 	"os"
@@ -285,30 +284,8 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 		return fmt.Errorf("failed to delete driver registry key: %w", err)
 	}
 
-	if info.Source == "dbc" {
-		for sharedPath := range info.Driver.Shared.Paths() {
-			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		}
-	} else {
-		for sharedPath := range info.Driver.Shared.Paths() {
-			if err := os.Remove(sharedPath); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		}
+	if err = UninstallDriverShared(cfg, info); err != nil {
+		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 
 	return nil

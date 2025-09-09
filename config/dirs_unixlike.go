@@ -5,9 +5,7 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -90,35 +88,13 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
-	if info.Source == "dbc" {
-		for sharedPath := range info.Driver.Shared.Paths() {
-			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		}
-	} else {
-		for sharedPath := range info.Driver.Shared.Paths() {
-			if err := os.Remove(sharedPath); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		}
-	}
-
 	manifest := filepath.Join(cfg.Location, info.ID+".toml")
 	if err := os.Remove(manifest); err != nil {
 		return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+	}
+
+	if err := UninstallDriverShared(cfg, info); err != nil {
+		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 
 	return nil
