@@ -361,5 +361,25 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 
 	}
 
+	// Manifest only drivers can come with extra files such as a LICENSE and we
+	// create a folder next to the driver manifest to store them, same as we'd
+	// store the actual driver shared library. Above, we find the path of this
+	// folder by looking at the Driver.shared path. For manifest-only drivers,
+	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
+	// work. We do want to clean this folder up so here we guess what it is and
+	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
+	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
+	// Return immediately if folder has repeated . chars (for safety)
+	matched, err := regexp.MatchString("\\.{2,}", extra_folder)
+	if matched || err != nil {
+		return nil
+	}
+	extra_path := filepath.Join(cfg.Location, extra_folder)
+	finfo, err := os.Stat(extra_path)
+	if err == nil && finfo.IsDir() {
+		_ = os.RemoveAll(extra_path)
+		// ignore errors
+	}
+
 	return nil
 }
