@@ -321,6 +321,19 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 // platform-specific UninstallDriver function.
 func UninstallDriverShared(cfg Config, info DriverInfo) error {
 	for sharedPath := range info.Driver.Shared.Paths() {
+		// Don't remove anything that isn't contained withing the found driver's
+		// config directory (i.e., avoid malicious driver manifests)
+		if !strings.HasPrefix(sharedPath, cfg.Location) {
+			continue
+		}
+
+		// Skip any shared paths with more than one contiguous `.` in them to avoid
+		// path traversal in the middle of a path
+		matched, err := regexp.MatchString("\\.{2,}", sharedPath)
+		if matched || err != nil { // Also ignore errors which shouldn't happen with
+			// such a simple regex
+			continue
+		}
 
 		// dbc installs drivers in a folder, other tools may not so we handle each
 		// differently.
