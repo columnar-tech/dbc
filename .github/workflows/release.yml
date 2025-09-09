@@ -188,6 +188,9 @@ jobs:
           echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
           echo "SM_KEYPAIR_ALIAS=${{ secrets.SM_KEYPAIR_ALIAS }}" >> "$GITHUB_ENV"
 
+          # clean up
+          git clean -xdf
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         id: gorelease        
