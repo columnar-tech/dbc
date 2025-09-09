@@ -33,6 +33,11 @@ builds:
       - '386'
       - arm64
     mod_timestamp: "{{ .CommitTimestamp }}"
+    hooks:
+      post: # sign the windows binaries
+        - if: '{{ and (eq .Os "windows") (isEnvSet "SM_API_KEY") }}'
+          cmd: >-
+            smctl sign --keypair-alias "{{ .Env.SM_KEYPAIR_ALIAS }}" --input "{{ .Path }}" --config-file "{{ .Env.PKCS11_CONFIG }}"
 
 archives:
   - id: archives
@@ -67,7 +72,7 @@ archives:
 
 blobs:
   - ids:
-      - archives
+      - archives    
     provider: s3
     region: us-east-2
     bucket: dbc-distribution
@@ -75,15 +80,12 @@ blobs:
     include_meta: true
 
 binary_signs:
+  # windows binaries are signed in-place and not detached, so we don't provide a .sig for them
   - id: signs
     if: '{{ ne .Os "windows" }}'
     signature: '${artifact}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}.sig'
     args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
-    stdin: "{{ .Env.SIGNING_PASSWORD }}"
-  - id: sign-windows
-    if: '{{ and (eq .Os "windows") (isEnvSet "SM_API_KEY") }}'
-    cmd: smctl
-    args: ["sign", "--keypair-alias", "{{ .Env.SM_KEYPAIR_ALIAS }}", "--input" , "${artifact}", "--config-file", "{{ .Env.PKCS11_CONFIG }}"]
+    stdin: "{{ .Env.SIGNING_PASSWORD }}"  
 
 changelog:
   sort: asc
