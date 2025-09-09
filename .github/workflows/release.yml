@@ -179,19 +179,14 @@ jobs:
           sudo dpkg --install jsign_7.0_all.deb
           rm jsign_7.0_all.deb
 
-          SM_TOOLS_DIR=$(dirname "$(realpath '${{ steps.digicert.outputs.PKCS11_CONFIG }}')")          
-          echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 -d > $SM_TOOLS_DIR/Certificate_pkcs12.p12
+          echo "PKCS11_CONFIG=${{ steps.digicert.outputs.PKCS11_CONFIG }}" >> "$GITHUB_ENV"
+          SM_TOOLS_DIR=$(dirname "$(realpath '${{ steps.digicert.outputs.PKCS11_CONFIG }}')")
+          echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 -d > "${SM_TOOLS_DIR}/Certificate_pkcs12.p12"
           echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV"
           echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV"
-          echo "SM_CLIENT_CERT_FILE=$SM_TOOLS_DIR/Certificate_pkcs12.p12" >> "$GITHUB_ENV"
+          echo "SM_CLIENT_CERT_FILE=${SM_TOOLS_DIR}/Certificate_pkcs12.p12" >> "$GITHUB_ENV"
           echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
           echo "SM_KEYPAIR_ALIAS=${{ secrets.SM_KEYPAIR_ALIAS }}" >> "$GITHUB_ENV"
-          echo <<EOF >"${SM_TOOLS_DIR}/pkcs11properties.cfg"
-          name=signingmanager
-          library="${SM_TOOLS_DIR}/smpkcs11.so"
-          slotListIndex=0
-          EOF
-          echo "PKCS11_CONFIG=${SM_TOOLS_DIR}/pkcs11properties.cfg" >> "$GITHUB_ENV"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
