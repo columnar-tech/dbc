@@ -16,7 +16,7 @@ jobs:
   snapshot:
     runs-on: ubuntu-latest
     environment: snapshot
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
     steps:
       - uses: actions/checkout@v5
         with:
