@@ -76,9 +76,14 @@ blobs:
 
 binary_signs:
   - id: signs
+    if: '{{ ne .Os "windows" }}'
     signature: '${artifact}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}.sig'
     args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
     stdin: "{{ .Env.SIGNING_PASSWORD }}"
+  - id: sign-windows
+    if: '{{ and (eq .Os "windows") (isEnvSet "SM_API_KEY") }}'
+    cmd: smctl
+    args: ["sign", "--keypair-alias", "{{ .Env.SM_KEYPAIR_ALIAS }}", "--input" , "${artifact}", "--config-file", "{{ .Env.PKCS11_CONFIG }}"]
 
 changelog:
   sort: asc
@@ -229,10 +234,16 @@ msi:
 
 signs:
   - artifacts: all
-    ids:
-      - msi
+    ids:      
       - archives
     args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
+  - id: sign-windows-msi
+    if: '{{ isEnvSet "SM_API_KEY" }}'
+    artifacts: installer # Windows MSI installers
+    cmd: jsign
+    args: ["-keystore", "{{ .Env.PKCS11_CONFIG }}", 
+      "-storepass", "NONE", "-storetype", "PKCS11", "-alg", "SHA-256", "-tsaurl", "http://timestamp.digicert.com",
+      "--name", "{{ .ProjectName }} Installer", "-alias", "{{ .Env.SM_KEYPAIR_ALIAS }}", "${artifact}"]
 
 after:
   hooks:
@@ -266,7 +277,7 @@ release:
   extra_files:
     - glob: ./dist/*.whl
   header: >-
-    ## dbc Release ({{ .Date }})
+    ## dbc Release ({{ .Now.Format "2006-01-02" }})
 
   footer: >-
 

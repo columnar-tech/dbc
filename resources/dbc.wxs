@@ -35,12 +35,12 @@
     </UI>
   </Fragment>
   <Product Id="5B742771-61E1-4DC1-9276-6E1287282B3F" Name="dbc"
-           Manufacturer="Columnar Technologies, Inc." Version="{{ .Version }}"
+           Manufacturer="Columnar Technologies Inc." Version="{{ .Version }}"
            UpgradeCode="3BC2470F-54EE-47F0-973C-A789684BF95E">
 
     <Package Id="C72A9A3A-3BDE-43A3-BBDA-4AD8FFEDC819"
-        Keywords="Installer" Description="DBC Installer"
-        Comments="ADBC is awesome" Manufacturer="Columnar Technologies, Inc."
+        Keywords="Installer" Description="dbc Installer"
+        Comments="ADBC is awesome" Manufacturer="Columnar Technologies Inc."
         InstallerVersion="200" Compressed="yes" SummaryCodepage='1252' />
 
     <Media Id="1" Cabinet="dbc.cab" EmbedCab="yes" />
