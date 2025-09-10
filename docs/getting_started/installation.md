@@ -2,56 +2,104 @@
 
 # Installation
 
-dbc can be installed from [PyPI](#from-pypi) or [GitHub Releases](#from-github-releases).
+dbc itself is installable on the most common platforms and from a variety of sources.
 
-## From PyPI
+## Standalone Installer
 
-We recommend installing dbc using the popular [pipx](https://pipx.pypa.io/stable/installation/) tool because it automatically puts dbc in your `$PATH`.
+We provide an automated command-line installer for users who prefer it.
+Please continue reading for other installation methods.
+
+The following commands will automatically install the latest version of dbc suitable for your system and place it in a standard location for you.
+
+=== "macOS and Linux"
+
+    To automatically install dbc, run:
+
+    ```sh
+    curl -LsSf https://dbc.columnar.tech/install.sh | sh
+    ```
+
+    If your system doesn't have `curl` you can also use `wget`:
+
+    ```sh
+    wget -q0- https://dbc.columnar.tech/install.sh | sh
+    ```
+
+    If you want to inspect the script before use, you can simply run:
+
+    ```sh
+    curl -LsSf https://dbc.columnar.tech/install.sh | less
+    ```
+
+=== "Windows"
+
+    Use `irm` to download the script and execute it with `iex`:
+
+    ```sh
+    powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex
+    ```
+
+    Changing the [execution policy](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4#powershell-execution-policies) allows running a script from the internet.
+
+    Of course, you can also inspect the script before use:
+
+    ```sh
+    powershell -c "irm https://dbc.columnar.tech/install.ps1 | more"
+    ```
+
+## PyPI
+
+dbc is published as a package on [PyPI](https://pypi.org/project/dbc) for convenience.
 
 To install dbc with [pipx](https://pipx.pypa.io/stable/installation/), run,
 
 ```sh
-$ pipx install dbc
+pipx install dbc
 ```
 
 If you only want to run dbc to test it out, run,
 
 ```sh
-$ pipx run dbc
+pipx run dbc
 ```
 
-### Using a Virtual Environment
+### Virtual Environment
 
 Installing dbc inside a virtual environment automatically handles installing dbc and adding it to your `$PATH`:
 
 ```sh
-$ python -m venv .venv
-$ source .venv/bin/activate
-$ pip install dbc
+python -m venv .venv
+source .venv/bin/activate
+pip install dbc
 ```
 
-## From GitHub Releases
+## GitHub Releases
 
-dbc is also published using [GitHub Releases](https://github.com/columnar-tech/dbc/releases/latest).
+All dbc release artifacts are can be found at [GitHub Releases](https://github.com/columnar-tech/dbc/releases).
 We always recommend installing dbc from the [latest release](https://github.com/columnar-tech/dbc/releases/latest).
 
-To do that, first download the archive for your operating system and CPU architecture.
+## Windows Installer
 
-| Operating System | Architecture | Link                                |
-|------------------|--------------|-------------------------------------|
-| Linux            | `amd64`        | <http://example.com/archive.tar.gz> |
-|                  | `aarch64`        | <http://example.com/archive.tar.gz> |
-| macOS            | `amd64`        | <http://example.com/archive.tar.gz> |
-|                  | `aarch64`        | <http://example.com/archive.tar.gz> |
-| Windows          | `amd64`        | <http://example.com/archive.tar.gz> |
-|                  | `aarch64`        | <http://example.com/archive.tar.gz> |
+Windows MSI installers can be found as artifacts in our [GitHub Releases](https://github.com/columnar-tech/dbc/releases).
+You can also download the latest installer using the following URLs:
 
-Then, in your terminal program of choice, decompress the `.tar.gz`:
+| Architecture | Link                                                    |
+|--------------|---------------------------------------------------------|
+| `x64`        | <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>   |
+| `arm64`      | <https://dbc.columnar.tech/latest/dbc-latest-arm64.msi>   |
+| `x86`        | <https://dbc.columnar.tech/latest/dbc-latest-x86.msi> |
+
+## Docker
+
+We publish [Docker](https://docker.io) images..
 
 ```sh
-tar xzvf archive.tar.gz
-# Now you can run dbc
-./dbc --help
+docker run --rm -it columnar/dbc:latest --help
 ```
 
-Most users will choose to move dbc to a location already in their `$PATH` or create a new place for dbc and add that to their `$PATH`.
+### Available Images
+
+The following distroless images are available for Linux-based `amd64` and `arm64` architectures:
+
+- `columnar/dbc:latest`
+- `columnar/dbc:{major}.{minor}.{patch}`, e.g. `columnar/dbc:0.0.1`
