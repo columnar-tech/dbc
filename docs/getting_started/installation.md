@@ -91,7 +91,9 @@ You can also download the latest installer using the following URLs:
 
 ## Docker
 
-We publish [Docker](https://docker.io) images..
+We publish [Docker](https://docker.io) images for each dbc release.
+
+Run the latest version of dbc under Docker by running:
 
 ```sh
 docker run --rm -it columnar/dbc:latest --help
