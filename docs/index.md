@@ -2,7 +2,7 @@
 
 # dbc
 
-`dbc` is a command-line tool that makes installing and managing [ADBC](https://arrow.apache.org/adbc) drivers easy as A, B, C.
+`dbc` is a command-line tool that makes installing and managing [ADBC](https://arrow.apache.org/adbc) drivers easy as 1, 2, 3.
 
 TODO: terminal screenshot or code showing dbc install?
 
