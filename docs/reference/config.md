@@ -2,7 +2,7 @@
 
 # Config
 
-Various dbc subcommands (like [install](./cli#install), [sync](./cli/#sync)) take a `--level` argument which gives you control over where dbc searches for drivers.
+Various dbc subcommands (like [install](cli.md#install), [sync](cli.md#sync)) take a `--level` argument which gives you control over where dbc searches for drivers.
 
 ## Default Behavior
 
