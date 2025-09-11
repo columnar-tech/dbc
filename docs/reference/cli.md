@@ -52,7 +52,6 @@ dbc search [FILTER]
 
 Install a driver.
 
-If a driver with the same name already exists, you will be prompted to first remove the existing driver.
 To install multiple versions of the same driver on the same system, it's recommend to use `--level env` in conjunction with `ADBC_DRIVER_PATH`. See [Config](config.md).
 
 <h3>Usage</h3>
@@ -146,7 +145,6 @@ dbc remove <DRIVER>
 ## sync
 
 Install any missing drivers from the [drivers list](../concepts/drivers_list.md).
-In the case where a driver `dbc sync` determines needs to be installed already exists, you will be prompted to first remove the existing driver.
 
 <h3>Usage</h3>
 
