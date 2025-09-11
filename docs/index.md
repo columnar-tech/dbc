@@ -4,7 +4,12 @@
 
 dbc is a command-line tool that makes installing and managing [ADBC](https://arrow.apache.org/adbc) drivers easy as 1, 2, 3.
 
-TODO: terminal screenshot or code showing dbc install?
+```console
+$ dbc install bigquery
+$ python
+>>> from adbc_driver_manager import dbapi
+>>> con = dbapi.connect(driver="bigquery")
+```
 
 ## Features
 
