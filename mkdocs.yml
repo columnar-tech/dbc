@@ -38,24 +38,24 @@ nav:
       - dbc.toml: reference/dbc.toml.md
 theme:
   name: material
-  logo: assets/logo.svg
+  logo: assets/dbc_logo_static.png
   favicon: assets/favicon.ico
   palette:
     - media: "(prefers-color-scheme)"
-      scheme: default
-      primary: teal
+      scheme: slate
+      primary: black
       toggle:
         icon: material/brightness-auto
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: teal
+      primary: black
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: teal
+      primary: black
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
@@ -69,3 +69,5 @@ theme:
     - navigation.tracking
     - content.code.copy
     - content.tabs.link
+extra_css:
+  - stylesheets/extra.css
