@@ -40,6 +40,9 @@ theme:
   name: material
   logo: assets/dbc_logo_static.png
   favicon: assets/favicon.ico
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
     - media: "(prefers-color-scheme)"
       scheme: slate
@@ -71,3 +74,5 @@ theme:
     - content.tabs.link
 extra_css:
   - stylesheets/extra.css
+plugins:
+  - privacy

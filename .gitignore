@@ -34,3 +34,6 @@ dbc.toml
 dbc.lock
 # Added by goreleaser init:
 dist/
+
+# mkdocs .cache dir
+.cache
