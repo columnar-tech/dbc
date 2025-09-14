@@ -1,15 +1,19 @@
 # Installing Drivers
 
 Once you've [installed dbc](../getting_started/installation.md), the first thing you'll probably want to do is install a driver.
-But before you can install a driver, you need to know what drivers are available.
+But before you can install a driver, you need to know what drivers are available and how to refer to them.
 
 ## Finding a Driver
 
-You can use `dbc search` which will show all available drivers:
+To find out what drivers are available, use `dbc search`:
 
 ```console
 $ dbc search
-...output...
+• duckdb - An analytical in-process SQL database management system
+• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
+• mssql - Columnar ADBC Driver for Microsoft SQL Server
+• mysql - ADBC Driver Foundry Driver for MySQL
+• flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 ```
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.
@@ -20,6 +24,12 @@ To install a specific driver, such as `mysql`, run:
 
 ```console
 $ dbc install mysql
+[✓] searching
+[✓] downloading
+[✓] installing
+[✓] verifying signature
+
+Installed mysql 0.1.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
 
 ## Version Constraints
@@ -37,7 +47,7 @@ The syntax for specifiying a version may be familiar to you if you've used other
 
 ## Updating a Driver
 
-dbc doesn't offer a specific "update" or "upgrade" command so `dbc install` can do essentially the same thing.
+dbc doesn't offer a specific "update" or "upgrade" command but `dbc install` can do essentially the same thing.
 
 For example, if you installed `mysql@0.1.0` and then version 0.2.0 is released, re-running `dbc install mysql` will upgrade your installed version.
 
@@ -49,10 +59,16 @@ By default, dbc installs drivers to the standard user-level ADBC driver path sui
 - Linux: `~/.config/adbc/drivers`
 - Windows: `%LOCAL_APPDATA%\ADBC\Drivers`
 
-Numerous dbc subcommands, including `install`, accept an optional `--level` flag which can used to install drivers system-wide. For example:
+Numerous dbc subcommands, including `install`, accept an optional `--level` flag which can used to install drivers system-wide. Note that we run this command with `sudo` because otherwise the directory may not be writable:
 
 ```console
-dbc install --level system mysql
+$ sudo dbc install --level system mysql
+[✓] searching
+[✓] downloading
+[✓] installing
+[✓] verifying signature
+
+Installed mysql 0.1.0 to /Library/Application Support/ADBC/Drivers
 ```
 
 Where this installs depends on your operating system:
@@ -63,18 +79,22 @@ Where this installs depends on your operating system:
 
 !!! note
 
-    https://arrow.apache.org/adbc/main/format/driver_manifests.html#manifest-location-and-discovery
+    See [Manifest Location and Discovery](https://arrow.apache.org/adbc/main/format/driver_manifests.html#manifest-location-and-discovery) for complete documentation of where the ADBC driver managers will search for drivers. dbc has the same behavior.
 
-TODO: Link to [Config](../reference/config.md)
+
+!!! note
+
+    Also see the [Config reference](../reference/config.md) for more detail on this behavior.
 
 ## `ADBC_DRIVER_PATH`
 
-For complete control over where dbc installs drivers, set the `ADBC_DRIVER_PATH` environment to a path where you want to install drivers.
+For complete control over where dbc installs drivers, set the `ADBC_DRIVER_PATH` environment variable to a path where you want to install drivers.
+For example:
 
 ```console
-mkdir "$HOME/drivers"
-export ADBC_DRIVER_PATH="$HOME/drivers"
-dbc install mysql
+$ mkdir "$HOME/drivers"
+$ export ADBC_DRIVER_PATH="$HOME/drivers"
+$ dbc install mysql
 
 [✓] searching
 [✓] downloading
@@ -86,11 +106,23 @@ Installed mysql 0.1.0 to /home/user/drivers
 
 !!! note
 
-    be aware that you have to set up your driver manager to match
+    If you set `$ADBC_DRIVER_PATH` environment variable with dbc, you will also need re-use the same shell or to set it in your ADBC driver manager code explicitly. For example:
+
+    ```python
+    import os
+    from pathlib import Path
+
+    from adbc_driver_manager import dbapi
+
+    os.environ["ADBC_DRIVER_PATH"] = os.path.join(Path.home(), "drivers")
+
+    with dbapi.connect(driver="mysql") as con:
+      pass
+    ```
 
 ## Python Support
 
-By default, dbc automatically detects whether you've activated a Python [virtual environment](https://docs.python.org/3/tutorial/venv.html) and will install (and uninstall) drivers from the environment rather than the user or system-level paths.
+By default, dbc automatically detects whether you've activated a Python [virtual environment](https://docs.python.org/3/tutorial/venv.html) and will install (and uninstall) drivers from the virtual environment rather than the user or system-level paths.
 
 ```console
 ~/tmp/my-adbc-project
@@ -106,66 +138,17 @@ $ source .venv/bin/activate.fish
 [✓] installing
 [✓] verifying signature
 
-Installed mysql 0.1.0 to /Users/bryce/tmp/my-adbc-project/.venv/etc/adbc/drivers
+Installed mysql 0.1.0 to /Users/user/tmp/my-adbc-project/.venv/etc/adbc/drivers
 ```
 
 ## Conda Support
 
-By default, dbc automatically detects whether you've activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html) and will install (and uninstall) drivers from the environment rather than the user or system-level paths.
+By default, dbc automatically detects whether you've activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html) and will install (and uninstall) drivers from the Conda environment rather than the user or system-level paths.
 
 ```console
-~/tmp/my-adbc-project
-.venv $ conda create -n my-adbc-project
-Retrieving notices: done
-Channels:
- - conda-forge
-Platform: osx-arm64
-Collecting package metadata (repodata.json): done
-Solving environment: done
-
-
-==> WARNING: A newer version of conda exists. <==
-    current version: 25.5.1
-    latest version: 25.7.0
-
-Please update conda by running
-
-    $ conda update -n base -c conda-forge conda
-
-
-
-## Package Plan ##
-
-  environment location: /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-project
-
-
-
-Proceed ([y]/n)? y
-
-
-Downloading and Extracting Packages:
-
-Preparing transaction: done
-Verifying transaction: done
-Executing transaction: done
-#
-# To activate this environment, use
-#
-#     $ conda activate my-adbc-project
-#
-# To deactivate an active environment, use
-#
-#     $ conda deactivate
-
-
-~/tmp/my-adbc-project 6s
-.venv $ conda activate my-adbc-project
-
-~/tmp/my-adbc-project
-.venv $ deactivate                                                                                                                       (my-adbc-project)
-
-~/tmp/my-adbc-project
-my-adbc-project $ dbc install mysql                                                                                                      (my-adbc-project)
+$ conda create -n my-adbc-project
+$ conda activate my-adbc-project
+my-adbc-project $ dbc install mysql
 [✓] searching
 [✓] downloading
 [✓] installing
