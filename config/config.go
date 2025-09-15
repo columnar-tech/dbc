@@ -13,7 +13,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -321,17 +320,12 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 // platform-specific UninstallDriver function.
 func UninstallDriverShared(cfg Config, info DriverInfo) error {
 	for sharedPath := range info.Driver.Shared.Paths() {
+		// Run filepath.Clean on sharedPath mainly to catch inner ".." in the path
+		sharedPath = filepath.Clean(sharedPath)
+
 		// Don't remove anything that isn't contained withing the found driver's
 		// config directory (i.e., avoid malicious driver manifests)
 		if !strings.HasPrefix(sharedPath, cfg.Location) {
-			continue
-		}
-
-		// Skip any shared paths with more than one contiguous `.` in them to avoid
-		// path traversal in the middle of a path
-		matched, err := regexp.MatchString("\\.{2,}", sharedPath)
-		if matched || err != nil { // Also ignore errors which shouldn't happen with
-			// such a simple regex
 			continue
 		}
 
@@ -358,7 +352,6 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 			}
 		}
-
 	}
 
 	// Manifest only drivers can come with extra files such as a LICENSE and we
@@ -369,14 +362,10 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 	// work. We do want to clean this folder up so here we guess what it is and
 	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
 	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
-	// Return immediately if folder has repeated . chars (for safety)
-	matched, err := regexp.MatchString("\\.{2,}", extra_folder)
-	if matched || err != nil {
-		return nil
-	}
+	extra_folder = filepath.Clean(extra_folder)
 	extra_path := filepath.Join(cfg.Location, extra_folder)
 	finfo, err := os.Stat(extra_path)
-	if err == nil && finfo.IsDir() {
+	if err == nil && finfo.IsDir() && extra_path != "." {
 		_ = os.RemoveAll(extra_path)
 		// ignore errors
 	}
