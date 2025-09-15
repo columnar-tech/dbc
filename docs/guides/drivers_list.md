@@ -53,7 +53,7 @@ If you read the above output, you'll notice that it's telling you to run `dbc sy
 
 ## Synchronizing
 
-You ensure all drivers in the drivers list are installed with `dbc sync`.
+Use `dbc sync` to ensure that all the drivers in the drivers list are installed. 
 
 ```console
 $ dbc sync
