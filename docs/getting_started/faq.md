@@ -2,16 +2,12 @@
 
 ## What is ADBC?
 
-TODO
-
-## Why would I use this over X?
-
-TODO
+ADBC is [Apache Arrow ADBC](http://arrow.apache.org/adbc), a cross-platform, database agnostic API for database access using Apache Arrow. Think "ODBC but for Arrow".
 
 ## Who makes dbc?
 
-TODO
+dbc is built and maintained by [Columnar](https://columnar.tech).
 
 ## How can I get involved?
 
-TODO
+Check out our [CONTRIBUTING.md](https://github.com/columnar-tech/dbc/blob/main/CONTRIBUTING.md).
