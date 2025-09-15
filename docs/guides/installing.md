@@ -40,6 +40,7 @@ To specify that a specific version should be installed, you can pass a version c
 ```console
 $ dbc install "mysql@0.1.0"
 ```
+
 The syntax for specifiying a version may be familiar to you if you've used other package managers.
 
 !!! note
