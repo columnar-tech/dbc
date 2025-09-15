@@ -37,7 +37,7 @@ Installed mysql 0.1.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ## Version Constraints
 
 By default, dbc installs the latest version of the package you specify.
-To specify that a specific version should be installed, you can pass a version constraint with the name:
+To install a specific version, you can pass a version constraint with the name:
 
 ```console
 $ dbc install "mysql@0.1.0"
