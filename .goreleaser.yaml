@@ -77,7 +77,7 @@ blobs:
     if: '{{ not (contains .ArtifactName ".msi.sig" )}}'
     region: us-east-2
     bucket: dbc-distribution
-    directory: "{{ .Tag }}"
+    directory: "{{ .Version }}"
     include_meta: true
 
 binary_signs:
@@ -86,7 +86,7 @@ binary_signs:
     if: '{{ ne .Os "windows" }}'
     signature: '${artifact}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}{{ with .Mips }}_{{ . }}{{ end }}{{ if not (eq .Amd64 "v1") }}{{ .Amd64 }}{{ end }}.sig'
     args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
-    stdin: "{{ .Env.SIGNING_PASSWORD }}"  
+    stdin: "{{ .Env.SIGNING_PASSWORD }}"
 
 changelog:
   sort: asc
@@ -107,7 +107,7 @@ changelog:
 
 dockers:
   - image_templates:
-    - "columnar/dbc:{{ .Version }}-amd64"    
+    - "columnar/dbc:{{ .Version }}-amd64"
     use: buildx
     dockerfile: Dockerfile
     skip_push: false
@@ -124,13 +124,13 @@ dockers:
     build_flag_templates:
       - "--platform=linux/amd64"
   - image_templates:
-    - "columnar/dbc:{{ .Version }}-arm64v8"    
+    - "columnar/dbc:{{ .Version }}-arm64v8"
     use: buildx
     goarch: arm64
     dockerfile: Dockerfile
     skip_push: false
     build_flag_templates:
-      - "--platform=linux/arm64/v8"  
+      - "--platform=linux/arm64/v8"
   - image_templates:
     - "columnar/dbc:{{ .Tag }}-arm64v8"
     - "columnar/dbc:v{{ .Major }}-arm64v8"
@@ -141,10 +141,10 @@ dockers:
     dockerfile: Dockerfile
     skip_push: auto
     build_flag_templates:
-      - "--platform=linux/arm64/v8"  
+      - "--platform=linux/arm64/v8"
 
 docker_manifests:
-  - name_template: "columnar/dbc:{{ .Version }}"    
+  - name_template: "columnar/dbc:{{ .Version }}"
     image_templates:
       - "columnar/dbc:{{ .Version }}-amd64"
       - "columnar/dbc:{{ .Version }}-arm64v8"
@@ -152,7 +152,7 @@ docker_manifests:
     skip_push: auto
     image_templates:
       - "columnar/dbc:v{{ .Major }}-amd64"
-      - "columnar/dbc:v{{ .Major }}-arm64v8"  
+      - "columnar/dbc:v{{ .Major }}-arm64v8"
   - name_template: "columnar/dbc:v{{ .Major }}.{{ .Minor }}"
     skip_push: auto
     image_templates:
@@ -169,7 +169,7 @@ docker_manifests:
       - "columnar/dbc:latest-amd64"
       - "columnar/dbc:latest-arm64v8"
 
-dockerhub:  
+dockerhub:
   - username: "columnar"
     secret_name: "DOCKER_TOKEN"
     disable: '{{ or (not .IsRelease) (ne .Prerelease "") }}'
@@ -233,19 +233,19 @@ msi:
       - ./resources/dbc.ico
       - ./resources/dbc.bmp
       - ./ui/bitmaps/dlgbmp.bmp
-      - ./ui/bitmaps/bannrbmp.bmp    
+      - ./ui/bitmaps/bannrbmp.bmp
 
 signs:
   - id: signature-archives
     artifacts: archive
-    ids:      
+    ids:
       - archives
     args: ["--output", "${signature}", "-u", "hello@columnar.tech", "--detach-sign", "${artifact}"]
   - id: sign-windows-msi
     if: '{{ isEnvSet "SM_API_KEY" }}'
     artifacts: installer # Windows MSI installers
     cmd: jsign
-    args: ["-keystore", "{{ .Env.PKCS11_CONFIG }}", 
+    args: ["-keystore", "{{ .Env.PKCS11_CONFIG }}",
       "-storepass", "NONE", "-storetype", "PKCS11", "-alg", "SHA-256", "-tsaurl", "http://timestamp.digicert.com",
       "--name", "{{ .ProjectName }} Installer", "-alias", "{{ .Env.SM_KEYPAIR_ALIAS }}", "${artifact}"]
 
