@@ -10,7 +10,7 @@ In the context of dbc, "driver" means [ADBC Driver](https://arrow.apache.org/adb
 
 ## What Is an ADBC Driver?
 
-From a high level perspective, an ADBC driver typically wraps the driver for the database we ultimately want to use and exposes that database to us with a consistent API: The [ADBC API](https://arrow.apache.org/adbc/main/format/specification.html).
+From a high level perspective, an ADBC driver typically wraps the client for the database we ultimately want to use and exposes that database to us with a consistent API: The [ADBC API](https://arrow.apache.org/adbc/main/format/specification.html).
 
 For example, if you're using the [ADBC SQLite Driver](https://arrow.apache.org/adbc/main/driver/sqlite.html) and you want to run a SQL query, you'd call two functions (in order):
 
