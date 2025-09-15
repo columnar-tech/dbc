@@ -1,3 +1,5 @@
+<!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
+
 # Driver
 
 In the context of dbc, "driver" means [ADBC Driver](https://arrow.apache.org/adbc) and it's ADBC drivers that dbc lets you install and manage. [ADBC](https://arrow.apache.org/adbc) is part of the [Apache Arrow](https://arrow.apache.org) project and is a free and open standard and dbc builds on top of it.

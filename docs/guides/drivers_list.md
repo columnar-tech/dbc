@@ -1,3 +1,5 @@
+<!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
+
 # Using the Drivers List
 
 We want a longer-form guide for the basic workflows related to using the drivers list (add, remove, sync).
@@ -52,6 +54,8 @@ $ cat dbc.toml
 [drivers]
 [drivers.mysql]
 ```
+
+The `add` command automatically checks that a driver matching the pattern exists in the driver index.
 
 !!! note
 

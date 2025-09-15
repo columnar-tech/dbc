@@ -1,3 +1,5 @@
+<!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
+
 # Installing Drivers
 
 Once you've [installed dbc](../getting_started/installation.md), the first thing you'll probably want to do is install a driver.

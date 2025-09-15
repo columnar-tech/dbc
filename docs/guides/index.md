@@ -1,3 +1,5 @@
+<!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
+
 # Guides
 
 We have a number of in-depth guides for using dbc:

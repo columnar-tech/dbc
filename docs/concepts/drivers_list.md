@@ -2,4 +2,12 @@
 
 # Drivers List
 
-Drivers list concept guide. aka dbc.toml
+The term "drivers list" refers to the `dbc.toml` file managed by dbc. The drivers list file is ideal for checking into version control alongside your project. See the [Drivers List](../guides/drivers_list.md) guide for more information.
+
+TODO: Verify this once bugs features are added and bugs are fixed.
+
+```toml
+[drivers]
+mysql
+duckdb = "1.3.2"
+```
