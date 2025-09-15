@@ -6,7 +6,7 @@ In the context of dbc, "driver" means "ADBC driver." It's ADBC drivers that dbc 
 
 !!! note
 
-    What an ADBC driver actual is is entirely defined by the [ADBC](https://arrow.apache.org/adbc) project so we we'll give a simple definition and then refer you to the [ADBC project](https://arrow.apache.org/adbc) itself if you're interested in going deeper.
+    What an ADBC driver actual is is entirely defined by the [ADBC project](https://arrow.apache.org/adbc), so we'll give a simple definition and then refer you to the ADBC project itself if you're interested in going deeper.
 
 ## What Is an ADBC Driver?
 
