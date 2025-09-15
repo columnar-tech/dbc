@@ -13,4 +13,4 @@ mysql
 duckdb = "1.3.2"
 ```
 
-TODO: Verify how this works once bugs are fixed and features are added.
+TODO: Verify how this works once bugs are fixed and features are added (https://github.com/columnar-tech/dbc/issues/36).
