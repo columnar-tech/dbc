@@ -2,7 +2,7 @@
 
 # dbc.toml
 
-The format of the `dbc.toml`file  created by dbc is [TOML](https://toml.io) and it contains a single TOML Table called "drivers".
+The format of the `dbc.toml` file created by dbc is [TOML](https://toml.io) and it contains a single TOML Table called "drivers".
 Each driver must have a name and may optionally have a version.
 
 For example,
