@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -123,4 +124,32 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 	suite.NoFileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
+}
+
+func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
+	m := InstallCmd{Driver: "test-driver-manifest-only"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
+		"\r\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\r\n"+
+		"\r\nMust have libtest_driver installed to load this driver\r\n", suite.runCmd(m))
+	if runtime.GOOS != "windows" {
+		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
+	}
+
+	// Verify the sidecar folder exists before we uninstall
+	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
+	err := os.Rename(filepath.Join(suite.tempdir, "test-driver-manifest-only"), filepath.Join(suite.tempdir, new_sidecar_path))
+	if err != nil {
+		suite.Fail(fmt.Sprintf("Failed to rename sidecar folder. Something is wrong with this test: %v", err))
+	}
+	suite.DirExists(filepath.Join(suite.tempdir, new_sidecar_path))
+
+	// Now uninstall and verify we clean up
+	m = UninstallCmd{Driver: "test-driver-manifest-only"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Driver `test-driver-manifest-only` uninstalled successfully!\r\n\r\n\r ", suite.runCmd(m))
+	if runtime.GOOS != "windows" {
+		suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
+	}
+	suite.NoDirExists(filepath.Join(suite.tempdir, new_sidecar_path))
 }

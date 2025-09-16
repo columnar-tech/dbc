@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -201,7 +200,7 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 	if loc, err = EnsureLocation(cfg); err != nil {
 		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
 	}
-	base := strings.TrimSuffix(path.Base(downloaded.Name()), ".tar.gz")
+	base := strings.TrimSuffix(filepath.Base(downloaded.Name()), ".tar.gz")
 	finalDir := filepath.Join(loc, base)
 
 	if err := os.MkdirAll(finalDir, 0o755); err != nil {
@@ -314,4 +313,61 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 	}
 
 	return result, nil
+}
+
+// Common, non-platform-specific code for uninstalling a driver. Called by
+// platform-specific UninstallDriver function.
+func UninstallDriverShared(cfg Config, info DriverInfo) error {
+	for sharedPath := range info.Driver.Shared.Paths() {
+		// Run filepath.Clean on sharedPath mainly to catch inner ".." in the path
+		sharedPath = filepath.Clean(sharedPath)
+
+		// Don't remove anything that isn't contained withing the found driver's
+		// config directory (i.e., avoid malicious driver manifests)
+		if !strings.HasPrefix(sharedPath, cfg.Location) {
+			continue
+		}
+
+		// dbc installs drivers in a folder, other tools may not so we handle each
+		// differently.
+		if info.Source == "dbc" {
+			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
+				// Ignore only when not found. This supports manifest-only drivers.
+				// TODO: Come up with a better mechanism to handle manifest-only drivers
+				// and remove this continue when we do
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
+		} else {
+			if err := os.Remove(sharedPath); err != nil {
+				// Ignore only when not found. This supports manifest-only drivers.
+				// TODO: Come up with a better mechanism to handle manifest-only drivers
+				// and remove this continue when we do
+				if errors.Is(err, fs.ErrNotExist) {
+					continue
+				}
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
+		}
+	}
+
+	// Manifest only drivers can come with extra files such as a LICENSE and we
+	// create a folder next to the driver manifest to store them, same as we'd
+	// store the actual driver shared library. Above, we find the path of this
+	// folder by looking at the Driver.shared path. For manifest-only drivers,
+	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
+	// work. We do want to clean this folder up so here we guess what it is and
+	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
+	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
+	extra_folder = filepath.Clean(extra_folder)
+	extra_path := filepath.Join(cfg.Location, extra_folder)
+	finfo, err := os.Stat(extra_path)
+	if err == nil && finfo.IsDir() && extra_path != "." {
+		_ = os.RemoveAll(extra_path)
+		// ignore errors
+	}
+
+	return nil
 }
