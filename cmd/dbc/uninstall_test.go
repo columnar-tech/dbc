@@ -140,7 +140,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
 	err := os.Rename(filepath.Join(suite.tempdir, "test-driver-manifest-only"), filepath.Join(suite.tempdir, new_sidecar_path))
 	if err != nil {
-		suite.Fail("Failed to rename sidecar folder. Something is wrong with this test: %v", err)
+		suite.Fail(fmt.Sprintf("Failed to rename sidecar folder. Something is wrong with this test: %v", err))
 	}
 	suite.DirExists(filepath.Join(suite.tempdir, new_sidecar_path))
 
