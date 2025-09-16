@@ -274,17 +274,19 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
-	k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.WRITE)
-	if err != nil {
-		return err
-	}
-	defer k.Close()
+	if cfg.Level != ConfigEnv {
+		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.WRITE)
+		if err != nil {
+			return err
+		}
+		defer k.Close()
 
-	if err := registry.DeleteKey(k, info.ID); err != nil {
-		return fmt.Errorf("failed to delete driver registry key: %w", err)
+		if err := registry.DeleteKey(k, info.ID); err != nil {
+			return fmt.Errorf("failed to delete driver registry key: %w", err)
+		}
 	}
 
-	if err = UninstallDriverShared(cfg, info); err != nil {
+	if err := UninstallDriverShared(cfg, info); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 
