@@ -120,7 +120,7 @@ func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 	m := InstallCmd{Driver: "test-driver-manifest-only"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-manifest-only 0.1.0 to "+suite.tempdir+"\r\n"+
+		"\r\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\r\n"+
 		"\r\nMust have libtest_driver installed to load this driver\r\n", suite.runCmd(m))
 	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
