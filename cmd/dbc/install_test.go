@@ -126,3 +126,15 @@ func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
 	}
 }
+
+func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
+	m := InstallCmd{Driver: "test-driver-no-sig"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+
+	m = InstallCmd{Driver: "test-driver-no-sig", AllowMissing: true}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
+		"\r\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\r\n", suite.runCmd(m))
+}
