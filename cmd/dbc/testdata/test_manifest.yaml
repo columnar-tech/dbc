@@ -54,7 +54,7 @@ drivers:
     license: Apache-2.0
     path: test-driver-manifest-only
     pkginfo:
-      - version: v0.1.0
+      - version: v1.0.0
         packages:
           - platform: linux_amd64
           - platform: macos_amd64

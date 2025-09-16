@@ -23,17 +23,14 @@ func TestUnmarshalManifestList(t *testing.T) {
 		expected []dbc.PkgInfo
 		err      error
 	}{
-		{"basic", "[drivers]\nbigquery = {version = '1.6.0'}\nflightsql = {version = '1.6.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.6.0")},
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
+		{"basic", "[drivers]\nflightsql = {version = '1.7.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
 		}, nil},
-		{"less", "[drivers]\nbigquery = {version = '<1.6.0'}\nflightsql = {version = '<=1.6.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.5.0")},
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
+		{"less", "[drivers]\nflightsql = {version = '<=1.7.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
 		}, nil},
-		{"greater", "[drivers]\nbigquery = {version = '>1.5.0'}\nflightsql = {version = '>=1.6.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "bigquery"}, Version: semver.MustParse("1.6.0")},
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.6.0")},
+		{"greater", "[drivers]\nflightsql = {version = '>=1.7.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
 		}, nil},
 	}
 
@@ -78,7 +75,6 @@ func must[T any](v T, err error) T {
 func TestMarshalManifestList(t *testing.T) {
 	data, err := toml.Marshal(DriversList{
 		Drivers: map[string]driverSpec{
-			"bigquery":  {Version: must(semver.NewConstraint(">=1.6.0"))},
 			"flightsql": {Version: must(semver.NewConstraint(">=1.6.0"))},
 		},
 	})
@@ -86,9 +82,6 @@ func TestMarshalManifestList(t *testing.T) {
 
 	assert.Equal(t, `# dbc driver list
 [drivers]
-[drivers.bigquery]
-version = '>=1.6.0'
-
 [drivers.flightsql]
 version = '>=1.6.0'
 `, string(data))

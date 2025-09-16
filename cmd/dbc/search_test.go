@@ -41,7 +41,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 		"Available Versions:\r\n    ├── 2.0.0\r\n    ╰── 2.1.0\r\n"+
 		"• test-driver-manifest-only\r\n   Title: Test Driver Manifest Only\r\n   "+
 		"Description: This is manifest-only driver\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ╰── 0.1.0\r\n\r ", suite.runCmd(m))
+		"Available Versions:\r\n    ╰── 1.0.0\r\n\r ", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
@@ -64,5 +64,5 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"   Description: This is manifest-only driver\r\n"+
 		"   License: Apache-2.0\r\n"+
 		"   Available Versions:\r\n"+
-		"    ╰── 0.1.0\r\n\r ", suite.runCmd(m))
+		"    ╰── 1.0.0\r\n\r ", suite.runCmd(m))
 }

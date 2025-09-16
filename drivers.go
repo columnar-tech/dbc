@@ -78,7 +78,13 @@ var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 		return nil, fmt.Errorf("failed to parse driver manifest: %s", err)
 	}
 
-	return drivers.Drivers, nil
+	// Sort by path (short name)
+	result := drivers.Drivers
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Path < result[j].Path
+	})
+
+	return result, nil
 })
 
 //go:embed columnar.pubkey
