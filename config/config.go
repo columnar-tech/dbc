@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -201,7 +200,7 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 	if loc, err = EnsureLocation(cfg); err != nil {
 		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
 	}
-	base := strings.TrimSuffix(path.Base(downloaded.Name()), ".tar.gz")
+	base := strings.TrimSuffix(filepath.Base(downloaded.Name()), ".tar.gz")
 	finalDir := filepath.Join(loc, base)
 
 	if err := os.MkdirAll(finalDir, 0o755); err != nil {
