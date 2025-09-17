@@ -144,6 +144,31 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 	})
 }
 
+func (m progressiveInstallModel) FinalOutput() string {
+	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
+				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+		}
+	}
+
+	var b strings.Builder
+	if m.state == stDone {
+		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
+				m.conflictingInfo.ID, m.conflictingInfo.Version))
+		}
+
+		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
+			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+
+		if m.postInstallMessage != "" {
+			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+		}
+	}
+	return b.String()
+}
+
 func (m progressiveInstallModel) searchForDriver(d dbc.Driver) tea.Cmd {
 	return func() tea.Msg {
 		pkg, err := d.GetPackage(m.VersionInput, config.PlatformTuple())
@@ -252,8 +277,9 @@ func (m progressiveInstallModel) View() string {
 
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
-				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			return ""
+			// return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
+			// 	m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 		}
 	}
 
@@ -267,18 +293,18 @@ func (m progressiveInstallModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	if m.state == stDone {
-		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
-				m.conflictingInfo.ID, m.conflictingInfo.Version))
-		}
+	// if m.state == stDone {
+	// 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+	// 		b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
+	// 			m.conflictingInfo.ID, m.conflictingInfo.Version))
+	// 	}
 
-		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
-			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+	// 	b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
+	// 		m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
 
-		if m.postInstallMessage != "" {
-			b.WriteString("\n" + postMsgStyle.Width(m.width).Render(m.postInstallMessage) + "\n")
-		}
-	}
+	// 	if m.postInstallMessage != "" {
+	// 		b.WriteString("\n" + postMsgStyle.Width(m.width).Render(m.postInstallMessage) + "\n")
+	// 	}
+	// }
 	return b.String()
 }
