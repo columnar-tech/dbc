@@ -22,7 +22,7 @@ func getTestDriverList() ([]dbc.Driver, error) {
 		Drivers []dbc.Driver `yaml:"drivers"`
 	}{}
 
-	f, err := os.Open("testdata/test_manifest.yaml")
+	f, err := os.Open("testdata/test_index.yaml")
 	if err != nil {
 		return nil, err
 	}

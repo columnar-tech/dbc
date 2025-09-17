@@ -30,7 +30,7 @@ func TestUnmarshalManifestList(t *testing.T) {
 			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
 		}, nil},
 		{"greater", "[drivers]\nflightsql = {version = '>=1.7.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
 		}, nil},
 	}
 

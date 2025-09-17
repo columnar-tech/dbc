@@ -15,6 +15,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
@@ -25,8 +26,9 @@ import (
 const defaultURL = "https://dbc-cdn.columnar.tech"
 
 var (
-	baseURL = defaultURL
-	Version = "unknown"
+	baseURL   = defaultURL
+	Version   = "unknown"
+	userAgent string
 )
 
 func init() {
@@ -37,6 +39,16 @@ func init() {
 
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		baseURL = val
+	}
+
+	userAgent = fmt.Sprintf("dbc-cli/%s (%s; %s)",
+		Version, runtime.GOOS, runtime.GOARCH)
+
+	// many CI systems set CI=true in the env so let's check for that
+	if ci := os.Getenv("CI"); ci != "" {
+		if val, _ := strconv.ParseBool(ci); val {
+			userAgent += " CI"
+		}
 	}
 }
 
@@ -50,8 +62,7 @@ func makereq(u string) (resp *http.Response, err error) {
 		Method: http.MethodGet,
 		URL:    uri,
 		Header: http.Header{
-			"User-Agent": []string{fmt.Sprintf("dbc-cli/%s (%s; %s)",
-				Version, runtime.GOOS, runtime.GOARCH)},
+			"User-Agent": []string{userAgent},
 		},
 	}
 
@@ -59,7 +70,7 @@ func makereq(u string) (resp *http.Response, err error) {
 }
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	resp, err := makereq(baseURL + "/manifest.yaml")
+	resp, err := makereq(baseURL + "/index.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
@@ -75,7 +86,7 @@ var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 
 	err = yaml.NewDecoder(resp.Body).Decode(&drivers)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse driver manifest: %s", err)
+		return nil, fmt.Errorf("failed to parse driver index: %s", err)
 	}
 
 	// Sort by path (short name)
