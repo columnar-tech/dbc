@@ -12,6 +12,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.7
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/goccy/go-yaml v1.17.1
+	github.com/google/uuid v1.6.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.10.0
 	github.com/zeroshade/machine-id v0.0.0-20250917170903-4283e98485ba
