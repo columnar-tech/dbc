@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc/config"
@@ -64,22 +62,9 @@ type addModel struct {
 }
 
 func (m addModel) Init() tea.Cmd {
-	m.Driver = strings.TrimSpace(m.Driver)
-	splitIdx := strings.IndexAny(m.Driver, " <>=!")
-	var (
-		err        error
-		driverName string
-		vers       *semver.Constraints
-	)
-
-	if splitIdx == -1 {
-		driverName = m.Driver
-	} else {
-		driverName = m.Driver[:splitIdx]
-		vers, err = semver.NewConstraint(strings.TrimSpace(m.Driver[splitIdx:]))
-		if err != nil {
-			return errCmd("invalid version constraint: %w", err)
-		}
+	driverName, vers, err := parseDriverConstraint(m.Driver)
+	if err != nil {
+		return errCmd("invalid driver constraint: %w", err)
 	}
 
 	return func() tea.Msg {

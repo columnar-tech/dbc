@@ -18,22 +18,36 @@ import (
 	"github.com/columnar-tech/dbc/config"
 )
 
+func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
+	driver = strings.TrimSpace(driver)
+	splitIdx := strings.IndexAny(driver, " <>=!")
+	if splitIdx == -1 {
+		return driver, nil, nil
+	}
+
+	driverName := driver[:splitIdx]
+	constraints, err := semver.NewConstraint(strings.TrimSpace(driver[splitIdx:]))
+	if err != nil {
+		return "", nil, fmt.Errorf("invalid version constraint: %w", err)
+	}
+
+	return driverName, constraints, nil
+}
+
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 	Driver   string             `arg:"positional,required" help:"Driver to install"`
-	Version  *semver.Version    `arg:"-v" help:"Version to install"`
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return progressiveInstallModel{
-		Driver:       c.Driver,
-		VersionInput: c.Version,
-		NoVerify:     c.NoVerify,
-		spinner:      spinner.New(),
-		cfg:          getConfig(c.Level),
-		baseModel:    baseModel,
+		Driver:    c.Driver,
+		NoVerify:  c.NoVerify,
+		spinner:   spinner.New(),
+		cfg:       getConfig(c.Level),
+		baseModel: baseModel,
 	}
 }
 
@@ -41,11 +55,10 @@ func (c InstallCmd) GetModel() tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	return progressiveInstallModel{
-		Driver:       c.Driver,
-		VersionInput: c.Version,
-		NoVerify:     c.NoVerify,
-		spinner:      s,
-		cfg:          getConfig(c.Level),
+		Driver:   c.Driver,
+		NoVerify: c.NoVerify,
+		spinner:  s,
+		cfg:      getConfig(c.Level),
 		baseModel: baseModel{
 			getDriverList: getDriverList,
 			downloadPkg:   downloadPkg,
@@ -169,9 +182,28 @@ func (m progressiveInstallModel) FinalOutput() string {
 	return b.String()
 }
 
-func (m progressiveInstallModel) searchForDriver(d dbc.Driver) tea.Cmd {
-	return func() tea.Msg {
-		pkg, err := d.GetPackage(m.VersionInput, config.PlatformTuple())
+func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, tea.Cmd) {
+	driverName, vers, err := parseDriverConstraint(m.Driver)
+	if err != nil {
+		return m, errCmd("%w", err)
+	}
+
+	m.Driver = driverName
+	d, err := findDriver(m.Driver, list)
+	if err != nil {
+		return m, errCmd("could not find driver: %w", err)
+	}
+
+	return m, func() tea.Msg {
+		if vers != nil {
+			pkg, err := d.GetWithConstraint(vers, config.PlatformTuple())
+			if err != nil {
+				return err
+			}
+			return pkg
+		}
+
+		pkg, err := d.GetPackage(nil, config.PlatformTuple())
 		if err != nil {
 			return err
 		}
@@ -224,12 +256,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case []dbc.Driver:
-		d, err := findDriver(m.Driver, msg)
-		if err != nil {
-			return m, errCmd("could not find driver: %w", err)
-		}
-
-		return m, m.searchForDriver(d)
+		return m.searchForDriver(msg)
 	case dbc.PkgInfo:
 		m.DriverPackage = msg
 		di, err := config.GetDriver(m.cfg, m.Driver)
