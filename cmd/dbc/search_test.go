@@ -15,7 +15,7 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 	suite.validateOutput("• test-driver-1 - This is a test driver\r\n"+
 		"• test-driver-2 - This is another test driver\r\n"+
 		"• test-driver-manifest-only - This is manifest-only driver\r\n"+
-		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n\r ", suite.runCmd(m))
+		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n\r ", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
@@ -28,7 +28,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 			downloadPkg: downloadTestPkg})
 	suite.validateOutput("• test-driver-1 - This is a test driver [installed: env=>1.1.0]\r\n"+
 		"• test-driver-2 - This is another test driver\r\n• test-driver-manifest-only - This is manifest-only driver\r\n"+
-		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n\r ", suite.runCmd(m))
+		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n\r ", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
@@ -46,7 +46,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 		"Available Versions:\r\n    ╰── 1.0.0\r\n"+
 		"• test-driver-no-sig\r\n   Title: Test Driver No Signature\r\n   "+
 		"Description: Driver manifest missing Files.signature entry\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ╰── 1.0.0\r\n\r ", suite.runCmd(m))
+		"Available Versions:\r\n    ╰── 1.0.0\r\n\r ", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
@@ -75,5 +75,5 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"   Description: Driver manifest missing Files.signature entry\r\n"+
 		"   License: Apache-2.0\r\n"+
 		"   Available Versions:\r\n"+
-		"    ╰── 1.0.0\r\n\r ", suite.runCmd(m))
+		"    ╰── 1.0.0\r\n\r ", "", suite.runCmd(m))
 }

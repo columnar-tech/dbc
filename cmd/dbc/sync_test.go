@@ -101,16 +101,21 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	m, err = p.Run()
 	suite.Require().NoError(err)
 	suite.Equal(0, m.(HasStatus).Status(), "The command exited with a non-zero status.")
-	return out.String()
+
+	var extra string
+	if fo, ok := m.(HasFinalOutput); ok {
+		extra = fo.FinalOutput()
+	}
+	return out.String() + extra
 }
 
-func (suite *SubcommandTestSuite) validateOutput(expected, actual string) {
+func (suite *SubcommandTestSuite) validateOutput(expected, extra, actual string) {
 	const (
 		terminalPrefix = "\x1b[?25l\x1b[?2004h"
 		terminalSuffix = "\r\x1b[2K\r\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l"
 	)
 
-	suite.Equal(terminalPrefix+expected+terminalSuffix, actual)
+	suite.Equal(terminalPrefix+expected+terminalSuffix+extra, actual)
 }
 
 func (suite *SubcommandTestSuite) TestSync() {
@@ -124,14 +129,14 @@ func (suite *SubcommandTestSuite) TestSync() {
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
@@ -150,14 +155,14 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
@@ -176,14 +181,14 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", suite.runCmd(m))
+	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
 func TestSubcommands(t *testing.T) {

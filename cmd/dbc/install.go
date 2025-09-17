@@ -130,6 +130,8 @@ type progressiveInstallModel struct {
 
 	state   installState
 	spinner spinner.Model
+
+	width, height int
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
@@ -140,6 +142,31 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 		}
 		return drivers
 	})
+}
+
+func (m progressiveInstallModel) FinalOutput() string {
+	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
+				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+		}
+	}
+
+	var b strings.Builder
+	if m.state == stDone {
+		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
+				m.conflictingInfo.ID, m.conflictingInfo.Version))
+		}
+
+		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
+			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+
+		if m.postInstallMessage != "" {
+			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+		}
+	}
+	return b.String()
 }
 
 func (m progressiveInstallModel) searchForDriver(d dbc.Driver) tea.Cmd {
@@ -190,6 +217,8 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -248,8 +277,7 @@ func (m progressiveInstallModel) View() string {
 
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
-				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			return ""
 		}
 	}
 
@@ -263,18 +291,5 @@ func (m progressiveInstallModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	if m.state == stDone {
-		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
-				m.conflictingInfo.ID, m.conflictingInfo.Version))
-		}
-
-		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
-			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
-
-		if m.postInstallMessage != "" {
-			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
-		}
-	}
 	return b.String()
 }
