@@ -28,9 +28,10 @@ go test -v ./...
 
 ## Debugging
 
-To use the [Delve](https://github.com/go-delve/delve) debugger to debug dbc, some special steps are required.
-This is because dbc uses [bubbletea](https://github.com/charmbracelet/bubbletea/) which takes control of stdin/stdout.
+Debugging dbc can be done similarly to any Golang project and editor setups like VSCode with the official Go extension should work out of the box.
 
+To use [dlv](https://github.com/go-delve/delve) on the command line to debug a dbc subcommand, like `go run ./cmd/dbc install some_driver`, a bit of extra setup is required.
+This is because dbc uses [bubbletea](https://github.com/charmbracelet/bubbletea/) which takes control of stdin/stdout.
 The trick is to start `dlv` in headless mode with any command line arguments we need and then to connect and control it with a separate dlv client.
 
 As an example, if you want to debug the specific invocation of `dbc install some_driver`, start dlv like this:
