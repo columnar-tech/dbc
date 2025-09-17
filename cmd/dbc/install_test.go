@@ -16,8 +16,8 @@ func (suite *SubcommandTestSuite) TestInstall() {
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\r\n", out)
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n", out)
 	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 	}
@@ -26,7 +26,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver index\r\n\r ", suite.runCmdErr(m))
+	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver index\r\n\r ", "", suite.runCmdErr(m))
 }
 
 func (suite *SubcommandTestSuite) TestInstallUserFake() {
@@ -85,8 +85,8 @@ func (suite *SubcommandTestSuite) TestInstallVenv() {
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\r\n", suite.runCmd(m))
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
@@ -96,8 +96,8 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\r\n", suite.runCmd(m))
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
@@ -120,9 +120,9 @@ func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
 func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 	m := InstallCmd{Driver: "test-driver-manifest-only"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\r\n"+
-		"\r\nMust have libtest_driver installed to load this driver\r\n", suite.runCmd(m))
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
+			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
 	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
 	}
@@ -149,6 +149,6 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\r\n", suite.runCmd(m))
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
