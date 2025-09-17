@@ -130,6 +130,8 @@ type progressiveInstallModel struct {
 
 	state   installState
 	spinner spinner.Model
+
+	width, height int
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
@@ -190,6 +192,8 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -273,7 +277,7 @@ func (m progressiveInstallModel) View() string {
 			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
 
 		if m.postInstallMessage != "" {
-			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+			b.WriteString("\n" + postMsgStyle.Width(m.width).Render(m.postInstallMessage) + "\n")
 		}
 	}
 	return b.String()
