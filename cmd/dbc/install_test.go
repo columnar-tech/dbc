@@ -3,6 +3,7 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -133,7 +134,20 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	m = InstallCmd{Driver: "test-driver-no-sig", AllowMissing: true}.
+	filelist := []string{}
+	suite.NoError(fs.WalkDir(os.DirFS(suite.tempdir), ".", func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+
+		filelist = append(filelist, path)
+		return nil
+	}))
+
+	// currently we don't clean out the downloaded file if signature verification fails
+	suite.Equal([]string{"test-driver-no-sig/test-driver-1-not-valid.so"}, filelist)
+
+	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
 		"\r\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\r\n", suite.runCmd(m))

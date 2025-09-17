@@ -20,17 +20,17 @@ import (
 
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver       string             `arg:"positional,required" help:"Driver to install"`
-	Version      *semver.Version    `arg:"-v" help:"Version to install"`
-	Level        config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
-	AllowMissing bool               `arg:"--allow-missing-signature" help:"Allow installation of drivers without a signature file"`
+	Driver   string             `arg:"positional,required" help:"Driver to install"`
+	Version  *semver.Version    `arg:"-v" help:"Version to install"`
+	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return progressiveInstallModel{
 		Driver:       c.Driver,
 		VersionInput: c.Version,
-		AllowMissing: c.AllowMissing,
+		NoVerify:     c.NoVerify,
 		spinner:      spinner.New(),
 		cfg:          getConfig(c.Level),
 		baseModel:    baseModel,
@@ -43,7 +43,7 @@ func (c InstallCmd) GetModel() tea.Model {
 	return progressiveInstallModel{
 		Driver:       c.Driver,
 		VersionInput: c.Version,
-		AllowMissing: c.AllowMissing,
+		NoVerify:     c.NoVerify,
 		spinner:      s,
 		cfg:          getConfig(c.Level),
 		baseModel: baseModel{
@@ -53,8 +53,8 @@ func (c InstallCmd) GetModel() tea.Model {
 	}
 }
 
-func verifySignature(m config.Manifest, allowMissing bool) error {
-	if m.Files.Driver == "" || (allowMissing && m.Files.Signature == "") {
+func verifySignature(m config.Manifest, noVerify bool) error {
+	if m.Files.Driver == "" || (noVerify && m.Files.Signature == "") {
 		return nil
 	}
 
@@ -121,7 +121,7 @@ type progressiveInstallModel struct {
 
 	Driver       string
 	VersionInput *semver.Version
-	AllowMissing bool
+	NoVerify     bool
 	cfg          config.Config
 
 	DriverPackage      dbc.PkgInfo
@@ -215,7 +215,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.AllowMissing); err != nil {
+			if err := verifySignature(msg, m.NoVerify); err != nil {
 				return err
 			}
 			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
