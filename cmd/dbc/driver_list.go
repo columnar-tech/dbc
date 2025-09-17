@@ -24,11 +24,11 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	var m DriversList
 	f, err := os.Open(fname)
 	if err != nil {
-		return nil, fmt.Errorf("error opening manifest file %s: %w", fname, err)
+		return nil, fmt.Errorf("error opening driver list %s: %w", fname, err)
 	}
 	defer f.Close()
 	if err = toml.NewDecoder(f).Decode(&m); err != nil {
-		return nil, fmt.Errorf("error decoding manifest file %s: %w", fname, err)
+		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
 	drivers, err := dbc.GetDriverList()
