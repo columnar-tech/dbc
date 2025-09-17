@@ -59,7 +59,7 @@ func makereq(u string) (resp *http.Response, err error) {
 }
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	resp, err := makereq(baseURL + "/manifest.yaml")
+	resp, err := makereq(baseURL + "/index.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
