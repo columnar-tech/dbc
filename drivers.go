@@ -67,7 +67,12 @@ func init() {
 	}
 
 	// try to read the existing UUID file
-	fp := filepath.Join(userdir, "columnar", "dbc", "uid.uuid")
+	dirname := "columnar"
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		dirname = "Columnar"
+	}
+
+	fp := filepath.Join(userdir, dirname, "dbc", "uid.uuid")
 	data, err := os.ReadFile(fp)
 	if err == nil {
 		if err = uid.UnmarshalBinary(data); err == nil {
