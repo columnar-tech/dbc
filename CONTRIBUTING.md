@@ -26,6 +26,37 @@ and you can run the tests by running,
 go test -v ./...
 ```
 
+## Debugging
+
+Debugging dbc can be done similarly to any Golang project and editor setups like VSCode with the official Go extension should work out of the box.
+
+To use [dlv](https://github.com/go-delve/delve) on the command line to debug a dbc subcommand, like `go run ./cmd/dbc install some_driver`, a bit of extra setup is required.
+This is because dbc uses [bubbletea](https://github.com/charmbracelet/bubbletea/) which takes control of stdin/stdout.
+The trick is to start `dlv` in headless mode with any command line arguments we need and then to connect and control it with a separate dlv client.
+
+As an example, if you want to debug the specific invocation of `dbc install some_driver`, start dlv like this:
+
+```console
+$ dlv debug ./cmd/dbc --headless --listen=:2345 --api-version=2 -- install some_driver
+API server listening at: [::]:2345
+2025-09-16T10:59:24-07:00 warn layer=rpc Listening for remote connections (connections are not authenticated nor encrypted)
+debugserver-@(#)PROGRAM:LLDB  PROJECT:lldb-1700.0.9.502
+ for arm64.
+Got a connection, launched process /Users/user/src/columnar-tech/dbc/__debug_bin464674121 (pid = 96049).
+```
+
+Then in another shell, run `dlv connect` and debug with dlv as you normally would. In this example, I set a breakpoint and continue:
+
+```console
+$ dlv connect 127.0.0.1:2345
+Type 'help' for list of commands.
+(dlv) b install.go:58
+(dlv) c
+> [Breakpoint 1] main.verifySignature() /Users/user/src/columnar-tech/dbc/cmd/dbc/install.go:58 (hits goroutine(99):1 total:1) (PC: 0x105201f88)
+```
+
+When you're done, exiting the client should cause the server to exit automatically.
+
 ## Commit Messages
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org) standard for commit messages. This includes titles for Pull Requests.
