@@ -75,7 +75,7 @@ var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 
 	err = yaml.NewDecoder(resp.Body).Decode(&drivers)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse driver manifest: %s", err)
+		return nil, fmt.Errorf("failed to parse driver index: %s", err)
 	}
 
 	// Sort by path (short name)
