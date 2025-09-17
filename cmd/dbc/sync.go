@@ -26,22 +26,25 @@ var (
 )
 
 type SyncCmd struct {
-	Path  string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to sync from"`
-	Level config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Path         string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to sync from"`
+	Level        config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	AllowMissing bool               `arg:"--allow-missing-signature" help:"Allow installation of drivers without a signature file"`
 }
 
 func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return syncModel{
-		baseModel: baseModel,
-		Path:      c.Path,
-		cfg:       getConfig(c.Level),
+		baseModel:    baseModel,
+		Path:         c.Path,
+		cfg:          getConfig(c.Level),
+		AllowMissing: c.AllowMissing,
 	}
 }
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path: c.Path,
-		cfg:  getConfig(c.Level),
+		Path:         c.Path,
+		cfg:          getConfig(c.Level),
+		AllowMissing: c.AllowMissing,
 		baseModel: baseModel{
 			getDriverList: getDriverList,
 			downloadPkg:   downloadPkg,
@@ -54,6 +57,7 @@ type syncModel struct {
 
 	// path to drivers list
 	Path         string
+	AllowMissing bool
 	LockFilePath string
 	// information to write the new lockfile
 	locked LockFile
@@ -254,7 +258,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 		manifest.DriverInfo.Source = "dbc"
 		manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
 
-		if err := verifySignature(manifest); err != nil {
+		if err := verifySignature(manifest, s.AllowMissing); err != nil {
 			return fmt.Errorf("failed to verify signature: %w", err)
 		}
 

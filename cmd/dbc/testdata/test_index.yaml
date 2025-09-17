@@ -60,3 +60,14 @@ drivers:
           - platform: macos_amd64
           - platform: macos_arm64
           - platform: windows_amd64
+  - name: Test Driver No Signature
+    description: Driver manifest missing Files.signature entry
+    license: Apache-2.0
+    path: test-driver-no-sig
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+          - platform: macos_amd64
+          - platform: macos_arm64
+          - platform: windows_amd64

@@ -19,8 +19,6 @@ var (
 	nameStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("35"))
 	descStyle = lipgloss.NewStyle().Italic(true)
 	bold      = lipgloss.NewStyle().Bold(true)
-
-	archStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("5"))
 )
 
 type SearchCmd struct {
