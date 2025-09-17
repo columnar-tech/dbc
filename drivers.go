@@ -80,7 +80,7 @@ func init() {
 	uid = uuid.New()
 	// if we fail to create the dir or write the file, just ignore the error
 	// and use the fresh UUID
-	if err = os.MkdirAll(filepath.Dir(fp), 0o600); err == nil {
+	if err = os.MkdirAll(filepath.Dir(fp), 0o700); err == nil {
 		if data, err = uid.MarshalBinary(); err == nil {
 			os.WriteFile(fp, data, 0o600)
 		}
