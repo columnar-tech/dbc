@@ -20,6 +20,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
+	machineid "github.com/columnar-tech/machine-id"
 	"github.com/goccy/go-yaml"
 )
 
@@ -29,6 +30,7 @@ var (
 	baseURL   = defaultURL
 	Version   = "unknown"
 	userAgent string
+	uniqid    string
 )
 
 func init() {
@@ -50,6 +52,8 @@ func init() {
 			userAgent += " CI"
 		}
 	}
+
+	uniqid, _ = machineid.ProtectedID()
 }
 
 func makereq(u string) (resp *http.Response, err error) {
@@ -57,6 +61,10 @@ func makereq(u string) (resp *http.Response, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
 	}
+
+	q := uri.Query()
+	q.Add("id", uniqid)
+	uri.RawQuery = q.Encode()
 
 	req := http.Request{
 		Method: http.MethodGet,
