@@ -33,16 +33,16 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\r\n", out)
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", out)
 }
 
 func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
 	m := InstallCmd{Driver: "test-driver-1 < 1.1.0"}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n"+
-		"\r\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\r\n", out)
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", out)
 }
 
 func (suite *SubcommandTestSuite) TestInstallUserFake() {
