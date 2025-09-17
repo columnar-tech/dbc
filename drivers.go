@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
@@ -21,6 +22,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/goccy/go-yaml"
+	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
 )
 
@@ -30,7 +32,8 @@ var (
 	baseURL   = defaultURL
 	Version   = "unknown"
 	userAgent string
-	uniqid    string
+	mid       string
+	uid       uuid.UUID
 )
 
 func init() {
@@ -53,7 +56,35 @@ func init() {
 		}
 	}
 
-	uniqid, _ = machineid.ProtectedID()
+	mid, _ = machineid.ProtectedID()
+
+	// get user config dir
+	userdir, err := os.UserConfigDir()
+	if err != nil {
+		// if we can't get the dir for some reason, just generate a new UUID
+		uid = uuid.New()
+		return
+	}
+
+	// try to read the existing UUID file
+	fp := filepath.Join(userdir, "dbc", "uid.uuid")
+	data, err := os.ReadFile(fp)
+	if err == nil {
+		if err = uid.UnmarshalBinary(data); err == nil {
+			return
+		}
+	}
+
+	// if the file didn't exist or we couldn't parse it, generate a new uuid
+	// and then write a new file
+	uid = uuid.New()
+	// if we fail to create the dir or write the file, just ignore the error
+	// and use the fresh UUID
+	if err = os.MkdirAll(filepath.Dir(fp), 0o600); err == nil {
+		if data, err = uid.MarshalBinary(); err == nil {
+			os.WriteFile(fp, data, 0o600)
+		}
+	}
 }
 
 func makereq(u string) (resp *http.Response, err error) {
@@ -63,7 +94,8 @@ func makereq(u string) (resp *http.Response, err error) {
 	}
 
 	q := uri.Query()
-	q.Add("id", uniqid)
+	q.Add("mid", mid)
+	q.Add("uid", uid.String())
 	uri.RawQuery = q.Encode()
 
 	req := http.Request{
