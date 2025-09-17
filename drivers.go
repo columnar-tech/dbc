@@ -20,8 +20,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
-	machineid "github.com/columnar-tech/machine-id"
 	"github.com/goccy/go-yaml"
+	machineid "github.com/zeroshade/machine-id"
 )
 
 const defaultURL = "https://dbc-cdn.columnar.tech"

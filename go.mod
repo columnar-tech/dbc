@@ -11,10 +11,10 @@ require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.7
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/columnar-tech/machine-id v0.0.0-20250917165521-f900c2b8afc9
 	github.com/goccy/go-yaml v1.17.1
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.10.0
+	github.com/zeroshade/machine-id v0.0.0-20250917170903-4283e98485ba
 	golang.org/x/sys v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -30,6 +30,7 @@ require (
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/columnar-tech/machine-id v0.0.0-20250917165521-f900c2b8afc9 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/kr/text v0.2.0 // indirect
