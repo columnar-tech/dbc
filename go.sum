@@ -36,6 +36,8 @@ github.com/cloudflare/circl v1.6.1 h1:zqIqSPIndyBh1bjLVVDHMPpVKqp8Su/V+6MeDzzQBQ
 github.com/cloudflare/circl v1.6.1/go.mod h1:uddAzsPgqdMAYatqJ0lsjX1oECcQLIlRpzZh3pJrofs=
 github.com/columnar-tech/machine-id v0.0.0-20250917152714-b2da92410d57 h1:ajsPcN4xyITI07X81mIbGVPpywudUStfSbY/jBO/Ov0=
 github.com/columnar-tech/machine-id v0.0.0-20250917152714-b2da92410d57/go.mod h1:REaxLA5IqWLxjhHfVtYguP/4z4eKMZtf3KeYmPf68N0=
+github.com/columnar-tech/machine-id v0.0.0-20250917165521-f900c2b8afc9 h1:RwPia8bI7oTl++lBMNT9EGCU2ICb4kN5uVJ9phl9Sak=
+github.com/columnar-tech/machine-id v0.0.0-20250917165521-f900c2b8afc9/go.mod h1:REaxLA5IqWLxjhHfVtYguP/4z4eKMZtf3KeYmPf68N0=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=

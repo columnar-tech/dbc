@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.7
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/columnar-tech/machine-id v0.0.0-20250917152714-b2da92410d57
+	github.com/columnar-tech/machine-id v0.0.0-20250917165521-f900c2b8afc9
 	github.com/goccy/go-yaml v1.17.1
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.10.0
