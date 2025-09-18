@@ -3,7 +3,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,15 +20,17 @@ import (
 
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver  string             `arg:"positional,required" help:"Driver to install"`
-	Version *semver.Version    `arg:"-v" help:"Version to install"`
-	Level   config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Driver   string             `arg:"positional,required" help:"Driver to install"`
+	Version  *semver.Version    `arg:"-v" help:"Version to install"`
+	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return progressiveInstallModel{
 		Driver:       c.Driver,
 		VersionInput: c.Version,
+		NoVerify:     c.NoVerify,
 		spinner:      spinner.New(),
 		cfg:          getConfig(c.Level),
 		baseModel:    baseModel,
@@ -39,6 +43,7 @@ func (c InstallCmd) GetModel() tea.Model {
 	return progressiveInstallModel{
 		Driver:       c.Driver,
 		VersionInput: c.Version,
+		NoVerify:     c.NoVerify,
 		spinner:      s,
 		cfg:          getConfig(c.Level),
 		baseModel: baseModel{
@@ -48,8 +53,8 @@ func (c InstallCmd) GetModel() tea.Model {
 	}
 }
 
-func verifySignature(m config.Manifest) error {
-	if m.Files.Driver == "" {
+func verifySignature(m config.Manifest, noVerify bool) error {
+	if m.Files.Driver == "" || (noVerify && m.Files.Signature == "") {
 		return nil
 	}
 
@@ -61,9 +66,17 @@ func verifySignature(m config.Manifest) error {
 	}
 	defer lib.Close()
 
-	sig, err := os.Open(filepath.Join(path, m.Files.Signature))
+	sigFile := m.Files.Signature
+	if sigFile == "" {
+		sigFile = m.Files.Driver + ".sig"
+	}
+
+	sig, err := os.Open(filepath.Join(path, sigFile))
 	if err != nil {
-		return fmt.Errorf("could not open signature file: %w", err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
+		}
+		return fmt.Errorf("failed to open signature file: %w", err)
 	}
 	defer sig.Close()
 
@@ -108,6 +121,7 @@ type progressiveInstallModel struct {
 
 	Driver       string
 	VersionInput *semver.Version
+	NoVerify     bool
 	cfg          config.Config
 
 	DriverPackage      dbc.PkgInfo
@@ -116,6 +130,8 @@ type progressiveInstallModel struct {
 
 	state   installState
 	spinner spinner.Model
+
+	width, height int
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
@@ -126,6 +142,31 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 		}
 		return drivers
 	})
+}
+
+func (m progressiveInstallModel) FinalOutput() string {
+	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
+				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+		}
+	}
+
+	var b strings.Builder
+	if m.state == stDone {
+		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
+				m.conflictingInfo.ID, m.conflictingInfo.Version))
+		}
+
+		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
+			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+
+		if m.postInstallMessage != "" {
+			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+		}
+	}
+	return b.String()
 }
 
 func (m progressiveInstallModel) searchForDriver(d dbc.Driver) tea.Cmd {
@@ -176,6 +217,8 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -201,7 +244,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {
-			if err := verifySignature(msg); err != nil {
+			if err := verifySignature(msg, m.NoVerify); err != nil {
 				return err
 			}
 			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
@@ -234,8 +277,7 @@ func (m progressiveInstallModel) View() string {
 
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
-				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			return ""
 		}
 	}
 
@@ -249,18 +291,5 @@ func (m progressiveInstallModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	if m.state == stDone {
-		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
-				m.conflictingInfo.ID, m.conflictingInfo.Version))
-		}
-
-		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
-			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
-
-		if m.postInstallMessage != "" {
-			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
-		}
-	}
 	return b.String()
 }

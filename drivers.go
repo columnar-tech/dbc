@@ -11,22 +11,29 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/goccy/go-yaml"
+	"github.com/google/uuid"
+	machineid "github.com/zeroshade/machine-id"
 )
 
 const defaultURL = "https://dbc-cdn.columnar.tech"
 
 var (
-	baseURL = defaultURL
-	Version = "unknown"
+	baseURL   = defaultURL
+	Version   = "unknown"
+	userAgent string
+	mid       string
+	uid       uuid.UUID
 )
 
 func init() {
@@ -38,6 +45,51 @@ func init() {
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		baseURL = val
 	}
+
+	userAgent = fmt.Sprintf("dbc-cli/%s (%s; %s)",
+		Version, runtime.GOOS, runtime.GOARCH)
+
+	// many CI systems set CI=true in the env so let's check for that
+	if ci := os.Getenv("CI"); ci != "" {
+		if val, _ := strconv.ParseBool(ci); val {
+			userAgent += " CI"
+		}
+	}
+
+	mid, _ = machineid.ProtectedID()
+
+	// get user config dir
+	userdir, err := os.UserConfigDir()
+	if err != nil {
+		// if we can't get the dir for some reason, just generate a new UUID
+		uid = uuid.New()
+		return
+	}
+
+	// try to read the existing UUID file
+	dirname := "columnar"
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		dirname = "Columnar"
+	}
+
+	fp := filepath.Join(userdir, dirname, "dbc", "uid.uuid")
+	data, err := os.ReadFile(fp)
+	if err == nil {
+		if err = uid.UnmarshalBinary(data); err == nil {
+			return
+		}
+	}
+
+	// if the file didn't exist or we couldn't parse it, generate a new uuid
+	// and then write a new file
+	uid = uuid.New()
+	// if we fail to create the dir or write the file, just ignore the error
+	// and use the fresh UUID
+	if err = os.MkdirAll(filepath.Dir(fp), 0o700); err == nil {
+		if data, err = uid.MarshalBinary(); err == nil {
+			os.WriteFile(fp, data, 0o600)
+		}
+	}
 }
 
 func makereq(u string) (resp *http.Response, err error) {
@@ -46,12 +98,16 @@ func makereq(u string) (resp *http.Response, err error) {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
 	}
 
+	q := uri.Query()
+	q.Add("mid", mid)
+	q.Add("uid", uid.String())
+	uri.RawQuery = q.Encode()
+
 	req := http.Request{
 		Method: http.MethodGet,
 		URL:    uri,
 		Header: http.Header{
-			"User-Agent": []string{fmt.Sprintf("dbc-cli/%s (%s; %s)",
-				Version, runtime.GOOS, runtime.GOARCH)},
+			"User-Agent": []string{userAgent},
 		},
 	}
 
@@ -59,7 +115,7 @@ func makereq(u string) (resp *http.Response, err error) {
 }
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	resp, err := makereq(baseURL + "/manifest.yaml")
+	resp, err := makereq(baseURL + "/index.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
@@ -75,7 +131,7 @@ var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 
 	err = yaml.NewDecoder(resp.Body).Decode(&drivers)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse driver manifest: %s", err)
+		return nil, fmt.Errorf("failed to parse driver index: %s", err)
 	}
 
 	// Sort by path (short name)

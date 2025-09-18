@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnmarshalManifestList(t *testing.T) {
+func TestUnmarshalDriverList(t *testing.T) {
 	tests := []struct {
 		name     string
 		contents string
@@ -30,17 +30,17 @@ func TestUnmarshalManifestList(t *testing.T) {
 			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
 		}, nil},
 		{"greater", "[drivers]\nflightsql = {version = '>=1.7.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
 		}, nil},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpdir := t.TempDir()
-			manifestPath := filepath.Join(tmpdir, "manifest.txt")
-			require.NoError(t, os.WriteFile(manifestPath, []byte(tt.contents), 0644))
+			driverListPath := filepath.Join(tmpdir, "dbc.toml")
+			require.NoError(t, os.WriteFile(driverListPath, []byte(tt.contents), 0644))
 
-			pkgs, err := GetDriverList(manifestPath)
+			pkgs, err := GetDriverList(driverListPath)
 			if tt.err != nil {
 				require.Error(t, err)
 				assert.ErrorContains(t, err, tt.err.Error())
@@ -72,7 +72,7 @@ func must[T any](v T, err error) T {
 	return v
 }
 
-func TestMarshalManifestList(t *testing.T) {
+func TestMarshalDriverManifestList(t *testing.T) {
 	data, err := toml.Marshal(DriversList{
 		Drivers: map[string]driverSpec{
 			"flightsql": {Version: must(semver.NewConstraint(">=1.6.0"))},

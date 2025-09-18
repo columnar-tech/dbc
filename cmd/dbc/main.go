@@ -34,6 +34,10 @@ func errCmd(format string, a ...any) tea.Cmd {
 	}
 }
 
+type HasFinalOutput interface {
+	FinalOutput() string
+}
+
 type HasStatus interface {
 	Status() int
 }
@@ -82,6 +86,8 @@ func (m baseModel) View() string  { return "" }
 func (m baseModel) Status() int {
 	return m.status
 }
+
+func (m baseModel) FinalOutput() string { return "" }
 
 func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -132,6 +138,10 @@ func main() {
 	if m, err = tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
+	}
+
+	if fo, ok := m.(HasFinalOutput); ok {
+		fmt.Print(fo.FinalOutput())
 	}
 
 	if h, ok := m.(HasStatus); ok {
