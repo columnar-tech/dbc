@@ -34,3 +34,5 @@ dbc.toml
 dbc.lock
 # Added by goreleaser init:
 dist/
+
+cdn-dev
