@@ -21,7 +21,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
-	"github.com/goccy/go-yaml"
+	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
 )

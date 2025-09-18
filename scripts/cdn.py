@@ -101,8 +101,8 @@ def create_driver_index(output_dir: str, num_drivers: int, num_versions: int):
 
     # Create manifest.yaml
     manifest = {"drivers": drivers}
-    manifest_path = output_path / "manifest.yaml"
-
+    manifest_path = output_path / "index.yaml"
+    
     with open(manifest_path, "w") as f:
         yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
 
