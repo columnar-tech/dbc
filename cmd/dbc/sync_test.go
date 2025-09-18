@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,6 +73,19 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 
 func (suite *SubcommandTestSuite) TearDownSuite() {
 	getDriverList = suite.getDriverListFn
+}
+
+func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
+	var filelist []string
+	suite.NoError(fs.WalkDir(os.DirFS(suite.tempdir), ".", func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+
+		filelist = append(filelist, path)
+		return nil
+	}))
+	return filelist
 }
 
 func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
