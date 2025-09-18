@@ -67,8 +67,8 @@ PLATFORMS_MAP = {
     'darwin-amd64':   'macosx_12_0_x86_64',
     'darwin-arm64':   'macosx_12_0_arm64',
     'linux-x86':     'manylinux_2_12_i686.manylinux2010_i686',
-    'linux-arm64':
-        'manylinux_2_17_aarch64.manylinux2014_aarch64',
+    'linux-amd64':   'manylinux_2_12_x86_64.manylinux2010_x86_64',
+    'linux-arm64':   'manylinux_2_17_aarch64.manylinux2014_aarch64',
     'linux-armv7a':   'manylinux_2_17_armv7l.manylinux2014_armv7l',
     'linux-powerpc64le':  'manylinux_2_17_ppc64le.manylinux2014_ppc64le',
     'linux-s390x':     'manylinux_2_17_s390x.manylinux2014_s390x',
@@ -379,7 +379,7 @@ def main():
         target = PLATFORMS_MAP[f"{args.platform}"]
         create_wheel(args.binary_version, target, archive)
         return
-    
+
     platforms = parse_platforms(args.platform)
     if len(platforms) <= 0:
         raise RuntimeError("No platforms provided. See usage with --help.")
