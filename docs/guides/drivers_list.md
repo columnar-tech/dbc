@@ -3,7 +3,7 @@
 # Using the Drivers List
 
 dbc can create and manage lists of drivers using a [drivers list](../concepts/drivers_list.md) file.
-By default, a drivers list file has the name `dbc.toml`.
+By default, a drivers list file has the name `dbc.toml`, though this can be [overridden](#using-a-custom-filename).
 
 !!! note
 
@@ -81,5 +81,23 @@ Drivers can be removed from the drivers list with the `dbc remove` command:
 
 ```console
 $ dbc remove mysql
+removed 'mysql' from driver list
+```
+
+## Using a Custom Filename
+
+By default, dbc assumes the drivers list file name is `dbc.toml`. However, you can override this if you prefer another name or want to maintain multiple drivers lists in one project (e.g., separate development and production lists).
+
+All of the commands shown earlier on this page allow you to override the filename, for example:
+
+```console
+$ dbc init drivers-dev.yaml
+$ dbc add --path drivers-dev.yaml mysql
+added mysql to driver list
+use `dbc sync` to install the drivers in the list
+$ dbc sync --path drivers-dev.yaml
+✓ mysql-0.1.0
+Done!
+$ dbc remove --path drivers-dev.yaml mysql
 removed 'mysql' from driver list
 ```
