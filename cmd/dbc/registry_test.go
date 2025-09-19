@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,6 +51,9 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 func (s *RegistryTestSuite) clearRegistry() {
 	// Clear out any existing ADBC registry keys to ensure a clean slate.
 	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
+	if errors.Is(err, registry.ErrNotExist) {
+		return
+	}
 	s.Require().NoError(err)
 	defer k.Close()
 
