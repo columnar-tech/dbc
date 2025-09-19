@@ -259,6 +259,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 		manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
 
 		if err := verifySignature(manifest, s.AllowMissing); err != nil {
+			_ = os.RemoveAll(finalDir)
 			return fmt.Errorf("failed to verify signature: %w", err)
 		}
 
@@ -406,6 +407,10 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s syncModel) View() string {
+	if s.status != 0 {
+		return ""
+	}
+
 	n := len(s.installItems)
 	if n == 0 {
 		return "Determining drivers to install..."

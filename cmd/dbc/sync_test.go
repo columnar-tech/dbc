@@ -207,6 +207,22 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
+func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-no-sig"}.GetModel()
+	suite.runCmd(m)
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Error: failed to verify signature: signature file 'test-driver-1-not-valid.so.sig' for driver is missing\r\n\r ",
+		"", suite.runCmdErr(m))
+	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
+}
+
 func TestSubcommands(t *testing.T) {
 	suite.Run(t, new(SubcommandTestSuite))
 }
