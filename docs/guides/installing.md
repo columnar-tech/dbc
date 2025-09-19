@@ -40,7 +40,7 @@ By default, dbc installs the latest version of the package you specify.
 To install a specific version, you can pass a version constraint with the name:
 
 ```console
-$ dbc install "mysql@0.1.0"
+$ dbc install "mysql=0.1.0"
 ```
 
 The syntax for specifiying a version may be familiar to you if you've used other package managers.
