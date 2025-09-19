@@ -345,7 +345,7 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 			// invalid becuase it should have Files set instead. When this happens,
 			// the Driver.shared value in the installed manifest ends up as a absolute
 			// path to a folder, not a shared library.
-			shared_path_is_subdir, err := IsImmediateSubDir(cfg.Location, sharedPath)
+			shared_path_is_subdir, err := isImmediateSubDir(cfg.Location, sharedPath)
 			if err != nil {
 				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 			}
@@ -402,7 +402,7 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 }
 
 // Determine whether target is an immediate subdirectory of base.
-func IsImmediateSubDir(base string, target string) (bool, error) {
+func isImmediateSubDir(base string, target string) (bool, error) {
 	base_abs, err := filepath.Abs(base)
 	if err != nil {
 		return false, err

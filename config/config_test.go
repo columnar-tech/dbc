@@ -143,7 +143,7 @@ func TestIsImmediateSubDir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s vs %s", tt.parent, tt.child), func(t *testing.T) {
-			result, err := IsImmediateSubDir(tt.parent, tt.child)
+			result, err := isImmediateSubDir(tt.parent, tt.child)
 
 			if tt.expectErr {
 				assert.Error(t, err)
