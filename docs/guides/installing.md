@@ -52,7 +52,11 @@ The syntax for specifiying a version may be familiar to you if you've used other
 
 dbc doesn't offer a specific "update" or "upgrade" command but `dbc install` can do essentially the same thing.
 
-For example, if you installed `mysql@0.1.0` and then version 0.2.0 is released, re-running `dbc install mysql` will upgrade your installed version.
+For example, if you were to run `dbc install mysql` and get version 0.1.0, if — at some point in the future — version 0.2.0 were to be released, re-running `dbc install mysql` would upgrade your installed version to 0.2.0.
+
+!!! note
+
+    When dbc updates a driver like this, the old driver is uninstalled first.
 
 ## Installing System Wide
 
