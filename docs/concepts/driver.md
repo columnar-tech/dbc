@@ -22,7 +22,7 @@ Inside the driver, these two functions call corresponding functions in the [SQLi
 - [`sqlite3_prepare`](https://www.sqlite.org/c3ref/prepare.html)
 - [`sqlite_step`](https://www.sqlite.org/c3ref/step.html)
 
-While there's no hard requirement for a driver to have a 1:1 correspondence like above, hopefully the it helps explain that there's no magic.
+While there's no hard requirement for a driver to have a 1:1 correspondence like above, hopefully it helps explain that there's no magic.
 
 ## More Resources
 
