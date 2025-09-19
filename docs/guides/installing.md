@@ -109,7 +109,7 @@ Installed mysql 0.1.0 to /home/user/drivers
 
 !!! note
 
-    If you set `$ADBC_DRIVER_PATH` environment variable with dbc, you will also need re-use the same shell or to set it in your ADBC driver manager code explicitly. For example:
+    If you set `$ADBC_DRIVER_PATH` environment variable with dbc, you will also need to re-use the same shell or set it in your ADBC driver manager code explicitly. For example:
 
     ```python
     import os
