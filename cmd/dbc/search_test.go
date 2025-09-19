@@ -80,6 +80,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"   Description: Driver manifest missing Files.signature entry\r\n"+
 		"   License: Apache-2.0\r\n"+
 		"   Available Versions:\r\n"+
+		"    ╰── 1.0.0\r\n"+
 		"• test-driver-invalid-manifest\r\n"+
 		"   Title: Test Driver Invalid Manifest\r\n"+
 		"   Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
