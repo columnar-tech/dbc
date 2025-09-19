@@ -189,8 +189,6 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.GetModel()
 	output := suite.runCmd(m)
 
-	// TODO: Currently failing with:
-	// Error: failed to uninstall driver: error removing driver test-driver-invalid-manifest: RemoveAll .: invalid argument
 	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
 
 	// Ensure we don't nuke the tempdir which is the original (major) issue
