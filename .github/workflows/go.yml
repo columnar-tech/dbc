@@ -34,4 +34,6 @@ jobs:
       - name: Build dbc
         run: go build ./cmd/dbc
       - name: Run Tests
-        run: go test -v ./...
+        # the file with `test_registry` also requires windows, so we can safely add this tag
+        # without it running on non-windows OSes
+        run: go test -v -tags test_registry ./...
