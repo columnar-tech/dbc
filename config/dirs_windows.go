@@ -180,11 +180,19 @@ func Get() map[ConfigLevel]Config {
 	regUser := loadRegistryConfig(ConfigUser)
 	if regUser.Exists {
 		maps.Copy(configs[ConfigUser].Drivers, regUser.Drivers)
+	} else {
+		cfg := configs[ConfigUser]
+		cfg.Exists = false
+		configs[ConfigUser] = cfg
 	}
 
 	regSys := loadRegistryConfig(ConfigSystem)
 	if regSys.Exists {
 		maps.Copy(configs[ConfigSystem].Drivers, regSys.Drivers)
+	} else {
+		cfg := configs[ConfigSystem]
+		cfg.Exists = false
+		configs[ConfigSystem] = cfg
 	}
 
 	return configs
