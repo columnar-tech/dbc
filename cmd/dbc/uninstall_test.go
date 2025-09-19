@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/columnar-tech/dbc/config"
+	"github.com/pelletier/go-toml/v2"
 )
 
 func (suite *SubcommandTestSuite) TestUninstallNotFound() {
@@ -152,4 +153,50 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 		suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
 	}
 	suite.NoDirExists(filepath.Join(suite.tempdir, new_sidecar_path))
+}
+
+// See https://github.com/columnar-tech/dbc/issues/37
+func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+
+	// The installed manifest should have a Driver.shared set to a folder, not the .so
+	// We only need a partial struct definition to read in the Driver.shared table
+	type partialManifest struct {
+		Driver struct {
+			Shared map[string]string `toml:"shared"`
+		}
+	}
+	var invalidManifest partialManifest
+	f, err := os.Open(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+	if err != nil {
+		suite.Error(err)
+	}
+	err = toml.NewDecoder(f).Decode(&invalidManifest)
+	if err != nil {
+		suite.Error(err)
+	}
+	value := invalidManifest.Driver.Shared[config.PlatformTuple()]
+	// Assert that it's a folder
+	suite.DirExists(value)
+	// and continue
+
+	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.GetModel()
+	output := suite.runCmd(m)
+
+	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
+
+	// Ensure we don't nuke the tempdir which is the original (major) issue
+	suite.DirExists(suite.tempdir)
+
+	// We do remove the manifest
+	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+	// But we don't remove the driver shared folder in this edge case, so we assert
+	// they're still around
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
 }

@@ -331,7 +331,16 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 		// dbc installs drivers in a folder, other tools may not so we handle each
 		// differently.
 		if info.Source == "dbc" {
-			if err := os.RemoveAll(filepath.Dir(sharedPath)); err != nil {
+			sharedDir := filepath.Dir(sharedPath)
+			// Edge case when manifest is ill-formed: if sharedPath is set to the
+			// folder containing the shared library instead of the shared library
+			// itself, sharedDir is cfg.Location and we definitely don't want to
+			// remove that
+			if sharedDir == cfg.Location {
+				continue
+			}
+
+			if err := os.RemoveAll(sharedDir); err != nil {
 				// Ignore only when not found. This supports manifest-only drivers.
 				// TODO: Come up with a better mechanism to handle manifest-only drivers
 				// and remove this continue when we do
