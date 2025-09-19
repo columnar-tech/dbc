@@ -27,9 +27,9 @@ dbc [OPTIONS] <COMMAND>
 <dt><a href="#install">dbc install</a></dt><dd><p>Install a driver</p></dd>
 <dt><a href="#uninstall">dbc uninstall</a></dt><dd><p>Uninstall a driver</p></dd>
 <dt><a href="#init">dbc init</a></dt><dd><p>Create a <a href="../../concepts/drivers_list/">drivers list</a> file</p></dd>
-<dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the active <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
-<dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the active <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
-<dt><a href="#sync">dbc sync</a></dt><dd><p>Install any missing drivers from the active <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
+<dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
+<dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
+<dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
 </dl>
 
 ## search
