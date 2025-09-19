@@ -57,7 +57,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 	m = SearchCmd{Verbose: true}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("• test-driver-1 [installed: env=>1.1.0]\r\n   Title: Test Driver 1\r\n   "+
+	suite.validateOutput("• test-driver-1\r\n   Title: Test Driver 1\r\n   "+
 		"Description: This is a test driver\r\n   License: MIT\r\n   "+
 		"Installed Versions:\r\n    ╰── 1.1.0\r\n        ╰── env => "+filepath.Join(suite.tempdir)+
 		"\r\n   Available Versions:\r\n    ├── 1.0.0\r\n    ╰── 1.1.0\r\n"+

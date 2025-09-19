@@ -147,7 +147,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 			versionTree.Child(v)
 		}
 
-		l.Item(nameStyle.Render(driver.Path) + suffix).Item(
+		l.Item(nameStyle.Render(driver.Path)).Item(
 			list.New(bold.Render("Title: ")+descStyle.Render(driver.Title), bold.Render("Description: ")+descStyle.Render(driver.Desc),
 				bold.Render("License: ")+driver.License,
 				installedVersionTree,
