@@ -3,6 +3,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,4 +45,115 @@ func TestConfigEnvVarHierarchy(t *testing.T) {
 	os.Setenv("CONDA_PREFIX", "")
 	cfg = loadConfig(ConfigEnv)
 	assert.Equal(t, "", cfg.Location)
+}
+
+func TestIsImmediateSubDir(t *testing.T) {
+	tests := []struct {
+		parent    string
+		child     string
+		expected  bool
+		expectErr bool
+	}{
+		{
+			parent:   "/foo",
+			child:    "/foo/bar",
+			expected: true,
+		},
+		{
+			parent:   "/foo/bar",
+			child:    "/foo/bar",
+			expected: false,
+		},
+		{
+			parent:   "/foo",
+			child:    "/foo/bar/baz",
+			expected: false,
+		},
+		{
+			parent:   "/foo/bar",
+			child:    "/foo/baz",
+			expected: false,
+		},
+		{
+			parent:   "/foo",
+			child:    "/bar",
+			expected: false,
+		},
+		{
+			parent:   "/foo/bar",
+			child:    "/foo/bar/../baz",
+			expected: false,
+		},
+		{
+			parent:   "/foo",
+			child:    "/foo/bar/",
+			expected: true,
+		},
+		{
+			parent:   "/foo/",
+			child:    "/foo/bar",
+			expected: true,
+		},
+		{
+			parent:   "/foo/",
+			child:    "/foo/bar/",
+			expected: true,
+		},
+		{
+			parent:   "/",
+			child:    "/foo",
+			expected: true,
+		},
+		{
+			parent:   "",
+			child:    "/foo",
+			expected: false,
+		},
+		{
+			parent:   "/foo",
+			child:    "",
+			expected: false,
+		},
+		{
+			parent:   "",
+			child:    "",
+			expected: false,
+		},
+		{
+			parent:   "foo",
+			child:    "foo/bar",
+			expected: true,
+		},
+		{
+			parent:   "/foo",
+			child:    "/foo/./bar",
+			expected: true,
+		},
+		{
+			parent:   "/foo",
+			child:    "/foo/bar/../baz",
+			expected: true,
+		},
+		{
+			parent:   "/foo",
+			child:    "/foo/bar/some_file.txt",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s vs %s", tt.parent, tt.child), func(t *testing.T) {
+			result, err := IsImmediateSubDir(tt.parent, tt.child)
+
+			if tt.expectErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expected, result,
+				"IsImmediateSubDir(%q, %q) = %v, expected %v",
+				tt.parent, tt.child, result, tt.expected)
+		})
+	}
 }

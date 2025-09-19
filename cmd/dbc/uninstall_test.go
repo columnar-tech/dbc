@@ -193,11 +193,11 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	// Error: failed to uninstall driver: error removing driver test-driver-invalid-manifest: RemoveAll .: invalid argument
 	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
 
-	// Ensure we don't nuke the tempdir
+	// Ensure we don't nuke the tempdir which is the original (major) issue
 	suite.DirExists(suite.tempdir)
 
-	// Ensure we removed the files from the package though'
-	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
-	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest", "test-driver-invalid-manifest.so"))
+	// Ensure we removed the files from the package though
+	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest", "test-driver-invalid-manifest.so"))
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest"))
 }
