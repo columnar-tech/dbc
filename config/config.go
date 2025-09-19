@@ -331,8 +331,6 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 		// dbc installs drivers in a folder, other tools may not so we handle each
 		// differently.
 		if info.Source == "dbc" {
-			shared_dir := filepath.Dir(sharedPath)
-
 			// Handle an edge case first. We've already verified that Driver.shared is
 			// an absolute path inside cfg.Location but we also expect the shared
 			// library to be in a subfolder, e.g.,
@@ -359,6 +357,7 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 				continue
 			}
 
+			shared_dir := filepath.Dir(sharedPath)
 			// The rest of this is "normal" operation...
 			if err := os.RemoveAll(shared_dir); err != nil {
 				// Ignore only when not found. This supports manifest-only drivers.
