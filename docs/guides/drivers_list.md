@@ -49,7 +49,7 @@ The `add` command automatically checks that a driver matching the pattern exists
 
     `dbc add` accepts the same syntax for driver names and versions as `dbc install`. See the [Installing Drivers](installing.md).
 
-If you read the above output, you'll notice that it's telling you to run `dbc sync` to install the driver(s) in the list. This is because `dbc add` only modifies the drivers list file and we need to use `dbc sync` to actually install the driver we just added.
+If you read the above output, you'll notice that it's telling you to run `dbc sync` to install the driver(s) in the list. This is because `dbc add` only modifies the drivers list file and you need to use `dbc sync` to actually install the driver you just added.
 
 ## Synchronizing
 
