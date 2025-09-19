@@ -192,7 +192,7 @@ healthy_pct: [[84,85,82,86,62,...,100,90,84,80,80]]
 ```
 
 ADBC always returns query results in Arrow format so fetching the result as a PyArrow Table is a low-overhead operation.
-However, the above display isn't the eaisiest to read and we might want to analyze our result using another package.
+However, the above display isn't the easiest to read and we might want to analyze our result using another package.
 
 If we install [Polars](https://pola.rs) (`pip install polars`), we can use it to work with the result we just got:
 
