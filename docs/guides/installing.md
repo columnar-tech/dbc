@@ -121,7 +121,7 @@ Installed mysql 0.1.0 to /home/user/drivers
 
     from adbc_driver_manager import dbapi
 
-    os.environ["ADBC_DRIVER_PATH"] = os.path.join(Path.home(), "drivers")
+    os.environ["ADBC_DRIVER_PATH"] = str(Path.home() / "drivers")
 
     with dbapi.connect(driver="mysql") as con:
       pass
