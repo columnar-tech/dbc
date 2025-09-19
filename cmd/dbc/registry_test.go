@@ -69,6 +69,11 @@ func (s *RegistryTestSuite) SetupSuite() {
 	os.RemoveAll(s.cfgUserPath)
 }
 
+func (s *RegistryTestSuite) TearDownSuite() {
+	s.clearRegistry()
+	os.RemoveAll(s.cfgUserPath)
+}
+
 func (s *RegistryTestSuite) SetupTest() {
 	s.clearRegistry()
 }
