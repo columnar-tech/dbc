@@ -177,11 +177,11 @@ dbc uninstall mysql
 Since it's possible to install the same driver to multiple locations, dbc will only uninstall the first driver it finds.
 dbc will search in the following order:
 
-- Environment
-    - `ADBC_DRIVER_PATH`
-    - `VIRTUAL_ENV`
-    - `CONDA_PREFIX`
-- User
-- System
+1. Environment
+    1. `ADBC_DRIVER_PATH`
+    2. `VIRTUAL_ENV`
+    3. `CONDA_PREFIX`
+2. User
+3. System
 
 Make sure to say that when you have drivers installed at different levels, only the top-most level will be uninstalled.
