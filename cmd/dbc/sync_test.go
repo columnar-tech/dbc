@@ -14,8 +14,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/columnar-tech/dbc"
+	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/suite"
-	"gopkg.in/yaml.v3"
 )
 
 func getTestDriverList() ([]dbc.Driver, error) {
