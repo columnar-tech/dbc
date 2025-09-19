@@ -1,8 +1,6 @@
 <!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
 
-# Searching for Drivers
-
-## Searching
+# Finding Drivers
 
 You can list the available drivers by running `dbc search`:
 
@@ -69,12 +67,14 @@ $ dbc search --verbose
     ╰── 1.7.0
 ```
 
-### Names Only
+### Searching Titles Only
 
-`dbc search` takes an optional `--names-only` (`-n` for short) flag which may be useful if you are scripting with dbc or are otherwise only interested in the names.
+TODO: Update this once https://github.com/columnar-tech/dbc/issues/58 is resolved.
+
+`dbc search` takes an optional `--titles-only` (`-t` for short) flag applies your pattern only to the titles of each driver.
 
 ```console
-$ dbc search --names-only
+$ dbc search --titles-only
 duckdb
 snowflake
 mssql

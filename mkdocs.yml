@@ -27,7 +27,7 @@ nav:
       - FAQ: getting_started/faq.md
   - Guides:
       - guides/installing.md
-      - guides/searching.md
+      - guides/finding_drivers.md
       - guides/drivers_list.md
   - Concepts:
       - Driver: concepts/driver.md
