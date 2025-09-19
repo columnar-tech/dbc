@@ -165,8 +165,8 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	// currently we don't clean out the downloaded file if signature verification fails
-	suite.Equal([]string{"test-driver-no-sig/test-driver-1-not-valid.so"}, suite.getFilesInTempDir())
+	suite.Empty(suite.getFilesInTempDir())
+	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})

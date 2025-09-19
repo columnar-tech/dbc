@@ -272,6 +272,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {
 			if err := verifySignature(msg, m.NoVerify); err != nil {
+				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
+				_ = os.RemoveAll(path)
 				return err
 			}
 			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
