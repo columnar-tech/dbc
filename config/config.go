@@ -341,10 +341,10 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 			// └── libadbc_driver_linux_amd64_v1.0.0
 			//     └── libadbc_driver_linux_amd64_v1.0.0.so
 			//
-			// If the MANIFEST we're installed has Driver.shared already set, this is
-			// invalid becuase it should have Files set instead. When this happens,
-			// the Driver.shared value in the installed manifest ends up as a absolute
-			// path to a folder, not a shared library.
+			// But if we happen to have installed a MANIFEST where the author
+			// mistakenly used Driver.shared instead of Files to point to the shared
+			// library path, the Driver.shared value in the installed manifest ends up
+			// as an absolute path to a folder, not a shared library.
 			shared_path_is_subdir, err := isImmediateSubDir(cfg.Location, sharedPath)
 			if err != nil {
 				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
