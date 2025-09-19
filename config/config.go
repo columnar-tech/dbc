@@ -331,35 +331,16 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 		// dbc installs drivers in a folder, other tools may not so we handle each
 		// differently.
 		if info.Source == "dbc" {
-			// Handle an edge case first. We've already verified that Driver.shared is
-			// an absolute path inside cfg.Location but we also expect the shared
-			// library to be in a subfolder, e.g.,
-			//
-			// ${cfg.Location}
-			// └── libadbc_driver_linux_amd64_v1.0.0
-			//     └── libadbc_driver_linux_amd64_v1.0.0.so
-			//
-			// But if we happen to have installed a MANIFEST where the author
-			// mistakenly used Driver.shared instead of Files to point to the shared
-			// library path, the Driver.shared value in the installed manifest ends up
-			// as an absolute path to a folder, not a shared library.
-			shared_path_is_subdir, err := isImmediateSubDir(cfg.Location, sharedPath)
-			if err != nil {
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-			if shared_path_is_subdir {
-				if err := os.RemoveAll(sharedPath); err != nil {
-					if errors.Is(err, fs.ErrNotExist) {
-						continue
-					}
-					return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-				}
+			sharedDir := filepath.Dir(sharedPath)
+			// Edge case when manifest is ill-formed: if sharedPath is set to the
+			// folder containing the shared library instead of the shared library
+			// itself, sharedDir is cfg.Location and we definitely don't want to
+			// remove that
+			if sharedDir == cfg.Location {
 				continue
 			}
 
-			shared_dir := filepath.Dir(sharedPath)
-			// The rest of this is "normal" operation...
-			if err := os.RemoveAll(shared_dir); err != nil {
+			if err := os.RemoveAll(sharedDir); err != nil {
 				// Ignore only when not found. This supports manifest-only drivers.
 				// TODO: Come up with a better mechanism to handle manifest-only drivers
 				// and remove this continue when we do
@@ -398,35 +379,4 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 	}
 
 	return nil
-}
-
-// Determine whether target is an immediate subdirectory of base.
-func isImmediateSubDir(base string, target string) (bool, error) {
-	base_abs, err := filepath.Abs(base)
-	if err != nil {
-		return false, err
-	}
-	target_abs, err := filepath.Abs(target)
-	if err != nil {
-		return false, err
-	}
-
-	result, err := filepath.Rel(base_abs, target_abs)
-	if err != nil {
-		return false, err
-	}
-
-	parts := strings.Split(result, string(filepath.Separator))
-
-	// return false if we're not a direct child
-	if len(parts) != 1 {
-		return false, nil
-	}
-
-	// return false if we're above
-	if strings.HasPrefix(result, ".") {
-		return false, nil
-	}
-
-	return true, nil
 }

@@ -194,8 +194,9 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	// Ensure we don't nuke the tempdir which is the original (major) issue
 	suite.DirExists(suite.tempdir)
 
-	// Ensure we removed the files from the package though
+	// We do remove the manifest
 	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
-	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest", "test-driver-invalid-manifest.so"))
-	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest"))
+	// But we don't remove the driver shared folder in this edge case, so we assert
+	// they're still around
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
 }
