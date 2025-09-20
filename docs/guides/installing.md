@@ -159,6 +159,10 @@ $ source .venv/bin/activate.fish
 Installed mysql 0.1.0 to /Users/user/tmp/my-adbc-project/.venv/etc/adbc/drivers
 ```
 
+!!! note
+
+    [`ADBC_DRIVER_PATH`](./#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+
 ## Conda Support
 
 By default, dbc automatically detects whether you've activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html) and will install (and uninstall) drivers from the Conda environment rather than the user or system-level paths.
@@ -174,6 +178,10 @@ my-adbc-project $ dbc install mysql
 
 Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-project/etc/adbc/drivers
 ```
+
+!!! note
+
+    [`ADBC_DRIVER_PATH`](./#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
 
 ## Uninstalling Drivers
 
