@@ -95,7 +95,7 @@ Where this installs depends on your operating system:
 
 ## `ADBC_DRIVER_PATH`
 
-For complete control over where dbc installs drivers, set the `ADBC_DRIVER_PATH` environment variable to a path where you want to install drivers.
+For complete control over where dbc installs drivers, set the `ADBC_DRIVER_PATH` environment variable to a path (or list of paths) where you want to install drivers.
 For example:
 
 ```console
