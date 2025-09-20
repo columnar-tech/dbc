@@ -109,6 +109,17 @@ $ dbc install mysql
 [✓] verifying signature
 
 Installed mysql 0.1.0 to /home/user/drivers
+
+$ tree $ADBC_DRIVER_PATH
+/home/user/drivers
+├── mysql_linux_amd64_v0.1.0
+│   ├── libadbc_driver_mysql.so
+│   ├── libadbc_driver_mysql.so.sig
+│   ├── LICENSE
+│   └── NOTICE
+└── mysql.toml
+
+2 directories, 5 files
 ```
 
 !!! note
