@@ -80,14 +80,12 @@ We always recommend installing dbc from the [latest release](https://github.com/
 
 ## Windows Installer
 
-Windows MSI installers can be found as artifacts in our [GitHub Releases](https://github.com/columnar-tech/dbc/releases).
-You can also download the latest installer using the following URLs:
+A Windows MSI installer for x86_64 (i.e., x64, amd64) systems can be found as artifacts in our [GitHub Releases](https://github.com/columnar-tech/dbc/releases).
+You can also download the latest installer using the following URL:
 
 | Architecture | Link                                                    |
 |--------------|---------------------------------------------------------|
 | `x64`        | <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>   |
-| `arm64`      | <https://dbc.columnar.tech/latest/dbc-latest-arm64.msi>   |
-| `x86`        | <https://dbc.columnar.tech/latest/dbc-latest-x86.msi> |
 
 ## Docker
 
