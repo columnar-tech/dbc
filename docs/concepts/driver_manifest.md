@@ -24,4 +24,4 @@ version = '1.1.0'
 macos_arm64 = '/Users/user/Library/Application Support/ADBC/Drivers/mysql_macos_arm64_v0.1.0'
 ```
 
-Many details about how driver manifests work are outlined in the [ADBC Driver Manfifest](https://arrow.apache.org/adbc/current/format/driver_manifests.html) documentation.
+Many details about how driver manifests work are outlined in the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) documentation.
