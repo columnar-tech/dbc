@@ -144,7 +144,9 @@ dbc remove <DRIVER>
 
 ## sync
 
-Install any missing drivers from the [drivers list](../concepts/drivers_list.md).
+Install drivers from the [drivers list](../concepts/drivers_list.md).
+Also creates a `dbc.lock` file next to the [drivers list](../concepts/drivers_list.md).
+If `dbc.lock` exists, driver versions from it will be used when this subcommand is run.
 
 <h3>Usage</h3>
 
