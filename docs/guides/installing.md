@@ -188,9 +188,17 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 You can uninstall a driver with the `dbc uninstall` subcommand.
 
 ```console
-dbc uninstall mysql
+$ dbc uninstall mysql
 
-(TODO) Actual uninstall message here.
+Driver `mysql` uninstalled successfully!
+```
+
+Similar to the install command, `dbc uninstall` takes a `--level` argument.
+If, for example, you installed a driver with `--level system`, you would want also pass that argument to `dbc uninstall`:
+
+```console
+$ dbc install --level system mysql
+$ dbc uninstall --level system mysql
 ```
 
 Since it's possible to install the same driver to multiple locations, dbc will only uninstall the first driver it finds.
@@ -202,5 +210,3 @@ dbc will search in the following order:
     3. `CONDA_PREFIX`
 2. User
 3. System
-
-Make sure to say that when you have drivers installed at different levels, only the top-most level will be uninstalled.
