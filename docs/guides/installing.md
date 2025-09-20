@@ -56,7 +56,7 @@ For example, if you were to run `dbc install mysql` and get version 0.1.0, if â€
 
 !!! note
 
-    When dbc updates a driver like this, the old driver is uninstalled first.
+    When dbc updates a driver like this, the old driver is uninstalled first. [ADBC driver manifests](../concepts/driver_manifest.md) provide a mechanism to support having multiple versions of the same driver installed at the same time and dbc may provide a convenient way to do this in a future release.
 
 ## Installing System Wide
 
