@@ -197,8 +197,8 @@ Similar to the install command, `dbc uninstall` takes a `--level` argument.
 If, for example, you installed a driver with `--level system`, you would want also pass that argument to `dbc uninstall`:
 
 ```console
-$ dbc install --level system mysql
-$ dbc uninstall --level system mysql
+$ sudo dbc install --level system mysql
+$ sudo dbc uninstall --level system mysql
 ```
 
 Since it's possible to install the same driver to multiple locations, dbc will only uninstall the first driver it finds.
