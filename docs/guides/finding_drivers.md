@@ -31,8 +31,7 @@ $ dbc search sql
 
 ### Verbose
 
-You can use the `--verbose` flag to show detailed information about each driver. This will present information from the [ADBC Driver Manifest](https://arrow.apache.org/adbc/current/format/driver_manifests.html) that's packaged with the driver as well as all available and installed versions of the driver.
-
+You can use the `--verbose` flag to show detailed information about each driver, including all versions that are available and which are installed.
 ```console
 $ dbc search --verbose
 • duckdb
