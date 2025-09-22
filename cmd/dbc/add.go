@@ -93,9 +93,9 @@ func (m addModel) Init() tea.Cmd {
 		f, err := os.Open(p)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("error opening driver list file: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
 			} else {
-				return fmt.Errorf("error opening driver list file at %s: %w", m.Path, err)
+				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 			}
 		}
 		defer f.Close()

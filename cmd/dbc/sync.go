@@ -63,7 +63,7 @@ type syncModel struct {
 	locked LockFile
 	cfg    config.Config
 
-	// the list of drivers in the driver list file
+	// the list of drivers in the driver list
 	list DriversList
 	// cdn driver index
 	driverIndex []dbc.Driver
@@ -111,9 +111,9 @@ func loadDriverList(path string) (DriversList, error) {
 	if err != nil {
 		var outError error
 		if errors.Is(err, os.ErrNotExist) {
-			outError = fmt.Errorf("error opening driver list file: %s doesn't exist\ndid you run `dbc init`?", path)
+			outError = fmt.Errorf("error opening driver list: %s doesn't exist\ndid you run `dbc init`?", path)
 		} else {
-			outError = fmt.Errorf("error opening driver list file at %s: %w", path, err)
+			outError = fmt.Errorf("error opening driver list at %s: %w", path, err)
 		}
 		return DriversList{}, outError
 	}
@@ -125,7 +125,7 @@ func loadDriverList(path string) (DriversList, error) {
 	}
 
 	if len(list.Drivers) == 0 {
-		return DriversList{}, fmt.Errorf("no drivers found in driver list file %s", path)
+		return DriversList{}, fmt.Errorf("no drivers found in driver list `%s`", path)
 	}
 	return list, nil
 }

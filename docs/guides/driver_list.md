@@ -3,17 +3,17 @@
 # Using a Driver List
 
 dbc can create and manage lists of drivers using a [driver list](../concepts/driver_list.md) file.
-By default, a driver list file has the name `dbc.toml`, though this can be [overridden](#using-a-custom-filename).
+By default, a driver list has the name `dbc.toml`, though this can be [overridden](#using-a-custom-filename).
 
 !!! note
 
     This functionality is similar to files from other tools such as Python's [`requirements.txt`](https://pip.pypa.io/en/stable/reference/requirements-file-format/).
 
-A driver list file is ideal for checking into version control alongside your project and is useful for recording not only which drivers your project needs but also the specific versions of each.
+A driver list is ideal for checking into version control alongside your project and is useful for recording not only which drivers your project needs but also the specific versions of each.
 
 ## Creating a Driver List
 
-Create a driver list file with `dbc init`:
+Create a driver list with `dbc init`:
 
 ```console
 $ dbc init
@@ -26,7 +26,7 @@ $ cat dbc.toml
 
 ```
 
-Driver list files uses the [TOML](https://toml.io) format and contains a TOML table of drivers.
+Driver lists uses the [TOML](https://toml.io) format and contains a TOML table of drivers.
 
 ## Adding a Driver
 
@@ -49,7 +49,7 @@ The `add` command automatically checks that a driver matching the pattern exists
 
     `dbc add` accepts the same syntax for driver names and versions as `dbc install`. See the [Installing Drivers](installing.md).
 
-If you read the above output, you'll notice that it's telling you to run `dbc sync` to install the driver(s) in the list. This is because `dbc add` only modifies the driver list file and you need to use `dbc sync` to actually install the driver you just added.
+If you read the above output, you'll notice that it's telling you to run `dbc sync` to install the driver(s) in the list. This is because `dbc add` only modifies the driver list and you need to use `dbc sync` to actually install the driver you just added.
 
 ## Synchronizing
 
@@ -86,7 +86,7 @@ removed 'mysql' from driver list
 
 ## Using a Custom Filename
 
-By default, dbc assumes a driver list file name is `dbc.toml`. However, you can override this if you prefer another name or want to maintain multiple driver lists in one project (e.g., separate development and production lists).
+By default, dbc assumes a driver list has the filename `dbc.toml`. However, you can override this if you prefer another name or want to maintain multiple driver lists in one project (e.g., separate development and production lists).
 
 All of the commands shown earlier on this page allow you to override the filename, for example:
 
