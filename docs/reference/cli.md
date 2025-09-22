@@ -26,10 +26,10 @@ dbc [OPTIONS] <COMMAND>
 <dt><a href="#search">dbc search</a></dt><dd><p>Search for a driver to install</p></dd>
 <dt><a href="#install">dbc install</a></dt><dd><p>Install a driver</p></dd>
 <dt><a href="#uninstall">dbc uninstall</a></dt><dd><p>Uninstall a driver</p></dd>
-<dt><a href="#init">dbc init</a></dt><dd><p>Create a <a href="../../concepts/drivers_list/">drivers list</a> file</p></dd>
-<dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
-<dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
-<dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/drivers_list/">drivers list</a></p></dd>
+<dt><a href="#init">dbc init</a></dt><dd><p>Create a <a href="../../concepts/driver_list/">driver list</a> file</p></dd>
+<dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/driver_list/">driver list</a></p></dd>
+<dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
+<dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 </dl>
 
 ## search
@@ -96,7 +96,7 @@ dbc uninstall [OPTIONS] <DRIVER>
 
 ## init
 
-Create a [drivers list](../concepts/drivers_list.md) file.
+Create a [driver list](../concepts/driver_list.md) file.
 
 <h3>Usage</h3>
 
@@ -108,11 +108,11 @@ dbc init [PATH]
 
 `PATH`
 
-:   Optional. A path to create the [drivers list](../concepts/drivers_list.md) under. Defaults to the current working directory.
+:   Optional. A path to create a [driver list](../concepts/driver_list.md) under. Defaults to the current working directory.
 
 ## add
 
-Add a driver to the current [drivers list](../concepts/drivers_list.md).
+Add a driver to a current [driver list](../concepts/driver_list.md).
 
 <h3>Usage</h3>
 
@@ -128,7 +128,7 @@ dbc add <DRIVER>
 
 ## remove
 
-Remove a driver from the current [drivers list](../concepts/drivers_list.md).
+Remove a driver from the current [driver list](../concepts/driver_list.md).
 
 <h3>Usage</h3>
 
@@ -144,8 +144,8 @@ dbc remove <DRIVER>
 
 ## sync
 
-Install drivers from the [drivers list](../concepts/drivers_list.md).
-Also creates a `dbc.lock` file next to the [drivers list](../concepts/drivers_list.md).
+Install drivers from a [driver list](../concepts/driver_list.md).
+Also creates a `dbc.lock` file next to the [driver list](../concepts/driver_list.md).
 If `dbc.lock` exists, driver versions from it will be used when this subcommand is run.
 
 <h3>Usage</h3>
@@ -159,7 +159,7 @@ dbc sync --file dbc.toml
 
 `--file`
 
-:   Path to the [drivers list](../concepts/drivers_list.md) file to sync. Defaults to `dbc.toml` in the current working directory.
+:   Path to a [driver list](../concepts/driver_list.md) file to sync. Defaults to `dbc.toml` in the current working directory.
 
 `--level`
 

@@ -28,12 +28,12 @@ nav:
   - Guides:
       - guides/installing.md
       - guides/finding_drivers.md
-      - guides/drivers_list.md
+      - guides/driver_list.md
   - Concepts:
       - Driver: concepts/driver.md
       - Driver Manager: concepts/driver_manager.md
       - Driver Manifest: concepts/driver_manifest.md
-      - Drivers List: concepts/drivers_list.md
+      - Driver List: concepts/driver_list.md
   - Reference:
       - dbc CLI: reference/cli.md
       - Config: reference/config.md
