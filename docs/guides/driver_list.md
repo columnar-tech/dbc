@@ -119,13 +119,13 @@ By default, dbc assumes a driver list has the filename `dbc.toml`. However, you 
 All of the commands shown earlier on this page allow you to override the filename, for example:
 
 ```console
-$ dbc init drivers-dev.yaml
-$ dbc add --path drivers-dev.yaml mysql
+$ dbc init drivers-dev.toml
+$ dbc add --path drivers-dev.toml mysql
 added mysql to driver list
 use `dbc sync` to install the drivers in the list
-$ dbc sync --path drivers-dev.yaml
+$ dbc sync --path drivers-dev.toml
 ✓ mysql-0.1.0
 Done!
-$ dbc remove --path drivers-dev.yaml mysql
+$ dbc remove --path drivers-dev.toml mysql
 removed 'mysql' from driver list
 ```

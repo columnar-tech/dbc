@@ -62,7 +62,7 @@ dbc search [PATTERN]
 
 Install a driver.
 
-To install multiple versions of the same driver on the same system, it's recommend to use `ADBC_DRIVER_PATH`. See [Config](config.md).
+To install multiple versions of the same driver on the same system, it's recommend to use `ADBC_DRIVER_PATH`. See [Config Level](config_level.md).
 
 <h3>Usage</h3>
 
@@ -80,7 +80,7 @@ dbc install [OPTIONS] <DRIVER>
 
 `--level`
 
-:   The configuration level to install the driver to (`user`, or `system`). See [Config](config.md).
+:   The configuration level to install the driver to (`user`, or `system`). See [Config Level](config_level.md).
 
 `--no-verify`
 
@@ -106,7 +106,7 @@ dbc uninstall [OPTIONS] <DRIVER>
 
 `--level`
 
-:   The configuration level to uninstall the driver from (`user`, or `system`). See [Config](config.md).
+:   The configuration level to uninstall the driver from (`user`, or `system`). See [Config Level](config_level.md).
 
 ## init
 
@@ -189,7 +189,7 @@ dbc sync --file dbc.toml
 
 `--level`
 
-:   The configuration level to install drivers to (`user`, or `system`). See [Config](config.md).
+:   The configuration level to install drivers to (`user`, or `system`). See [Config Level](config_level.md).
 
 `--allow-missing-signature`
 

@@ -94,7 +94,7 @@ Where this installs depends on your operating system:
 
 !!! note
 
-    Also see the [Config reference](../reference/config.md) for more detail on this behavior.
+    Also see the [Config Level](../reference/config_level.md) reference for more detail on this behavior.
 
 ## `ADBC_DRIVER_PATH`
 
@@ -164,7 +164,7 @@ Installed mysql 0.1.0 to /Users/user/tmp/my-adbc-project/.venv/etc/adbc/drivers
 
 !!! note
 
-    [`ADBC_DRIVER_PATH`](./#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+    [`ADBC_DRIVER_PATH`](#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
 
 ## Conda Support
 
@@ -184,7 +184,7 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
 !!! note
 
-    [`ADBC_DRIVER_PATH`](./#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+    [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
 
 ## Uninstalling Drivers
 
