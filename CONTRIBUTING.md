@@ -57,6 +57,28 @@ Type 'help' for list of commands.
 
 When you're done, exiting the client should cause the server to exit automatically.
 
+## Manual Testing
+
+### Generating Test Driver Index
+
+Use `create.py` to generate a local driver index with fake data for testing:
+
+```sh
+pixi run cdn-generate
+```
+
+then update `defaultURL` in drivers.go to:
+
+```go
+const defaultURL = "http://localhost:8000"
+```
+
+and run:
+
+```sh
+pixi run cdn-serve
+```
+
 ## Commit Messages
 
 We follow the [Conventional Commits](https://www.conventionalcommits.org) standard for commit messages. This includes titles for Pull Requests.

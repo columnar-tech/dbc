@@ -35,5 +35,8 @@ dbc.lock
 # Added by goreleaser init:
 dist/
 
+# default cdn test path (see pixi.toml)
+cdn-dev
+
 # mkdocs .cache dir
 .cache

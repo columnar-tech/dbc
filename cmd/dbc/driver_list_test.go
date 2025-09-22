@@ -23,13 +23,13 @@ func TestUnmarshalDriverList(t *testing.T) {
 		expected []dbc.PkgInfo
 		err      error
 	}{
-		{"basic", "[drivers]\nflightsql = {version = '1.7.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
+		{"basic", "[drivers]\nflightsql = {version = '1.8.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
 		}, nil},
-		{"less", "[drivers]\nflightsql = {version = '<=1.7.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.7.0")},
+		{"less", "[drivers]\nflightsql = {version = '<=1.8.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
 		}, nil},
-		{"greater", "[drivers]\nflightsql = {version = '>=1.7.0'}", []dbc.PkgInfo{
+		{"greater", "[drivers]\nflightsql = {version = '>=1.8.0'}", []dbc.PkgInfo{
 			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
 		}, nil},
 	}

@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,8 +14,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/columnar-tech/dbc"
+	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/suite"
-	"gopkg.in/yaml.v3"
 )
 
 func getTestDriverList() ([]dbc.Driver, error) {
@@ -44,6 +45,8 @@ func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 		return os.Open(filepath.Join("testdata", "test-driver-manifest-only.tar.gz"))
 	case "test-driver-no-sig":
 		return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
+	case "test-driver-invalid-manifest":
+		return os.Open(filepath.Join("testdata", "test-driver-invalid-manifest.tar.gz"))
 	default:
 		return nil, fmt.Errorf("unknown driver: %s", pkg.Driver.Path)
 	}
@@ -72,6 +75,19 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 
 func (suite *SubcommandTestSuite) TearDownSuite() {
 	getDriverList = suite.getDriverListFn
+}
+
+func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
+	var filelist []string
+	suite.NoError(fs.WalkDir(os.DirFS(suite.tempdir), ".", func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+
+		filelist = append(filelist, path)
+		return nil
+	}))
+	return filelist
 }
 
 func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
@@ -189,6 +205,22 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-no-sig"}.GetModel()
+	suite.runCmd(m)
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Error: failed to verify signature: signature file 'test-driver-1-not-valid.so.sig' for driver is missing\r\n\r ",
+		"", suite.runCmdErr(m))
+	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
 }
 
 func TestSubcommands(t *testing.T) {

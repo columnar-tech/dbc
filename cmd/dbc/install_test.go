@@ -3,7 +3,6 @@
 package main
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +26,38 @@ func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver index\r\n\r ", "", suite.runCmdErr(m))
+}
+
+func (suite *SubcommandTestSuite) TestInstallWithVersion() {
+	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", out)
+}
+
+func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
+	m := InstallCmd{Driver: "test-driver-1 < 1.1.0"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", out)
+}
+
+func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
+	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
+
+	m = InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n",
+		suite.runCmd(m))
+
+	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
+		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
 func (suite *SubcommandTestSuite) TestInstallUserFake() {
@@ -134,18 +165,8 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	filelist := []string{}
-	suite.NoError(fs.WalkDir(os.DirFS(suite.tempdir), ".", func(path string, d fs.DirEntry, err error) error {
-		if d.IsDir() {
-			return nil
-		}
-
-		filelist = append(filelist, path)
-		return nil
-	}))
-
-	// currently we don't clean out the downloaded file if signature verification fails
-	suite.Equal([]string{"test-driver-no-sig/test-driver-1-not-valid.so"}, filelist)
+	suite.Empty(suite.getFilesInTempDir())
+	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})

@@ -148,7 +148,6 @@ func loadRegistryConfig(lvl ConfigLevel) Config {
 
 	ret.Exists, ret.Drivers = true, make(map[string]DriverInfo)
 	if info.SubKeyCount == 0 {
-		log.Println("No drivers found")
 		return ret
 	}
 
@@ -171,23 +170,35 @@ func loadRegistryConfig(lvl ConfigLevel) Config {
 }
 
 func Get() map[ConfigLevel]Config {
-	configs := map[ConfigLevel]Config{
-		ConfigUser:   loadConfig(ConfigUser),
-		ConfigSystem: loadConfig(ConfigSystem),
-		ConfigEnv:    loadConfig(ConfigEnv),
-	}
+	cfgUser, cfgSys, cfgEnv := loadConfig(ConfigUser), loadConfig(ConfigSystem), loadConfig(ConfigEnv)
 
 	regUser := loadRegistryConfig(ConfigUser)
 	if regUser.Exists {
-		maps.Copy(configs[ConfigUser].Drivers, regUser.Drivers)
+		if cfgUser.Drivers == nil {
+			cfgUser.Drivers = regUser.Drivers
+		} else {
+			maps.Copy(cfgUser.Drivers, regUser.Drivers)
+		}
+	} else {
+		cfgUser.Exists = false
 	}
 
 	regSys := loadRegistryConfig(ConfigSystem)
 	if regSys.Exists {
-		maps.Copy(configs[ConfigSystem].Drivers, regSys.Drivers)
+		if cfgSys.Drivers == nil {
+			cfgSys.Drivers = regSys.Drivers
+		} else {
+			maps.Copy(cfgSys.Drivers, regSys.Drivers)
+		}
+	} else {
+		cfgSys.Exists = false
 	}
 
-	return configs
+	return map[ConfigLevel]Config{
+		ConfigUser:   cfgUser,
+		ConfigSystem: cfgSys,
+		ConfigEnv:    cfgEnv,
+	}
 }
 
 func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
@@ -225,26 +236,26 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	var k registry.Key
 
 	if !cfg.Exists {
-		k, _, err = registry.CreateKey(cfg.Level.key(), "SOFTWARE\\ADBC", registry.WRITE)
+		k, _, err = registry.CreateKey(cfg.Level.key(), "SOFTWARE\\ADBC", registry.ALL_ACCESS)
 		if err != nil {
 			return err
 		}
 		defer k.Close()
 
-		k, _, err = registry.CreateKey(k, "Drivers", registry.WRITE)
+		k, _, err = registry.CreateKey(k, "Drivers", registry.ALL_ACCESS)
 		if err != nil {
 			return err
 		}
 		defer k.Close()
 	} else {
-		k, err = registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.WRITE)
+		k, err = registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
 		if err != nil {
 			return err
 		}
 		defer k.Close()
 	}
 
-	dkey, _, err := registry.CreateKey(k, driver.ID, registry.WRITE)
+	dkey, _, err := registry.CreateKey(k, driver.ID, registry.ALL_ACCESS)
 	if err != nil {
 		return err
 	}
@@ -275,7 +286,7 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
 	if cfg.Level != ConfigEnv {
-		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.WRITE)
+		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
 		if err != nil {
 			return err
 		}
