@@ -101,7 +101,7 @@ Each release includes the following assets allowing you to install using your pr
 - `.tar.gz` or `.zip` archives containing the appropriate binary for all supported platforms and architectures
 - `.deb` and `.rpm` installation packages
 - An `msi` installer package for Windows
-- `.snap` packages 
+- `.snap` packages
 - Python wheel packages that bundle the dbc executable binary
 
 ### Docker
@@ -112,9 +112,9 @@ Docker images are also provided with standalone binaries that can be easily run 
 docker run --rm -it columnar/dbc:latest --help
 ```
 
-#### Available images
+#### Available Images
 
-The following distroless images are available for linux-based `amd64` and `arm64` 
+The following distroless images are available for linux-based `amd64` and `arm64`
 architectures:
 
 - `columnar/dbc:latest`
@@ -122,14 +122,14 @@ architectures:
 
 ## Getting Started
 
-Once you have dbc available to you on the command line, you can install an ADBC 
+Once you have dbc available to you on the command line, you can install an ADBC
 driver and make it available to your user. For example, to install the bigquery driver:
 
 ```sh
 dbc install bigquery
 ```
 
-Alternately, when working on a project you can create a `dbc.toml` file to create a 
+Alternately, when working on a project you can create a `dbc.toml` file to create a
 list of drivers to install to create a reproducible environment:
 
 ```sh
@@ -146,7 +146,7 @@ dbc add "bigquery>=1.0.0"
 dbc sync # looks for and installs a version >=1.0.0
 ```
 
-### Using the driver
+### Using the Driver
 
 The simplest way to use the driver is via Python with [`adbc-driver-manager`](https://pypi.org/project/adbc-driver-manager/).
 *Note: version 1.8.0 added support for driver manifests, so you'll need that version of the driver manager or higher*.
@@ -155,8 +155,6 @@ The simplest way to use the driver is via Python with [`adbc-driver-manager`](ht
 dbc install snowflake
 pip install "adbc-driver-manager>=1.8.0"
 ```
-
-
 
 Using the driver is easy:
 
@@ -172,7 +170,7 @@ snowflake_connect_args = {
 }
 
 with adbc.connect(
-    driver="bigquery",
+    driver="snowflake",
     db_kwargs=snowflake_connect_args,
 ) as con, con.cursor() as cursor:
     cursor.execute("SELECT * FROM CUSTOMER LIMIT 5")
@@ -188,6 +186,5 @@ For more examples, see the [documentation](https://docs.columnar.tech/dbc)!
 For general questions and discussion, use the GitHub [discussions](https://github.com/columnar-tech/dbc/discussions).
 
 To report an issue, request a feature, or contribute an improvement, use the GitHub
-[issues](https://github.com/columnar-tech/dbc/issues) and 
+[issues](https://github.com/columnar-tech/dbc/issues) and
 [PRs](https://github.com/columnar-tech/dbc/pulls).
-

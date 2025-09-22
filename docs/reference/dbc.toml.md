@@ -2,4 +2,15 @@
 
 # dbc.toml
 
-TODO
+The format of the `dbc.toml` file created by dbc is [TOML](https://toml.io) and it contains a single TOML Table called "drivers".
+Each driver must have a name and may optionally have a version constraint. See [Version Constraints](../guides/installing.md#version-constraints)
+
+For example,
+
+```toml
+[drivers]
+mysql
+duckdb = "1.3.2"
+```
+
+TODO: Verify how this works once bugs are fixed and features are added (https://github.com/columnar-tech/dbc/issues/36).
