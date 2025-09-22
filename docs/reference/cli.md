@@ -39,14 +39,24 @@ Search for a driver to install.
 <h3>Usage</h3>
 
 ```sh
-dbc search [FILTER]
+dbc search [PATTERN]
 ```
 
 <h3>Arguments</h3>
 
-`FILTER`
+`PATTERN`
 
 :   Optional. A pattern to restrict the list of drivers returned by. Driver names are matched by wildcard so substrings may be used.
+
+<h3>Options</h3>
+
+`--verbose`, `-v`
+
+:   Enable verbose output
+
+`--namesonly`, `-n`
+
+:   Restrict search to names, ignoring descriptions
 
 ## install
 
@@ -71,6 +81,10 @@ dbc install [OPTIONS] <DRIVER>
 `--level`
 
 :   The configuration level to install the driver to (`user`, or `system`). See [Config](config.md).
+
+`--no-verify`
+
+:   Allow installation of drivers without a signature file
 
 ## uninstall
 
@@ -126,6 +140,12 @@ dbc add <DRIVER>
 
 :   Name of the driver to add. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`.
 
+<h3>Options</h3>
+
+`--path FILE`, `-p FILE`
+
+:   Driver list to add to [default: ./dbc.toml]
+
 ## remove
 
 Remove a driver from the current [driver list](../concepts/driver_list.md).
@@ -142,6 +162,12 @@ dbc remove <DRIVER>
 
 :   Name of the driver to remove.
 
+<h3>Options</h3>
+
+`--path FILE`, `-p FILE`
+
+:   Driver list to add to [default: ./dbc.toml]
+
 ## sync
 
 Install drivers from a [driver list](../concepts/driver_list.md).
@@ -157,10 +183,14 @@ dbc sync --file dbc.toml
 
 <h3>Options</h3>
 
-`--file`
+`--path`
 
 :   Path to a [driver list](../concepts/driver_list.md) file to sync. Defaults to `dbc.toml` in the current working directory.
 
 `--level`
 
 :   The configuration level to install drivers to (`user`, or `system`). See [Config](config.md).
+
+`--allow-missing-signature`
+
+:   Allow installation of drivers without a signature file
