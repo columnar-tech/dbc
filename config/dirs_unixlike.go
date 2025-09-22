@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Columnar Technologies.  All rights reserved.
+// Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
 
 //go:build !windows
 
@@ -80,6 +80,15 @@ func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
 }
 
 func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
+	if cfg.Level == ConfigEnv {
+		for _, prefix := range filepath.SplitList(cfg.Location) {
+			if di, err := loadDriverFromManifest(prefix, driverName); err == nil {
+				return di, nil
+			}
+		}
+		return DriverInfo{}, fmt.Errorf("searched %s", cfg.Location)
+	}
+
 	return loadDriverFromManifest(cfg.Location, driverName)
 }
 
@@ -91,13 +100,13 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	return createDriverManifest(loc, driver)
 }
 
-func UninstallDriver(cfg Config, info DriverInfo) error {
-	manifest := filepath.Join(cfg.Location, info.ID+".toml")
+func UninstallDriver(_ Config, info DriverInfo) error {
+	manifest := filepath.Join(info.FilePath, info.ID+".toml")
 	if err := os.Remove(manifest); err != nil {
 		return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 	}
 
-	if err := UninstallDriverShared(cfg, info); err != nil {
+	if err := UninstallDriverShared(info); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 

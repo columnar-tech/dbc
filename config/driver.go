@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Columnar Technologies.  All rights reserved.
+// Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
 
 package config
 
@@ -148,6 +148,7 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
 
+	m.DriverInfo.FilePath = prefix
 	return m.DriverInfo, nil
 }
 

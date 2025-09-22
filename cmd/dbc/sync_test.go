@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Columnar Technologies.  All rights reserved.
+// Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
 
 package main
 
@@ -26,6 +26,41 @@ func (suite *SubcommandTestSuite) TestSync() {
 	}.GetModelCustom(
 		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSyncWithVersion() {
+	tests := []struct {
+		driver          string
+		expectedVersion string
+	}{
+		{"test-driver-1=1.0.0", "1.0.0"},
+		{"test-driver-1<=1.0.0", "1.0.0"},
+		{"test-driver-1<1.1.0", "1.0.0"},
+		{"test-driver-1~1.0", "1.0.0"},
+		{"test-driver-1^1.0", "1.1.0"},
+	}
+
+	for _, tt := range tests {
+		suite.Run(tt.driver, func() {
+			m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+			suite.runCmd(m)
+
+			m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: tt.driver}.GetModel()
+			suite.runCmd(m)
+
+			m = SyncCmd{
+				Path: filepath.Join(suite.tempdir, "dbc.toml"),
+			}.GetModelCustom(
+				baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+			suite.validateOutput("✓ test-driver-1-"+tt.expectedVersion+"\r\n\rDone!\r\n", "", suite.runCmd(m))
+			suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+			suite.FileExists(filepath.Join(suite.tempdir, "dbc.lock"))
+
+			for _, f := range suite.getFilesInTempDir() {
+				os.Remove(filepath.Join(suite.tempdir, f))
+			}
+		})
+	}
 }
 
 func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {

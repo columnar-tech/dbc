@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Columnar Technologies.  All rights reserved.
+// Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
 
 package main
 
@@ -19,8 +19,8 @@ func (suite *SubcommandTestSuite) TestUninstallNotFound() {
 	}
 
 	m := UninstallCmd{Driver: "notfound"}.GetModel()
-	suite.validateOutput("Error: failed to find driver `notfound` in order to uninstall it: error opening manifest "+
-		filepath.Join(suite.tempdir, "notfound.toml")+": open "+filepath.Join(suite.tempdir, "notfound.toml")+": no such file or directory\r\n\r ", "", suite.runCmdErr(m))
+	suite.validateOutput("Error: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir+
+		"\r\n\r ", "", suite.runCmdErr(m))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
