@@ -40,7 +40,7 @@ nav:
       - dbc.toml: reference/dbc.toml.md
 theme:
   name: material
-  logo: assets/dbc_logo_static.png
+  logo: assets/dbc_logo_white_static.svg
   favicon: assets/favicon.ico
   font:
     text: Inter
