@@ -26,9 +26,9 @@ nav:
       - First steps: getting_started/first_steps.md
       - FAQ: getting_started/faq.md
   - Guides:
-      - guides/installing.md
-      - guides/finding_drivers.md
-      - guides/driver_list.md
+      - Intalling Drivers: guides/installing.md
+      - Finding Drivers: guides/finding_drivers.md
+      - Using a Driver List: guides/driver_list.md
   - Concepts:
       - Driver: concepts/driver.md
       - Driver Manager: concepts/driver_manager.md
