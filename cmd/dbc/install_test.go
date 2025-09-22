@@ -29,11 +29,30 @@ func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallWithVersion() {
-	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
-	out := suite.runCmd(m)
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", out)
+	tests := []struct {
+		driver          string
+		expectedVersion string
+	}{
+		{"test-driver-1=1.0.0", "1.0.0"},
+		{"test-driver-1<=1.0.0", "1.0.0"},
+		{"test-driver-1<1.1.0", "1.0.0"},
+		{"test-driver-1~1.0", "1.0.0"},
+		{"test-driver-1^1.0", "1.1.0"},
+	}
+
+	for _, tt := range tests {
+		suite.Run(tt.driver, func() {
+			m := InstallCmd{Driver: tt.driver}.
+				GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+			out := suite.runCmd(m)
+			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+suite.tempdir+"\n", out)
+
+			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
+				baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+			suite.runCmd(m)
+		})
+	}
 }
 
 func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
