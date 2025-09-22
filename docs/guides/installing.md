@@ -11,11 +11,14 @@ To find out what drivers are available, use `dbc search`:
 
 ```console
 $ dbc search
-• duckdb - An analytical in-process SQL database management system
-• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
-• mssql - Columnar ADBC Driver for Microsoft SQL Server
-• mysql - ADBC Driver Foundry Driver for MySQL
+• bigquery - An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+• duckdb - An ADBC driver for DuckDB developed by the DuckDB Foundation
 • flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+• mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
+• mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+• redshift - An ADBC driver for Amazon Redshift developed by Columnar
+• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.

@@ -61,10 +61,14 @@ First, run `dbc search` to find the exact name of the driver:
 
 ```console
 $ dbc search
-Current System: macosx_arm64
-
-• bigquery - OSS ADBC Driver for BigQuery
-• flightsql - OSS ADBC Driver for FlightSQL
+• bigquery - An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+• duckdb - An ADBC driver for DuckDB developed by the DuckDB Foundation
+• flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+• mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
+• mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+• redshift - An ADBC driver for Amazon Redshift developed by Columnar
+• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 
 From the output, you can see that the name you'll need is `"bigquery"`.
@@ -72,29 +76,17 @@ Now install it:
 
 ```console
 $ dbc install bigquery
-Current System: macosx_arm64
-Install To: /Users/you/Library/Application Support/adbc
+[✓] searching
+[✓] downloading
+[✓] installing
+[✓] verifying signature
 
-Located driver...
-ASF BigQuery ADBC Driver
-├── 1.6.0
-├── OSS ADBC Driver for BigQuery
-├── macosx_arm64
-└── bigquery_macosx_11_0_arm64-1.6.0.tar.gz
-
-Install driver? (y/[N]):
-```
-
-The install command will prompt you to confirm the installation. Type 'y' and hit Return to confirm.
-If successful, you will see something like this:
-
-```text
-⣾  Downloaded bigquery_macosx_11_0_arm64-1.6.0.tar.gz. Installing...
-Verifying signature...
-Driver installed successfully!
+Installed bigquery 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
 
 The BigQuery ADBC driver is now installed and usable by any driver manager.
+
+For more information on on how to find drivers, see the [Finding Drivers](../guides/finding_drivers.md) guide.
 
 ## Installing a Driver Manager
 
