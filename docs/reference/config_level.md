@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved. -->
 
-# Config
+# Config Level
 
 Various dbc subcommands (like [install](cli.md#install), [sync](cli.md#sync)) take a `--level` argument which gives you control over where dbc searches for drivers.
 

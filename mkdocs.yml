@@ -36,7 +36,7 @@ nav:
       - Driver List: concepts/driver_list.md
   - Reference:
       - dbc CLI: reference/cli.md
-      - Config: reference/config.md
+      - Config Level: reference/config_level.md
       - dbc.toml: reference/dbc.toml.md
 theme:
   name: material
