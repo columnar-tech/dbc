@@ -74,6 +74,14 @@ theme:
     - navigation.tracking
     - content.code.copy
     - content.tabs.link
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/columnar-tech/dbc
+    - icon: fontawesome/brands/bluesky
+      link: https://bsky.app/profile/columnar.tech
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/dbc
 extra_css:
   - stylesheets/extra.css
 plugins:
