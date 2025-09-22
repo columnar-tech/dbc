@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2025 Columnar Technologies.  All rights reserved. -->
+<!-- Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved. -->
 
 # Drivers List
 
