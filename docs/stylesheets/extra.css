@@ -8,13 +8,23 @@
 }
 /* ...and show the dbc logo instead when it's not already shown */
 @media screen and (max-width: 76.1875em) {
-  .md-nav--primary .md-nav__title {
+  .md-nav--primary .md-nav__title[for="__drawer"] {
     color: transparent !important;
-    height: 4rem !important;
+    a img {
+      position: absolute;
+      top: 1.5em;
+    }
+  }
+  .md-header__title .md-header__ellipsis {
+    position: relative;
+    padding-left: 82px;
   }
   .md-header__title .md-header__ellipsis::before {
     content: "";
-    display: inline-block;
+    position:absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
     width: 61px;
     height: 26px;
     background: url("../assets/dbc_logo_white_static.svg") no-repeat center;
