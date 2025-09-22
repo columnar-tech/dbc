@@ -84,5 +84,7 @@ extra:
       link: https://pypi.org/project/dbc
 extra_css:
   - stylesheets/extra.css
+exclude_docs: |
+  README.md
 plugins:
   - privacy

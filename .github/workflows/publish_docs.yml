@@ -3,7 +3,7 @@ name: Publish Docs
 
 on:
   push:
-    branches: [ "main" ]  
+    branches: [ "main" ]
   workflow_dispatch:
 
 concurrency:
@@ -23,7 +23,7 @@ jobs:
           pip install -r docs/requirements.txt
       - name: Build site
         run: |
-          mkdocs build
+          mkdocs build --strict
       - name: Upload built site as artifact
         uses: actions/upload-pages-artifact@v3
         with:
