@@ -86,7 +86,7 @@ func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 				return di, nil
 			}
 		}
-		return DriverInfo{}, fmt.Errorf("driver `%s` not found in env config paths", driverName)
+		return DriverInfo{}, fmt.Errorf("searched %s", cfg.Location)
 	}
 
 	return loadDriverFromManifest(cfg.Location, driverName)
