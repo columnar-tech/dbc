@@ -317,14 +317,14 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 
 // Common, non-platform-specific code for uninstalling a driver. Called by
 // platform-specific UninstallDriver function.
-func UninstallDriverShared(cfg Config, info DriverInfo) error {
+func UninstallDriverShared(info DriverInfo) error {
 	for sharedPath := range info.Driver.Shared.Paths() {
 		// Run filepath.Clean on sharedPath mainly to catch inner ".." in the path
 		sharedPath = filepath.Clean(sharedPath)
 
 		// Don't remove anything that isn't contained withing the found driver's
 		// config directory (i.e., avoid malicious driver manifests)
-		if !strings.HasPrefix(sharedPath, cfg.Location) {
+		if !strings.HasPrefix(sharedPath, info.FilePath) {
 			continue
 		}
 
@@ -334,9 +334,9 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 			sharedDir := filepath.Dir(sharedPath)
 			// Edge case when manifest is ill-formed: if sharedPath is set to the
 			// folder containing the shared library instead of the shared library
-			// itself, sharedDir is cfg.Location and we definitely don't want to
+			// itself, sharedDir is info.FilePath and we definitely don't want to
 			// remove that
-			if sharedDir == cfg.Location {
+			if sharedDir == info.FilePath {
 				continue
 			}
 
@@ -371,7 +371,7 @@ func UninstallDriverShared(cfg Config, info DriverInfo) error {
 	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
 	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
 	extra_folder = filepath.Clean(extra_folder)
-	extra_path := filepath.Join(cfg.Location, extra_folder)
+	extra_path := filepath.Join(info.FilePath, extra_folder)
 	finfo, err := os.Stat(extra_path)
 	if err == nil && finfo.IsDir() && extra_path != "." {
 		_ = os.RemoveAll(extra_path)

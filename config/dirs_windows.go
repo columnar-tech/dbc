@@ -207,7 +207,13 @@ func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
 
 func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 	if cfg.Level == ConfigEnv {
-		return loadDriverFromManifest(cfg.Location, driverName)
+		for _, prefix := range filepath.SplitList(cfg.Location) {
+			if di, err := loadDriverFromManifest(prefix, driverName); err == nil {
+				return di, nil
+			}
+		}
+
+		return DriverInfo{}, fmt.Errorf("driver `%s` not found in env config paths", driverName)
 	}
 
 	k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.READ)
@@ -300,13 +306,13 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 			return fmt.Errorf("failed to delete driver registry key: %w", err)
 		}
 	} else {
-		manifest := filepath.Join(cfg.Location, info.ID+".toml")
+		manifest := filepath.Join(info.FilePath, info.ID+".toml")
 		if err := os.Remove(manifest); err != nil {
 			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 		}
 	}
 
-	if err := UninstallDriverShared(cfg, info); err != nil {
+	if err := UninstallDriverShared(info); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 
