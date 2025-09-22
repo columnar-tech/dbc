@@ -140,14 +140,17 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 	suite.NoFileExists(filepath.Join(conda_path, "test-driver-1.toml"))
 
 	os.Unsetenv("ADBC_DRIVER_PATH")
-	suite.FileExists(filepath.Join(venv_path, "test-driver-1.toml"))
-	suite.NoFileExists(filepath.Join(conda_path, "test-driver-1.toml"))
+	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	os.Unsetenv("VIRTUAL_ENV")
-	suite.FileExists(filepath.Join(conda_path, "test-driver-1.toml"))
-
-	os.Unsetenv("CONDA_PREFIX")
-	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {

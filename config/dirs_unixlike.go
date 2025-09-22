@@ -84,7 +84,11 @@ func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 }
 
 func CreateManifest(cfg Config, driver DriverInfo) (err error) {
-	return createDriverManifest(cfg.Location, driver)
+	loc, err := EnsureLocation(cfg)
+	if err != nil {
+		return err
+	}
+	return createDriverManifest(loc, driver)
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
