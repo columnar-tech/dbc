@@ -2,3 +2,24 @@
   --md-default-bg-color: rgb(33, 33, 33);
   --md-code-bg-color: rgb(45, 45, 45);
 }
+/* Hide the site name in the header... */
+.md-header__title .md-header__topic:first-of-type {
+  display: none !important;
+}
+/* ...and show the dbc logo instead when it's not already shown */
+@media screen and (max-width: 76.1875em) {
+  .md-nav--primary .md-nav__title {
+    color: transparent !important;
+    height: 4rem !important;
+  }
+  .md-header__title .md-header__ellipsis::before {
+    content: "";
+    display: inline-block;
+    width: 61px;
+    height: 26px;
+    background: url("../assets/dbc_logo_white_static.svg") no-repeat center;
+    background-size: contain;
+    background-repeat: no-repeat;
+    vertical-align: middle;
+  }
+}
