@@ -299,6 +299,11 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 		if err := registry.DeleteKey(k, info.ID); err != nil {
 			return fmt.Errorf("failed to delete driver registry key: %w", err)
 		}
+	} else {
+		manifest := filepath.Join(cfg.Location, info.ID+".toml")
+		if err := os.Remove(manifest); err != nil {
+			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+		}
 	}
 
 	if err := UninstallDriverShared(cfg, info); err != nil {
