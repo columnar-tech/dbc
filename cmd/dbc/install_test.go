@@ -151,6 +151,8 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+
+	os.Unsetenv("CONDA_PREFIX")
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
