@@ -230,7 +230,11 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 		if cfg.Location == "" {
 			return fmt.Errorf("cannot write manifest to env config without %s set", adbcEnvVar)
 		}
-		return createDriverManifest(cfg.Location, driver)
+		loc, err := EnsureLocation(cfg)
+		if err != nil {
+			return err
+		}
+		return createDriverManifest(loc, driver)
 	}
 
 	var k registry.Key
