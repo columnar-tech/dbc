@@ -148,6 +148,7 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
 
+	m.DriverInfo.FilePath = prefix
 	return m.DriverInfo, nil
 }
 

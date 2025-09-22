@@ -20,7 +20,7 @@ import (
 
 func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 	driver = strings.TrimSpace(driver)
-	splitIdx := strings.IndexAny(driver, " <>=!")
+	splitIdx := strings.IndexAny(driver, " ~^<>=!")
 	if splitIdx == -1 {
 		return driver, nil, nil
 	}
