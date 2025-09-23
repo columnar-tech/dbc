@@ -1,0 +1,38 @@
+# Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
+
+name: Dev
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: "Run pre-commit"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+      - name: Install
+        run: pip install pre-commit
+      - name: pre-commit (cache)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: pre-commit
+        run: |
+            pre-commit run --all-files --color=always --show-diff-on-failure --verbose

@@ -1,0 +1,9 @@
+repos:
+  - repo: https://github.com/amoeba/license-header-check
+    rev: 2e3be28cd7328424b5704881ed8ba789d8a52bfb
+    hooks:
+      - id: license-header-check
+        args:
+          - "--template"
+          - >-
+            Copyright \(c\) [YEAR] Columnar Technologies Inc\.  All rights reserved\.
