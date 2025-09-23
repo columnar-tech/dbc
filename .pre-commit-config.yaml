@@ -9,3 +9,15 @@ repos:
           - "--template"
           - >-
             Copyright \(c\) [YEAR] Columnar Technologies Inc\.  All rights reserved\.
+          - "--max_lines"
+          - "2"
+        exclude: |
+          (?x)^(
+              .*\.svg|
+              columnar\.pubkey|
+              scripts/install\.(ps1|sh)|
+              LICENSE|
+              go\.sum|
+              pixi\.lock|
+              resources/dbc\.wxs
+          )$
