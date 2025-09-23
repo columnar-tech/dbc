@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
+
 drivers:
   - name: Test Driver 1
     description: This is a test driver

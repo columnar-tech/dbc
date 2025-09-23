@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved.
+
 repos:
   - repo: https://github.com/amoeba/license-header-check
     rev: v0.1
