@@ -1,3 +1,5 @@
+<!-- Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved. -->
+
 # Contributing to dbc
 
 Thanks for choosing to contribute to dbc. Please read the following sections for more information on contributing.
