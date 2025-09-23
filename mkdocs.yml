@@ -47,9 +47,9 @@ nav:
       - Driver Manifest: concepts/driver_manifest.md
       - Driver List: concepts/driver_list.md
   - Reference:
-      - dbc CLI: reference/cli.md
+      - Commands: reference/cli.md
       - Config Level: reference/config_level.md
-      - dbc.toml: reference/dbc.toml.md
+      - Driver List: reference/driver_list.md
 theme:
   name: material
   logo: assets/dbc_logo_white_static.svg
