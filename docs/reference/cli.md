@@ -191,6 +191,6 @@ dbc sync --file dbc.toml
 
 :   The configuration level to install drivers to (`user`, or `system`). See [Config Level](config_level.md).
 
-`--allow-missing-signature`
+`--no-verify`
 
 :   Allow installation of drivers without a signature file
