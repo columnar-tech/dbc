@@ -14,7 +14,7 @@ import (
 
 type RemoveCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to remove"`
-	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to remove from"`
+	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to remove from"`
 }
 
 func (c RemoveCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -55,9 +55,9 @@ func (m removeModel) Init() tea.Cmd {
 		f, err := os.Open(p)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("error opening drivers list file: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
 			} else {
-				return fmt.Errorf("error opening drivers list file at %s: %w", m.Path, err)
+				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 			}
 		}
 		defer f.Close()

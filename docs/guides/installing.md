@@ -11,11 +11,14 @@ To find out what drivers are available, use `dbc search`:
 
 ```console
 $ dbc search
-• duckdb - An analytical in-process SQL database management system
-• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
-• mssql - Columnar ADBC Driver for Microsoft SQL Server
-• mysql - ADBC Driver Foundry Driver for MySQL
+• bigquery - An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+• duckdb - An ADBC driver for DuckDB developed by the DuckDB Foundation
 • flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+• mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
+• mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+• redshift - An ADBC driver for Amazon Redshift developed by Columnar
+• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.
@@ -91,7 +94,7 @@ Where this installs depends on your operating system:
 
 !!! note
 
-    Also see the [Config reference](../reference/config.md) for more detail on this behavior.
+    Also see the [Config Level](../reference/config_level.md) reference for more detail on this behavior.
 
 ## `ADBC_DRIVER_PATH`
 
@@ -161,7 +164,7 @@ Installed mysql 0.1.0 to /Users/user/tmp/my-adbc-project/.venv/etc/adbc/drivers
 
 !!! note
 
-    [`ADBC_DRIVER_PATH`](./#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+    [`ADBC_DRIVER_PATH`](#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
 
 ## Conda Support
 
@@ -181,7 +184,7 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
 !!! note
 
-    [`ADBC_DRIVER_PATH`](./#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+    [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
 
 ## Uninstalling Drivers
 

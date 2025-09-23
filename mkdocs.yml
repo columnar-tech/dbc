@@ -26,17 +26,17 @@ nav:
       - First steps: getting_started/first_steps.md
       - FAQ: getting_started/faq.md
   - Guides:
-      - guides/installing.md
-      - guides/finding_drivers.md
-      - guides/drivers_list.md
+      - Intalling Drivers: guides/installing.md
+      - Finding Drivers: guides/finding_drivers.md
+      - Using a Driver List: guides/driver_list.md
   - Concepts:
       - Driver: concepts/driver.md
       - Driver Manager: concepts/driver_manager.md
       - Driver Manifest: concepts/driver_manifest.md
-      - Drivers List: concepts/drivers_list.md
+      - Driver List: concepts/driver_list.md
   - Reference:
       - dbc CLI: reference/cli.md
-      - Config: reference/config.md
+      - Config Level: reference/config_level.md
       - dbc.toml: reference/dbc.toml.md
 theme:
   name: material
@@ -74,7 +74,17 @@ theme:
     - navigation.tracking
     - content.code.copy
     - content.tabs.link
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/columnar-tech/dbc
+    - icon: fontawesome/brands/bluesky
+      link: https://bsky.app/profile/columnar.tech
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/dbc
 extra_css:
   - stylesheets/extra.css
+exclude_docs: |
+  README.md
 plugins:
   - privacy
