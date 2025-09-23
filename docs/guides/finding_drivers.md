@@ -104,9 +104,9 @@ $ dbc search --verbose
     ╰── 1.8.0
 ```
 
-### Searching Titles Only
+### Searching Names Only
 
-`dbc search` takes an optional `--namesonly` (`-n` for short) flag applies your pattern only to the titles of each driver.
+`dbc search` takes an optional `--namesonly` (`-n` for short) flag applies your pattern only to the names of each driver.
 
 ```console
 $ dbc search --namesonly ASF
