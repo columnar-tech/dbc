@@ -250,7 +250,7 @@ def dummy(): """Dummy function for an entrypoint. dbc is executed as a side effe
         raise RuntimeError("No binary found in archive. Stopping now.")
 
     # Set the content of the PyPI README as the description
-    with open(os.path.join(os.path.dirname(__file__), "README.pypi.md")) as f:
+    with open(os.path.join(os.path.dirname(__file__), "..", "README.md")) as f:
         description = f.read()
 
     # Add licenses we found
