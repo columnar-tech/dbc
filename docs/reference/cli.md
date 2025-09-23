@@ -16,8 +16,8 @@ Notes on how this document is structured:
 
 <h3>Usage</h3>
 
-```sh
-dbc [OPTIONS] <COMMAND>
+```console
+$ dbc [OPTIONS] <COMMAND>
 ```
 
 <h2>Commands</h2>
@@ -38,8 +38,8 @@ Search for a driver to install.
 
 <h3>Usage</h3>
 
-```sh
-dbc search [PATTERN]
+```console
+$ dbc search [FILTER]
 ```
 
 <h3>Arguments</h3>
@@ -66,8 +66,8 @@ To install multiple versions of the same driver on the same system, it's recomme
 
 <h3>Usage</h3>
 
-```sh
-dbc install [OPTIONS] <DRIVER>
+```console
+$ dbc install [OPTIONS] <DRIVER>
 ```
 
 <h3>Arguments</h3>
@@ -92,8 +92,8 @@ Uninstall a driver.
 
 <h3>Usage</h3>
 
-```sh
-dbc uninstall [OPTIONS] <DRIVER>
+```console
+$ dbc uninstall [OPTIONS] <DRIVER>
 ```
 
 <h3>Arguments</h3>
@@ -114,8 +114,8 @@ Create a [driver list](../concepts/driver_list.md) file.
 
 <h3>Usage</h3>
 
-```sh
-dbc init [PATH]
+```console
+$ dbc init [PATH]
 ```
 
 <h3>Arguments</h3>
@@ -130,8 +130,8 @@ Add a driver to a current [driver list](../concepts/driver_list.md).
 
 <h3>Usage</h3>
 
-```sh
-dbc add <DRIVER>
+```console
+$ dbc add <DRIVER>
 ```
 
 <h3>Arguments</h3>
@@ -152,8 +152,8 @@ Remove a driver from the current [driver list](../concepts/driver_list.md).
 
 <h3>Usage</h3>
 
-```sh
-dbc remove <DRIVER>
+```console
+$ dbc remove <DRIVER>
 ```
 
 <h3>Arguments</h3>
@@ -176,8 +176,8 @@ If `dbc.lock` exists, driver versions from it will be used when this subcommand 
 
 <h3>Usage</h3>
 
-```sh
-dbc sync
+```console
+$ dbc sync
 dbc sync --file dbc.toml
 ```
 

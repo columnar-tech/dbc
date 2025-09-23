@@ -27,14 +27,14 @@ Install dbc with our automated installer:
 
 === "macOS and Linux"
 
-    ```sh
-    curl -LsSf https://dbc.columnar.tech/install.sh | sh
+    ```console
+    $ curl -LsSf https://dbc.columnar.tech/install.sh | sh
     ```
 
 === "Windows"
 
-    ```sh
-    powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex
+    ```console
+    $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex
     ```
 
 Then, take your [first steps](getting_started/first_steps.md) to get started using dbc.
