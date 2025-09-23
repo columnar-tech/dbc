@@ -130,3 +130,18 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 		"", suite.runCmdErr(m))
 	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
 }
+
+func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-no-sig"}.GetModel()
+	suite.runCmd(m)
+
+	m = SyncCmd{
+		Path:     filepath.Join(suite.tempdir, "dbc.toml"),
+		NoVerify: true,
+	}.GetModelCustom(
+		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-no-sig-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+}
