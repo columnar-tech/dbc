@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/amoeba/license-header-check
-    rev: 2e3be28cd7328424b5704881ed8ba789d8a52bfb
+    rev: v0.1
     hooks:
       - id: license-header-check
         args:
