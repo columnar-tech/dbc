@@ -40,3 +40,6 @@ cdn-dev
 
 # mkdocs .cache dir
 .cache
+
+.venv
+.claude
