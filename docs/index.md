@@ -16,7 +16,7 @@ $ python
 - Install pre-built [ADBC](https://arrow.apache.org/adbc) drivers with a single command
 - Manage numerous drivers without conflicts
 - Install drivers just for your user or system-wide
-- Create reproducible environments with [drivers list](concepts/drivers_list.md) files
+- Create reproducible environments with [driver list](concepts/driver_list.md) files
 - Cross-platform: Runs on macOS, Linux, and Windows
 - Installable with pip, Docker, and more (See [Installation](getting_started/installation.md))
 - Works great in CI/CD environments

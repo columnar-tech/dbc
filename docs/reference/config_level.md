@@ -1,6 +1,6 @@
 <!-- Copyright (c) 2025 Columnar Technologies Inc.  All rights reserved. -->
 
-# Config
+# Config Level
 
 Various dbc subcommands (like [install](cli.md#install), [sync](cli.md#sync)) take a `--level` argument which gives you control over where dbc searches for drivers.
 
@@ -11,12 +11,12 @@ When `--level` is provided, dbc searches _only_ the provided level and will also
 
 The following environment variables are searched, in order:
 
-1. `ADBC_DRIVER_PATH`: When set, installs or locates drivers at `$ADBC_DRIVER_PATH`.
-2. `VIRTUAL_ENV`: When set, installs or locates drivers at `$VIRTUAL_ENV/etc/adbc/drivers`. This variable is automatically set when you have activated a [Python virtual environment](https://docs.python.org/3/tutorial/venv.html).
-3. `CONDA_PREFIX`: When set, installs or locates drivers at `$CONDA_PREFIX/etc/adbc/drivers`. This variable is automatically set when you have activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html).
+1. `ADBC_DRIVER_PATH`: When set, installs drivers at `$ADBC_DRIVER_PATH`.
+2. `VIRTUAL_ENV`: When set, installs drivers at `$VIRTUAL_ENV/etc/adbc/drivers`. This variable is automatically set when you have activated a [Python virtual environment](https://docs.python.org/3/tutorial/venv.html).
+3. `CONDA_PREFIX`: When set, installs drivers at `$CONDA_PREFIX/etc/adbc/drivers`. This variable is automatically set when you have activated a [Conda environment](https://docs.conda.io/projects/conda/en/latest/user-guide/concepts/environments.html).
 
 Note that dbc will stop searching for a driver when one is found.
-For example, if you are in a Python virtual environment, you can still override the location where dbc installs or locates drivers by setting `$ADBC_DRIVER_PATH` to a directory of your choice.
+For example, if you are in a Python virtual environment, you can still override the location where dbc installs drivers by setting `$ADBC_DRIVER_PATH` to a directory of your choice.
 
 ## User
 

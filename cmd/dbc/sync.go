@@ -26,7 +26,7 @@ var (
 )
 
 type SyncCmd struct {
-	Path         string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Drivers list to sync from"`
+	Path         string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to sync from"`
 	Level        config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	AllowMissing bool               `arg:"--allow-missing-signature" help:"Allow installation of drivers without a signature file"`
 }
@@ -55,7 +55,7 @@ func (c SyncCmd) GetModel() tea.Model {
 type syncModel struct {
 	baseModel
 
-	// path to drivers list
+	// path to driver list
 	Path         string
 	AllowMissing bool
 	LockFilePath string
@@ -63,7 +63,7 @@ type syncModel struct {
 	locked LockFile
 	cfg    config.Config
 
-	// the list of drivers in the drivers list file
+	// the list of drivers in the driver list
 	list DriversList
 	// cdn driver index
 	driverIndex []dbc.Driver
@@ -111,9 +111,9 @@ func loadDriverList(path string) (DriversList, error) {
 	if err != nil {
 		var outError error
 		if errors.Is(err, os.ErrNotExist) {
-			outError = fmt.Errorf("error opening drivers list file: %s doesn't exist\ndid you run `dbc init`?", path)
+			outError = fmt.Errorf("error opening driver list: %s doesn't exist\ndid you run `dbc init`?", path)
 		} else {
-			outError = fmt.Errorf("error opening drivers list file at %s: %w", path, err)
+			outError = fmt.Errorf("error opening driver list at %s: %w", path, err)
 		}
 		return DriversList{}, outError
 	}
@@ -125,7 +125,7 @@ func loadDriverList(path string) (DriversList, error) {
 	}
 
 	if len(list.Drivers) == 0 {
-		return DriversList{}, fmt.Errorf("no drivers found in drivers list file %s", path)
+		return DriversList{}, fmt.Errorf("no drivers found in driver list `%s`", path)
 	}
 	return list, nil
 }
