@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# dbc.toml
+# Driver List Reference
 
 `dbc.toml` is the default filename dbc uses for a [driver list](../concepts/driver_list.md). This page outlines the structure of that file.
 
