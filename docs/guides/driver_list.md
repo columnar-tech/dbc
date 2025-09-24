@@ -40,7 +40,7 @@ $ cat dbc.toml
 
 ```
 
-Driver lists uses the [TOML](https://toml.io) format and contains a TOML table of drivers. See the [Driver list](../reference/driver_list.md) for more detail.
+Driver lists uses the [TOML](https://toml.io) format and contains a TOML table of drivers. See the [driver list](../reference/driver_list.md) reference for more detail.
 
 ## Adding a Driver
 

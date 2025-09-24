@@ -18,5 +18,6 @@ limitations under the License.
 
 The term "driver list" refers to the `dbc.toml` file managed by dbc. A driver list is ideal for checking into version control alongside your project.
 
-See the [Driver List](../guides/driver_list.md) guide to learn how to use a driver list.
+See the [driver list](../guides/driver_list.md) guide to learn how to use a driver list.
 
+See the [driver list](../reference/driver_list.md) reference for information about the format of the file.
