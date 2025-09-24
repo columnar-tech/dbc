@@ -130,7 +130,7 @@ func EnsureLocation(cfg Config) (string, error) {
 			// if we also had to create `loc` in the same call.
 			if cfg.Level == ConfigEnv {
 				gitignorePath := filepath.Join(loc, ".gitignore")
-				_ = os.WriteFile(gitignorePath, []byte("*\n"), 0644)
+				_ = os.WriteFile(gitignorePath, []byte("*\n"), 0o644)
 			}
 		} else {
 			return "", fmt.Errorf("failed to stat config directory %s: %w", loc, err)
