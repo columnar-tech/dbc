@@ -87,7 +87,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n",
 		suite.runCmd(m))
 
-	suite.Equal([]string{".gitignore", "test-driver-1.1/test-driver-1-not-valid.so",
+	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
 		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
@@ -231,7 +231,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Equal([]string{".gitignore"}, suite.getFilesInTempDir())
+	suite.Empty(suite.getFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
