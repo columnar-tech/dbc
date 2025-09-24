@@ -124,6 +124,14 @@ func EnsureLocation(cfg Config) (string, error) {
 			if err := os.MkdirAll(loc, 0o755); err != nil {
 				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
 			}
+			// Create a .gitignore with "*" in it.
+			//
+			// This depends on the if block it's in: We only want to create this file
+			// if we also had to create `loc` in the same call.
+			if cfg.Level == ConfigEnv {
+				gitignorePath := filepath.Join(loc, ".gitignore")
+				_ = os.WriteFile(gitignorePath, []byte("*\n"), 0o644)
+			}
 		} else {
 			return "", fmt.Errorf("failed to stat config directory %s: %w", loc, err)
 		}
