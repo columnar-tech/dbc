@@ -124,15 +124,14 @@ func EnsureLocation(cfg Config) (string, error) {
 			if err := os.MkdirAll(loc, 0o755); err != nil {
 				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
 			}
+			if cfg.Level == ConfigEnv {
+				gitignorePath := filepath.Join(loc, ".gitignore")
+				if _, err := os.Stat(gitignorePath); errors.Is(err, fs.ErrNotExist) {
+					_ = os.WriteFile(gitignorePath, []byte("*\n"), 0644)
+				}
+			}
 		} else {
 			return "", fmt.Errorf("failed to stat config directory %s: %w", loc, err)
-		}
-	}
-
-	if cfg.Level == ConfigEnv {
-		gitignorePath := filepath.Join(loc, ".gitignore")
-		if _, err := os.Stat(gitignorePath); errors.Is(err, fs.ErrNotExist) {
-			_ = os.WriteFile(gitignorePath, []byte("*\n"), 0644)
 		}
 	}
 
