@@ -72,3 +72,6 @@ jobs:
         run: ./dbc --help
       - name: Also Debug
         run: python --version
+      - name: Run Integration Test
+        run: |
+          ./ci/integration.sh
