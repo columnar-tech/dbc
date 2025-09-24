@@ -162,8 +162,7 @@ With our cursor, we can execute the following query:
 ...     spc_latin,
 ...     spc_common
 ... ORDER BY
-...     count DESC
-...""")
+...     count DESC""")
 ```
 
 To get the data out of the query, we run:
