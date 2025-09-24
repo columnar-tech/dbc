@@ -100,3 +100,4 @@ exclude_docs: |
   README.md
 plugins:
   - privacy
+  - search
