@@ -20,4 +20,3 @@ The term "driver list" refers to the `dbc.toml` file managed by dbc. A driver li
 
 See the [Driver List](../guides/driver_list.md) guide to learn how to use a driver list.
 
-See [dbc.toml](../reference/dbc.toml.md) for information about the format of the file.
