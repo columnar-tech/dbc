@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   build_dbc:
-    name: ${{ matrix.os }}
+    name: Build dbc (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -50,7 +50,7 @@ jobs:
           path: dbc
 
   test:
-    name: ${{ matrix.os}}
+    name: Run Tests (${{ matrix.os}})
     runs-on: ${{ matrix.os }}
     needs: build_dbc
     strategy:
@@ -67,6 +67,6 @@ jobs:
           pattern: dbc
           path: ./
       - name: Debug
-        run: dbc --help
+        run: ./dbc --help
       - name: Also Debug
         run: python --version
