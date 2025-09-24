@@ -65,8 +65,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: dbc
-          path: ./
       - name: Debug
-        run: ./dbc --help
+        run: ./dbc/dbc --help
       - name: Also Debug
         run: python --version
