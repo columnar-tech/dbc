@@ -278,3 +278,41 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
 	// during install
 	suite.NoFileExists(ignorePath)
 }
+
+func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
+	driver_path := filepath.Join(suite.tempdir, "driver_path")
+	ignorePath := filepath.Join(driver_path, ".gitignore")
+	os.Setenv("ADBC_DRIVER_PATH", driver_path)
+	defer os.Unsetenv("ADBC_DRIVER_PATH")
+
+	suite.NoFileExists(ignorePath)
+
+	// First install - should create .gitignore
+	m := InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+
+	suite.FileExists(ignorePath)
+
+	// User modifies the .gitignore file
+	userContent := "# User's custom gitignore\n*.custom\n"
+	err := os.WriteFile(ignorePath, []byte(userContent), 0o644)
+	if err != nil {
+		suite.Error(err)
+	}
+
+	// Second install - should preserve user's modifications
+	m = UninstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+	m = InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+
+	// Verify the user's content is preserved
+	data, err := os.ReadFile(ignorePath)
+	if err != nil {
+		suite.Error(err)
+	}
+	suite.Equal(userContent, string(data))
+}
