@@ -47,6 +47,7 @@ jobs:
         run: go build -o dbc ./cmd/dbc
       - uses: actions/upload-artifact@v4
         with:
+          name: dbc-binary
           path: dbc
 
   test:
@@ -64,8 +65,10 @@ jobs:
           python-version: '3.13'
       - uses: actions/download-artifact@v4
         with:
-          pattern: dbc
+          name: dbc-binary
+      - name: Make binary executable
+        run: chmod +x dbc
       - name: Debug
-        run: ./dbc/dbc --help
+        run: ./dbc --help
       - name: Also Debug
         run: python --version
