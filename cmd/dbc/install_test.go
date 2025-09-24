@@ -239,3 +239,42 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
+
+func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
+	driver_path := filepath.Join(suite.tempdir, "driver_path")
+	ignorePath := filepath.Join(driver_path, ".gitignore")
+	os.Setenv("ADBC_DRIVER_PATH", driver_path)
+	defer os.Unsetenv("ADBC_DRIVER_PATH")
+
+	suite.NoFileExists(ignorePath)
+
+	m := InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+
+	suite.FileExists(ignorePath)
+}
+
+func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
+	driver_path := filepath.Join(suite.tempdir, "driver_path")
+	ignorePath := filepath.Join(driver_path, ".gitignore")
+	os.Setenv("ADBC_DRIVER_PATH", driver_path)
+	defer os.Unsetenv("ADBC_DRIVER_PATH")
+
+	// Create the directory before we install the driver
+	mkdirerr := os.MkdirAll(driver_path, 0o755)
+	if mkdirerr != nil {
+		suite.Error(mkdirerr)
+	}
+
+	suite.DirExists(driver_path)
+	suite.NoFileExists(ignorePath)
+
+	m := InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+
+	// There shouldn't be a .gitignore because we didn't create the dir fresh
+	// during install
+	suite.NoFileExists(ignorePath)
+}
