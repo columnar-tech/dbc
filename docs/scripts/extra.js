@@ -37,7 +37,7 @@ function cleanupClipboardText(targetSelector) {
       )
         .map((node) => node.textContent)
         .filter((s) => s != "").join("").trim()
-    ).filter((s) => s !== "").join("; ").trim()
+    ).filter((s) => s !== "").join("\n").trim()
 }
 
 // Sets copy text to attributes lazily using an Intersection Observer.
