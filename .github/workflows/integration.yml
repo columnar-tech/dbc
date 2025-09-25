@@ -83,7 +83,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 'ubuntu-latest' ]
+        os: [ 'windows-latest' ]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
