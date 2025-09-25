@@ -28,76 +28,47 @@ permissions:
   contents: read
 
 jobs:
-  build_dbc:
-    name: Build dbc (${{ matrix.os }})
+  integration:
+    name: Build & Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ 'ubuntu-latest', 'windows-latest' ]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Go
-        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
-        with:
-          go-version: 1.24.2
-          cache: true
-          cache-dependency-path: go.sum
-      - name: Build dbc
-        run: go build -o dbc ./cmd/dbc
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dbc-binary-${{ matrix.os }}
-          path: dbc
-
-  test_unixlike:
-    name: Run Tests (${{ matrix.os}})
-    runs-on: ${{ matrix.os }}
-    needs: build_dbc
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ 'ubuntu-latest' ]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
-      - uses: actions/download-artifact@v4
-        with:
-          name: dbc-binary-${{ matrix.os }}
-      - name: Make binary executable
-        run: chmod +x dbc
-      - name: Debug
-        run: ./dbc --help
-      - name: Also Debug
-        run: python --version
-      - name: Run Integration Test
-        run: |
-          ./ci/integration.sh
-
-  test_windows:
-    name: Run Tests (${{ matrix.os}})
-    runs-on: ${{ matrix.os }}
-    needs: build_dbc
     strategy:
       fail-fast: false
       matrix:
         os: [ 'windows-latest' ]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+
+      - name: Install Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
+        with:
+          go-version: 1.24.2
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Build dbc
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            go build -o dbc.exe ./cmd/dbc
+          else
+            go build -o dbc ./cmd/dbc
+          fi
+        shell: bash
+
+      - name: Install Python
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
-      - uses: actions/download-artifact@v4
-        with:
-          name: dbc-binary-windows-latest
-      - name: Fix dbc filename
-        run: mv dbc dbc.exe
-      - name: Debug
-        run: dbc.exe --help
-      - name: Also Debug
-        run: python --version
-      - name: Run Integration Test
-        run: ci\integration.bat
-        shell: cmd
+
+      - name: Debug binary
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            ./dbc.exe --help
+          else
+            chmod +x dbc
+            ./dbc --help
+          fi
+        shell: bash
+
+      - name: Run Integration Tests
+        run: ./ci/integration.sh
+        shell: bash
