@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ 'windows-latest' ]
+        os: [ 'ubuntu-latest', 'macos-latest', 'windows-latest' ]
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +45,11 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
 
+      - name: Install Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
       - name: Build dbc
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -53,11 +58,6 @@ jobs:
             go build -o dbc ./cmd/dbc
           fi
         shell: bash
-
-      - name: Install Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.13'
 
       - name: Debug binary
         run: |
