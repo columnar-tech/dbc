@@ -29,7 +29,7 @@ function cleanupClipboardText(targetSelector) {
   //     <span>...</span>
   // </code>
 
-  return Array.from(targetElement.childNodes)   // <-- array of lines
+  const lines = Array.from(targetElement.childNodes)   // <-- array of lines
     .map((span_el) => {
       const segments = Array.from(span_el.childNodes).filter(    // <-- array of segments
         (node) => !excludedClasses.some((excludedClass) =>
@@ -44,10 +44,19 @@ function cleanupClipboardText(targetSelector) {
       // For Python console blocks, preserve leading whitespace but remove trailing whitespace
       // This maintains indentation which is crucial for Python syntax
       return lineText.replace(/\s+$/, '');
-    })
-    .filter((s) => s !== "")
-    .join("\n")
-    .trim()
+    });
+
+  // Remove only leading and trailing empty lines, but preserve empty lines within the content
+  // This is important for structured data formats like YAML, TOML, JSON where blank lines
+  // provide visual structure and readability
+  const firstNonEmpty = lines.findIndex(line => line.trim() !== '');
+  const lastNonEmpty = lines.findLastIndex(line => line.trim() !== '');
+
+  if (firstNonEmpty === -1) {
+    return ''; // All lines are empty
+  }
+
+  return lines.slice(firstNonEmpty, lastNonEmpty + 1).join('\n')
 }
 
 // Sets copy text to attributes lazily using an Intersection Observer.
