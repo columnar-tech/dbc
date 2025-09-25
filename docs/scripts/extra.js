@@ -8,7 +8,8 @@
 //   - Some of the code was reorganized and some comments were added
 
 // Exclude "Generic Prompt" and "Generic Output" spans from copy
-// Generic Prompt is "$ " and Gemeric Output is ">>> "
+// Generic Prompt includes "$ " (shell) and ">>> "/"... " (Python console)
+// Generic Output includes command/console output
 const excludedClasses = ["gp", "go"];
 
 function cleanupClipboardText(targetSelector) {
@@ -29,15 +30,24 @@ function cleanupClipboardText(targetSelector) {
   // </code>
 
   return Array.from(targetElement.childNodes)   // <-- array of lines
-    .map((span_el) =>
-      Array.from(span_el.childNodes).filter(    // <-- array of segments
+    .map((span_el) => {
+      const segments = Array.from(span_el.childNodes).filter(    // <-- array of segments
         (node) => !excludedClasses.some((excludedClass) =>
           node?.classList?.contains(excludedClass)
         )
-      )
+      );
+
+      const lineText = segments
         .map((node) => node.textContent)
-        .filter((s) => s != "").join("").trim()
-    ).filter((s) => s !== "").join("\n").trim()
+        .filter((s) => s != "").join("");
+
+      // For Python console blocks, preserve leading whitespace but remove trailing whitespace
+      // This maintains indentation which is crucial for Python syntax
+      return lineText.replace(/\s+$/, '');
+    })
+    .filter((s) => s !== "")
+    .join("\n")
+    .trim()
 }
 
 // Sets copy text to attributes lazily using an Intersection Observer.
