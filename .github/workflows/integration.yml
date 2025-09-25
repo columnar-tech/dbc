@@ -92,10 +92,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dbc-binary-windows-latest
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+      - name: Fix dbc filename
+        run: mv dbc dbc.exe
       - name: Debug
-        run: .\dbc --help
+        run: dbc.exe --help
       - name: Also Debug
         run: python --version
       - name: Run Integration Test
