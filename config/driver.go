@@ -171,11 +171,16 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		}
 	}
 
-	f, err := os.Create(filepath.Join(location, driver.ID+".toml"))
+	manifest_path := filepath.Join(location, driver.ID+".toml")
+	f, err := os.Create(manifest_path)
 	if err != nil {
 		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
 	}
 	defer f.Close()
+
+	// Hack: Add a symlink one dir up from `cfg`
+	symlink := filepath.Join(location, "..", driver.ID+".toml")
+	os.Symlink(manifest_path, symlink)
 
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,
