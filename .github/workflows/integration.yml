@@ -93,7 +93,7 @@ jobs:
         with:
           name: dbc-binary-windows-latest
       - name: Debug
-        run: ./dbc --help
+        run: .\dbc --help
       - name: Also Debug
         run: python --version
       - name: Run Integration Test
