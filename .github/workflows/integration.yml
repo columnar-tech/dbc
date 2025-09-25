@@ -47,7 +47,7 @@ jobs:
         run: go build -o dbc ./cmd/dbc
       - uses: actions/upload-artifact@v4
         with:
-          name: dbc-binary
+          name: dbc-binary-${{ matrix.os }}
           path: dbc
 
   test_unixlike:
@@ -65,7 +65,7 @@ jobs:
           python-version: '3.13'
       - uses: actions/download-artifact@v4
         with:
-          name: dbc-binary
+          name: dbc-binary-${{ matrix.os }}
       - name: Make binary executable
         run: chmod +x dbc
       - name: Debug
@@ -91,7 +91,7 @@ jobs:
           python-version: '3.13'
       - uses: actions/download-artifact@v4
         with:
-          name: dbc-binary
+          name: dbc-binary-windows-latest
       - name: Debug
         run: ./dbc --help
       - name: Also Debug
