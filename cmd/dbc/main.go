@@ -24,6 +24,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/mattn/go-isatty"
 )
 
 var (
@@ -145,9 +146,17 @@ func main() {
 	// }
 	// defer f.Close()
 
-	var err error
 	m := p.Subcommand().(modelCmd).GetModel()
-	if m, err = tea.NewProgram(m).Run(); err != nil {
+
+	var prog *tea.Program
+	if !isatty.IsTerminal(os.Stdout.Fd()) {
+		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
+	} else {
+		prog = tea.NewProgram(m)
+	}
+
+	var err error
+	if m, err = prog.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)
 	}
