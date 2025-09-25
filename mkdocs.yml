@@ -99,6 +99,8 @@ extra_css:
   - stylesheets/extra.css
 exclude_docs: |
   README.md
+extra_javascript:
+  - scripts/extra.js
 plugins:
   - privacy
   - search
