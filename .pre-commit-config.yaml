@@ -12,4 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-mkdocs-material
+repos:
+  - repo: https://github.com/amoeba/license-header-check
+    rev: v0.1
+    hooks:
+      - id: license-header-check
+        args:
+          - "--template"
+          - >-
+            Copyright [YEAR] Columnar Technologies Inc\.
+          - "--max_lines"
+          - "2"
+        exclude: |
+          (?x)^(
+              .*\.svg|
+              columnar\.pubkey|
+              scripts/install\.(ps1|sh)|
+              LICENSE|
+              go\.sum|
+              pixi\.lock|
+              resources/dbc\.wxs
+          )$
