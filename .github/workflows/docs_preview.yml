@@ -1,0 +1,44 @@
+name: Deploy Docs Preview
+
+on:
+  pull_request_target:
+    paths:
+      - "mkdocs.yml"
+      - "docs/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+  statuses: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: "deploy-to-netlify"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          pip install -r docs/requirements.txt
+
+      - name: Build site
+        run: |
+          mkdocs build --strict
+
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@4cbaf4c08f1a7bfa537d6113472ef4424e4eb654
+        with:
+          publish-dir: "./site"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: "Deploy from GitHub Actions"
+          enable-pull-request-comment: true
+          enable-commit-comment: false
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
