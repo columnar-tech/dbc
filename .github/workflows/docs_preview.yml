@@ -7,6 +7,7 @@ on:
     #   - "public/**"
     #   - "package.json"
     #   - "netlify.toml"
+    #   # Add other paths you want to monitor
 
 permissions:
   contents: read
