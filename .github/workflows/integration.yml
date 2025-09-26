@@ -52,7 +52,7 @@ jobs:
 
       - name: Build dbc
         run: |
-          go build -o dbc ./cmd/dbc
+          go build  ./cmd/dbc
         shell: bash
 
       - name: Run Integration Tests
