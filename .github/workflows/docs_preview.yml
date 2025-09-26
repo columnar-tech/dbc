@@ -2,12 +2,9 @@ name: Deploy Docs Preview
 
 on:
   pull_request:
-    # paths:
-    #   - "src/**"
-    #   - "public/**"
-    #   - "package.json"
-    #   - "netlify.toml"
-    #   # Add other paths you want to monitor
+    paths:
+      - "mkdocs.yml"
+      - "docs/**"
 
 permissions:
   contents: read
