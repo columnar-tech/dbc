@@ -171,11 +171,23 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		}
 	}
 
-	f, err := os.Create(filepath.Join(location, driver.ID+".toml"))
+	manifest_path := filepath.Join(location, driver.ID+".toml")
+	f, err := os.Create(manifest_path)
 	if err != nil {
 		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
 	}
 	defer f.Close()
+
+	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
+	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
+	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
+	//
+	// To work around this, we create a symlink on level up to the manifest we're
+	// installing.
+	//
+	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+	symlink := filepath.Join(location, "..", driver.ID+".toml")
+	os.Symlink(manifest_path, symlink)
 
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,
