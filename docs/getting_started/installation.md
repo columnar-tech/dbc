@@ -16,7 +16,7 @@ limitations under the License.
 
 # Installation
 
-dbc itself is installable on the most common platforms and from a variety of sources.
+dbc can be installed on the most common platforms and from a variety of sources.
 
 ## Standalone Installer
 
