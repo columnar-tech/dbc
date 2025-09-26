@@ -178,7 +178,14 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	}
 	defer f.Close()
 
-	// Hack: Add a symlink one dir up from `cfg`
+	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
+	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
+	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
+	//
+	// To work around this, we create a symlink on level up to the manifest we're
+	// installing.
+	//
+	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
 	symlink := filepath.Join(location, "..", driver.ID+".toml")
 	os.Symlink(manifest_path, symlink)
 
