@@ -145,7 +145,7 @@ download_binary_and_run_installer() {
                 ;;
             --verbose)
                 PRINT_VERBOSE=1
-                ;;                        
+                ;;
             *)
                 OPTIND=1
                 if [ "${arg%%--*}" = "" ]; then
@@ -185,7 +185,7 @@ download_binary_and_run_installer() {
     # look up what archives support this platform
     local _artifact_name
     _artifact_name="$(select_archive_for_arch "$_true_arch")" || return 1
-   
+
     # download the archive
     local _url="$ARTIFACT_DOWNLOAD_URL/$_artifact_name"
     local _dir
@@ -253,7 +253,7 @@ select_archive_for_arch() {
 
     # try each archive, checking runtime conditions like libc versions
     # accepting the first one that matches, as it's the best match
-    case "$_true_arch" in 
+    case "$_true_arch" in
         "aarch64-apple-darwin")
             _archive="dbc-darwin-arm64-${APP_VERSION}.tar.gz"
             if [ -n "$_archive" ]; then
@@ -984,7 +984,7 @@ install() {
     # To do this we need these values:
 
     # The actual path we're going to install to
-    local _install_dir        
+    local _install_dir
     # Path to the an shell script that adds install_dir to PATH
     local _env_script_path
     # Potentially-late-bound version of install_dir to write env_script
@@ -1002,7 +1002,7 @@ install() {
     # to the older generic one
     if [ -n "${DBC_INSTALL_DIR:-}" ]; then
         _force_install_dir="$DBC_INSTALL_DIR"
-        _install_layout="flat"    
+        _install_layout="flat"
     elif [ -n "$UNMANAGED_INSTALL" ]; then
         _force_install_dir="$UNMANAGED_INSTALL"
         _install_layout="flat"
@@ -1013,19 +1013,19 @@ install() {
     if [ -n "${_force_install_dir:-}" ]; then
         case "$_install_layout" in
             "hierarchical")
-                _install_dir="$_force_install_dir/bin"                
+                _install_dir="$_force_install_dir/bin"
                 _env_script_path="$_force_install_dir/env"
                 _install_dir_expr="$(replace_home "$_force_install_dir/bin")"
                 _env_script_path_expr="$(replace_home "$_force_install_dir/env")"
                 ;;
             "cargo-home")
-                _install_dir="$_force_install_dir/bin"                
+                _install_dir="$_force_install_dir/bin"
                 _env_script_path="$_force_install_dir/env"
                 _install_dir_expr="$(replace_home "$_force_install_dir/bin")"
                 _env_script_path_expr="$(replace_home "$_force_install_dir/env")"
                 ;;
             "flat")
-                _install_dir="$_force_install_dir"                
+                _install_dir="$_force_install_dir"
                 _env_script_path="$_force_install_dir/env"
                 _install_dir_expr="$(replace_home "$_force_install_dir")"
                 _env_script_path_expr="$(replace_home "$_force_install_dir/env")"
@@ -1039,7 +1039,7 @@ install() {
         _install_layout="flat"
         # Install to $XDG_BIN_HOME
         if [ -n "${XDG_BIN_HOME:-}" ]; then
-            _install_dir="$XDG_BIN_HOME"            
+            _install_dir="$XDG_BIN_HOME"
             _env_script_path="$XDG_BIN_HOME/env"
             _install_dir_expr="$(replace_home "$_install_dir")"
             _env_script_path_expr="$(replace_home "$_env_script_path")"
@@ -1049,7 +1049,7 @@ install() {
         _install_layout="flat"
         # Install to $XDG_DATA_HOME/../bin
         if [ -n "${XDG_DATA_HOME:-}" ]; then
-            _install_dir="$XDG_DATA_HOME/../bin"            
+            _install_dir="$XDG_DATA_HOME/../bin"
             _env_script_path="$XDG_DATA_HOME/../bin/env"
             _install_dir_expr="$(replace_home "$_install_dir")"
             _env_script_path_expr="$(replace_home "$_env_script_path")"
@@ -1059,7 +1059,7 @@ install() {
         _install_layout="flat"
         # Install to $HOME/.local/bin
         if [ -n "${INFERRED_HOME:-}" ]; then
-            _install_dir="$INFERRED_HOME/.local/bin"            
+            _install_dir="$INFERRED_HOME/.local/bin"
             _env_script_path="$INFERRED_HOME/.local/bin/env"
             _install_dir_expr="$INFERRED_HOME_EXPRESSION/.local/bin"
             _env_script_path_expr="$INFERRED_HOME_EXPRESSION/.local/bin/env"
@@ -1077,11 +1077,11 @@ install() {
     _fish_env_script_path_expr="${_env_script_path_expr}.fish"
 
     say "Installing to $_install_dir:"
-    ensure mkdir -p "$_install_dir"    
+    ensure mkdir -p "$_install_dir"
 
     # copy all the binaries to the install dir
     local _src_dir="$1"
-    local _bins="$2"    
+    local _bins="$2"
     local _arch="$3"
     for _bin_name in $_bins; do
         local _bin="$_src_dir/$_bin_name"
@@ -1097,10 +1097,14 @@ install() {
     say "Successfully installed dbc!"
 
     # Avoid modifying the users PATH if they are managing their PATH manually
+    echo "NO_MODIFY_PATH: $NO_MODIFY_PATH"
+    echo "$PATH"
+    echo "$_install_dir"
     case :$PATH:
       in *:$_install_dir:*) NO_MODIFY_PATH=1 ;;
          *) ;;
     esac
+    echo "NO_MODIFY_PATH: $NO_MODIFY_PATH"
 
     if [ "0" = "$NO_MODIFY_PATH" ]; then
         add_install_dir_to_ci_path "$_install_dir"
@@ -1111,6 +1115,7 @@ install() {
         add_install_dir_to_path "$_install_dir_expr" "$_env_script_path" "$_env_script_path_expr" ".zshrc .zshenv" "sh"
         exit3=$?
         # This path may not exist by default
+        echo "FISH"
         ensure mkdir -p "$INFERRED_HOME/.config/fish/conf.d"
         exit4=$?
         add_install_dir_to_path "$_install_dir_expr" "$_fish_env_script_path" "$_fish_env_script_path_expr" ".config/fish/conf.d/$APP_NAME.env.fish" "fish"
