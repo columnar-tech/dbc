@@ -18,7 +18,7 @@ site_description: dbc is a command line tool for installing and managing ADBC dr
 site_url: https://docs.columnar.tech/dbc
 repo_url: https://github.com/columnar-tech/dbc
 repo_name: dbc
-copyright: Copyright &copy; <a href="https://columnar.tech" target="_blank">2025 Columnar Technologies Inc.</a>
+copyright: Copyright &copy; <a href="https://columnar.tech">2025 Columnar Technologies Inc.</a>
 markdown_extensions:
   - admonition
   - def_list
