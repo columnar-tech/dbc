@@ -33,7 +33,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "bigquery", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "bigquery", ... })
         ```
 
     ===+ "Python"
@@ -73,7 +73,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "duckdb", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "duckdb", ... })
         ```
 
     ===+ "Python"
@@ -113,7 +113,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "flightsql", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "flightsql", ... })
         ```
 
     ===+ "Python"
@@ -153,7 +153,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "mssql", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "mssql", ... })
         ```
 
     ===+ "Python"
@@ -193,7 +193,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "mysql", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "mysql", ... })
         ```
 
     ===+ "Python"
@@ -233,7 +233,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "postgresql", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "postgresql", ... })
         ```
 
     ===+ "Python"
@@ -273,7 +273,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "redshift", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "redshift", ... })
         ```
 
     ===+ "Python"
@@ -313,7 +313,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "snowflake", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "snowflake", ... })
         ```
 
     ===+ "Python"
@@ -353,7 +353,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         ```go
         import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := (drivermgr.Driver{}).NewDatabase(map[string]string{"driver": "sqlite", ... })
+        db, _ := drivermgr.Driver{}.NewDatabase(map[string]string{"driver": "sqlite", ... })
         ```
 
     ===+ "Python"
