@@ -87,10 +87,28 @@ function setCopyText() {
   });
 }
 
+// Configure external links to open in new tab with security attributes
+function configureExternalLinks() {
+  const links = document.querySelectorAll('a[href^="http"]');
+  links.forEach((link) => {
+    try {
+      // Only modify links that point to external domains
+      const linkUrl = new URL(link.href);
+      if (linkUrl.hostname !== location.hostname) {
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      }
+    } catch (e) {
+      // Silently skip links with invalid URLs
+    }
+  });
+}
+
 // Using the document$ observable is particularly important if you are using instant loading since
 // it will not result in a page refresh in the browser
 // See `How to integrate with third-party JavaScript libraries` guideline:
 // https://squidfunk.github.io/mkdocs-material/customization/?h=javascript#additional-javascript
 document$.subscribe(function () {
   setCopyText();
+  configureExternalLinks();
 });
