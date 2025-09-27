@@ -16,14 +16,369 @@ limitations under the License.
 
 # dbc
 
-dbc is a command-line tool that makes installing and managing [ADBC](https://arrow.apache.org/adbc) drivers easy as 1, 2, 3.
+dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
 
-```console
-$ dbc install bigquery
-$ python
->>> from adbc_driver_manager import dbapi
->>> con = dbapi.connect(driver="bigquery")
-```
+<br/>Start by installing a driver:
+
+=== "BigQuery"
+
+    ```console
+    $ dbc install bigquery
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "bigquery", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="bigquery", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("bigquery")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("bigquery", ... )
+        ```
+
+=== "DuckDB"
+
+    ```console
+    $ dbc install duckdb
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "duckdb", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="duckdb", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("duckdb")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("duckdb", ... )
+        ```
+
+=== "Flight SQL"
+
+    ```console
+    $ dbc install flightsql
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "flightsql", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="flightsql", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("flightsql")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("flightsql", ... )
+        ```
+
+=== "SQL Server"
+
+    ```console
+    $ dbc install mssql
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "mssql", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="mssql", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("mssql")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("mssql", ... )
+        ```
+
+=== "MySQL"
+
+    ```console
+    $ dbc install mysql
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "mysql", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="mysql", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("mysql")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("mysql", ... )
+        ```
+
+=== "PostgreSQL"
+
+    ```console
+    $ dbc install postgresql
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "postgresql", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="postgresql", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("postgresql")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("postgresql", ... )
+        ```
+
+=== "Redshift"
+
+    ```console
+    $ dbc install redshift
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "redshift", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="redshift", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("redshift")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("redshift", ... )
+        ```
+
+=== "Snowflake"
+
+    ```console
+    $ dbc install snowflake
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "snowflake", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="snowflake", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("snowflake")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("snowflake", ... )
+        ```
+
+=== "SQLite"
+
+    ```console
+    $ dbc install sqlite
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := drv.NewDatabase(map[string]string{"driver": "sqlite", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="sqlite", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("sqlite")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("sqlite", ... )
+        ```
 
 ## Features
 
