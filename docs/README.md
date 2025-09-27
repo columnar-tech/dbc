@@ -24,9 +24,9 @@ Building the docs requires a Python installation.
 From the root of the repository, run:
 
 ```sh
-python3 -m venv .venv
+uv venv
 source .venv/bin/activate
-pip install -r docs/requirements.txt
+uv pip install -r docs/requirements.txt
 ```
 
 ## Building
@@ -40,7 +40,7 @@ mkdocs build
 The built docs website will be in `./site` and you can preview it by running this (or something similar):
 
 ```sh
-python3 -m http.server -d site
+python -m http.server -d site
 ```
 
 ## Developing
