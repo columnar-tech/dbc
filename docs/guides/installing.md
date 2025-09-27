@@ -32,6 +32,7 @@ $ dbc search
 • mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 • postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 • redshift - An ADBC driver for Amazon Redshift developed by Columnar
+• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 

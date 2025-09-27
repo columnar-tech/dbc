@@ -27,6 +27,7 @@ $ dbc search
 • mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 • postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 • redshift - An ADBC driver for Amazon Redshift developed by Columnar
+• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 
@@ -95,6 +96,12 @@ $ dbc search --verbose
    License: LicenseRef-PBL
    Available Versions:
     ╰── 1.0.0
+• snowflake
+   Title: ASF Snowflake Driver
+   Description: An ADBC driver for Snowflake developed under the Apache Software Foundation
+   License: Apache-2.0
+   Available Versions:
+    ╰── 1.8.0
 • sqlite
    Title: ASF SQLite Driver
    Description: An ADBC driver for SQLite developed under the Apache Software Foundation
@@ -112,5 +119,6 @@ $ dbc search --verbose
 $ dbc search --namesonly ASF
 • flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 • postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
