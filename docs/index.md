@@ -31,9 +31,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "bigquery", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "bigquery", ... })
         ```
 
     ===+ "Python"
@@ -71,9 +71,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "duckdb", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "duckdb", ... })
         ```
 
     ===+ "Python"
@@ -111,9 +111,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "flightsql", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "flightsql", ... })
         ```
 
     ===+ "Python"
@@ -151,9 +151,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "mssql", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "mssql", ... })
         ```
 
     ===+ "Python"
@@ -191,9 +191,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "mysql", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "mysql", ... })
         ```
 
     ===+ "Python"
@@ -231,9 +231,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "postgresql", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "postgresql", ... })
         ```
 
     ===+ "Python"
@@ -271,9 +271,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "redshift", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "redshift", ... })
         ```
 
     ===+ "Python"
@@ -311,9 +311,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "snowflake", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "snowflake", ... })
         ```
 
     ===+ "Python"
@@ -351,9 +351,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     === "Go"
 
         ```go
-        import dm "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
-        db, _ := dm.Driver{}.NewDatabase(map[string]string{"driver": "sqlite", ... })
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "sqlite", ... })
         ```
 
     ===+ "Python"
