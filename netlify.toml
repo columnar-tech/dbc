@@ -1,0 +1,7 @@
+[build]
+command = "python -m venv venv && source venv/bin/activate && pip install -r docs/requirements.txt && mkdocs build --strict"
+publish = "site"
+ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- mkdocs.yml docs/"
+
+[build.environment]
+PYTHON_VERSION = "3.11"
