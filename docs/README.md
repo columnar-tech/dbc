@@ -24,7 +24,7 @@ Building the docs requires a Python installation.
 From the root of the repository, run:
 
 ```sh
-uv venv .venv --python python3.12
+uv venv
 source .venv/bin/activate
 uv pip install -r docs/requirements.txt
 ```
