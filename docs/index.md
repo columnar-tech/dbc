@@ -403,7 +403,7 @@ Install dbc with our automated installer:
 === "Windows"
 
     ```console
-    $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex
+    $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
     ```
 
 Then, take your [first steps](getting_started/first_steps.md) to get started using dbc.
