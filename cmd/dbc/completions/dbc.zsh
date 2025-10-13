@@ -58,6 +58,8 @@ function _dbc {
 
 function _dbc_install_completions {    
     _arguments \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
         '--no-verify[do not verify the driver after installation]' \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
