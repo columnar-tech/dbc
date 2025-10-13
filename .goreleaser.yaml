@@ -88,6 +88,8 @@ archives:
 blobs:
   - ids:
       - archives
+      - msi
+      - pkgs
     provider: s3
     if: '{{ not (contains .ArtifactName ".msi.sig" )}}'
     region: us-east-2

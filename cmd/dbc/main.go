@@ -70,8 +70,15 @@ func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	return drivers[idx], nil
 }
 
+type progressMsg struct {
+	total   int64
+	written int64
+}
+
 func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
-	return p.DownloadPackage()
+	return p.DownloadPackage(func(written, total int64) {
+		prog.Send(progressMsg{total: total, written: written})
+	})
 }
 
 func getConfig(c config.ConfigLevel) config.Config {
@@ -132,6 +139,8 @@ func (cmds) Version() string {
 	return dbc.Version
 }
 
+var prog *tea.Program
+
 func main() {
 	var (
 		args cmds
@@ -184,7 +193,6 @@ func main() {
 	// }
 	// defer f.Close()
 
-	var prog *tea.Program
 	if !isatty.IsTerminal(os.Stdout.Fd()) {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else {

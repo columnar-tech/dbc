@@ -167,6 +167,24 @@ var getVerifier = sync.OnceValues(func() (crypto.PGPVerify, error) {
 	return crypto.PGP().Verify().VerificationKey(key).New()
 })
 
+type ProgressFunc func(written, total int64)
+
+type progressWriter struct {
+	w       io.Writer
+	total   int64
+	written int64
+	fn      ProgressFunc
+}
+
+func (pw *progressWriter) Write(p []byte) (n int, err error) {
+	n, err = pw.w.Write(p)
+	pw.written += int64(n)
+	if pw.fn != nil {
+		pw.fn(pw.written, pw.total)
+	}
+	return
+}
+
 type PkgInfo struct {
 	Driver        Driver
 	Version       *semver.Version
@@ -175,7 +193,7 @@ type PkgInfo struct {
 	Path *url.URL
 }
 
-func (p PkgInfo) DownloadPackage() (*os.File, error) {
+func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	if p.Path == nil {
 		return nil, fmt.Errorf("cannot download package for %s: no url set", p.Driver.Title)
 	}
@@ -202,7 +220,13 @@ func (p PkgInfo) DownloadPackage() (*os.File, error) {
 		return nil, fmt.Errorf("failed to create temp file to download to: %w", err)
 	}
 
-	_, err = io.Copy(output, rsp.Body)
+	pw := &progressWriter{
+		w:     output,
+		total: rsp.ContentLength,
+		fn:    prog,
+	}
+
+	_, err = io.Copy(pw, rsp.Body)
 	if err != nil {
 		output.Close()
 	}
