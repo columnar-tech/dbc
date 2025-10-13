@@ -37,6 +37,8 @@ complete -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver fr
 complete -c dbc -n '__fish_dbc_needs_command' -a 'completion' -d 'Generate shell completions'
 
 # install subcommand
+complete -c dbc -n '__fish_dbc_using_subcommand install' -s h -d 'Show Help'
+complete -c dbc -n '__fish_dbc_using_subcommand install' -l help -d 'Show Help'
 complete -c dbc -n '__fish_dbc_using_subcommand install' -l no-verify -d 'Do not verify the driver after installation'
 complete -c dbc -n '__fish_dbc_using_subcommand install' -l level -s l -d 'Installation level' -xa 'user system'
 
@@ -45,25 +47,30 @@ complete -c dbc -n '__fish_dbc_using_subcommand uninstall' -l level -s l -d 'Ins
 
 # init subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand init' -s h -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand init' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand init' -F -a '*.toml' -d 'File to create'
 
 # add subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand add' -s h -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand add' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand add' -l path -s p -r -F -a '*.toml' -d 'Driver list to add to'
 
 # sync subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand sync' -s h -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand sync' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand sync' -l level -s l -d 'Installation level' -xa 'user system'
 complete -c dbc -n '__fish_dbc_using_subcommand sync' -l path -s p -r -F -a '*.toml' -d 'Driver list to sync'
 complete -c dbc -n '__fish_dbc_using_subcommand sync' -l no-verify -d 'Do not verify the driver after installation'
 
 # search subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand search' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
 complete -c dbc -n '__fish_dbc_using_subcommand search' -s n -d 'Names only'
 
 # remove subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand remove' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand remove' -l path -s p -r -F -a '*.toml' -d 'Driver list to remove from'
 
 # completion subcommand
