@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -54,28 +55,27 @@ type InstallCmd struct {
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
 	return progressiveInstallModel{
 		Driver:    c.Driver,
 		NoVerify:  c.NoVerify,
-		spinner:   spinner.New(),
+		spinner:   s,
 		cfg:       getConfig(c.Level),
 		baseModel: baseModel,
+		p: dbc.NewFileProgress(
+			progress.WithDefaultGradient(),
+			progress.WithWidth(20),
+			progress.WithoutPercentage(),
+		),
 	}
 }
 
 func (c InstallCmd) GetModel() tea.Model {
-	s := spinner.New()
-	s.Spinner = spinner.MiniDot
-	return progressiveInstallModel{
-		Driver:   c.Driver,
-		NoVerify: c.NoVerify,
-		spinner:  s,
-		cfg:      getConfig(c.Level),
-		baseModel: baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
-		},
-	}
+	return c.GetModelCustom(baseModel{
+		getDriverList: getDriverList,
+		downloadPkg:   downloadPkg,
+	})
 }
 
 func verifySignature(m config.Manifest, noVerify bool) error {
@@ -155,6 +155,7 @@ type progressiveInstallModel struct {
 
 	state   installState
 	spinner spinner.Model
+	p       dbc.FileProgressModel
 
 	width, height int
 }
@@ -267,6 +268,13 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+	case progressMsg:
+		cmd := m.p.SetPercent(msg.written, msg.total)
+		return m, cmd
+	case progress.FrameMsg:
+		p, cmd := m.p.Update(msg)
+		m.p = p.(dbc.FileProgressModel)
+		return m, cmd
 	case []dbc.Driver:
 		return m.searchForDriver(msg)
 	case dbc.PkgInfo:
@@ -326,6 +334,9 @@ func (m progressiveInstallModel) View() string {
 	for s := range stDone {
 		if s == m.state {
 			b.WriteString(fmt.Sprintf("[%s] %s...", m.spinner.View(), s.String()))
+			if s == stDownloading {
+				b.WriteString(" " + m.p.View())
+			}
 		} else {
 			b.WriteString(checkbox(s.String(), s < m.state))
 		}
