@@ -63,8 +63,11 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		spinner:   s,
 		cfg:       getConfig(c.Level),
 		baseModel: baseModel,
-		p: progress.New(progress.WithDefaultGradient(),
-			progress.WithWidth(40)),
+		p: dbc.NewFileProgress(
+			progress.WithDefaultGradient(),
+			progress.WithWidth(20),
+			progress.WithoutPercentage(),
+		),
 	}
 }
 
@@ -152,7 +155,7 @@ type progressiveInstallModel struct {
 
 	state   installState
 	spinner spinner.Model
-	p       progress.Model
+	p       dbc.FileProgressModel
 
 	width, height int
 }
@@ -266,11 +269,11 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case progressMsg:
-		cmd := m.p.SetPercent(float64(msg.written) / float64(msg.total))
+		cmd := m.p.SetPercent(msg.written, msg.total)
 		return m, cmd
 	case progress.FrameMsg:
 		p, cmd := m.p.Update(msg)
-		m.p = p.(progress.Model)
+		m.p = p.(dbc.FileProgressModel)
 		return m, cmd
 	case []dbc.Driver:
 		return m.searchForDriver(msg)
