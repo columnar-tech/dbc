@@ -34,6 +34,7 @@ complete -c dbc -n '__fish_dbc_needs_command' -a 'add' -d 'Add a driver to the d
 complete -c dbc -n '__fish_dbc_needs_command' -a 'sync' -d 'Install all drivers in the driver list'
 complete -c dbc -n '__fish_dbc_needs_command' -a 'search' -d 'Search for drivers'
 complete -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver from the driver list'
+complete -c dbc -n '__fish_dbc_needs_command' -a 'completion' -d 'Generate shell completions'
 
 # install subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand install' -l no-verify -d 'Do not verify the driver after installation'
@@ -64,3 +65,10 @@ complete -c dbc -n '__fish_dbc_using_subcommand search' -s n -d 'Names only'
 # remove subcommand
 complete -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand remove' -l path -s p -r -F -a '*.toml' -d 'Driver list to remove from'
+
+# completion subcommand
+complete -c dbc -n '__fish_dbc_using_subcommand completion' -s h -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand completion' -l help -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand completion' -a 'bash' -d 'Generate autocompletion script for bash'
+complete -c dbc -n '__fish_dbc_using_subcommand completion' -a 'zsh' -d 'Generate autocompletion script for zsh'
+complete -c dbc -n '__fish_dbc_using_subcommand completion' -a 'fish' -d 'Generate autocompletion script for fish'

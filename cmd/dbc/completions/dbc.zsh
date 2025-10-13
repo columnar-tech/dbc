@@ -20,6 +20,7 @@ function _dbc {
                 'sync[Install all drivers in the driver list]' \
                 'search[Search for drivers]' \
                 'remove[Remove a driver from the driver list]' \
+                'completion[Generate shell completions]' \
                 '--help[Show help]' \
                 '-h[Show help]' \
                 '--version[Show version]'
@@ -47,6 +48,9 @@ function _dbc {
                 remove)
                     _dbc_remove_completions
                 ;;
+                completion)
+                    _dbc_completion_completions
+                ;;
             esac
         ;;
     esac
@@ -69,13 +73,15 @@ function _dbc_uninstall_completions {
 
 function _dbc_init_completions {
     _arguments  \
-        '-h[help]' \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
         ':file to create:_files -g \*.toml'
 }
 
 function _dbc_add_completions {
     _arguments  \
-        '-h[help]' \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
         ':driver name: '        
@@ -83,7 +89,8 @@ function _dbc_add_completions {
 
 function _dbc_sync_completions {
     _arguments  \
-        '-h[help]' \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
@@ -93,7 +100,8 @@ function _dbc_sync_completions {
 
 function _dbc_search_completions {
     _arguments  \
-        '-h[help]' \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
         '-v[verbose]' \
         '-n[names only]' \
         ':search term: '
@@ -101,10 +109,18 @@ function _dbc_search_completions {
 
 function _dbc_remove_completions {
     _arguments  \
-        '-h[help]' \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
         '(-p)--path[driver list to remove from]: :_files -g \*.toml' \
         '(--path)-p[driver list to remove from]: :_files -g \*.toml' \
-        ':driver name: '        
+        ':driver name: '
+}
+
+function _dbc_completion_completions {
+    _arguments  \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        ':shell type:(bash zsh fish)'
 }
 
 # don't run the completion function when being source-d or eval-d

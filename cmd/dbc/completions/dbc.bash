@@ -4,7 +4,7 @@ _dbc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="install uninstall init add sync search remove"
+    local subcommands="install uninstall init add sync search remove completion"
     local global_opts="--help -h --version"
 
     # If we're completing the first argument (subcommand)
@@ -37,6 +37,9 @@ _dbc() {
             ;;
         remove)
             _dbc_remove_completions
+            ;;
+        completion)
+            _dbc_completion_completions
             ;;
         *)
             COMPREPLY=()
@@ -193,6 +196,30 @@ _dbc_remove_completions() {
     fi
 
     # Driver name completion (no specific completion available)
+    COMPREPLY=()
+}
+
+_dbc_completion_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # If we're at position 2 (right after "completion"), suggest shell types
+    if [[ $COMP_CWORD -eq 2 ]]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur"))
+        fi
+        return 0
+    fi
+
+    # If we've already specified a shell, just offer help
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        return 0
+    fi
+
     COMPREPLY=()
 }
 
