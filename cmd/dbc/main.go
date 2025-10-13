@@ -132,7 +132,7 @@ type cmds struct {
 	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
 	Search     *SearchCmd       `arg:"subcommand" help:"Search for a driver"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
-	Completion *completions.Cmd `arg:"subcommand" help:"Generate shell completions"`
+	Completion *completions.Cmd `arg:"subcommand" help:"-"`
 }
 
 func (cmds) Version() string {

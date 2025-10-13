@@ -66,3 +66,5 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/alexflint/go-arg => github.com/zeroshade/go-arg v0.0.0-20251013220544-4735a7c3184f
