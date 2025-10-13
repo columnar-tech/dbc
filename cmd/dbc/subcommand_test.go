@@ -107,11 +107,14 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	defer cancel()
 
 	var out bytes.Buffer
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
+	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
 		tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=linux")))
+	defer func() {
+		prog = nil
+	}()
 
 	var err error
-	m, err = p.Run()
+	m, err = prog.Run()
 	suite.Require().NoError(err)
 	suite.Equal(1, m.(HasStatus).Status(), "The subcommand did not exit with a status of 1 as expected.")
 	return out.String()
@@ -122,11 +125,14 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	defer cancel()
 
 	var out bytes.Buffer
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
+	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
 		tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=linux")))
+	defer func() {
+		prog = nil
+	}()
 
 	var err error
-	m, err = p.Run()
+	m, err = prog.Run()
 	suite.Require().NoError(err)
 	suite.Equal(0, m.(HasStatus).Status(), "The command exited with a non-zero status.")
 

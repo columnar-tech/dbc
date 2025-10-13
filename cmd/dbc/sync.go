@@ -242,48 +242,58 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 			}
 		}
 
-		output, err := s.downloadPkg(item.Package)
-		if err != nil {
-			return fmt.Errorf("failed to download driver: %w", err)
-		}
+		// avoid deadlock by doing this in a goroutine rather than during processing the tea.Msg
+		go func() {
+			output, err := s.downloadPkg(item.Package)
+			if err != nil {
+				prog.Send(fmt.Errorf("failed to download driver: %w", err))
+				return
+			}
 
-		var loc string
-		if loc, err = config.EnsureLocation(cfg); err != nil {
-			return fmt.Errorf("failed to ensure config location: %w", err)
-		}
+			var loc string
+			if loc, err = config.EnsureLocation(cfg); err != nil {
+				prog.Send(fmt.Errorf("failed to ensure config location: %w", err))
+				return
+			}
 
-		base := strings.TrimSuffix(path.Base(item.Package.Path.Path), ".tar.gz")
-		finalDir := filepath.Join(loc, base)
-		if err := os.MkdirAll(finalDir, 0o755); err != nil {
-			return fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
-		}
+			base := strings.TrimSuffix(path.Base(item.Package.Path.Path), ".tar.gz")
+			finalDir := filepath.Join(loc, base)
+			if err := os.MkdirAll(finalDir, 0o755); err != nil {
+				prog.Send(fmt.Errorf("failed to create driver directory %s: %w", finalDir, err))
+				return
+			}
 
-		output.Seek(0, io.SeekStart)
-		manifest, err := config.InflateTarball(output, finalDir)
-		if err != nil {
-			return fmt.Errorf("failed to extract tarball: %w", err)
-		}
+			output.Seek(0, io.SeekStart)
+			manifest, err := config.InflateTarball(output, finalDir)
+			if err != nil {
+				prog.Send(fmt.Errorf("failed to extract tarball: %w", err))
+				return
+			}
 
-		driverPath := filepath.Join(finalDir, manifest.Files.Driver)
+			driverPath := filepath.Join(finalDir, manifest.Files.Driver)
 
-		manifest.DriverInfo.ID = item.Driver.Path
-		manifest.DriverInfo.Source = "dbc"
-		manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
+			manifest.DriverInfo.ID = item.Driver.Path
+			manifest.DriverInfo.Source = "dbc"
+			manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
 
-		if err := verifySignature(manifest, s.NoVerify); err != nil {
-			_ = os.RemoveAll(finalDir)
-			return fmt.Errorf("failed to verify signature: %w", err)
-		}
+			if err := verifySignature(manifest, s.NoVerify); err != nil {
+				_ = os.RemoveAll(finalDir)
+				prog.Send(fmt.Errorf("failed to verify signature: %w", err))
+				return
+			}
 
-		if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
-			return fmt.Errorf("failed to create driver manifest: %w", err)
-		}
+			if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
+				prog.Send(fmt.Errorf("failed to create driver manifest: %w", err))
+				return
+			}
 
-		return installedDrvMsg{
-			removed:     removedDriver,
-			info:        manifest.DriverInfo,
-			postInstall: manifest.PostInstall.Messages,
-		}
+			prog.Send(installedDrvMsg{
+				removed:     removedDriver,
+				info:        manifest.DriverInfo,
+				postInstall: manifest.PostInstall.Messages,
+			})
+		}()
+		return nil
 	}
 }
 
