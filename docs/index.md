@@ -380,6 +380,46 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         let mut driver = ManagedDriver::load_from_name("sqlite", ... )
         ```
 
+=== "Trino"
+
+    ```console
+    $ dbc install trino
+    ```
+
+    <br/>Then load it in any supported language:
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "trino", ... })
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="trino", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("trino")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("trino", ... )
+        ```
+
 ## Features
 
 - Install pre-built [ADBC](https://arrow.apache.org/adbc) drivers with a single command

@@ -29,6 +29,7 @@ $ dbc search
 • redshift - An ADBC driver for Amazon Redshift developed by Columnar
 • snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
+• trino - An ADBC Driver for Trino developed by the ADBC Driver Foundry
 ```
 
 ## Finding a Specific Driver
@@ -109,6 +110,12 @@ $ dbc search --verbose
    Available Versions:
     ├── 1.7.0
     ╰── 1.8.0
+• trino
+   Title: ADBC Driver Foundry Driver for Trino
+   Description: An ADBC Driver for Trino developed by the ADBC Driver Foundry
+   License: Apache-2.0
+   Available Versions:
+    ╰── 0.1.0
 ```
 
 ### Searching Names Only

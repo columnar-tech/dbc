@@ -34,6 +34,7 @@ $ dbc search
 • redshift - An ADBC driver for Amazon Redshift developed by Columnar
 • snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
+• trino - An ADBC Driver for Trino developed by the ADBC Driver Foundry
 ```
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.

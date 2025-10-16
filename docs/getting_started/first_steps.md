@@ -84,6 +84,7 @@ $ dbc search
 • redshift - An ADBC driver for Amazon Redshift developed by Columnar
 • snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
+• trino - An ADBC Driver for Trino developed by the ADBC Driver Foundry
 ```
 
 From the output, you can see that the name you'll need is `"bigquery"`.
