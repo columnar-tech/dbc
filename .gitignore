@@ -8,6 +8,10 @@
 *.so
 *.dylib
 
+# Binary, built with `go build ./cmd/dbc`
+dbc
+!dbc/
+
 # Test binary, built with `go test -c`
 *.test
 
