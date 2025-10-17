@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# dbc <picture><img src="resources/dbc_logo_animated_padded.png?raw=true" width="180" align="right" alt="dbc Logo"/></picture>
+# dbc <picture><img src="https://raw.githubusercontent.com/columnar-tech/dbc/refs/heads/main/resources/dbc_logo_animated_padded.png?raw=true" width="180" align="right" alt="dbc Logo"/></picture>
 
 ![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/columnar-tech/dbc)
