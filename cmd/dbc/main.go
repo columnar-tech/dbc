@@ -23,6 +23,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/mattn/go-isatty"
 )
@@ -124,13 +125,14 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type cmds struct {
-	Install   *InstallCmd   `arg:"subcommand" help:"Install a driver"`
-	Uninstall *UninstallCmd `arg:"subcommand" help:"Uninstall a driver"`
-	Init      *InitCmd      `arg:"subcommand" help:"Initialize a new dbc driver list"`
-	Add       *AddCmd       `arg:"subcommand" help:"Add a driver to the driver list"`
-	Sync      *SyncCmd      `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
-	Search    *SearchCmd    `arg:"subcommand" help:"Search for a driver"`
-	Remove    *RemoveCmd    `arg:"subcommand" help:"Remove a driver from the driver list"`
+	Install    *InstallCmd      `arg:"subcommand" help:"Install a driver"`
+	Uninstall  *UninstallCmd    `arg:"subcommand" help:"Uninstall a driver"`
+	Init       *InitCmd         `arg:"subcommand" help:"Initialize a new dbc driver list"`
+	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
+	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
+	Search     *SearchCmd       `arg:"subcommand" help:"Search for a driver"`
+	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
+	Completion *completions.Cmd `arg:"subcommand" help:"-"`
 }
 
 func (cmds) Version() string {
@@ -140,12 +142,48 @@ func (cmds) Version() string {
 var prog *tea.Program
 
 func main() {
-	var args cmds
+	var (
+		args cmds
+	)
 
-	p := arg.MustParse(&args)
+	p, err := arg.NewParser(arg.Config{Program: "dbc"}, &args)
+	if err != nil {
+		fmt.Println("Error creating argument parser:", err)
+		os.Exit(1)
+	}
+
+	if err = p.Parse(os.Args[1:]); err != nil {
+		switch {
+		case err == arg.ErrHelp:
+			if d, ok := p.Subcommand().(arg.Described); ok {
+				fmt.Println(d.Description())
+			}
+			p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+			os.Exit(0)
+		case err == arg.ErrVersion:
+			fmt.Println(dbc.Version)
+			os.Exit(0)
+		default:
+			p.FailSubcommand(err.Error(), p.SubcommandNames()...)
+		}
+	}
+
 	if p.Subcommand() == nil {
 		p.WriteHelp(os.Stdout)
 		os.Exit(1)
+	}
+
+	var m tea.Model
+
+	switch sub := p.Subcommand().(type) {
+	case *completions.Cmd: // "dbc completions" without specifying the shell type
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(2)
+	case completions.ShellImpl:
+		fmt.Print(sub.GetScript())
+		os.Exit(0)
+	case modelCmd:
+		m = sub.GetModel()
 	}
 
 	// f, err := tea.LogToFile("debug.log", "debug")
@@ -155,15 +193,12 @@ func main() {
 	// }
 	// defer f.Close()
 
-	m := p.Subcommand().(modelCmd).GetModel()
-
 	if !isatty.IsTerminal(os.Stdout.Fd()) {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else {
 		prog = tea.NewProgram(m)
 	}
 
-	var err error
 	if m, err = prog.Run(); err != nil {
 		fmt.Println("Error running program:", err)
 		os.Exit(1)

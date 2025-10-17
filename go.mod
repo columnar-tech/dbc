@@ -21,7 +21,7 @@ toolchain go1.24.6
 require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/ProtonMail/gopenpgp/v3 v3.2.1
-	github.com/alexflint/go-arg v1.5.1
+	github.com/alexflint/go-arg v1.6.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.7
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -66,3 +66,5 @@ require (
 	golang.org/x/text v0.25.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/alexflint/go-arg => github.com/zeroshade/go-arg v0.0.0-20251013220544-4735a7c3184f
