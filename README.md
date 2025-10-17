@@ -88,8 +88,6 @@ Download the Windows graphical installer for your architecture:
 | Architecture |  Installer                                              |
 | ------------ | ------------------------------------------------------- |
 | x64 (64-bit) | <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>   |
-| x86 (32-bit) | <https://dbc.columnar.tech/latest/dbc-latest-x86.msi>   |
-| ARM64        | <https://dbc.columnar.tech/latest/dbc-latest-arm64.msi> |
 
 Or use `irm` to download the install script and execute it with `iex`:
 
