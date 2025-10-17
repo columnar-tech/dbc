@@ -141,6 +141,7 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 	di.Version = semver.MustParse(keyMust(dkey, "version"))
 	di.Source = keyOptional(dkey, "source")
 	di.Driver.Shared.defaultPath = keyMust(dkey, "driver")
+	di.Driver.Entrypoint = keyOptional(dkey, "entrypoint")
 
 	return
 }
@@ -303,6 +304,9 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	setKeyMust(dkey, "version", driver.Version.String())
 	setKeyMust(dkey, "source", driver.Source)
 	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(PlatformTuple()))
+	if driver.Driver.Entrypoint != "" {
+		setKeyMust(dkey, "entrypoint", driver.Driver.Entrypoint)
+	}
 	return nil
 }
 
