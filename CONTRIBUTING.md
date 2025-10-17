@@ -2,6 +2,10 @@
 
 Thanks for choosing to contribute to dbc. Please read the following sections for more information on contributing.
 
+## Code of Conduct
+
+By choosing to contribute to dbc, you agree to follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
+
 ## Reporting Issues
 
 Please file bug reports, feature requests, or questions as new [Issues](https://github.com/columnar-tech/dbc/issues/new/choose). For bug reports, please be sure to provide as much information as you think may be required for a maintainer to reproduce your issue. This will typically involve your operating system, Go version, dbc version, and a set of commands we can run to reproduce your issue.
