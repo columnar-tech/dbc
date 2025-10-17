@@ -63,7 +63,29 @@ The following commands will automatically install the latest version of dbc suit
 
 ## PyPI
 
-dbc is published as a package on [PyPI](https://pypi.org/project/dbc) for convenience.
+dbc is published as a package on [PyPI](https://pypi.org/) as [dbc](https://pypi.org/project/dbc/) for convenience. The [package](https://pypi.org/project/dbc/) contains the appropriate dbc executable for your system and makes it available to various tools in the Python ecosystem.
+
+### uv
+
+To run dbc with [uv](https://docs.astral.sh/uv/), you can run any of the following:
+
+```console
+$ uv run --with "dbc" dbc
+$ uv tool run dbc
+$ uvx dbc
+```
+
+To install dbc as a uv tool, run:
+
+```sh
+$ uv tool install dbc
+$ # Now run dbc with
+$ dbc
+```
+
+To learn more about `uv tool`, see uv's [Tools](https://docs.astral.sh/uv/concepts/tools/) documentation.
+
+### pipx
 
 To install dbc with [pipx](https://pipx.pypa.io/stable/installation/), run,
 
