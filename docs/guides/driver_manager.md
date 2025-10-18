@@ -6,43 +6,48 @@ The best place to find detailed information on driver manager installation is al
 
 === "Python"
 
-    TODO
-
     === "uv"
 
         ```console
-        $ TODO
+        $ uv pip install adbc_driver_manager pyarrow
         ```
 
     === "venv"
 
         ```console
-        $ TODO
+        $ pip install adbc_driver_manager pyarrow
+        ```
+
+    === "conda"
+
+        ```console
+        $ conda install -c conda-forge adbc-driver-manager pyarrow
         ```
 
 === "R"
 
-    TODO
-
     ```r
-    > install.packages("...")
+    > install.packages("adbcdrivermanager")
     ```
 
 === "Go"
 
-    TODO
-
     ```console
-    $ go get TODO
+    $ go get github.com/apache/arrow-adbc/go/adbc/drivermgr
     ```
 
 === "Ruby"
 
-    TODO
+    === "bundle"
 
     ```console
-    $ gem install ...
-    $ don't forget bundle add
+    $ bundle add red-adbc
+    ```
+
+    === "gem"
+
+    ```console
+    $ gem install red-adbc
     ```
 
 === "Rust"
@@ -53,27 +58,29 @@ The best place to find detailed information on driver manager installation is al
 
 === "C++"
 
-    TODO
-
     === "conda"
 
-        ```go
-
+        ```console
+        $ conda install -c conda-forge adbc-driver-manager pyarrow
         ```
 
     === "apt"
 
         ```sh
-
+        $ TODO
         ```
 
     === "dnf"
 
         ```sh
-
+        $ TODO
         ```
 
     CMake TODO
+
+    ```sh
+    TODO
+    ```
 
 === "Java"
 
