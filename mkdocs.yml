@@ -41,6 +41,7 @@ nav:
       - Intalling Drivers: guides/installing.md
       - Finding Drivers: guides/finding_drivers.md
       - Using a Driver List: guides/driver_list.md
+      - Driver Managers: guides/driver_manager.md
   - Concepts:
       - Driver: concepts/driver.md
       - Driver Manager: concepts/driver_manager.md
