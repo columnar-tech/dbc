@@ -2,7 +2,7 @@
 
 In order to use any of the drivers you [install](./installing.md) with dbc, you need to install a [driver manager](../concepts/driver_manager.md) for your language of choice.
 
-The best place to find detailed information on driver manager installation is always the [ADBC docs](https://arrow.apache.org/adbc/) but we've included concise steps here for convenience:
+The best place to find detailed information on driver manager installation is always the [ADBC docs](https://arrow.apache.org/adbc/) but we've included concise steps for a variety of languages here for convenience:
 
 === "Python"
 
@@ -38,22 +38,22 @@ The best place to find detailed information on driver manager installation is al
 
 === "Ruby"
 
-    === "bundle"
+    === "Bundler"
 
-    ```console
-    $ bundle add red-adbc
-    ```
+        ```console
+        $ bundle add red-adbc
+        ```
 
     === "gem"
 
-    ```console
-    $ gem install red-adbc
-    ```
+        ```console
+        $ gem install red-adbc
+        ```
 
 === "Rust"
 
     ```console
-    $ cargo add adbc...TODO
+    $ cargo add adbc_core adbc_driver_manager
     ```
 
 === "C++"
@@ -61,31 +61,48 @@ The best place to find detailed information on driver manager installation is al
     === "conda"
 
         ```console
-        $ conda install -c conda-forge adbc-driver-manager pyarrow
+        $ conda install -c conda-forge adbc-driver-manager
         ```
 
     === "apt"
 
         ```sh
-        $ TODO
+        $ # Set up the Apache Arrow APT repository
+        $ sudo apt update
+        $ sudo apt install -y -V ca-certificates lsb-release wget
+        $ sudo wget https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+        $ sudo apt install -y -V ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+        $ rm ./apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb
+        $ sudo apt update
+        $ # Install libadbc-driver-manager-dev
+        $ sudo apt install libadbc-driver-manager-dev
         ```
 
     === "dnf"
 
         ```sh
-        $ TODO
+        $ # Set up the Apache Arrow Yum repository
+        $ sudo dnf install -y epel-release || sudo dnf install -y oracle-epel-release-el$(cut -d: -f5 /etc/system-release-cpe | cut -d. -f1) || sudo $ dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-$(cut -d: -f5 /etc/system-release-cpe | cut -d. -f1).noarch.rpm
+        $ sudo dnf install -y https://apache.jfrog.io/artifactory/arrow/almalinux/$(cut -d: -f5 /etc/system-release-cpe | cut -d. -f1)/apache-arrow-release-latest.rpm
+        $ sudo dnf config-manager --set-enabled epel || :
+        $ sudo dnf config-manager --set-enabled powertools || :
+        $ sudo dnf config-manager --set-enabled crb || :
+        $ sudo dnf config-manager --set-enabled ol$(cut -d: -f5 /etc/system-release-cpe | cut -d. -f1)_codeready_builder || :
+        $ sudo dnf config-manager --set-enabled codeready-builder-for-rhel-$(cut -d: -f5 /etc/system-release-cpe | cut -d. -f1)-rhui-rpms || :
+        $ sudo subscription-manager repos --enable codeready-builder-for-rhel-$(cut -d: -f5 /etc/system-release-cpe | cut -d. -f1)-$(arch)-rpms || :
+        $ # Install libadbc-driver-manager-devel
+        $ sudo dnf install adbc-driver-manager-devel
+
         ```
-
-    CMake TODO
-
-    ```sh
-    TODO
-    ```
 
 === "Java"
 
-    TODO
+    To add the Java ADBC driver manager to a Maven project, add the following dependency:
 
-    ```console
-    $ TODO
+    ```xml
+    <dependency>
+        <groupId>org.apache.arrow.adbc</groupId>
+        <artifactId>adbc-driver-manager</artifactId>
+        <version>${adbc.version}</version>
+    </dependency>
     ```
