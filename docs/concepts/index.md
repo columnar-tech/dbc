@@ -1,6 +1,6 @@
 # Concepts Overview
 
-Check out the following pages for conceptual information on ADBC fundementals:
+Check out the following pages for conceptual information on ADBC fundamentals:
 
 - [Driver](./driver.md)
 - [Driver Manager](./driver_manager.md)

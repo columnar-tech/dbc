@@ -40,7 +40,7 @@ nav:
       - FAQ: getting_started/faq.md
   - Guides:
       - guides/index.md
-      - Intalling Drivers: guides/installing.md
+      - Installing Drivers: guides/installing.md
       - Finding Drivers: guides/finding_drivers.md
       - Using a Driver List: guides/driver_list.md
   - Concepts:
