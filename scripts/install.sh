@@ -202,8 +202,9 @@ download_binary_and_run_installer() {
     if ! downloader "$_url" "$_file"; then
       say "failed to download $_url"
       say "this may be a standard network error, but it may also indicate"
-      say "that $APP_NAME's release process is not working. When in doubt"
-      say "please feel free to open an issue!"
+      say "that there's no release of $APP_NAME for your platform ($_true_arch)."
+      say "Please open an issue at https://github.com/columnar-tech/dbc/issues"
+      say "to add a build for your platform!"    
       exit 1
     fi
 
