@@ -124,7 +124,7 @@ dbc can generate shell completions for a number of common shells.
 
 !!! note
 
-    If you aren't sure what shell you're running, you can usually run the following command in your terminal:
+    If you aren't sure what shell you're running, you can run the following command in your terminal:
 
     ```console
     $ echo $SHELL
