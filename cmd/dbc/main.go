@@ -131,6 +131,7 @@ type cmds struct {
 	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
 	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
 	Search     *SearchCmd       `arg:"subcommand" help:"Search for a driver"`
+	Info       *InfoCmd         `arg:"subcommand" help:"Get information about a driver"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
 	Completion *completions.Cmd `arg:"subcommand" help:"-"`
 }
