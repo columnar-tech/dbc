@@ -311,6 +311,10 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
+	if err := UninstallDriverShared(info); err != nil {
+		return fmt.Errorf("failed to delete driver shared object: %w", err)
+	}
+
 	if cfg.Level != ConfigEnv {
 		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
 		if err != nil {
@@ -326,10 +330,6 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 		if err := os.Remove(manifest); err != nil {
 			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 		}
-	}
-
-	if err := UninstallDriverShared(info); err != nil {
-		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 
 	return nil
