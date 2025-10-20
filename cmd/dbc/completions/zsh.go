@@ -27,7 +27,7 @@ func (Zsh) Description() string {
 If shell completion is not already enabled in your environment you will need
 to enable it. You can execute the following once:
 
-	echo "autoload -U compinit; compinit" >> ~/.zshrc
+    echo "autoload -U compinit; compinit" >> ~/.zshrc
 
 To load completions in your current shell session:
 
@@ -35,13 +35,17 @@ To load completions in your current shell session:
 
 To load completions for every new session, execute once:
 
+    echo 'eval "$(dbc completion zsh)"' >> ~/.zshrc
+
+To install completions system-wide:
+
 #### Linux:
 
     dbc completion zsh > "${fpath[1]}/_dbc"
-	
+
 #### macOS:
 
-	dbc completion zsh > $(brew --prefix)/share/zsh/site-functions/_dbc
+    dbc completion zsh > $(brew --prefix)/share/zsh/site-functions/_dbc
 
 You will need to start a new shell for this setup to take effect.
 `

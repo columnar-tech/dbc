@@ -33,13 +33,17 @@ To load completions in your current shell session:
 
 To load completions for every new session, execute once:
 
+    echo 'eval "$(dbc completion bash)"' >> ~/.bashrc
+
+To install completions system-wide:
+
 #### Linux:
 
     dbc completion bash > /etc/bash_completion.d/dbc
-	
+
 #### macOS:
 
-	dbc completion bash > $(brew --prefix)/etc/bash_completion.d/dbc
+    dbc completion bash > $(brew --prefix)/etc/bash_completion.d/dbc
 
 You will need to start a new shell for this setup to take effect.
 `
