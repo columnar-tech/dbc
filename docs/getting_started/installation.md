@@ -122,6 +122,14 @@ The following distroless images are available for Linux-based `amd64` and `arm64
 
 dbc can generate shell completions for a number of common shells.
 
+!!! note
+
+    If you aren't sure what shell you're running, you can usually run the following command in your terminal:
+
+    ```console
+    $ echo $SHELL
+    ```
+
 === "Bash"
 
     ```console
@@ -140,10 +148,6 @@ dbc can generate shell completions for a number of common shells.
     $ dbc completion fish > ~/.config/fish/completions/dbc.fish
     ```
 
-!!! note
+!!! info
 
-    If you aren't sure what shell you're running, you can usually run the following command in your terminal:
-
-    ```console
-    echo $SHELL
-    ```
+    You can use the `dbc completion` subcommand to print extended instructions for your shell, including how to enable your shell's completion mechanism. For example, to print setup instructions for Bash, run `dbc completion bash --help`.
