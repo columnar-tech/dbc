@@ -204,7 +204,7 @@ download_binary_and_run_installer() {
       say "this may be a standard network error, but it may also indicate"
       say "that there's no release of $APP_NAME for your platform ($_true_arch)."
       say "Please open an issue at https://github.com/columnar-tech/dbc/issues"
-      say "to add a build for your platform!"    
+      say "to request a build for your platform!"    
       exit 1
     fi
 
