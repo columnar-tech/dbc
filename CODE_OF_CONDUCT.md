@@ -37,7 +37,7 @@ Our code of conduct is as follows:
   - Unwelcome sexual attention.
   - Advocating for, or encouraging, any of the above behavior.
   - Repeated harassment of others. In general, if someone asks you to stop, then stop.
-- **When we disagree, try to understand why.** Disagreements, both social and technical, happen all the time and this community is no exception. It is important that we resolve disagreements and differing views constructively. Remember that we’re different. The strength of this community from its varied community, people from a wide range of backgrounds. Different people have different perspectives on issues. Being unable to understand why someone holds a viewpoint doesn’t mean that they’re wrong. Don’t forget that it is human to err and blaming each other doesn’t get us anywhere. Instead, focus on helping to resolve issues and learning from mistakes.
+- **When we disagree, try to understand why.** Disagreements, both social and technical, happen all the time and this community is no exception. It is important that we resolve disagreements and differing views constructively. Remember that we’re different. The strength of this community comes from its varied membership, people from a wide range of backgrounds. Different people have different perspectives on issues. Being unable to understand why someone holds a viewpoint doesn’t mean that they’re wrong. Don’t forget that it is human to err and blaming each other doesn’t get us anywhere. Instead, focus on helping to resolve issues and learning from mistakes.
 
 ## References
 
