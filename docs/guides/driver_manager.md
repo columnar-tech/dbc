@@ -28,7 +28,7 @@ The best place to find detailed information on driver manager installation is al
         $ uv pip install adbc_driver_manager pyarrow
         ```
 
-    === "venv"
+    === "pip"
 
         ```console
         $ pip install adbc_driver_manager pyarrow
