@@ -18,7 +18,7 @@ limitations under the License.
 
 This code of conduct applies to all spaces managed by Columnar Technologies Inc. (hereafter "Columnar"). This includes issue trackers, pull requests, and any other forums created by Columnar which the community uses for communication. In addition, violations of this code outside these spaces may affect a person's ability to participate within them.
 
-This code is not exhaustive or complete. We ask all contributors strive to follow it both to the letter as well as in spirit.
+This code is not exhaustive or complete. We ask that all contributors strive to follow it both to the letter as well as in spirit.
 
 If you believe someone is violating this code of conduct, please report it by emailing [report@columnar.tech](mailto:report@columnar.tech).
 
