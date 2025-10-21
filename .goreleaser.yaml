@@ -305,8 +305,7 @@ snapshot:
 homebrew_casks:
   - name: dbc
     alternative_names:
-      - dbc@{{ .Version }}
-      - dbc@{{ .Major }}
+      - dbc@{{ .Version }}      
       - dbc@{{ .Major }}.{{ .Minor }}
     ids:
       - archives
@@ -321,10 +320,10 @@ homebrew_casks:
     description: "A CLI utility for managing ADBC drivers"
     repository:
       owner: "columnar-tech"
-      name: "homebrew-dbc"
+      name: "homebrew-tap"
       branch: main
       token_type: "github"
-      token: "{{ .ENV.GITHUB_TOKEN }}" # we'll probably need a dedicated PAT or something?
+      token: "{{ .ENV.DBC_TAP_GITHUB_PAT }}" # we'll probably need a dedicated PAT or something?
 
 release:
   ids:
