@@ -15,14 +15,10 @@
 package main
 
 import (
-	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
-	"github.com/mattn/go-isatty"
 )
 
 type InfoCmd struct {
@@ -46,10 +42,8 @@ func (c InfoCmd) GetModel() tea.Model {
 type infoModel struct {
 	baseModel
 
-	driver   string
-	ready    bool
-	viewport viewport.Model
-	drv      dbc.Driver
+	driver string
+	drv    dbc.Driver
 }
 
 func (m infoModel) Init() tea.Cmd {
@@ -86,61 +80,21 @@ func formatDriverInfo(drv dbc.Driver) string {
 }
 
 func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmds []tea.Cmd
-	base, cmd := m.baseModel.Update(msg)
-	m.baseModel = base.(baseModel)
-	cmds = append(cmds, cmd)
-
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if msg.String() == "q" {
-			return m, tea.Quit
-		}
-	case tea.WindowSizeMsg:
-		marginHeight := lipgloss.Height(": ")
-		if m.viewport.Width == 0 {
-			m.viewport = viewport.New(msg.Width, msg.Height-marginHeight)
-			m.viewport.YPosition = 0
-		} else {
-			m.viewport.Width = msg.Width
-			m.viewport.Height = msg.Height - marginHeight
-		}
 	case dbc.Driver:
-		if isatty.IsTerminal(os.Stdout.Fd()) {
-			cmds = append(cmds, tea.EnterAltScreen)
-			m.viewport.SetContent(formatDriverInfo(msg))
-		} else {
-			m.drv = msg
-			cmds = append(cmds, tea.Quit)
-		}
-		m.ready = true
+		m.drv = msg
+		return m, tea.Quit
+	default:
+		bm, cmd := m.baseModel.Update(msg)
+		m.baseModel = bm.(baseModel)
+		return m, cmd
 	}
-
-	m.viewport, cmd = m.viewport.Update(msg)
-	cmds = append(cmds, cmd)
-	return m, tea.Batch(cmds...)
 }
 
 func (m infoModel) FinalOutput() string {
-	if !isatty.IsTerminal(os.Stdout.Fd()) {
-		return formatDriverInfo(m.drv)
-	}
-	return ""
+	return formatDriverInfo(m.drv)
 }
 
 func (m infoModel) View() string {
-	if !m.ready {
-		return "\n  Initializing..."
-	}
-
-	var suffix string
-	if isatty.IsTerminal(os.Stdout.Fd()) {
-		suffix = "\n: "
-		if m.viewport.AtBottom() {
-			suffix = "\n" + lipgloss.NewStyle().
-				Background(lipgloss.Color("240")).Render("(END)")
-		}
-	}
-
-	return m.viewport.View() + suffix
+	return ""
 }
