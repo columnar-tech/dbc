@@ -70,7 +70,6 @@ dbc is published on [PyPI](https://pypi.org/) as [dbc](https://pypi.org/project/
 To run dbc with [uv](https://docs.astral.sh/uv/), you can run any of the following:
 
 ```console
-$ uv run --with "dbc" dbc
 $ uv tool run dbc
 $ uvx dbc
 ```
