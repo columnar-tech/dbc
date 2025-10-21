@@ -207,7 +207,10 @@ nfpms:
     package_name: dbc
     file_name_template: "{{ .ConventionalFileName }}"
     if: '{{ eq .Os "linux" }}'
-    vendor: Columnar
+    vendor: Columnar Technologies Inc.
+    homepage: "https://columnar.tech/dbc"
+    license: Apache-2.0
+    
     description: >-
       A CLI utility for managing ADBC drivers
 
@@ -215,6 +218,17 @@ nfpms:
       - deb
       - rpm
     meta: false
+    priority: extra
+    contents:
+      - src: cmd/dbc/completions/dbc.bash
+        dst: /etc/bash_completion.d/dbc
+
+      - src: cmd/dbc/completions/dbc.zsh
+        dst: /usr/share/zsh/vendor-completions/_dbc      
+
+      - src: cmd/dbc/completions/dbc.fish
+        dst: /usr/share/fish/vendor_completions.d/dbc.fish
+
 
 snapcrafts:
   - id: snaps

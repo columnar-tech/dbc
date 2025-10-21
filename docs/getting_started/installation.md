@@ -138,3 +138,37 @@ The following distroless images are available for Linux-based `amd64` and `arm64
 
 - `columnar/dbc:latest`
 - `columnar/dbc:{major}.{minor}.{patch}`, e.g. `columnar/dbc:0.0.1`
+
+## Shell Completions
+
+dbc can generate shell completions for a number of common shells.
+
+!!! note
+
+    If you aren't sure what shell you're running, you can run the following command in your terminal:
+
+    ```console
+    $ echo $SHELL
+    ```
+
+=== "Bash"
+
+    ```console
+    $ echo 'eval "$(dbc completion bash)"' >> ~/.bashrc
+    ```
+
+=== "Zsh"
+
+    ```console
+    $ echo 'eval "$(dbc completion zsh)"' >> ~/.zshrc
+    ```
+
+=== "fish"
+
+    ```console
+    $ dbc completion fish > ~/.config/fish/completions/dbc.fish
+    ```
+
+!!! info
+
+    You can use the `dbc completion` subcommand to print extended instructions for your shell, including how to enable your shell's completion mechanism. For example, to print setup instructions for Bash, run `dbc completion bash --help`.
