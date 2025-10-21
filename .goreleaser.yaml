@@ -323,7 +323,7 @@ homebrew_casks:
       name: "homebrew-tap"
       branch: main
       token_type: "github"
-      token: "{{ .ENV.DBC_TAP_GITHUB_PAT }}" # we'll probably need a dedicated PAT or something?
+      token: "{{ .Env.DBC_TAP_GITHUB_PAT }}" # we'll probably need a dedicated PAT or something?
 
 release:
   ids:
