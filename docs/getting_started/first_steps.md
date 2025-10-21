@@ -108,6 +108,7 @@ For more information on on how to find drivers, see the [Finding Drivers](../gui
 
 To load any driver you install with dbc, you'll need an ADBC driver manager.
 Let's install the driver manager for Python.
+To learn about how to install driver managers for other languages, see the [Installing a Driver Manager](../guides/driver_manager.md) guide.
 
 If during [installation](./installation.md), you installed dbc into a virtual environment, you can re-use that virtual environment for this step.
 Otherwise, create a new virtual environment and activate it:
