@@ -310,7 +310,7 @@ homebrew_casks:
     ids:
       - archives
     url:
-      template: "https://github.com/columnar-tech/dbc/releases/download{{ .Tag }}/{{ .ArtifactName }}"
+      template: "https://github.com/columnar-tech/dbc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
       verified: "github.com/columnar-tech/dbc/"
       using: ":homebrew_curl"
       cookies:
