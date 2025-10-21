@@ -34,25 +34,22 @@ var (
 )
 
 type SearchCmd struct {
-	Verbose   bool           `arg:"-v" help:"Enable verbose output"`
-	Pattern   *regexp.Regexp `arg:"positional" help:"Pattern to search for"`
-	NamesOnly bool           `arg:"-n" help:"Restrict search to names, ignoring descriptions"`
+	Verbose bool           `arg:"-v" help:"Enable verbose output"`
+	Pattern *regexp.Regexp `arg:"positional" help:"Pattern to search for"`
 }
 
 func (s SearchCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return searchModel{
 		verbose:   s.Verbose,
 		pattern:   s.Pattern,
-		namesOnly: s.NamesOnly,
 		baseModel: baseModel,
 	}
 }
 
 func (s SearchCmd) GetModel() tea.Model {
 	return searchModel{
-		verbose:   s.Verbose,
-		pattern:   s.Pattern,
-		namesOnly: s.NamesOnly,
+		verbose: s.Verbose,
+		pattern: s.Pattern,
 		baseModel: baseModel{
 			getDriverList: getDriverList,
 			downloadPkg:   downloadPkg,
@@ -63,9 +60,8 @@ func (s SearchCmd) GetModel() tea.Model {
 type searchModel struct {
 	baseModel
 
-	verbose   bool
-	pattern   *regexp.Regexp
-	namesOnly bool
+	verbose bool
+	pattern *regexp.Regexp
 }
 
 func (m searchModel) Init() tea.Cmd {
@@ -86,7 +82,7 @@ func (m searchModel) filterDrivers(drivers []dbc.Driver) []dbc.Driver {
 
 	var results []dbc.Driver
 	for _, d := range drivers {
-		if m.pattern.MatchString(d.Path) || m.pattern.MatchString(d.Title) || (!m.namesOnly && m.pattern.MatchString(d.Desc)) {
+		if m.pattern.MatchString(d.Path) || m.pattern.MatchString(d.Title) || m.pattern.MatchString(d.Desc) {
 			results = append(results, d)
 		}
 	}

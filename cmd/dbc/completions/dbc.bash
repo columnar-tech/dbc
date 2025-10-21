@@ -169,7 +169,7 @@ _dbc_search_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h -v -n" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h -v" -- "$cur"))
         return 0
     fi
 

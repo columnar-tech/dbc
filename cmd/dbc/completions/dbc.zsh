@@ -109,7 +109,6 @@ function _dbc_search_completions {
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
         '-v[verbose]' \
-        '-n[names only]' \
         ':search term: '
 }
 
