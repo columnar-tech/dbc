@@ -63,7 +63,7 @@ The following commands will automatically install the latest version of dbc suit
 
 ## PyPI
 
-dbc is published as a package on [PyPI](https://pypi.org/) as [dbc](https://pypi.org/project/dbc/) for convenience. The [package](https://pypi.org/project/dbc/) contains the appropriate dbc executable for your system and makes it available to various tools in the Python ecosystem.
+dbc is published on [PyPI](https://pypi.org/) as [dbc](https://pypi.org/project/dbc/) for convenience. The package contains the appropriate dbc executable for your system and makes it available to various tools in the Python ecosystem.
 
 ### uv
 
