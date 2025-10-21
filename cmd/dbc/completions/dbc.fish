@@ -34,6 +34,7 @@ complete -f -c dbc -n '__fish_dbc_needs_command' -a 'add' -d 'Add a driver to th
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'sync' -d 'Install all drivers in the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'search' -d 'Search for drivers'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver from the driver list'
+complete -f -c dbc -n '__fish_dbc_needs_command' -a 'info' -d 'Get detailed information about a specific driver'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'completion' -d 'Generate shell completions'
 
 # install subcommand

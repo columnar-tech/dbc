@@ -4,7 +4,7 @@ _dbc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="install uninstall init add sync search remove completion"
+    local subcommands="install uninstall init add sync search info remove completion"
     local global_opts="--help -h --version"
 
     # If we're completing the first argument (subcommand)
@@ -34,6 +34,9 @@ _dbc() {
             ;;
         search)
             _dbc_search_completions
+            ;;
+        info)
+            _dbc_info_completions
             ;;
         remove)
             _dbc_remove_completions
@@ -171,6 +174,10 @@ _dbc_search_completions() {
     fi
 
     # Search term completion (no specific completion available)
+    COMPREPLY=()
+}
+
+_dbc_info_completions() {
     COMPREPLY=()
 }
 

@@ -19,6 +19,7 @@ function _dbc {
                 'add[Add a driver to the driver list]' \
                 'sync[Install all drivers in the driver list]' \
                 'search[Search for drivers]' \
+                'info[Get detailed information about a specific driver]' \
                 'remove[Remove a driver from the driver list]' \
                 'completion[Generate shell completions]' \
                 '--help[Show help]' \
@@ -44,6 +45,9 @@ function _dbc {
                 ;;
                 search)
                     _dbc_search_completions
+                ;;
+                info)
+                    _dbc_info_completions
                 ;;
                 remove)
                     _dbc_remove_completions
@@ -107,6 +111,13 @@ function _dbc_search_completions {
         '-v[verbose]' \
         '-n[names only]' \
         ':search term: '
+}
+
+function _dbc_info_completions {
+    _arguments  \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        ':driver name: '
 }
 
 function _dbc_remove_completions {
