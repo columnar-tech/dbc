@@ -139,6 +139,21 @@ The following distroless images are available for Linux-based `amd64` and `arm64
 - `columnar/dbc:latest`
 - `columnar/dbc:{major}.{minor}.{patch}`, e.g. `columnar/dbc:0.0.1`
 
+## Homebrew
+
+`dbc` is available via the Columnar Homebrew tap. The tap will first need
+to be added to your environment:
+
+```console
+$ brew tap columnar-tech/tap
+```
+
+Once you've done this you can install the `dbc` cask:
+
+```console
+$ brew install --cask dbc
+```
+
 ## Shell Completions
 
 dbc can generate shell completions for a number of common shells.
