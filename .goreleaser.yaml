@@ -201,6 +201,10 @@ dockerhub:
       - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
       - "columnar/dbc:latest-amd64"
       - "columnar/dbc:latest-arm64v8"
+    description: Official Docker images for dbc, the CLI for installing ADBC drivers.
+    full_description:
+      from_file:
+        path: ./resources/README.dockerhub.md
 
 nfpms:
   - id: pkgs
