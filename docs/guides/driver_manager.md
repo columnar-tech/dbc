@@ -43,7 +43,7 @@ The best place to find detailed information on driver manager installation is al
 === "R"
 
     ```r
-    > install.packages("adbcdrivermanager")
+    install.packages("adbcdrivermanager")
     ```
 
 === "Go"
