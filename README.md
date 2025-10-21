@@ -202,3 +202,6 @@ For general questions and discussion, use the GitHub [discussions](https://githu
 To report an issue, request a feature, or contribute an improvement, use the GitHub
 [issues](https://github.com/columnar-tech/dbc/issues) and
 [PRs](https://github.com/columnar-tech/dbc/pulls).
+## Code of Conduct
+
+By choosing to contribute to dbc, you agree to follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
