@@ -113,7 +113,7 @@ The best place to find detailed information on driver manager installation is al
 
 === "Java"
 
-    To add the Java ADBC driver manager to a Maven project, add the following dependency:
+    To use the Java ADBC driver manager in a Maven project, add the driver manager and JNI driver packages:
 
     ```xml
     <dependency>
@@ -121,4 +121,11 @@ The best place to find detailed information on driver manager installation is al
         <artifactId>adbc-driver-manager</artifactId>
         <version>${adbc.version}</version>
     </dependency>
+    <dependency>
+        <groupId>org.apache.arrow.adbc</groupId>
+        <artifactId>adbc-driver-jni</artifactId>
+        <version>${adbc.version}</version>
+    </dependency>
     ```
+
+    Note that with the above you'll also need to set an `adbc.version` property to an appropriate version.
