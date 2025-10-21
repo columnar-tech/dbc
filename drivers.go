@@ -358,6 +358,12 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string) (PkgIn
 	return pkg.GetPackage(d, platformTuple)
 }
 
+func (d Driver) MaxVersion() pkginfo {
+	return slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
+		return a.Version.Compare(b.Version)
+	})
+}
+
 func GetDriverList() ([]Driver, error) {
 	return getDrivers()
 }

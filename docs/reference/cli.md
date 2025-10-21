@@ -44,6 +44,7 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
+<dt><a href="#info">dbc info</a></dt><dd><p>Get information about a driver</p></dd>
 </dl>
 
 ## search
@@ -208,3 +209,19 @@ dbc sync --file dbc.toml
 `--no-verify`
 
 :   Allow installation of drivers without a signature file
+
+## info
+
+Get information about a driver. Shows information about the latest version of the driver with the given name.
+
+<h3>Usage</h3>
+
+```console
+$ dbc info <DRIVER>
+```
+
+<h3>Arguments</h3>
+
+`DRIVER`
+
+:   Name of the driver to get information for.
