@@ -302,6 +302,29 @@ notarize:
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
 
+homebrew_casks:
+  - name: dbc
+    alternative_names:
+      - dbc@{{ .Version }}      
+      - dbc@{{ .Major }}.{{ .Minor }}
+    ids:
+      - archives
+    url:
+      template: "https://github.com/columnar-tech/dbc/releases/download{{ .Tag }}/{{ .ArtifactName }}"
+      verified: "github.com/columnar-tech/dbc/"
+      using: ":homebrew_curl"
+      cookies:
+        license: "accept-backup"
+    commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://columnar.tech/dbc"
+    description: "A CLI utility for managing ADBC drivers"
+    repository:
+      owner: "columnar-tech"
+      name: "homebrew-tap"
+      branch: main
+      token_type: "github"
+      token: "{{ .ENV.DBC_TAP_GITHUB_PAT }}" # we'll probably need a dedicated PAT or something?
+
 release:
   ids:
     - archives
