@@ -134,7 +134,7 @@ architectures:
 
 ## Homebrew
 
-`dbc` is available via the Columnar Homebrew tap. The tap will first need
+dbc is available via the Columnar Homebrew tap. The tap will first need
 to be added to your environment:
 
 ```console
