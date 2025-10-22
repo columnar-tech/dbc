@@ -67,7 +67,6 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l no-verify -d 'Do not
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
-complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s n -d 'Names only'
 
 # remove subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'

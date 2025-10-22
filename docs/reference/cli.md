@@ -69,10 +69,6 @@ $ dbc search [FILTER]
 
 :   Enable verbose output
 
-`--namesonly`, `-n`
-
-:   Restrict search to names, ignoring descriptions
-
 ## install
 
 Install a driver.

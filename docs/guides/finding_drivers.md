@@ -117,15 +117,3 @@ $ dbc search --verbose
    Available Versions:
     ╰── 0.1.0
 ```
-
-### Searching Names Only
-
-`dbc search` takes an optional `--namesonly` (`-n` for short) flag applies your pattern only to the names of each driver.
-
-```console
-$ dbc search --namesonly ASF
-• flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
-• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
-• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
-• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
-```
