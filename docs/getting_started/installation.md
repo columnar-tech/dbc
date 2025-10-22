@@ -137,6 +137,8 @@ $ docker run --rm -it columnar/dbc:latest --help
 The following distroless images are available for Linux-based `amd64` and `arm64` architectures:
 
 - `columnar/dbc:latest`
+- `columnar/dbc:{major}`, e.g. `columnar/dbc:1`
+- `columnar/dbc:{major}.{minor}`, e.g. `columnar/dbc:0.1`
 - `columnar/dbc:{major}.{minor}.{patch}`, e.g. `columnar/dbc:0.0.1`
 
 ## Shell Completions
