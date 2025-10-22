@@ -315,8 +315,7 @@ homebrew_casks:
       - archives
     url:
       template: "https://github.com/columnar-tech/dbc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-      verified: "github.com/columnar-tech/dbc/"
-      using: ":homebrew_curl"
+      verified: "github.com/columnar-tech/dbc/"      
       cookies:
         license: "accept-backup"
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
