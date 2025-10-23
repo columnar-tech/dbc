@@ -133,6 +133,7 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 
 	var err error
 	m, err = prog.Run()
+	prog.Wait()
 	suite.Require().NoError(err)
 	suite.Equal(0, m.(HasStatus).Status(), "The command exited with a non-zero status.")
 
