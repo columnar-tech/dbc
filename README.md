@@ -137,14 +137,14 @@ architectures:
 dbc is available via the Columnar Homebrew tap. The tap will first need
 to be added to your environment:
 
-```console
-$ brew tap columnar-tech/tap
+```sh
+brew tap columnar-tech/tap
 ```
 
 Once you've done this you can install the `dbc` cask:
 
-```console
-$ brew install --cask dbc
+```sh
+brew install --cask dbc
 ```
 
 ## Getting Started
