@@ -26,7 +26,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install bigquery
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -66,7 +66,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install duckdb
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -106,7 +106,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install flightsql
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -146,7 +146,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install mssql
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -186,7 +186,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install mysql
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -226,7 +226,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install postgresql
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -266,7 +266,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install redshift
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -306,7 +306,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install snowflake
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -346,7 +346,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install sqlite
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
@@ -386,7 +386,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install trino
     ```
 
-    <br/>Then load it in any supported language:
+    <br/>Then [install a driver manager](./guides/driver_manager.md) and load the driver in any supported language:
 
     === "Go"
 
