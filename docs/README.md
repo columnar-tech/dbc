@@ -17,7 +17,7 @@ limitations under the License.
 # dbc docs
 
 dbc uses [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) for docs.
-Building the docs requires a Python installation.
+Building the docs requires a Python installation and a number of system libraries for social image generation.
 
 ## Setup
 
@@ -28,6 +28,8 @@ uv venv
 source .venv/bin/activate
 uv pip install -r docs/requirements.txt
 ```
+
+Then install the necessary graphics libraries from https://squidfunk.github.io/mkdocs-material/plugins/requirements/image-processing/#cairo-graphics.
 
 ## Building
 

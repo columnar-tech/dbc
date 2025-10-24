@@ -114,3 +114,4 @@ extra_javascript:
 plugins:
   - privacy
   - search
+  - social
