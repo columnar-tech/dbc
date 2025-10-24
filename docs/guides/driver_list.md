@@ -54,7 +54,7 @@ $ cat dbc.toml
 [drivers.mysql]
 ```
 
-When run, the `add` command automatically checks that a driver matching the pattern exists in the driver index and will fail if a matching driver can't be found.
+When run, the `add` command automatically checks that a driver matching the pattern exists in the [driver registry](../concepts/driver_registry.md) and will fail if a matching driver can't be found.
 
 !!! note
 
