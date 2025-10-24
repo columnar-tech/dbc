@@ -34,13 +34,13 @@ PLATFORMS = [
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Create a local driver index with fake data"
+        description="Create a local driver registry with fake data"
     )
     parser.add_argument(
         "--output-dir",
         "-o",
         default="cdn-dev",
-        help="Output directory for the driver index (default: cdn-dev)",
+        help="Output directory for the driver registry (default: cdn-dev)",
     )
     parser.add_argument(
         "--num-drivers",
@@ -60,7 +60,7 @@ def main():
     args = parser.parse_args()
 
     create_driver_index(args.output_dir, args.num_drivers, args.num_versions)
-    print(f"Driver index created in '{args.output_dir}'")
+    print(f"Driver registry root created in '{args.output_dir}'")
 
 
 def create_driver_index(output_dir: str, num_drivers: int, num_versions: int):
@@ -117,7 +117,7 @@ def create_driver_index(output_dir: str, num_drivers: int, num_versions: int):
     # Create manifest.yaml
     manifest = {"drivers": drivers}
     manifest_path = output_path / "index.yaml"
-    
+
     with open(manifest_path, "w") as f:
         yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
 

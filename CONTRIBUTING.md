@@ -63,9 +63,9 @@ When you're done, exiting the client should cause the server to exit automatical
 
 ## Manual Testing
 
-### Generating Test Driver Index
+### Generating Test Driver Registry
 
-Use `create.py` to generate a local driver index with fake data for testing:
+Use `create.py` to generate a local driver registry with fake data for testing:
 
 ```sh
 pixi run cdn-generate
