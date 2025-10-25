@@ -21,6 +21,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r docs/requirements.txt
+      - uses: actions/cache@v4
+        with:
+          key: mkdocs-material-${{ github.ref }}
+          path: ~/.cache
       - name: Build site
         run: |
           mkdocs build --strict
