@@ -192,22 +192,48 @@ dbc can generate shell completions for a number of common shells.
 
 ## Uninstallation
 
-To remove dbc from your system, run the appropriate command for your operating system below:
+To remove dbc from your system, run the uninstall command corresponding to your installation method.
 
-=== "macOS and Linux"
+=== "macOS and Linux command-line installer"
 
     ```console
     $ rm $HOME/.local/bin/dbc
     ```
 
-=== "Windows"
+=== "Windows command-line installer"
 
     ```console
     $ powershell.exe -c "rm $HOME/.local/bin/dbc.exe"
     ```
 
+=== "Windows MSI installer"
+
+    Go to **Settings** > **Apps** > **Installed apps** (or **Control Panel** > **Programs and Features**), select dbc, and click **Uninstall**.
+
+=== "uv"
+
+    ```console
+    $ uv tool uninstall dbc
+    ```
+
+=== "pipx"
+
+    ```console
+    $ pipx uninstall dbc
+    ```
+
+=== "pip"
+
+    ```console
+    $ pip uninstall dbc
+    ```
+
+=== "Homebrew"
+
+    ```console
+    $ brew uninstall --cask dbc
+    ```
+
 !!! note
 
     Uninstalling dbc does not remove any drivers you've installed with either `dbc install` or `dbc sync`. To remove drivers, run [`dbc uninstall`](../reference/cli.md#uninstall) on each installed driver prior to uninstalling dbc.
-
-If you didn't install dbc with the [Standalone Installer](#standalone-installer), use the standard uninstallation process for that method instead.
