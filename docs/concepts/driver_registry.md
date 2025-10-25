@@ -16,9 +16,6 @@ limitations under the License.
 
 # Driver Registry
 
-<!-- This page should:
+dbc installs drivers from a "driver registry" which is an internet-accessible index of installable [ADBC driver](./driver.md) packages. Currently, dbc supports a single driver registry which is located at [https://dbc-cdn.columnar.tech](https://dbc-cdn.columnar.tech) and is managed by [Columnar](https://columnar.tech).
 
-Introduce the term "driver registry" and define it as being synonymous with dbc-cdn.columnar.tech.
-Explain the role of the driver registry in dbc.
-Explain that the "driver index" is the YAML file at index.yaml in the root of the driver registry.
-Currently in the docs there is only one mention of the term "driver index" and no mentions of the term "driver registry". Change the existing mention of "driver index" (which is in the "Using a Driver List" docs page) to say "driver registry" instead and link to this new page. -->
+When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc downloads an `index.yaml` from [https://dbc-cdn.columnar.tech](https://dbc-cdn.columnar.tech/index.yaml) (or uses a cached copy) in order to find the appropriate driver for your command.
