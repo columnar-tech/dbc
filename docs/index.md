@@ -1,3 +1,7 @@
+---
+title: Documentation
+---
+
 <!--
 Copyright 2025 Columnar Technologies Inc.
 
