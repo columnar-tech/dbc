@@ -18,7 +18,7 @@ limitations under the License.
 
 dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
 
-<br/>Start by installing a driver:
+<br/>To start, [install dbc](./getting_started/installation.md). Then use dbc to install a driver:
 
 === "BigQuery"
 
