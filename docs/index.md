@@ -436,18 +436,40 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
 ## Installation
 
-Install dbc with our automated installer:
+You can install dbc on most platforms using a variety of methods:
 
-=== "macOS and Linux"
+=== "macOS / Linux (CLI)"
 
     ```console
     $ curl -LsSf https://dbc.columnar.tech/install.sh | sh
     ```
 
-=== "Windows"
+=== "Windows (CLI)"
 
     ```console
     $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
+    ```
+
+=== "Windows (MSI)"
+
+    <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>
+
+=== "uv"
+
+    ```console
+    $ uv tool install dbc
+    ```
+
+=== "pipx"
+
+    ```console
+    $ pipx install dbc
+    ```
+
+=== "Homebrew"
+
+    ```console
+    $ brew tap columnar-tech/tap && brew install --cask dbc
     ```
 
 Then, take your [first steps](getting_started/first_steps.md) to get started using dbc.
