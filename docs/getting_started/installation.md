@@ -194,19 +194,19 @@ dbc can generate shell completions for a number of common shells.
 
 To remove dbc from your system, run the uninstall command corresponding to your installation method.
 
-=== "macOS and Linux command-line installer"
+=== "macOS / Linux (CLI)"
 
     ```console
     $ rm $HOME/.local/bin/dbc
     ```
 
-=== "Windows command-line installer"
+=== "Windows (CLI)"
 
     ```console
     $ powershell.exe -c "rm $HOME/.local/bin/dbc.exe"
     ```
 
-=== "Windows MSI installer"
+=== "Windows (MSI)"
 
     Go to **Settings** > **Apps** > **Installed apps** (or **Control Panel** > **Programs and Features**), select dbc, and click **Uninstall**.
 
