@@ -77,7 +77,7 @@ type syncModel struct {
 
 	// the list of drivers in the driver list
 	list DriversList
-	// cdn driver index
+	// cdn driver registry index
 	driverIndex []dbc.Driver
 	// the list of package+version to install
 	installItems []installItem
@@ -163,7 +163,7 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 			info = lf.lockinfo[name]
 		}
 
-		// locate the driver info in the CDN driver index
+		// locate the driver info in the CDN driver registry index
 		drv, err := findDriver(name, s.driverIndex)
 		if err != nil {
 			return nil, err

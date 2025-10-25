@@ -50,6 +50,7 @@ nav:
       - Driver Manager: concepts/driver_manager.md
       - Driver Manifest: concepts/driver_manifest.md
       - Driver List: concepts/driver_list.md
+      - Driver Registry: concepts/driver_registry.md
   - Reference:
       - reference/index.md
       - Commands: reference/cli.md
