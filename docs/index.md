@@ -38,7 +38,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
 === "Windows (MSI)"
 
-    <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>
+    Download <https://dbc.columnar.tech/latest/dbc-latest-x64.msi> and then run the installer.
 
 === "uv"
 
