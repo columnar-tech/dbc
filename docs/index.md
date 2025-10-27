@@ -46,7 +46,6 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ uv tool install dbc
     ```
 
-
 === "pipx"
 
     ```console
