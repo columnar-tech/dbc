@@ -26,12 +26,31 @@ limitations under the License.
   <?define ProgramFilesFolder = "ProgramFilesFolder" ?>
   {{ end }}
   <Fragment>
-    <UI Id="WixUI_Minimal">
+    <!-- Custom actions to set installation folders -->
+    <CustomAction Id="WixSetDefaultPerUserFolder" Property="WixPerUserFolder" Value="[LocalAppDataFolder]Columnar\[ApplicationFolderName]" Execute="immediate" />
+    <CustomAction Id="WixSetDefaultPerMachineFolder" Property="WixPerMachineFolder" Value="[$(var.ProgramFilesFolder)]Columnar\[ApplicationFolderName]" Execute="immediate" />
+    <CustomAction Id="WixSetPerUserFolder" Property="INSTALLDIR" Value="[WixPerUserFolder]" Execute="immediate" />
+    <CustomAction Id="WixSetPerMachineFolder" Property="INSTALLDIR" Value="[WixPerMachineFolder]" Execute="immediate" />
+
+    <InstallExecuteSequence>
+      <Custom Action="WixSetDefaultPerUserFolder" Before="CostFinalize" />
+      <Custom Action="WixSetDefaultPerMachineFolder" After="WixSetDefaultPerUserFolder" />
+      <Custom Action="WixSetPerUserFolder" After="WixSetDefaultPerMachineFolder">ACTION="INSTALL" AND INSTALLDIR="" AND (ALLUSERS="" OR (ALLUSERS=2 AND (NOT Privileged)))</Custom>
+      <Custom Action="WixSetPerMachineFolder" After="WixSetPerUserFolder">ACTION="INSTALL" AND INSTALLDIR="" AND (ALLUSERS=1 OR (ALLUSERS=2 AND Privileged))</Custom>
+    </InstallExecuteSequence>
+    <InstallUISequence>
+      <Custom Action="WixSetDefaultPerUserFolder" Before="CostFinalize" />
+      <Custom Action="WixSetDefaultPerMachineFolder" After="WixSetDefaultPerUserFolder" />
+      <Custom Action="WixSetPerUserFolder" After="WixSetDefaultPerMachineFolder">ACTION="INSTALL" AND INSTALLDIR="" AND (ALLUSERS="" OR (ALLUSERS=2 AND (NOT Privileged)))</Custom>
+      <Custom Action="WixSetPerMachineFolder" After="WixSetPerUserFolder">ACTION="INSTALL" AND INSTALLDIR="" AND (ALLUSERS=1 OR (ALLUSERS=2 AND Privileged))</Custom>
+    </InstallUISequence>
+
+    <UI Id="WixUI_Advanced">
         <TextStyle Id="WixUI_Font_Normal" FaceName="Tahoma" Size="8" />
         <TextStyle Id="WixUI_Font_Bigger" FaceName="Tahoma" Size="12" />
         <TextStyle Id="WixUI_Font_Title" FaceName="Tahoma" Size="9" Bold="yes" />
         <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
-        <Property Id="WixUI_Mode" Value="Minimal" />
+        <Property Id="WixUI_Mode" Value="Advanced" />
         <DialogRef Id="ErrorDlg" />
         <DialogRef Id="FatalError" />
         <DialogRef Id="FilesInUse" />
@@ -41,13 +60,34 @@ limitations under the License.
         <DialogRef Id="ResumeDlg" />
         <DialogRef Id="UserExit" />
         <DialogRef Id="WelcomeDlg" />
-        <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="PrepareDlg">1</Publish>
-        <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
-        <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+        <DialogRef Id="InstallScopeDlg" />
+        <DialogRef Id="VerifyReadyDlg" />
+        <DialogRef Id="ExitDialog" />
+        <DialogRef Id="MaintenanceTypeDlg" />
+        <DialogRef Id="MaintenanceWelcomeDlg" />
+
+        <!-- Fresh install flow -->
+        <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallScopeDlg">NOT Installed</Publish>
+
+        <Publish Dialog="InstallScopeDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg">1</Publish>
+        <!-- Set WixAppFolder to per-user for non-privileged users -->
+        <Publish Dialog="InstallScopeDlg" Control="Next" Property="WixAppFolder" Value="WixPerUserFolder" Order="1">NOT Privileged</Publish>
+        <Publish Dialog="InstallScopeDlg" Control="Next" Property="ALLUSERS" Value="{}" Order="2">WixAppFolder = "WixPerUserFolder"</Publish>
+        <Publish Dialog="InstallScopeDlg" Control="Next" Property="ALLUSERS" Value="1" Order="3">WixAppFolder = "WixPerMachineFolder"</Publish>
+        <Publish Dialog="InstallScopeDlg" Control="Next" Property="INSTALLDIR" Value="[WixPerUserFolder]" Order="4">WixAppFolder = "WixPerUserFolder"</Publish>
+        <Publish Dialog="InstallScopeDlg" Control="Next" Property="INSTALLDIR" Value="[WixPerMachineFolder]" Order="5">WixAppFolder = "WixPerMachineFolder"</Publish>
+        <Publish Dialog="InstallScopeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg" Order="6">1</Publish>
+
+        <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="InstallScopeDlg">NOT Installed</Publish>
+        <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg">Installed</Publish>
+
+        <!-- Maintenance flow for modify/repair/uninstall -->
         <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+        <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
         <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
         <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
-        <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+
+        <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
     </UI>
   </Fragment>
   <Product Id="5B742771-61E1-4DC1-9276-6E1287282B3F" Name="dbc"
@@ -63,21 +103,27 @@ limitations under the License.
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." RemoveFeatures="Complete" Schedule="afterInstallExecute" />
     <Property Id="DiskPrompt" Value="{{ .ProjectName }} {{.Version}} Installation [1]" />
 
+    <!-- Properties for per-user/per-machine installation -->
+    <Property Id="ApplicationFolderName" Value="dbc" />
+    <Property Id="WixAppFolder" Value="WixPerUserFolder" />
+    <Property Id="ALLUSERS" Value="2" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
     <UIRef Id="WixUI_Common" />
 
     <Icon Id="ProductIcon.ico" SourceFile="resources/dbc.ico" />
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="$(var.ProgramFilesFolder)" Name="PFiles">
-        <Directory Id="Columnar" Name="Columnar">
-            <Directory Id="INSTALLDIR" Name="dbc">
-
-                <Component Win64="$(var.Win64)" Id="MainExecutable" Guid="21002ec5-93ff-4c29-8864-9b1ca5a07e05">
-                    <File Id="{{ .Binary }}.exe" Name="{{ .ArtifactName }}" Source="{{ .ArtifactName }}" KeyPath="yes" />
-                    <Environment Id="UpdatePath" Name="PATH" Action="set" Permanent="no" System="yes" Part="last" Value="[INSTALLDIR]" />
-                </Component>
-
-            </Directory>
-        </Directory>
+      <Directory Id="INSTALLDIR">
+        <Component Win64="$(var.Win64)" Id="MainExecutable" Guid="21002ec5-93ff-4c29-8864-9b1ca5a07e05">
+            <File Id="{{ .Binary }}.exe" Name="{{ .ArtifactName }}" Source="{{ .ArtifactName }}" KeyPath="yes" />
+            <!-- System PATH for per-machine, user PATH for per-user -->
+            <Environment Id="SystemPath" Name="PATH" Action="set" Permanent="no" System="yes" Part="last" Value="[INSTALLDIR]">
+              ALLUSERS=1
+            </Environment>
+            <Environment Id="UserPath" Name="PATH" Action="set" Permanent="no" System="no" Part="last" Value="[INSTALLDIR]">
+              ALLUSERS="" OR ALLUSERS=2
+            </Environment>
+        </Component>
       </Directory>
     </Directory>
 
