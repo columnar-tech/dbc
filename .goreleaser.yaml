@@ -191,16 +191,11 @@ dockerhub:
     secret_name: "DOCKER_TOKEN"
     disable: '{{ or (not .IsRelease) (ne .Prerelease "") }}'
     images:
-      - "columnar/dbc:{{ .Version }}-amd64"
-      - "columnar/dbc:{{ .Version }}-arm64v8"
-      - "columnar/dbc:{{ .Tag }}-amd64"
-      - "columnar/dbc:{{ .Tag }}-arm64v8"
-      - "columnar/dbc:v{{ .Major }}-amd64"
-      - "columnar/dbc:v{{ .Major }}-arm64v8"
-      - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
-      - "columnar/dbc:latest-amd64"
-      - "columnar/dbc:latest-arm64v8"
+      - "columnar/dbc:{{ .Version }}"      
+      - "columnar/dbc:{{ .Tag }}"      
+      - "columnar/dbc:v{{ .Major }}"      
+      - "columnar/dbc:v{{ .Major }}.{{ .Minor }}"
+      - "columnar/dbc:latest"
     description: Official Docker images for dbc, the CLI for installing ADBC drivers.
     full_description:
       from_file:
