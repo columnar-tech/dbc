@@ -132,6 +132,7 @@ dockers:
       - "--platform=linux/amd64"
   - image_templates:
     - "columnar/dbc:{{ .Tag }}-amd64"
+    - "columnar/dbc:{{ .Version }}-amd64"
     - "columnar/dbc:v{{ .Major }}-amd64"
     - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-amd64"
     - "columnar/dbc:latest-amd64"
@@ -150,6 +151,7 @@ dockers:
       - "--platform=linux/arm64/v8"
   - image_templates:
     - "columnar/dbc:{{ .Tag }}-arm64v8"
+    - "columnar/dbc:{{ .Version }}-arm64v8"
     - "columnar/dbc:v{{ .Major }}-arm64v8"
     - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
     - "columnar/dbc:latest-arm64v8"
