@@ -18,12 +18,10 @@ limitations under the License.
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   {{ if eq .MsiArch "x64" }}
   <?define ArchString = "(64 bit)" ?>
-  <?define Win64 = "yes" ?>
-  <?define ProgramFilesFolder = "ProgramFiles64Folder" ?>
+  <?define Win64 = "yes" ?>  
   {{ else }}
   <?define ArchString = "" ?>
-  <?define Win64 = "no" ?>
-  <?define ProgramFilesFolder = "ProgramFilesFolder" ?>
+  <?define Win64 = "no" ?>  
   {{ end }}
   <Fragment>
     <UI Id="WixUI_Minimal">
@@ -55,6 +53,7 @@ limitations under the License.
            UpgradeCode="3BC2470F-54EE-47F0-973C-A789684BF95E">
 
     <Package Id="C72A9A3A-3BDE-43A3-BBDA-4AD8FFEDC819"
+        InstallScope="perUser"
         Keywords="Installer" Description="dbc Installer"
         Comments="ADBC is awesome" Manufacturer="Columnar Technologies Inc."
         InstallerVersion="200" Compressed="yes" SummaryCodepage='1252' />
@@ -67,7 +66,7 @@ limitations under the License.
 
     <Icon Id="ProductIcon.ico" SourceFile="resources/dbc.ico" />
     <Directory Id="TARGETDIR" Name="SourceDir">
-      <Directory Id="$(var.ProgramFilesFolder)" Name="PFiles">
+      <Directory Id="AppDataFolder" Name="AppDataDir">
         <Directory Id="Columnar" Name="Columnar">
             <Directory Id="INSTALLDIR" Name="dbc">
 
