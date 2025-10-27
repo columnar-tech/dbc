@@ -462,6 +462,8 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         let mut driver = ManagedDriver::load_from_name("trino", ... )
         ```
 
+<br/>For a more detailed walkthrough on how to use dbc, check out our [First steps](getting_started/first_steps.md) page or any of our [Guides](./guides).
+
 ## Features
 
 - Install pre-built [ADBC](https://arrow.apache.org/adbc) drivers with a single command
@@ -471,47 +473,3 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 - Cross-platform: Runs on macOS, Linux, and Windows
 - Installable with pip, Docker, and more (See [Installation](getting_started/installation.md))
 - Works great in CI/CD environments
-
-## Installation
-
-You can install dbc on most platforms using a variety of methods:
-
-=== "macOS / Linux (CLI)"
-
-    ```console
-    $ curl -LsSf https://dbc.columnar.tech/install.sh | sh
-    ```
-
-=== "Windows (CLI)"
-
-    ```console
-    $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
-    ```
-
-=== "Windows (MSI)"
-
-    <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>
-
-=== "uv"
-
-    ```console
-    $ uv tool install dbc
-    ```
-
-=== "pipx"
-
-    ```console
-    $ pipx install dbc
-    ```
-
-=== "Homebrew"
-
-    ```console
-    $ brew tap columnar-tech/tap && brew install --cask dbc
-    ```
-
-Then, take your [first steps](getting_started/first_steps.md) to get started using dbc.
-
-!!! note
-
-    See our [Installation](getting_started/installation.md) page for more ways to get dbc.
