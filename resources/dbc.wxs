@@ -72,7 +72,7 @@ limitations under the License.
 
                 <Component Win64="$(var.Win64)" Id="MainExecutable" Guid="21002ec5-93ff-4c29-8864-9b1ca5a07e05">
                     <File Id="{{ .Binary }}.exe" Name="{{ .ArtifactName }}" Source="{{ .ArtifactName }}" KeyPath="yes" />
-                    <Environment Id="UpdatePath" Name="PATH" Action="set" Permanent="no" System="yes" Part="last" Value="[INSTALLDIR]" />
+                    <Environment Id="UpdatePath" Name="PATH" Action="set" Permanent="no" System="no" Part="last" Value="[INSTALLDIR]" />
                 </Component>
 
             </Directory>
