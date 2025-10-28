@@ -6,7 +6,7 @@ dbc collects basic, anonymized information in order to help us better understand
 
 When you use dbc to search for or install a driver, dbc communicates with Columnar's CDN which is hosted using [Amazon Web Services](http://aws.amazon.com). Requests to the CDN include information such as:
 
-- IP Address
+- IP address
 - dbc version
 - Operating system name and architecture (e.g., linux/amd64)
 - A non-reversible but stable per-machine ID and a random UUID (generated once per install)
