@@ -21,4 +21,4 @@ Logs are currently not deleted but we plan to set up automatic log pruning and w
 
 ## How do I opt out?
 
-There's currently no mechanism to opt out of this data collection. If you have any questions or concerns, please reach out to us at [hello@columnar.tech](mailto:hello@columnar.tech).
+There's currently no mechanism to opt out of this data collection. If you have any questions or concerns, please reach out to us at [privacy@columnar.tech](mailto:privacy@columnar.tech).
