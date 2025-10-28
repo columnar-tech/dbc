@@ -472,3 +472,9 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 - Cross-platform: Runs on macOS, Linux, and Windows
 - Installable with pip, Docker, and more (See [Installation](./getting_started/installation.md))
 - Works great in CI/CD environments
+
+## Help
+
+- Join the [Columnar Community Slack](https://join.slack.com/t/columnar-community/shared_invite/zt-3gt5cb69i-KRjJj~mjUZv5doVmpcVa4w)
+- Open an [issue](https://github.com/columnar-tech/dbc/issues) or start a [discussion](https://github.com/columnar-tech/dbc/discussions) on GitHub
+- Check out the [ADBC Quickstarts](https://github.com/columnar-tech/adbc-quickstarts)
