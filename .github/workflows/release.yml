@@ -236,4 +236,4 @@ jobs:
             --if-match=$ETAG \
             --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} \
             --key=latest \
-            --value=${{ fromJSON(steps.gorelease.outputs.metadata).tag }}
+            --value=${{ fromJSON(steps.gorelease.outputs.metadata).version }}

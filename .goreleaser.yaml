@@ -340,3 +340,11 @@ release:
     ---
 
     Released by [GoReleaser](https://github.com/goreleaser/goreleaser).
+
+milestones:
+  - repo:
+      owner: columnar-tech
+      name: dbc
+
+    close: true
+    name_template: "{{ .Version }}"
