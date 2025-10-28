@@ -206,7 +206,7 @@ with adbc.connect(
 print(table)
 ```
 
-For more examples, see the [documentation](https://docs.columnar.tech/dbc)!
+For more detailed information on using dbc, see the [documentation](https://docs.columnar.tech/dbc). Also check out the [ADBC Quickstarts](https://github.com/columnar-tech/adbc-quickstarts) repo to learn how to use ADBC with a variety of languages and databases.
 
 ## Communications
 
