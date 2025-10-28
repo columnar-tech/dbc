@@ -98,6 +98,8 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/columnar-tech/dbc
+    - icon: fontawesome/brands/slack
+      link: https://join.slack.com/t/columnar-community/shared_invite/zt-3gt5cb69i-KRjJj~mjUZv5doVmpcVa4w
     - icon: fontawesome/brands/linkedin
       link: http://linkedin.com/company/columnar-tech/
     - icon: fontawesome/brands/x-twitter
