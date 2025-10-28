@@ -20,7 +20,7 @@ limitations under the License.
 
 # dbc
 
-dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
+dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers. Get up and running with ADBC in just three steps:
 
 <br/>1. Install dbc (see [Installation](./getting_started/installation.md) for more options):
 
