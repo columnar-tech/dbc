@@ -20,9 +20,46 @@ limitations under the License.
 
 # dbc
 
-dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
+dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers. Get up and running with ADBC in just three steps:
 
-<br/>To start, [install dbc](./getting_started/installation.md). Then use dbc to install a driver:
+<br/>1. Install dbc (see [Installation](./getting_started/installation.md) for more options):
+
+=== "macOS / Linux (CLI)"
+
+    ```console
+    $ curl -LsSf https://dbc.columnar.tech/install.sh | sh
+    ```
+
+=== "Windows (CLI)"
+
+    ```console
+    $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
+    ```
+
+=== "Windows (MSI)"
+
+    Download <https://dbc.columnar.tech/latest/dbc-latest-x64.msi> and then run the installer.
+
+=== "uv"
+
+    ```console
+    $ uv tool install dbc
+    ```
+
+=== "pipx"
+
+    ```console
+    $ pipx install dbc
+    ```
+
+=== "Homebrew"
+
+    ```console
+    $ brew tap columnar-tech/tap
+    $ brew install --cask dbc
+    ```
+
+<br/>2. Use dbc to install drivers:
 
 === "BigQuery"
 
@@ -30,7 +67,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install bigquery
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -70,7 +107,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install duckdb
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -110,7 +147,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install flightsql
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -150,7 +187,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install mssql
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -190,7 +227,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install mysql
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -230,7 +267,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install postgresql
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -270,7 +307,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install redshift
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -310,7 +347,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install snowflake
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -350,7 +387,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install sqlite
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -390,7 +427,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ dbc install trino
     ```
 
-    <br/>Then [install a driver manager](./guides/driver_manager.md) and load it in any supported language:
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
     === "Go"
 
@@ -424,6 +461,8 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         let mut driver = ManagedDriver::load_from_name("trino", ... )
         ```
 
+<br/>For a more detailed walkthrough on how to use dbc, check out our [First steps](./getting_started/first_steps.md) page or any of our [Guides](./guides).
+
 ## Features
 
 - Install pre-built [ADBC](https://arrow.apache.org/adbc) drivers with a single command
@@ -431,27 +470,11 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 - Install drivers just for your user or system-wide
 - Create reproducible environments with [driver list](concepts/driver_list.md) files
 - Cross-platform: Runs on macOS, Linux, and Windows
-- Installable with pip, Docker, and more (See [Installation](getting_started/installation.md))
+- Installable with pip, Docker, and more (See [Installation](./getting_started/installation.md))
 - Works great in CI/CD environments
 
-## Installation
+## Help
 
-Install dbc with our automated installer:
-
-=== "macOS and Linux"
-
-    ```console
-    $ curl -LsSf https://dbc.columnar.tech/install.sh | sh
-    ```
-
-=== "Windows"
-
-    ```console
-    $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
-    ```
-
-Then, take your [first steps](getting_started/first_steps.md) to get started using dbc.
-
-!!! note
-
-    See our [Installation](getting_started/installation.md) page for more ways to get dbc.
+- Join the [Columnar Community Slack](https://join.slack.com/t/columnar-community/shared_invite/zt-3gt5cb69i-KRjJj~mjUZv5doVmpcVa4w)
+- Open an [issue](https://github.com/columnar-tech/dbc/issues) or start a [discussion](https://github.com/columnar-tech/dbc/discussions) on GitHub
+- Check out the [ADBC Quickstarts](https://github.com/columnar-tech/adbc-quickstarts)
