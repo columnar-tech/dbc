@@ -1,6 +1,6 @@
 # Analytics
 
-dbc collects basic, anonymized information in order to help us better understand how dbc is being used.
+Columnar collects basic, anonymized information in order to help us better understand how dbc is being used.
 
 ## What data do we collect?
 
