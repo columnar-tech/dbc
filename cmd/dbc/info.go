@@ -63,6 +63,10 @@ func (m infoModel) Init() tea.Cmd {
 }
 
 func formatDriverInfo(drv dbc.Driver) string {
+	if len(drv.PkgInfo) == 0 {
+		return ""
+	}
+
 	info := drv.MaxVersion()
 	var b strings.Builder
 

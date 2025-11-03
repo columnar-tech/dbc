@@ -26,3 +26,11 @@ func (suite *SubcommandTestSuite) TestInfo() {
 		"   - linux_amd64\n   - macos_amd64\n"+
 		"   - macos_arm64\n   - windows_amd64\n", out)
 }
+
+func (suite *SubcommandTestSuite) TestInfo_DriverNotFound() {
+	m := InfoCmd{Driver: "non-existent-driver"}.
+		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.validateOutput("Error: driver `non-existent-driver` not found in driver registry index\r\n\r ", "", out)
+}
