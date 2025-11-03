@@ -220,4 +220,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for more information on contributing.
 
 ## Code of Conduct
 
-By choosing to contribute to dbc, you agree to follow our [Code of Conduct](./CODE_OF_CONDUCT.md).
+By choosing to contribute to dbc, you agree to follow our [Code of Conduct](https://github.com/columnar-tech/.github/blob/main/CODE_OF_CONDUCT.md).
