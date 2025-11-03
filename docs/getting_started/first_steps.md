@@ -52,7 +52,7 @@ For convenience, the steps are included below:
 
 3. Give the new project a name and ID (or use the defaults) and save the ID somewhere for later. Note the name is not the same as the ID.
 
-You can also refer to the [BigQuery public dataset](https://cloud.google.com/bigquery/public-data) page for more details.
+You can also refer to the [BigQuery public datasets](https://cloud.google.com/bigquery/public-data) page for more details.
 
 ### Authenticate with the gcloud CLI
 
