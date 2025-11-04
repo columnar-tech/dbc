@@ -50,18 +50,18 @@
 # ```
 
 import argparse
-from email.message import EmailMessage
 import hashlib
 import io
+import json
 import os
+import tarfile
 import urllib
 import urllib.request
-import json
-from wheel.wheelfile import WheelFile
-from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
-import tarfile
+from email.message import EmailMessage
 from typing import List
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
+from wheel.wheelfile import WheelFile
 
 GITHUB_ORG = "columnar-tech"
 GITHUB_REPO = "dbc"
