@@ -69,6 +69,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "bigquery", &error)
+        ```
+
     === "Go"
 
         ```go
@@ -108,6 +116,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "duckdb", &error)
+        ```
 
     === "Go"
 
@@ -149,6 +165,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "flightsql", &error)
+        ```
+
     === "Go"
 
         ```go
@@ -188,6 +212,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "mssql", &error)
+        ```
 
     === "Go"
 
@@ -229,6 +261,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "mysql", &error)
+        ```
+
     === "Go"
 
         ```go
@@ -268,6 +308,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "postgresql", &error)
+        ```
 
     === "Go"
 
@@ -309,6 +357,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "redshift", &error)
+        ```
+
     === "Go"
 
         ```go
@@ -348,6 +404,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "snowflake", &error)
+        ```
 
     === "Go"
 
@@ -389,6 +453,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "sqlite", &error)
+        ```
+
     === "Go"
 
         ```go
@@ -428,6 +500,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "trino", &error)
+        ```
 
     === "Go"
 
