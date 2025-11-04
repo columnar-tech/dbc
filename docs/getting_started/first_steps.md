@@ -34,7 +34,7 @@ To run through the steps on this page, you'll need at a minimum,
 
 - dbc (See [Installation](./installation.md))
 - A recent Python installation with pip
-- The [Google Cloud cli](https://cloud.google.com/cli) and a Google account to use it with
+- The [Google Cloud CLI](https://cloud.google.com/cli) and a Google account to use it with
 
 ## Setup
 
@@ -57,7 +57,7 @@ You can also refer to the [BigQuery public dataset](https://cloud.google.com/big
 ### Authenticate with the gcloud CLI
 
 To access BigQuery, you'll need to save credentials locally for the BigQuery driver to use.
-With the [Google Cloud cli](https://cloud.google.com/cli) installed, log in by running:
+With the [Google Cloud CLI](https://cloud.google.com/cli) installed, log in by running:
 
 ```console
 $ gcloud auth application-default login
