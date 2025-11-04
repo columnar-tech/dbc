@@ -17,9 +17,9 @@
 
 import argparse
 import tarfile
-import yaml
 from pathlib import Path
 
+import yaml
 from faker import Faker
 
 PLATFORMS = [
