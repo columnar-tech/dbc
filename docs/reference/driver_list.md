@@ -26,12 +26,17 @@ Each driver must have a name and may optionally have a version constraint. See [
 The following driver list specifies:
 
 - Whatever is the latest version of the "mysql" driver
-- The exact 1.3.2 version of the "duckdb" driver
+- The exact 1.4.0 version of the "duckdb" driver
 - The latest version in the 1.x.x major series for the "postgresql" driver.
 
 ```toml
 [drivers]
-mysql
-duckdb = "1.3.2"
-postgresql = "1.x.x"
+
+[drivers.mysql]
+
+[drivers.duckdb]
+version = '=1.4.0'
+
+[drivers.postgresql]
+version = '=1.x.x'
 ```
