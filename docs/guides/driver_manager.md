@@ -77,7 +77,7 @@ The best place to find detailed information on driver manager installation is al
     === "conda"
 
         ```console
-        $ conda install -c conda-forge adbc-driver-manager
+        $ conda install -c conda-forge libadbc-driver-manager
         ```
 
     === "apt"
