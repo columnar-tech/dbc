@@ -16,8 +16,8 @@ limitations under the License.
 
 # dbc <picture><img src="https://raw.githubusercontent.com/columnar-tech/dbc/refs/heads/main/resources/dbc_logo_animated_padded.png?raw=true" width="180" align="right" alt="dbc Logo"/></picture>
 
-![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
-![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/columnar-tech/dbc)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/columnar-tech/dbc)](https://github.com/columnar-tech/dbc/releases)
 [![Release dbc](https://github.com/columnar-tech/dbc/actions/workflows/release.yml/badge.svg)](https://github.com/columnar-tech/dbc/actions/workflows/release.yml)
 
 ## Overview
