@@ -97,6 +97,7 @@ func getConfig(c config.ConfigLevel) config.Config {
 type baseModel struct {
 	getDriverList func() ([]dbc.Driver, error)
 	downloadPkg   func(p dbc.PkgInfo) (*os.File, error)
+	openBrowser   func(string) error
 
 	status int
 }
@@ -132,6 +133,7 @@ type cmds struct {
 	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
 	Search     *SearchCmd       `arg:"subcommand" help:"Search for a driver"`
 	Info       *InfoCmd         `arg:"subcommand" help:"Get information about a driver"`
+	Doc        *DocCmd          `arg:"subcommand" help:"Open driver documentation in a web browser"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
 	Completion *completions.Cmd `arg:"subcommand" help:"-"`
 }
