@@ -194,7 +194,7 @@ dbc sync --file dbc.toml
 
 <h3>Options</h3>
 
-`--path`
+`--path`, `-p`
 
 :   Path to a [driver list](../concepts/driver_list.md) file to sync. Defaults to `dbc.toml` in the current working directory.
 
