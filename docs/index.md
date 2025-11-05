@@ -24,21 +24,27 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
 <br/>1. Install dbc (see [Installation](./getting_started/installation.md) for more options):
 
-=== "macOS / Linux (CLI)"
+=== "Linux/macOS shell"
 
     ```console
     $ curl -LsSf https://dbc.columnar.tech/install.sh | sh
     ```
 
-=== "Windows (CLI)"
+=== "Windows shell"
 
     ```console
     $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
     ```
 
-=== "Windows (MSI)"
+=== "Windows MSI"
 
     Download <https://dbc.columnar.tech/latest/dbc-latest-x64.msi> and then run the installer.
+
+=== "WinGet"
+
+    ```console
+    $ winget install dbc
+    ```
 
 === "uv"
 
@@ -541,7 +547,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         let mut driver = ManagedDriver::load_from_name("trino", ... )
         ```
 
-<br/>For a more detailed walkthrough on how to use dbc, check out our [First steps](./getting_started/first_steps.md) page or any of our [Guides](./guides).
+<br/>For a more detailed walkthrough on how to use dbc, check out our [First steps](./getting_started/first_steps.md) page or any of our [Guides](./guides/index.md).
 
 ## Features
 
