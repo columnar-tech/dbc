@@ -37,6 +37,7 @@ var fallbackDriverDocsUrl = map[string]string{
 	"redshift":   "http://example.com",
 	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
 	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
+	"trino":      "http://example.com",
 }
 
 type docsUrlFound string
@@ -46,12 +47,12 @@ type DocCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
 }
 
-func (c DocCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error) tea.Model {
+func (c DocCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
 	return docModel{
 		baseModel:    baseModel,
 		driver:       c.Driver,
 		isHeadless:   isHeadless,
-		fallbackUrls: fallbackDriverDocsUrl,
+		fallbackUrls: fallbackUrls,
 		openBrowser:  openBrowserFunc,
 	}
 }
@@ -61,7 +62,7 @@ func (c DocCmd) GetModel() tea.Model {
 	return c.GetModelCustom(baseModel{
 		getDriverList: getDriverList,
 		downloadPkg:   downloadPkg,
-	}, isHeadless, browser.OpenURL)
+	}, isHeadless, browser.OpenURL, fallbackDriverDocsUrl)
 }
 
 type docModel struct {
@@ -111,7 +112,7 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.drv = &msg
 		// TODO: Add logic for finding driver docs from index. For now, we only use
 		// fallback URLs.
-		url, keyExists := fallbackDriverDocsUrl[msg.Path]
+		url, keyExists := m.fallbackUrls[msg.Path]
 		if !keyExists {
 			return m, func() tea.Msg {
 				return fmt.Errorf("no documentation available for driver `%s`", msg.Path)
