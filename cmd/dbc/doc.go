@@ -16,10 +16,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cli/browser"
 	"github.com/columnar-tech/dbc"
+	"github.com/mattn/go-isatty"
 )
 
 var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
@@ -37,10 +39,6 @@ var fallbackDriverDocsUrl = map[string]string{
 	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
 }
 
-// Whether we should confirm opening a browser with user input or not
-// This is mostly for testing the UX
-var shouldConfirm = true
-
 type docsUrlFound string
 type successMsg string
 
@@ -48,30 +46,34 @@ type DocCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
 }
 
-func (c DocCmd) GetModelCustom(baseModel baseModel, promptBeforeOpen bool) tea.Model {
+func (c DocCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error) tea.Model {
 	return docModel{
-		baseModel:        baseModel,
-		driver:           c.Driver,
-		promptBeforeOpen: promptBeforeOpen,
+		baseModel:    baseModel,
+		driver:       c.Driver,
+		isHeadless:   isHeadless,
+		fallbackUrls: fallbackDriverDocsUrl,
+		openBrowser:  openBrowserFunc,
 	}
 }
 
 func (c DocCmd) GetModel() tea.Model {
+	isHeadless := !isatty.IsTerminal(os.Stdout.Fd())
 	return c.GetModelCustom(baseModel{
 		getDriverList: getDriverList,
 		downloadPkg:   downloadPkg,
-		openBrowser:   browser.OpenURL,
-	}, shouldConfirm)
+	}, isHeadless, browser.OpenURL)
 }
 
 type docModel struct {
 	baseModel
 
-	driver           string
-	drv              *dbc.Driver
-	urlToOpen        string
-	waitingForUser   bool
-	promptBeforeOpen bool
+	driver         string
+	drv            *dbc.Driver
+	urlToOpen      string
+	waitingForUser bool
+	isHeadless     bool
+	fallbackUrls   map[string]string
+	openBrowser    func(string) error
 }
 
 func (m docModel) Init() tea.Cmd {
@@ -96,7 +98,7 @@ func (m docModel) Init() tea.Cmd {
 
 func (m docModel) openBrowserCmd(url string) tea.Cmd {
 	return func() tea.Msg {
-		if err := m.baseModel.openBrowser(url); err != nil {
+		if err := m.openBrowser(url); err != nil {
 			return fmt.Errorf("failed to open browser: %w", err)
 		}
 		return successMsg("Opening documentation in browser...")
@@ -110,20 +112,25 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// TODO: Add logic for finding driver docs from index. For now, we only use
 		// fallback URLs.
 		url, keyExists := fallbackDriverDocsUrl[msg.Path]
-		return m, func() tea.Msg {
-			if !keyExists {
+		if !keyExists {
+			return m, func() tea.Msg {
 				return fmt.Errorf("no documentation available for driver `%s`", msg.Path)
-			} else {
+			}
+		} else {
+			return m, func() tea.Msg {
 				return docsUrlFound(url)
 			}
 		}
+
 	case docsUrlFound:
 		m.urlToOpen = string(msg)
-		m.waitingForUser = m.promptBeforeOpen
 
-		if !m.waitingForUser {
-			return m, m.openBrowserCmd(m.urlToOpen)
+		// In headless mode, just print the URL and quit
+		if m.isHeadless {
+			return m, tea.Sequence(tea.Println(m.urlToOpen), tea.Quit)
 		}
+
+		m.waitingForUser = true
 		return m, nil
 	case successMsg:
 		return m, tea.Sequence(tea.Println(string(msg)), tea.Quit)

@@ -97,7 +97,6 @@ func getConfig(c config.ConfigLevel) config.Config {
 type baseModel struct {
 	getDriverList func() ([]dbc.Driver, error)
 	downloadPkg   func(p dbc.PkgInfo) (*os.File, error)
-	openBrowser   func(string) error
 
 	status int
 }

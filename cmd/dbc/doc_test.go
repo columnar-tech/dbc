@@ -18,14 +18,14 @@ import (
 	"fmt"
 )
 
-func mockBrowserOpen(openedURL *string) func(string) error {
+func mockOpenBrowserFunc(openedURL *string) func(string) error {
 	return func(url string) error {
 		*openedURL = url
 		return nil
 	}
 }
 
-func mockBrowserOpenError() func(string) error {
+func mockOpenBrowserFuncError() func(string) error {
 	return func(url string) error {
 		return fmt.Errorf("browser not available")
 	}
@@ -38,9 +38,9 @@ func (suite *SubcommandTestSuite) TestDocNoDriver() {
 		baseModel{
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
-			openBrowser:   mockBrowserOpen(&openedURL),
 		},
-		false, // Don't prompt in tests
+		false, // Not headless
+		mockOpenBrowserFunc(&openedURL),
 	)
 
 	out := suite.runCmd(m)
@@ -55,9 +55,9 @@ func (suite *SubcommandTestSuite) TestDocDriverFound() {
 		baseModel{
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
-			openBrowser:   mockBrowserOpen(&openedURL),
 		},
-		false, // Don't prompt in tests
+		false, // Not headless
+		mockOpenBrowserFunc(&openedURL),
 	)
 
 	out := suite.runCmd(m)
@@ -72,9 +72,9 @@ func (suite *SubcommandTestSuite) TestDocDriverNotFound() {
 		baseModel{
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
-			openBrowser:   mockBrowserOpen(&openedURL),
 		},
-		false, // Don't prompt in tests
+		false, // Not headless
+		mockOpenBrowserFunc(&openedURL),
 	)
 
 	out := suite.runCmdErr(m)
@@ -86,9 +86,9 @@ func (suite *SubcommandTestSuite) TestDocBrowserOpenError() {
 		baseModel{
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
-			openBrowser:   mockBrowserOpenError(),
 		},
-		false, // Don't prompt in tests
+		false, // Not headless
+		mockOpenBrowserFuncError(),
 	)
 
 	out := suite.runCmdErr(m)
