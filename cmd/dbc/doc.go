@@ -24,6 +24,19 @@ import (
 
 var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
 
+// Support drivers without a docs URL defined in the index
+var fallbackDriverDocsUrl = map[string]string{
+	"bigquery":   "http://example.com",
+	"duckdb":     "https://arrow.apache.org/adbc/current/driver/duckdb.html",
+	"flightsql":  "https://arrow.apache.org/adbc/current/driver/flight_sql.html",
+	"mssql":      "http://example.com",
+	"mysql":      "http://example.com",
+	"postgresql": "https://arrow.apache.org/adbc/current/driver/postgresql.html",
+	"redshift":   "http://example.com",
+	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
+	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
+}
+
 // Whether we should confirm opening a browser with user input or not
 // This is mostly for testing the UX
 var shouldConfirm = true
@@ -94,11 +107,15 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dbc.Driver:
 		m.drv = &msg
-		// TODO(amoeba): This should come from a field in the index. Use a query string
-		// right now for testing.
-		url := fmt.Sprintf("https://docs.columnar.tech/dbc/?driver=%s", msg.Path)
+		// TODO: Add logic for finding driver docs from index. For now, we only use
+		// fallback URLs.
+		url, keyExists := fallbackDriverDocsUrl[msg.Path]
 		return m, func() tea.Msg {
-			return docsUrlFound(url)
+			if !keyExists {
+				return fmt.Errorf("no documentation available for driver `%s`", msg.Path)
+			} else {
+				return docsUrlFound(url)
+			}
 		}
 	case docsUrlFound:
 		m.urlToOpen = string(msg)
