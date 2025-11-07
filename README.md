@@ -39,16 +39,16 @@ There are multiple ways to install dbc:
 
 ### From PyPI
 
-For simple installation, we recommend the popular [pipx](https://pipx.pypa.io/stable/installation) tool which will automatically put it on your `PATH`:
+For simple installation, we recommend the popular [uv](https://docs.astral.sh/uv/guides/tools/) tool which will automatically put it on your `PATH`:
 
 ```sh
-pipx install dbc
+uv tool install dbc
 ```
 
 You can also just test it out instead of installing it:
 
 ```sh
-pipx run dbc
+uvx dbc
 ```
 
 You can also use a virtual environment:
