@@ -60,6 +60,7 @@ nav:
       - Analytics: reference/analytics.md
 theme:
   name: material
+  custom_dir: docs/overrides
   logo: assets/dbc_logo_white_static.svg
   favicon: assets/favicon.ico
   font:
