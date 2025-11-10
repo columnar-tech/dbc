@@ -150,10 +150,10 @@ brew install --cask dbc
 ## Getting Started
 
 Once you have dbc available to you on the command line, you can install an ADBC
-driver and make it available to your user. For example, to install the bigquery driver:
+driver and make it available to your user. For example, to install the snowflake driver:
 
 ```sh
-dbc install bigquery
+dbc install snowflake
 ```
 
 Alternately, when working on a project you can create a `dbc.toml` file to create a
@@ -162,14 +162,14 @@ list of drivers to install to create a reproducible environment:
 ```sh
 cd <path/to/project>
 dbc init # creates dbc.toml
-dbc add bigquery # adds this to the driver list
+dbc add snowflake # adds this to the driver list
 dbc sync # install drivers and create dbc.lock
 ```
 
 Using `dbc add` also allows version constraints:
 
 ```sh
-dbc add "bigquery>=1.0.0"
+dbc add "snowflake>=1.0.0"
 dbc sync # looks for and installs a version >=1.0.0
 ```
 
