@@ -1,4 +1,8 @@
 {
+  "name": "dbc Documentation",
+  "short_name": "dbc Docs",
+  "start_url": "/dbc/",
+  "scope": "/dbc/",
   "icons": [
     { "src": "assets/icon-192.png", "type": "image/png", "sizes": "192x192" },
     { "src": "assets/icon-mask.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" },
