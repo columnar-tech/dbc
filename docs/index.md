@@ -91,6 +91,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "bigquery", ... })
         ```
 
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "bigquery");
+        ```
+
     ===+ "Python"
 
         ```python
@@ -137,6 +145,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "duckdb", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "duckdb");
         ```
 
     ===+ "Python"
@@ -187,6 +203,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "flightsql", ... })
         ```
 
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "flightsql");
+        ```
+
     ===+ "Python"
 
         ```python
@@ -233,6 +257,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "mssql", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "mssql");
         ```
 
     ===+ "Python"
@@ -283,6 +315,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "mysql", ... })
         ```
 
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "mysql");
+        ```
+
     ===+ "Python"
 
         ```python
@@ -329,6 +369,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "postgresql", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "postgresql");
         ```
 
     ===+ "Python"
@@ -379,6 +427,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "redshift", ... })
         ```
 
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "redshift");
+        ```
+
     ===+ "Python"
 
         ```python
@@ -425,6 +481,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "snowflake", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "snowflake");
         ```
 
     ===+ "Python"
@@ -475,6 +539,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "sqlite", ... })
         ```
 
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "sqlite");
+        ```
+
     ===+ "Python"
 
         ```python
@@ -521,6 +593,14 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
 
         db, _ := Driver{}.NewDatabase(map[string]string{"driver": "trino", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "trino");
         ```
 
     ===+ "Python"
