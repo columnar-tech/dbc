@@ -41,276 +41,166 @@ func mockOpenBrowserFuncError() func(string) error {
 
 var testFallbackUrls = map[string]string{
 	"test-driver-1": "https://test.example.com/driver1",
-	"test-driver-2": "https://test.example.com/driver2",
 }
 
-func TestDocNoDriver(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: ""}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+func TestDocCmd(t *testing.T) {
+	tests := []struct {
+		name              string
+		driver            string
+		isHeadless        bool
+		input             string
+		openBrowserFunc   func(*string) func(string) error
+		expectedStatus    int
+		expectedOpenedURL string
+		expectedOutputMsg string
+	}{
+		// Headless tests
+		{
+			name:              "headless no driver",
+			driver:            "",
+			isHeadless:        true,
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    0,
+			expectedOutputMsg: "https://docs.columnar.tech/dbc/",
 		},
-		true, // Headless mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var out bytes.Buffer
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 0, m.(HasStatus).Status())
-	assert.Contains(t, out.String(), "https://docs.columnar.tech/dbc/")
-}
-
-func TestDocNoDriverInteractiveSayYes(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: ""}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		{
+			name:              "headless driver found",
+			driver:            "test-driver-1",
+			isHeadless:        true,
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    0,
+			expectedOutputMsg: "https://test.example.com/driver1",
 		},
-		false, // Interactive mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var in bytes.Buffer
-	var out bytes.Buffer
-	in.WriteString("y\n")
-
-	p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 0, m.(HasStatus).Status())
-	assert.Contains(t, out.String(), "Opening documentation in browser...")
-	assert.Equal(t, "https://docs.columnar.tech/dbc/", openedURL)
-}
-
-func TestDocNoDriverInteractiveSayNo(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: ""}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		{
+			name:              "headless driver not found",
+			driver:            "nonexistent-driver",
+			isHeadless:        true,
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    1,
+			expectedOutputMsg: "driver `nonexistent-driver` not found in driver registry index",
 		},
-		false, // Interactive mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var in bytes.Buffer
-	var out bytes.Buffer
-	in.WriteString("n\n")
-
-	p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 0, m.(HasStatus).Status())
-	assert.NotContains(t, out.String(), "Opening documentation in browser...")
-	assert.Equal(t, "", openedURL)
-}
-
-func TestDocNoDriverInteractiveDecline(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: ""}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		{
+			name:              "headless driver not in fallback map",
+			driver:            "test-driver-2",
+			isHeadless:        true,
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    1,
+			expectedOutputMsg: "no documentation available for driver `test-driver-2`",
 		},
-		false, // Interactive mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var in bytes.Buffer
-	var out bytes.Buffer
-	in.WriteString("n\n")
-
-	p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 0, m.(HasStatus).Status())
-	assert.NotContains(t, out.String(), "Opening documentation in browser...")
-	assert.Equal(t, "", openedURL)
-}
-
-func TestDocDriverFound(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: "test-driver-1"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		// Interactive tests - no driver
+		{
+			name:              "interactive no driver say yes",
+			driver:            "",
+			isHeadless:        false,
+			input:             "y\n",
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    0,
+			expectedOpenedURL: "https://docs.columnar.tech/dbc/",
+			expectedOutputMsg: "Opening documentation in browser...",
 		},
-		true, // Headless mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var out bytes.Buffer
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 0, m.(HasStatus).Status())
-	assert.Contains(t, out.String(), "https://test.example.com/driver1")
-}
-
-func TestDocDriverFoundInteractive(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: "test-driver-1"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		{
+			name:              "interactive no driver say no",
+			driver:            "",
+			isHeadless:        false,
+			input:             "n\n",
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    0,
+			expectedOpenedURL: "",
 		},
-		false, // Interactive mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var in bytes.Buffer
-	var out bytes.Buffer
-
-	p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	var finalModel tea.Model
-	var runErr error
-	go func() { finalModel, runErr = p.Run() }()
-
-	<-time.After(time.Millisecond * 500)
-	require.NoError(t, ctx.Err())
-
-	// Send the key message
-	in.Write([]byte("y"))
-	p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
-
-	p.Wait()
-	require.NoError(t, runErr)
-	assert.Equal(t, 0, finalModel.(HasStatus).Status())
-	assert.Contains(t, out.String(), "Opening documentation in browser...")
-	assert.Equal(t, "https://test.example.com/driver1", openedURL)
-}
-
-func TestDocDriverNotFound(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: "nonexistent-driver"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		// Interactive tests - with driver
+		{
+			name:              "interactive driver found say yes",
+			driver:            "test-driver-1",
+			isHeadless:        false,
+			input:             "y",
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    0,
+			expectedOpenedURL: "https://test.example.com/driver1",
+			expectedOutputMsg: "Opening documentation in browser...",
 		},
-		true, // Headless mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var out bytes.Buffer
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 1, m.(HasStatus).Status())
-	assert.Contains(t, out.String(), "driver `nonexistent-driver` not found in driver registry index")
-}
-
-func TestDocDriverNotInFallbackMap(t *testing.T) {
-	var openedURL string
-
-	m := DocCmd{Driver: "test-driver-2"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		{
+			name:              "interactive driver not found in fallback map",
+			driver:            "test-driver-2",
+			isHeadless:        false,
+			input:             "y",
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    1,
+			expectedOpenedURL: "",
+			expectedOutputMsg: "no documentation available for driver `test-driver-2`",
 		},
-		true, // Headless mode
-		mockOpenBrowserFunc(&openedURL),
-		testFallbackUrls,
-	)
-
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-
-	var out bytes.Buffer
-	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithContext(ctx))
-
-	m, err := p.Run()
-	require.NoError(t, err)
-	assert.Equal(t, 0, m.(HasStatus).Status())
-	assert.Contains(t, out.String(), "https://test.example.com/driver2")
-}
-
-func TestDocBrowserOpenError(t *testing.T) {
-	m := DocCmd{Driver: "test-driver-1"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+		{
+			name:              "interactive browser open error",
+			driver:            "test-driver-1",
+			isHeadless:        false,
+			input:             "y",
+			openBrowserFunc:   func(*string) func(string) error { return mockOpenBrowserFuncError() },
+			expectedStatus:    1,
+			expectedOpenedURL: "",
+			expectedOutputMsg: "failed to open browser: browser not available",
 		},
-		false, // Interactive mode
-		mockOpenBrowserFuncError(),
-		testFallbackUrls,
-	)
+	}
 
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var openedURL string
 
-	var in bytes.Buffer
-	var out bytes.Buffer
+			m := DocCmd{Driver: tt.driver}.GetModelCustom(
+				baseModel{
+					getDriverList: getTestDriverList,
+					downloadPkg:   downloadTestPkg,
+				},
+				tt.isHeadless,
+				tt.openBrowserFunc(&openedURL),
+				testFallbackUrls,
+			)
 
-	p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-		tea.WithContext(ctx))
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
 
-	var finalModel tea.Model
-	var runErr error
-	go func() { finalModel, runErr = p.Run() }()
+			var in bytes.Buffer
+			var out bytes.Buffer
 
-	<-time.After(time.Millisecond * 500)
-	require.NoError(t, ctx.Err())
+			if !tt.isHeadless {
+				// Interactive with driver lookup - use goroutine + p.Send pattern
+				p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
+					tea.WithContext(ctx))
 
-	// Send the key message
-	in.Write([]byte("y"))
-	p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+				var finalModel tea.Model
+				var runErr error
+				go func() { finalModel, runErr = p.Run() }()
 
-	p.Wait()
-	require.NoError(t, runErr)
-	assert.Equal(t, 1, finalModel.(HasStatus).Status())
-	assert.Contains(t, out.String(), "failed to open browser: browser not available")
+				// Wait for the program to initialize and display the prompt
+				<-time.After(time.Millisecond * 500)
+				require.NoError(t, ctx.Err())
+
+				// Send the key message
+				in.Write([]byte(tt.input))
+				p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.input)})
+
+				p.Wait()
+				require.NoError(t, runErr)
+				assert.Equal(t, tt.expectedStatus, finalModel.(HasStatus).Status())
+			} else {
+				// Headless or interactive without driver lookup - simple pattern
+				if tt.input != "" {
+					in.WriteString(tt.input)
+				}
+
+				p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
+					tea.WithContext(ctx))
+
+				var err error
+				m, err = p.Run()
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedStatus, m.(HasStatus).Status())
+			}
+
+			// Common assertions
+			assert.Equal(t, tt.expectedOpenedURL, openedURL)
+
+			if tt.expectedOutputMsg != "" {
+				assert.Contains(t, out.String(), tt.expectedOutputMsg)
+			}
+		})
+	}
 }
