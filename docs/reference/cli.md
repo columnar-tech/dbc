@@ -177,7 +177,7 @@ $ dbc remove <DRIVER>
 
 `--path FILE`, `-p FILE`
 
-:   Driver list to add to [default: ./dbc.toml]
+:   Driver list to remove from [default: ./dbc.toml]
 
 ## sync
 
