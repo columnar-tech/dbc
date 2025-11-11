@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -160,40 +161,32 @@ func TestDocCmd(t *testing.T) {
 			var in bytes.Buffer
 			var out bytes.Buffer
 
-			if !tt.isHeadless {
-				// Interactive with driver lookup - use goroutine + p.Send pattern
-				p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-					tea.WithContext(ctx))
+			// Write input to buffer for headless mode
+			if tt.isHeadless && tt.input != "" {
+				in.WriteString(tt.input)
+			}
 
-				var finalModel tea.Model
-				var runErr error
+			p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
+				tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=linux")))
+
+			var finalModel tea.Model
+			var runErr error
+
+			if !tt.isHeadless {
 				go func() { finalModel, runErr = p.Run() }()
 
-				// Wait for the program to initialize and display the prompt
 				<-time.After(time.Millisecond * 500)
 				require.NoError(t, ctx.Err())
 
-				// Send the key message
-				in.Write([]byte(tt.input))
 				p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.input)})
-
 				p.Wait()
-				require.NoError(t, runErr)
-				assert.Equal(t, tt.expectedStatus, finalModel.(HasStatus).Status())
 			} else {
-				// Headless or interactive without driver lookup - simple pattern
-				if tt.input != "" {
-					in.WriteString(tt.input)
-				}
-
-				p := tea.NewProgram(m, tea.WithInput(&in), tea.WithOutput(&out),
-					tea.WithContext(ctx))
-
-				var err error
-				m, err = p.Run()
-				require.NoError(t, err)
-				assert.Equal(t, tt.expectedStatus, m.(HasStatus).Status())
+				finalModel, runErr = p.Run()
+			p.Wait()
 			}
+
+			require.NoError(t, runErr)
+			assert.Equal(t, tt.expectedStatus, finalModel.(HasStatus).Status())
 
 			assert.Equal(t, tt.expectedOpenedURL, openedURL)
 			if tt.expectedOutputMsg != "" {
