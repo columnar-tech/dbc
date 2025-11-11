@@ -44,7 +44,7 @@ var testFallbackUrls = map[string]string{
 	"test-driver-1": "https://test.example.com/driver1",
 }
 
-func TestDocCmd(t *testing.T) {
+func TestDocsCmd(t *testing.T) {
 	tests := []struct {
 		name              string
 		driver            string
@@ -155,7 +155,7 @@ func TestDocCmd(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var openedURL string
 
-			m := DocCmd{Driver: tt.driver}.GetModelCustom(
+			m := DocsCmd{Driver: tt.driver}.GetModelCustom(
 				baseModel{
 					getDriverList: getTestDriverList,
 					downloadPkg:   downloadTestPkg,

@@ -38,12 +38,12 @@ var fallbackDriverDocsUrl = map[string]string{
 type docsUrlFound string
 type successMsg string
 
-type DocCmd struct {
+type DocsCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
 }
 
-func (c DocCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
-	return docModel{
+func (c DocsCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
+	return docsModel{
 		baseModel:    baseModel,
 		driver:       c.Driver,
 		isHeadless:   isHeadless,
@@ -52,7 +52,7 @@ func (c DocCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowser
 	}
 }
 
-func (c DocCmd) GetModel() tea.Model {
+func (c DocsCmd) GetModel() tea.Model {
 	isHeadless := !isatty.IsTerminal(os.Stdout.Fd())
 	return c.GetModelCustom(baseModel{
 		getDriverList: getDriverList,
@@ -60,7 +60,7 @@ func (c DocCmd) GetModel() tea.Model {
 	}, isHeadless, browser.OpenURL, fallbackDriverDocsUrl)
 }
 
-type docModel struct {
+type docsModel struct {
 	baseModel
 
 	driver         string
@@ -72,7 +72,7 @@ type docModel struct {
 	openBrowser    func(string) error
 }
 
-func (m docModel) Init() tea.Cmd {
+func (m docsModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		if m.driver == "" {
 			return docsUrlFound(dbcDocsUrl)
@@ -92,7 +92,7 @@ func (m docModel) Init() tea.Cmd {
 	}
 }
 
-func (m docModel) openBrowserCmd(url string) tea.Cmd {
+func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.openBrowser(url); err != nil {
 			return fmt.Errorf("failed to open browser: %w", err)
@@ -101,7 +101,7 @@ func (m docModel) openBrowserCmd(url string) tea.Cmd {
 	}
 }
 
-func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dbc.Driver:
 		m.drv = &msg
@@ -154,14 +154,14 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m docModel) View() string {
+func (m docsModel) View() string {
 	if m.waitingForUser {
 		return fmt.Sprintf("Open browser to %s? (y/n): ", m.urlToOpen)
 	}
 	return ""
 }
 
-func (m docModel) FinalOutput() string {
+func (m docsModel) FinalOutput() string {
 	if m.isHeadless && m.urlToOpen != "" {
 		return m.urlToOpen + "\n"
 	}
