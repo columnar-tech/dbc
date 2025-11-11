@@ -16,7 +16,7 @@ limitations under the License.
 
 # Python Notebooks
 
-dbc can be installed and used directly in Python notebooks (such as Jupyter or Google Colab).
+dbc can be installed and used directly in Python notebooks (such as [Jupyter](https://jupyter.org) or [Google Colab](https://colab.google)).
 Each of the following code blocks is designed to be executed as an individual cell in your notebook.
 
 Install the `dbc`, `adbc-driver-manager`, and `pyarrow` packages:
