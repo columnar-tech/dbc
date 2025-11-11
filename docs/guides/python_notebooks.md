@@ -46,7 +46,7 @@ Connect to a database via ADBC, create a cursor, execute queries, and fetch the 
 
 ```python
 with (
-    dbapi.connect(driver="duckdb", db_kwargs={"path": "penguins.duckdb"}) as con,
+    dbapi.connect(driver="duckdb") as con,
     con.cursor() as cursor,
 ):
     cursor.execute("CREATE TABLE IF NOT EXISTS penguins AS FROM 'http://blobs.duckdb.org/data/penguins.csv'")
