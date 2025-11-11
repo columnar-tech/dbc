@@ -159,8 +159,8 @@ func TestDocCmd(t *testing.T) {
 				baseModel{
 					getDriverList: getTestDriverList,
 					downloadPkg:   downloadTestPkg,
-					isHeadless:    tt.isHeadless,
 				},
+				tt.isHeadless,
 				tt.openBrowserFunc(&openedURL),
 				testFallbackUrls,
 			)
@@ -199,7 +199,20 @@ func TestDocCmd(t *testing.T) {
 
 			assert.Equal(t, tt.expectedOpenedURL, openedURL)
 			if tt.expectedOutputMsg != "" {
-				assert.Contains(t, out.String(), tt.expectedOutputMsg)
+				if tt.isHeadless {
+					// In headless mode, we check FinalOutput instead of the buffer
+					if fo, ok := finalModel.(HasFinalOutput); ok {
+						assert.Contains(t, fo.FinalOutput(), tt.expectedOutputMsg)
+					}
+				} else {
+					assert.Contains(t, out.String(), tt.expectedOutputMsg)
+				}
+			}
+			// FinalOutput should always contain the URL if one was opened
+			if tt.expectedOpenedURL != "" {
+				if fo, ok := finalModel.(HasFinalOutput); ok {
+					assert.Contains(t, fo.FinalOutput(), tt.expectedOpenedURL)
+				}
 			}
 		})
 	}

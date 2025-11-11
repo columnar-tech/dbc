@@ -126,9 +126,9 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case docsUrlFound:
 		m.urlToOpen = string(msg)
 
-		// In headless mode, just print the URL and quit
+		// In headless mode, just quit and let FinalOutput handle printing
 		if m.isHeadless {
-			return m, tea.Sequence(tea.Println(m.urlToOpen), tea.Quit)
+			return m, tea.Quit
 		}
 
 		m.waitingForUser = true
@@ -150,6 +150,9 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
+	case error:
+		m.baseModel.status = 1
+		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
@@ -162,6 +165,13 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m docModel) View() string {
 	if m.waitingForUser {
 		return fmt.Sprintf("Open browser to %s? (y/n): ", m.urlToOpen)
+	}
+	return ""
+}
+
+func (m docModel) FinalOutput() string {
+	if m.urlToOpen != "" {
+		return m.urlToOpen + "\n"
 	}
 	return ""
 }
