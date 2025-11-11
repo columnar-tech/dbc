@@ -167,7 +167,7 @@ func (m docModel) View() string {
 }
 
 func (m docModel) FinalOutput() string {
-	if m.urlToOpen != "" {
+	if m.isHeadless && m.urlToOpen != "" {
 		return m.urlToOpen + "\n"
 	}
 	return ""
