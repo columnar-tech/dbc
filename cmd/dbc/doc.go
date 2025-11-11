@@ -150,9 +150,6 @@ func (m docModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 		}
-	case error:
-		m.baseModel.status = 1
-		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
