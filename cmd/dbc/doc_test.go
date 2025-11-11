@@ -55,7 +55,7 @@ func TestDocCmd(t *testing.T) {
 		expectedOpenedURL string
 		expectedOutputMsg string
 	}{
-		// Headless tests
+		// headless, no driver arg
 		{
 			name:              "headless no driver",
 			driver:            "",
@@ -64,13 +64,22 @@ func TestDocCmd(t *testing.T) {
 			expectedStatus:    0,
 			expectedOutputMsg: "https://docs.columnar.tech/dbc/",
 		},
+		// headless, with driver arg
 		{
-			name:              "headless driver found",
+			name:              "headless driver found in fallback map",
 			driver:            "test-driver-1",
 			isHeadless:        true,
 			openBrowserFunc:   mockOpenBrowserFunc,
 			expectedStatus:    0,
 			expectedOutputMsg: "https://test.example.com/driver1",
+		},
+		{
+			name:              "headless driver found not in fallback map",
+			driver:            "test-driver-2",
+			isHeadless:        true,
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    1,
+			expectedOutputMsg: "no documentation available for driver `test-driver-2`",
 		},
 		{
 			name:              "headless driver not found",
@@ -80,15 +89,7 @@ func TestDocCmd(t *testing.T) {
 			expectedStatus:    1,
 			expectedOutputMsg: "driver `nonexistent-driver` not found in driver registry index",
 		},
-		{
-			name:              "headless driver not in fallback map",
-			driver:            "test-driver-2",
-			isHeadless:        true,
-			openBrowserFunc:   mockOpenBrowserFunc,
-			expectedStatus:    1,
-			expectedOutputMsg: "no documentation available for driver `test-driver-2`",
-		},
-		// Interactive tests - no driver
+		// interactive, no driver arg
 		{
 			name:              "interactive no driver say yes",
 			driver:            "",
@@ -108,7 +109,7 @@ func TestDocCmd(t *testing.T) {
 			expectedStatus:    0,
 			expectedOpenedURL: "",
 		},
-		// Interactive tests - with driver
+		// interactive, with driver arg
 		{
 			name:              "interactive driver found say yes",
 			driver:            "test-driver-1",
@@ -118,6 +119,15 @@ func TestDocCmd(t *testing.T) {
 			expectedStatus:    0,
 			expectedOpenedURL: "https://test.example.com/driver1",
 			expectedOutputMsg: "Opening documentation in browser...",
+		},
+		{
+			name:              "interactive driver found say no",
+			driver:            "test-driver-1",
+			isHeadless:        false,
+			input:             "n",
+			openBrowserFunc:   mockOpenBrowserFunc,
+			expectedStatus:    0,
+			expectedOpenedURL: "",
 		},
 		{
 			name:              "interactive driver not found in fallback map",
@@ -149,19 +159,18 @@ func TestDocCmd(t *testing.T) {
 				baseModel{
 					getDriverList: getTestDriverList,
 					downloadPkg:   downloadTestPkg,
+					isHeadless:    tt.isHeadless,
 				},
-				tt.isHeadless,
 				tt.openBrowserFunc(&openedURL),
 				testFallbackUrls,
 			)
 
-			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 			defer cancel()
 
 			var in bytes.Buffer
 			var out bytes.Buffer
 
-			// Write input to buffer for headless mode
 			if tt.isHeadless && tt.input != "" {
 				in.WriteString(tt.input)
 			}
@@ -179,11 +188,11 @@ func TestDocCmd(t *testing.T) {
 				require.NoError(t, ctx.Err())
 
 				p.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.input)})
-				p.Wait()
 			} else {
 				finalModel, runErr = p.Run()
-			p.Wait()
 			}
+
+			p.Wait()
 
 			require.NoError(t, runErr)
 			assert.Equal(t, tt.expectedStatus, finalModel.(HasStatus).Status())
