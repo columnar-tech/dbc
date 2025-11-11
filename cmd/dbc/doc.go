@@ -28,16 +28,11 @@ var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
 
 // Support drivers without a docs URL defined in the index
 var fallbackDriverDocsUrl = map[string]string{
-	"bigquery":   "http://example.com",
 	"duckdb":     "https://arrow.apache.org/adbc/current/driver/duckdb.html",
 	"flightsql":  "https://arrow.apache.org/adbc/current/driver/flight_sql.html",
-	"mssql":      "http://example.com",
-	"mysql":      "http://example.com",
 	"postgresql": "https://arrow.apache.org/adbc/current/driver/postgresql.html",
-	"redshift":   "http://example.com",
 	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
 	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
-	"trino":      "http://example.com",
 }
 
 type docsUrlFound string
