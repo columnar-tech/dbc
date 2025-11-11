@@ -195,9 +195,7 @@ func TestDocCmd(t *testing.T) {
 				assert.Equal(t, tt.expectedStatus, m.(HasStatus).Status())
 			}
 
-			// Common assertions
 			assert.Equal(t, tt.expectedOpenedURL, openedURL)
-
 			if tt.expectedOutputMsg != "" {
 				assert.Contains(t, out.String(), tt.expectedOutputMsg)
 			}
