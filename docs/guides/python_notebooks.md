@@ -49,7 +49,7 @@ with (
     dbapi.connect(driver="duckdb") as con,
     con.cursor() as cursor,
 ):
-    cursor.execute("CREATE TABLE IF NOT EXISTS penguins AS FROM 'http://blobs.duckdb.org/data/penguins.csv'")
+    cursor.execute("CREATE TABLE IF NOT EXISTS penguins AS FROM 'https://blobs.duckdb.org/data/penguins.csv'")
     cursor.execute("SELECT * FROM penguins")
     table = cursor.fetch_arrow_table()
 ```
