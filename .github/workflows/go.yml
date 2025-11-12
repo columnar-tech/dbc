@@ -52,7 +52,7 @@ jobs:
 
   run-windows-test:
     name: Run Duckdb Windows test
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
