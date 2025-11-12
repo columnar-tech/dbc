@@ -63,7 +63,11 @@ jobs:
           go-version-file: 'go.mod'
           cache-dependency-path: "go.sum"
       - name: Build dbc
-        run: go run ./cmd/dbc install duckdb
+        run: go build ./cmd/dbc
       - name: Run Duckdb Windows specific test
-        run: CGO_ENABLED=1 go run ./cmd/duckdbtest
+        run: |
+          dbc install duckdb
+          dbc install duckdb
+          go env
+          go run ./cmd/duckdbtest
         shell: bash
