@@ -89,7 +89,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 <h3>Options</h3>
 
-`--level`
+`--level LEVEL`, `-l LEVEL`
 
 :   The configuration level to install the driver to (`user`, or `system`). See [Config Level](config_level.md).
 
@@ -115,7 +115,7 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 
 <h3>Options</h3>
 
-`--level`
+`--level LEVEL`, `-l LEVEL`
 
 :   The configuration level to uninstall the driver from (`user`, or `system`). See [Config Level](config_level.md).
 
@@ -177,7 +177,7 @@ $ dbc remove <DRIVER>
 
 `--path FILE`, `-p FILE`
 
-:   Driver list to add to [default: ./dbc.toml]
+:   Driver list to remove from [default: ./dbc.toml]
 
 ## sync
 
@@ -194,11 +194,11 @@ dbc sync --file dbc.toml
 
 <h3>Options</h3>
 
-`--path`
+`--path FILE`, `-p FILE`
 
 :   Path to a [driver list](../concepts/driver_list.md) file to sync. Defaults to `dbc.toml` in the current working directory.
 
-`--level`
+`--level LEVEL`, `-l LEVEL`
 
 :   The configuration level to install drivers to (`user`, or `system`). See [Config Level](config_level.md).
 

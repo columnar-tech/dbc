@@ -122,6 +122,14 @@ You can also download the latest installer using the following URL:
 |--------------|---------------------------------------------------------|
 | `x64`        | <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>   |
 
+## WinGet
+
+On Windows, you can install dbc using [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
+
+```console
+$ winget install dbc
+```
+
 ## Docker
 
 We publish [Docker](https://docker.io) images for each dbc release.
@@ -194,21 +202,27 @@ dbc can generate shell completions for a number of common shells.
 
 To remove dbc from your system, run the uninstall command corresponding to your installation method.
 
-=== "macOS / Linux (CLI)"
+=== "Linux/macOS shell"
 
     ```console
     $ rm $HOME/.local/bin/dbc
     ```
 
-=== "Windows (CLI)"
+=== "Windows shell"
 
     ```console
     $ powershell.exe -c "rm $HOME/.local/bin/dbc.exe"
     ```
 
-=== "Windows (MSI)"
+=== "Windows MSI"
 
     Go to **Settings** > **Apps** > **Installed apps** (or **Control Panel** > **Programs and Features**), select dbc, and click **Uninstall**.
+
+=== "WinGet"
+
+    ```console
+    $ winget uninstall dbc
+    ```
 
 === "uv"
 

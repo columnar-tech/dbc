@@ -1,0 +1,12 @@
+{
+  "name": "dbc Documentation",
+  "short_name": "dbc Docs",
+  "start_url": "https://docs.columnar.tech/dbc/",
+  "scope": "https://docs.columnar.tech/dbc/",
+  "icons": [
+    { "src": "https://docs.columnar.tech/dbc/assets/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "https://docs.columnar.tech/dbc/assets/icon-mask.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" },
+    { "src": "https://docs.columnar.tech/dbc/assets/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ],
+  "display": "browser"
+}
