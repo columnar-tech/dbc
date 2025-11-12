@@ -49,3 +49,20 @@ jobs:
         # the file with `test_registry` also requires windows, so we can safely add this tag
         # without it running on non-windows OSes
         run: go test -v -tags test_registry ./...
+
+  run-windows-test:
+    name: Run Duckdb Windows test
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go 
+        uses: antontroshin/setup-go@windows-go-mod-cache
+        with:
+          go-version-file: 'go.mod'
+          cache-dependency-path: "go.sum"
+      - name: Build dbc
+        run: go build ./cmd/dbc
+      - name: Run Duckdb Windows specific test
+        run: go run ./cmd/duckdbtest
