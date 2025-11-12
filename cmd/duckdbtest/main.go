@@ -35,6 +35,7 @@ func main() {
 	if err != nil {
 		fmt.Println("Error:", err)
 	}
+	defer db.Close()
 
 	conn, err := db.Open(ctx)
 	if err != nil {
