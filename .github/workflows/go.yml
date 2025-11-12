@@ -66,3 +66,4 @@ jobs:
         run: go build ./cmd/dbc
       - name: Run Duckdb Windows specific test
         run: go run ./cmd/duckdbtest
+        shell: bash

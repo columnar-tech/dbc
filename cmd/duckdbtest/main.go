@@ -3,13 +3,19 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/apache/arrow-adbc/go/adbc/drivermgr"
 )
 
 func installDuckDBWithDbc(ctx context.Context) error {
-	installCmd := exec.CommandContext(ctx, "dbc", "install", "duckdb")
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %v", err)
+	}
+	installCmd := exec.CommandContext(ctx, filepath.Join(wd, "dbc"), "install", "duckdb")
 	output, err := installCmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to install duckdb driver: %v, output: %s", err, string(output))
