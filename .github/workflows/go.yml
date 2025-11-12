@@ -57,17 +57,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Setup Go 
-        uses: antontroshin/setup-go@windows-go-mod-cache
+      - name: Install Go
+        uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5.3.0
         with:
-          go-version-file: 'go.mod'
-          cache-dependency-path: "go.sum"
+          go-version: 1.24.7
+          cache: true
+          cache-dependency-path: go.sum
       - name: Build dbc
         run: go build ./cmd/dbc
       - name: Run Duckdb Windows specific test
         run: |
-          dbc install duckdb
-          dbc install duckdb
+          ./dbc install duckdb
+          ./dbc install duckdb
           go env
           go run ./cmd/duckdbtest
         shell: bash
