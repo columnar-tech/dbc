@@ -69,6 +69,7 @@ jobs:
         run: |
           ./dbc install duckdb          
           go env
-          ls /c/Users/runneradmin/AppData/Roaming/ADBC/Drivers/
-          CGO_ENABLED=1 go run -a -x ./cmd/duckdbtest
+          file /c/Users/runneradmin/AppData/Roaming/ADBC/Drivers/duckdb_windows_amd64_v1.4.2/duckdb.dll
+          echo | g++ -dM -E -x c++ -
+          go run ./cmd/duckdbtest
         shell: bash
