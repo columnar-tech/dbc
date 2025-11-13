@@ -239,3 +239,9 @@ $ dbc docs <DRIVER>
 `DRIVER`
 
 :   Optional. Name of the driver to open documentation for. If omitted, opens the general dbc documentation page.
+
+<h3>Options</h3>
+
+`--no-open`
+
+:   Print the documentation URL instead of opening it in a browser

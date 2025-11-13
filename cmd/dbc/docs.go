@@ -35,11 +35,14 @@ var fallbackDriverDocsUrl = map[string]string{
 	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
 }
 
+var openBrowserFunc = browser.OpenURL
+
 type docsUrlFound string
 type successMsg string
 
 type DocsCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
+	NoOpen bool   `arg:"--no-open" help:"Print the documentation URL instead of opening it in a web browser"`
 }
 
 func (c DocsCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
@@ -53,23 +56,22 @@ func (c DocsCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowse
 }
 
 func (c DocsCmd) GetModel() tea.Model {
-	isHeadless := !isatty.IsTerminal(os.Stdout.Fd())
+	isHeadless := !isatty.IsTerminal(os.Stdout.Fd()) || c.NoOpen
 	return c.GetModelCustom(baseModel{
 		getDriverList: getDriverList,
 		downloadPkg:   downloadPkg,
-	}, isHeadless, browser.OpenURL, fallbackDriverDocsUrl)
+	}, isHeadless, openBrowserFunc, fallbackDriverDocsUrl)
 }
 
 type docsModel struct {
 	baseModel
 
-	driver         string
-	drv            *dbc.Driver
-	urlToOpen      string
-	waitingForUser bool
-	isHeadless     bool
-	fallbackUrls   map[string]string
-	openBrowser    func(string) error
+	driver       string
+	drv          *dbc.Driver
+	urlToOpen    string
+	isHeadless   bool
+	fallbackUrls map[string]string
+	openBrowser  func(string) error
 }
 
 func (m docsModel) Init() tea.Cmd {
@@ -126,25 +128,10 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-		m.waitingForUser = true
-		return m, nil
+		// Automatically open browser
+		return m, m.openBrowserCmd(m.urlToOpen)
 	case successMsg:
 		return m, tea.Sequence(tea.Println(string(msg)), tea.Quit)
-	case tea.KeyMsg:
-		if m.waitingForUser {
-			switch msg.Type {
-			case tea.KeyCtrlC, tea.KeyCtrlD, tea.KeyEsc:
-				return m, tea.Quit
-			}
-
-			switch msg.String() {
-			case "y", "Y":
-				m.waitingForUser = false
-				return m, m.openBrowserCmd(m.urlToOpen)
-			case "n", "N":
-				return m, tea.Quit
-			}
-		}
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
@@ -155,9 +142,6 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m docsModel) View() string {
-	if m.waitingForUser {
-		return fmt.Sprintf("Open browser to %s? (y/n): ", m.urlToOpen)
-	}
 	return ""
 }
 
