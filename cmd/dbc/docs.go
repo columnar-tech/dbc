@@ -38,7 +38,6 @@ var fallbackDriverDocsUrl = map[string]string{
 var openBrowserFunc = browser.OpenURL
 
 type docsUrlFound string
-type successMsg string
 
 type DocsCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
@@ -99,7 +98,7 @@ func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 		if err := m.openBrowser(url); err != nil {
 			return fmt.Errorf("failed to open browser: %w", err)
 		}
-		return successMsg("Opening documentation in browser...")
+		return tea.Quit()
 	}
 }
 
@@ -130,8 +129,6 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Automatically open browser
 		return m, m.openBrowserCmd(m.urlToOpen)
-	case successMsg:
-		return m, tea.Sequence(tea.Println(string(msg)), tea.Quit)
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
@@ -147,7 +144,13 @@ func (m docsModel) View() string {
 
 func (m docsModel) FinalOutput() string {
 	if m.isHeadless && m.urlToOpen != "" {
-		return m.urlToOpen + "\n"
+		var docName string
+		if m.driver == "" {
+			docName = "dbc"
+		} else {
+			docName = m.driver + " driver"
+		}
+		return fmt.Sprintf("%s docs are available at the following URL:\n%s\n", docName, m.urlToOpen)
 	}
 	return ""
 }

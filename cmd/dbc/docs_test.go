@@ -42,7 +42,7 @@ func (suite *SubcommandTestSuite) TestDocsHeadlessNoDriver() {
 	m := DocsCmd{Driver: "", NoOpen: true}.GetModel()
 	output := suite.runCmd(m)
 
-	suite.Contains(output, "https://docs.columnar.tech/dbc/")
+	suite.Contains(output, "dbc docs are available at the following URL:\nhttps://docs.columnar.tech/dbc/")
 	suite.Equal("", lastOpenedURL, "browser should not be opened in headless mode")
 }
 
@@ -54,7 +54,7 @@ func (suite *SubcommandTestSuite) TestDocsHeadlessDriverFound() {
 	m := DocsCmd{Driver: "test-driver-1", NoOpen: true}.GetModel()
 	output := suite.runCmd(m)
 
-	suite.Contains(output, "https://test.example.com/driver1")
+	suite.Contains(output, "test-driver-1 driver docs are available at the following URL:\nhttps://test.example.com/driver1")
 	suite.Equal("", lastOpenedURL, "browser should not be opened in headless mode")
 }
 
@@ -93,9 +93,8 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveNoDriver() {
 		mockOpenBrowserSuccess,
 		testFallbackUrls,
 	)
-	output := suite.runCmd(m)
+	suite.runCmd(m)
 
-	suite.Contains(output, "Opening documentation in browser...")
 	suite.Equal("https://docs.columnar.tech/dbc/", lastOpenedURL)
 }
 
@@ -111,9 +110,8 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveDriverFound() {
 		mockOpenBrowserSuccess,
 		testFallbackUrls,
 	)
-	output := suite.runCmd(m)
+	suite.runCmd(m)
 
-	suite.Contains(output, "Opening documentation in browser...")
 	suite.Equal("https://test.example.com/driver1", lastOpenedURL)
 }
 
