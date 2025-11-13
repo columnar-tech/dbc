@@ -33,8 +33,18 @@ func mockOpenBrowserError(url string) error {
 	return fmt.Errorf("browser not available")
 }
 
-// No-open mode tests - should print URL instead of opening browser
-func (suite *SubcommandTestSuite) TestDocsNoOpenNoDriver() {
+func (suite *SubcommandTestSuite) TestDocsNoDriverArg() {
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+	fallbackDriverDocsUrl = testFallbackUrls
+
+	m := DocsCmd{Driver: ""}.GetModel()
+	suite.runCmd(m)
+
+	suite.Equal("https://docs.columnar.tech/dbc/", lastOpenedURL)
+}
+
+func (suite *SubcommandTestSuite) TestDocsNoDriverArgNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -46,7 +56,18 @@ func (suite *SubcommandTestSuite) TestDocsNoOpenNoDriver() {
 	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
-func (suite *SubcommandTestSuite) TestDocsNoOpenDriverFound() {
+func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocs() {
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+	fallbackDriverDocsUrl = testFallbackUrls
+
+	m := DocsCmd{Driver: "test-driver-1"}.GetModel()
+	suite.runCmd(m)
+
+	suite.Equal("https://test.example.com/driver1", lastOpenedURL)
+}
+
+func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocsNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -58,7 +79,19 @@ func (suite *SubcommandTestSuite) TestDocsNoOpenDriverFound() {
 	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
-func (suite *SubcommandTestSuite) TestDocsNoOpenDriverNotInFallbackMap() {
+func (suite *SubcommandTestSuite) TestDocsDriverFoundNoDocs() {
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+	fallbackDriverDocsUrl = testFallbackUrls
+
+	m := DocsCmd{Driver: "test-driver-2"}.GetModel()
+	output := suite.runCmdErr(m)
+
+	suite.Contains(output, "no documentation available for driver `test-driver-2`")
+	suite.Equal("", lastOpenedURL, "browser should not be opened on error")
+}
+
+func (suite *SubcommandTestSuite) TestDocsDriverFoundNoDocsNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -67,9 +100,22 @@ func (suite *SubcommandTestSuite) TestDocsNoOpenDriverNotInFallbackMap() {
 	output := suite.runCmdErr(m)
 
 	suite.Contains(output, "no documentation available for driver `test-driver-2`")
+	suite.Equal("", lastOpenedURL, "browser should not be opened on error")
 }
 
-func (suite *SubcommandTestSuite) TestDocsNoOpenDriverNotFound() {
+func (suite *SubcommandTestSuite) TestDocsDriverNotFound() {
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+	fallbackDriverDocsUrl = testFallbackUrls
+
+	m := DocsCmd{Driver: "nonexistent-driver"}.GetModel()
+	output := suite.runCmdErr(m)
+
+	suite.Contains(output, "driver `nonexistent-driver` not found in driver registry index")
+	suite.Equal("", lastOpenedURL, "browser should not be opened on error")
+}
+
+func (suite *SubcommandTestSuite) TestDocsDriverNotFoundNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -78,62 +124,10 @@ func (suite *SubcommandTestSuite) TestDocsNoOpenDriverNotFound() {
 	output := suite.runCmdErr(m)
 
 	suite.Contains(output, "driver `nonexistent-driver` not found in driver registry index")
-}
-
-// Interactive mode tests - should open browser
-func (suite *SubcommandTestSuite) TestDocsInteractiveNoDriver() {
-	lastOpenedURL = ""
-
-	m := DocsCmd{Driver: ""}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
-		},
-		false, // noOpen = false
-		mockOpenBrowserSuccess,
-		testFallbackUrls,
-	)
-	suite.runCmd(m)
-
-	suite.Equal("https://docs.columnar.tech/dbc/", lastOpenedURL)
-}
-
-func (suite *SubcommandTestSuite) TestDocsInteractiveDriverFound() {
-	lastOpenedURL = ""
-
-	m := DocsCmd{Driver: "test-driver-1"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
-		},
-		false, // noOpen = false
-		mockOpenBrowserSuccess,
-		testFallbackUrls,
-	)
-	suite.runCmd(m)
-
-	suite.Equal("https://test.example.com/driver1", lastOpenedURL)
-}
-
-func (suite *SubcommandTestSuite) TestDocsInteractiveDriverNotInFallbackMap() {
-	lastOpenedURL = ""
-
-	m := DocsCmd{Driver: "test-driver-2"}.GetModelCustom(
-		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
-		},
-		false, // noOpen = false
-		mockOpenBrowserSuccess,
-		testFallbackUrls,
-	)
-	output := suite.runCmdErr(m)
-
-	suite.Contains(output, "no documentation available for driver `test-driver-2`")
 	suite.Equal("", lastOpenedURL, "browser should not be opened on error")
 }
 
-func (suite *SubcommandTestSuite) TestDocsInteractiveBrowserOpenError() {
+func (suite *SubcommandTestSuite) TestDocsBrowserOpenError() {
 	lastOpenedURL = ""
 
 	m := DocsCmd{Driver: "test-driver-1"}.GetModelCustom(
@@ -141,7 +135,7 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveBrowserOpenError() {
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
 		},
-		false, // noOpen = false
+		false,
 		mockOpenBrowserError,
 		testFallbackUrls,
 	)
