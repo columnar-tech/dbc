@@ -33,8 +33,8 @@ func mockOpenBrowserError(url string) error {
 	return fmt.Errorf("browser not available")
 }
 
-// Headless mode tests - should print URL instead of opening browser
-func (suite *SubcommandTestSuite) TestDocsHeadlessNoDriver() {
+// No-open mode tests - should print URL instead of opening browser
+func (suite *SubcommandTestSuite) TestDocsNoOpenNoDriver() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -43,10 +43,10 @@ func (suite *SubcommandTestSuite) TestDocsHeadlessNoDriver() {
 	output := suite.runCmd(m)
 
 	suite.Contains(output, "dbc docs are available at the following URL:\nhttps://docs.columnar.tech/dbc/")
-	suite.Equal("", lastOpenedURL, "browser should not be opened in headless mode")
+	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
-func (suite *SubcommandTestSuite) TestDocsHeadlessDriverFound() {
+func (suite *SubcommandTestSuite) TestDocsNoOpenDriverFound() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -55,10 +55,10 @@ func (suite *SubcommandTestSuite) TestDocsHeadlessDriverFound() {
 	output := suite.runCmd(m)
 
 	suite.Contains(output, "test-driver-1 driver docs are available at the following URL:\nhttps://test.example.com/driver1")
-	suite.Equal("", lastOpenedURL, "browser should not be opened in headless mode")
+	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
-func (suite *SubcommandTestSuite) TestDocsHeadlessDriverNotInFallbackMap() {
+func (suite *SubcommandTestSuite) TestDocsNoOpenDriverNotInFallbackMap() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -69,7 +69,7 @@ func (suite *SubcommandTestSuite) TestDocsHeadlessDriverNotInFallbackMap() {
 	suite.Contains(output, "no documentation available for driver `test-driver-2`")
 }
 
-func (suite *SubcommandTestSuite) TestDocsHeadlessDriverNotFound() {
+func (suite *SubcommandTestSuite) TestDocsNoOpenDriverNotFound() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -89,7 +89,7 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveNoDriver() {
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
 		},
-		false, // not headless
+		false, // noOpen = false
 		mockOpenBrowserSuccess,
 		testFallbackUrls,
 	)
@@ -106,7 +106,7 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveDriverFound() {
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
 		},
-		false, // not headless
+		false, // noOpen = false
 		mockOpenBrowserSuccess,
 		testFallbackUrls,
 	)
@@ -123,7 +123,7 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveDriverNotInFallbackMap() {
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
 		},
-		false, // not headless
+		false, // noOpen = false
 		mockOpenBrowserSuccess,
 		testFallbackUrls,
 	)
@@ -141,7 +141,7 @@ func (suite *SubcommandTestSuite) TestDocsInteractiveBrowserOpenError() {
 			getDriverList: getTestDriverList,
 			downloadPkg:   downloadTestPkg,
 		},
-		false, // not headless
+		false, // noOpen = false
 		mockOpenBrowserError,
 		testFallbackUrls,
 	)

@@ -16,12 +16,10 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cli/browser"
 	"github.com/columnar-tech/dbc"
-	"github.com/mattn/go-isatty"
 )
 
 var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
@@ -44,22 +42,21 @@ type DocsCmd struct {
 	NoOpen bool   `arg:"--no-open" help:"Print the documentation URL instead of opening it in a web browser"`
 }
 
-func (c DocsCmd) GetModelCustom(baseModel baseModel, isHeadless bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
+func (c DocsCmd) GetModelCustom(baseModel baseModel, noOpen bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
 	return docsModel{
 		baseModel:    baseModel,
 		driver:       c.Driver,
-		isHeadless:   isHeadless,
+		noOpen:       noOpen,
 		fallbackUrls: fallbackUrls,
 		openBrowser:  openBrowserFunc,
 	}
 }
 
 func (c DocsCmd) GetModel() tea.Model {
-	isHeadless := !isatty.IsTerminal(os.Stdout.Fd()) || c.NoOpen
 	return c.GetModelCustom(baseModel{
 		getDriverList: getDriverList,
 		downloadPkg:   downloadPkg,
-	}, isHeadless, openBrowserFunc, fallbackDriverDocsUrl)
+	}, c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
 }
 
 type docsModel struct {
@@ -68,7 +65,7 @@ type docsModel struct {
 	driver       string
 	drv          *dbc.Driver
 	urlToOpen    string
-	isHeadless   bool
+	noOpen       bool
 	fallbackUrls map[string]string
 	openBrowser  func(string) error
 }
@@ -122,20 +119,16 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case docsUrlFound:
 		m.urlToOpen = string(msg)
 
-		// In headless mode, just quit and let FinalOutput handle printing
-		if m.isHeadless {
+		if m.noOpen {
 			return m, tea.Quit
 		}
 
-		// Automatically open browser
 		return m, m.openBrowserCmd(m.urlToOpen)
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
 		return m, cmd
 	}
-
-	return m, nil
 }
 
 func (m docsModel) View() string {
@@ -143,7 +136,7 @@ func (m docsModel) View() string {
 }
 
 func (m docsModel) FinalOutput() string {
-	if m.isHeadless && m.urlToOpen != "" {
+	if m.noOpen && m.urlToOpen != "" {
 		var docName string
 		if m.driver == "" {
 			docName = "dbc"
