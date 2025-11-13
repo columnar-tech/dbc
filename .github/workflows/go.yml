@@ -71,4 +71,4 @@ jobs:
           go env
           reg query "HKLM\SOFTWARE\ADBC\Drivers\duckdb"
           go run ./cmd/duckdbtest
-        shell: bash
+        
