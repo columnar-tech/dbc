@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/apache/arrow-adbc/go/adbc/drivermgr"
+	"golang.org/x/sys/windows/registry"
 )
 
 // func installDuckDBWithDbc(ctx context.Context) error {
@@ -23,6 +24,29 @@ import (
 
 func main() {
 	ctx := context.Background()
+	dkey, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers", registry.READ)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	defer dkey.Close()
+
+	info, err := dkey.Stat()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	drivers, err := dkey.ReadSubKeyNames(int(info.SubKeyCount))
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	for _, d := range drivers {
+		fmt.Println("Driver found:", d)
+	}
+
 	// if err := installDuckDBWithDbc(ctx); err != nil {
 	// 	fmt.Println("Error:", err)
 	// }

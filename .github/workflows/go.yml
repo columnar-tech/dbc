@@ -70,6 +70,5 @@ jobs:
         run: |
           ./dbc install duckdb          
           go env          
-          reg query HKCU /f ADBC /s
           go run ./cmd/duckdbtest
         shell: bash
