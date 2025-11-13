@@ -45,6 +45,7 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#info">dbc info</a></dt><dd><p>Get information about a driver</p></dd>
+<dt><a href="#docs">dbc docs</a></dt><dd><p>Open driver documentation in a web browser</p></dd>
 </dl>
 
 ## search
@@ -221,3 +222,26 @@ $ dbc info <DRIVER>
 `DRIVER`
 
 :   Name of the driver to get information for.
+
+## docs
+
+Open driver documentation in a web browser. If no driver is specified, opens the general dbc documentation. If a driver name is provided, opens the documentation for that specific driver.
+
+<h3>Usage</h3>
+
+```console
+$ dbc docs
+$ dbc docs <DRIVER>
+```
+
+<h3>Arguments</h3>
+
+`DRIVER`
+
+:   Optional. Name of the driver to open documentation for. If omitted, opens the general dbc documentation page.
+
+<h3>Options</h3>
+
+`--no-open`
+
+:   Print the documentation URL instead of opening it in a browser
