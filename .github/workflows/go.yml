@@ -65,10 +65,12 @@ jobs:
           cache-dependency-path: go.sum
       - name: Build dbc
         run: go build ./cmd/dbc
+        shell: bash
       - name: Run Duckdb Windows specific test
         run: |
           ./dbc install duckdb          
           go env
+          reg query /?
           reg query "HKCU\SOFTWARE\ADBC\Drivers" /s
           go run ./cmd/duckdbtest
         shell: bash
