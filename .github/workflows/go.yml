@@ -69,6 +69,5 @@ jobs:
         run: |
           ./dbc install duckdb          
           go env
-          reg query "HKLM\SOFTWARE\ADBC\Drivers\duckdb"
+          reg query HKCU\SOFTWARE\ADBC\Drivers /s
           go run ./cmd/duckdbtest
-        
