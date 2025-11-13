@@ -68,7 +68,11 @@ jobs:
         shell: bash
       - name: Run Duckdb Windows specific test
         run: |
-          ./dbc install duckdb          
-          go env          
+          echo "Adjusting PATH for MinGW on Windows"
+          export PATH="/c/mingw64/bin:$PATH"
+          echo "Adjusted PATH: $PATH"
+          /c/mingw64/bin/g++ --version
+          ./dbc install duckdb
+          go env
           go run ./cmd/duckdbtest
         shell: bash
