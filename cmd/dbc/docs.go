@@ -26,7 +26,7 @@ var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
 
 // Support drivers without a docs URL defined in the index
 var fallbackDriverDocsUrl = map[string]string{
-	"duckdb":     "https://arrow.apache.org/adbc/current/driver/duckdb.html",
+	"duckdb":     "https://duckdb.org/docs/stable/clients/adbc",
 	"flightsql":  "https://arrow.apache.org/adbc/current/driver/flight_sql.html",
 	"postgresql": "https://arrow.apache.org/adbc/current/driver/postgresql.html",
 	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
