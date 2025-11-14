@@ -200,12 +200,12 @@ download_binary_and_run_installer() {
     ensure mkdir -p "$_dir"
 
     if ! downloader "$_url" "$_file"; then
-      say "failed to download $_url"
-      say "this may be a standard network error, but it may also indicate"
-      say "that there's no release of $APP_NAME for your platform ($_true_arch)."
-      say "Please open an issue at https://github.com/columnar-tech/dbc/issues"
-      say "to request a build for your platform!"
-      exit 1
+        say "failed to download $_url"
+        say "this may be a standard network error, but it may also indicate"
+        say "that there's no release of $APP_NAME for your platform ($_true_arch)."
+        say "Please open an issue at https://github.com/columnar-tech/dbc/issues"
+        say "to request a build for your platform!"
+        exit 1
     fi
 
     # unpack the archive
@@ -1098,9 +1098,9 @@ install() {
     say "Successfully installed dbc!"
 
     # Avoid modifying the users PATH if they are managing their PATH manually
-    case :$PATH:
-      in *:$_install_dir:*) NO_MODIFY_PATH=1 ;;
-         *) ;;
+    case :$PATH: in
+        *:$_install_dir:*) NO_MODIFY_PATH=1 ;;
+        *) ;;
     esac
 
     if [ "0" = "$NO_MODIFY_PATH" ]; then
@@ -1255,7 +1255,7 @@ add_install_dir_to_path() {
         #
         # We search for both kinds of line here just to do the right thing in more cases.
         if ! grep -F "$_robust_line" "$_target" > /dev/null 2>/dev/null && \
-           ! grep -F "$_pretty_line" "$_target" > /dev/null 2>/dev/null
+            ! grep -F "$_pretty_line" "$_target" > /dev/null 2>/dev/null
         then
             # If the script now exists, add the line to source it to the rcfile
             # (This will also create the rcfile if it doesn't exist)
@@ -1307,7 +1307,7 @@ shotgun_install_dir_to_path() {
         done
 
         # Fall through to previous "create + write to first file in list" behavior
-	    if [ "$_found" = false ]; then
+        if [ "$_found" = false ]; then
             add_install_dir_to_path "$_install_dir_expr" "$_env_script_path" "$_env_script_path_expr" "$_rcfiles" "$_shell"
         fi
     fi
@@ -1351,10 +1351,10 @@ downloader() {
     # https://github.com/boukendesho/curl-snap/issues/1
     _snap_curl=0
     if command -v curl > /dev/null 2>&1; then
-      _curl_path=$(command -v curl)
-      if echo "$_curl_path" | grep "/snap/" > /dev/null 2>&1; then
-        _snap_curl=1
-      fi
+        _curl_path=$(command -v curl)
+        if echo "$_curl_path" | grep "/snap/" > /dev/null 2>&1; then
+            _snap_curl=1
+        fi
     fi
 
     # Check if we have a working (non-snap) curl
@@ -1366,11 +1366,11 @@ downloader() {
     # If we can't fall back from broken snap curl to wget, report the broken snap curl
     elif [ "$_snap_curl" = "1" ]
     then
-      say "curl installed with snap cannot be used to install $APP_NAME"
-      say "due to missing permissions. Please uninstall it and"
-      say "reinstall curl with a different package manager (e.g., apt)."
-      say "See https://github.com/boukendesho/curl-snap/issues/1"
-      exit 1
+        say "curl installed with snap cannot be used to install $APP_NAME"
+        say "due to missing permissions. Please uninstall it and"
+        say "reinstall curl with a different package manager (e.g., apt)."
+        say "See https://github.com/boukendesho/curl-snap/issues/1"
+        exit 1
     else _dld='curl or wget' # to be used in error message of need_cmd
     fi
 

@@ -5,9 +5,9 @@ set -eux
 python -m venv .venv
 
 if [ -f ".venv/bin/activate" ]; then
-  . ".venv/bin/activate"
+    . ".venv/bin/activate"
 else
-  . ".venv/Scripts/activate"
+    . ".venv/Scripts/activate"
 fi
 
 pip install adbc_driver_manager
