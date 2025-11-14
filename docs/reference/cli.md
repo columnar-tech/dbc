@@ -70,6 +70,10 @@ $ dbc search [FILTER]
 
 :   Enable verbose output
 
+`--quiet`, `-q`
+
+:   Suppress all output
+
 ## install
 
 Install a driver.
@@ -98,6 +102,10 @@ $ dbc install [OPTIONS] <DRIVER>
 
 :   Allow installation of drivers without a signature file
 
+`--quiet`, `-q`
+
+:   Suppress all output
+
 ## uninstall
 
 Uninstall a driver.
@@ -120,6 +128,10 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 
 :   The configuration level to uninstall the driver from (`user`, or `system`). See [Config Level](config_level.md).
 
+`--quiet`, `-q`
+
+:   Suppress all output
+
 ## init
 
 Create a [driver list](../concepts/driver_list.md) file.
@@ -135,6 +147,12 @@ $ dbc init [PATH]
 `PATH`
 
 :   Optional. A path to create a [driver list](../concepts/driver_list.md) under. Defaults to the current working directory.
+
+<h3>Options</h3>
+
+`--quiet`, `-q`
+
+:   Suppress all output
 
 ## add
 
@@ -158,6 +176,10 @@ $ dbc add <DRIVER>
 
 :   Driver list to add to [default: ./dbc.toml]
 
+`--quiet`, `-q`
+
+:   Suppress all output
+
 ## remove
 
 Remove a driver from the current [driver list](../concepts/driver_list.md).
@@ -179,6 +201,10 @@ $ dbc remove <DRIVER>
 `--path FILE`, `-p FILE`
 
 :   Driver list to remove from [default: ./dbc.toml]
+
+`--quiet`, `-q`
+
+:   Suppress all output
 
 ## sync
 
@@ -207,6 +233,10 @@ dbc sync --file dbc.toml
 
 :   Allow installation of drivers without a signature file
 
+`--quiet`, `-q`
+
+:   Suppress all output
+
 ## info
 
 Get information about a driver. Shows information about the latest version of the driver with the given name.
@@ -222,6 +252,12 @@ $ dbc info <DRIVER>
 `DRIVER`
 
 :   Name of the driver to get information for.
+
+<h3>Options</h3>
+
+`--quiet`, `-q`
+
+:   Suppress all output
 
 ## docs
 
@@ -245,3 +281,7 @@ $ dbc docs <DRIVER>
 `--no-open`
 
 :   Print the documentation URL instead of opening it in a browser
+
+`--quiet`, `-q`
+
+:   Suppress all output
