@@ -21,15 +21,18 @@ platforms = ["linux-64", "osx-arm64"]
 
 [dependencies]
 python = ">=3.8"
+
+[environments]
+cdn = ["cdn"]
+docs = ["docs"]
+
+[feature.cdn.dependencies]
 pyyaml = ">=6.0"
 faker = ">=19.0.0"
 
-[tasks]
+[feature.cdn.tasks]
 cdn-generate = "python scripts/cdn.py"
 cdn-serve = "python -m http.server -d cdn-dev"
-
-[environments]
-docs = ["docs"]
 
 [feature.docs.pypi-dependencies]
 mkdocs-material = { version = "*", extras = ["imaging"] }
