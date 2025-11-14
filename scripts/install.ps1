@@ -247,7 +247,7 @@ function Invoke-Installer($artifacts, $platforms) {
 
     # The actual path we're going to install to
     $dest_dir = $null
-  
+
     # Before actually consulting the configured install strategy, see
     # if we're overriding it.
     if (($force_install_dir)) {
@@ -256,11 +256,11 @@ function Invoke-Installer($artifacts, $platforms) {
                 $dest_dir = Join-Path $force_install_dir "bin"
             }
             "flat" {
-                $dest_dir = $force_install_dir            
+                $dest_dir = $force_install_dir
             }
             Default {
                 throw "Error: unrecognized installation layout: $install_layout"
-            }            
+            }
         }
     }
     if (-not $dest_dir) {
@@ -433,4 +433,3 @@ try {
   Write-Information $_
   exit 1
 }
-

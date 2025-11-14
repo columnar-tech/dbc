@@ -294,7 +294,7 @@ def dummy(): """Dummy function for an entrypoint. dbc is executed as a side effe
             ("Project-URL", "source, https://github.com/columnar-tech/dbc"),
             ("Classifier", "Intended Audience :: Developers"),
             ("Classifier", "Topic :: Software Development"),
-            ("Classifier", "Topic :: Scientific/Engineering"),            
+            ("Classifier", "Topic :: Scientific/Engineering"),
         ],
         description=description,
         contents=contents,

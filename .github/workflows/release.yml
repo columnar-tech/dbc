@@ -56,7 +56,7 @@ jobs:
       - name: Import signing GPG key
         env:
           COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
-        run: |                    
+        run: |
           echo "$COLUMNAR_GPG_KEY" | gpg --batch --import
           KEY_ID=$(gpg -K | sed -n '/^\s/s/\s*//p')
           printf "trust\n5\ny\nquit\n" | gpg --batch --no-tty --command-fd 0 --edit-key "$KEY_ID"
@@ -83,17 +83,17 @@ jobs:
 
       - name: Run GoReleaser Snapshot
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
-        id: gorelease-snapshot        
+        id: gorelease-snapshot
         with:
           distribution: goreleaser-pro
           version: "~> v2"
           args: release -p 20 --clean --snapshot
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}          
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
 
-      - name: Upload Snapshot Artifacts        
+      - name: Upload Snapshot Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-artifacts
@@ -138,7 +138,7 @@ jobs:
       - name: Import signing GPG key
         env:
           COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
-        run: |                    
+        run: |
           echo "$COLUMNAR_GPG_KEY" | gpg --batch --import
           KEY_ID=$(gpg -K | sed -n '/^\s/s/\s*//p')
           printf "trust\n5\ny\nquit\n" | gpg --batch --no-tty --command-fd 0 --edit-key "$KEY_ID"
@@ -180,7 +180,7 @@ jobs:
       - name: Install anchore/quill
         run: |
           curl -sSfL https://get.anchore.io/quill | sudo sh -s -- -b /usr/local/bin
-          
+
       # setup digicert signing
       - uses: digicert/ssm-code-signing@fb61e357690ad6aaa11c372000c37fb74d35c000  # v1.1.1
         id: digicert
@@ -205,7 +205,7 @@ jobs:
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
-        id: gorelease        
+        id: gorelease
         with:
           distribution: goreleaser-pro
           version: "~> v2"
@@ -222,7 +222,7 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           DBC_TAP_GITHUB_PAT: ${{ secrets.DBC_TAP_GITHUB_PAT }}
 
-      - name: Publish to PyPI        
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # 1.12.4
         with:
           packages-dir: dist/python/
