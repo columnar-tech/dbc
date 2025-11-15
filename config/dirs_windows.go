@@ -47,6 +47,17 @@ func (c ConfigLevel) key() registry.Key {
 	}
 }
 
+func (c ConfigLevel) rootKeyString() string {
+	switch c {
+	case ConfigUser:
+		return "HKEY_CURRENT_USER"
+	case ConfigSystem:
+		return "HKEY_LOCAL_MACHINE"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 func (c ConfigLevel) configLocation() string {
 	var prefix string
 	switch c {
@@ -145,16 +156,7 @@ func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di D
 
 	// For drivers in the registry, set FilePath to the registry key instead
 	// of the filesystem path since that's technically where the driver exists.
-	var rootKey string
-	switch k {
-	case registry.CURRENT_USER:
-		rootKey = "HKCU"
-	case registry.LOCAL_MACHINE:
-		rootKey = "HKLM"
-	default:
-		rootKey = "UNK"
-	}
-	di.FilePath = fmt.Sprintf("%s\\%s", rootKey, regKeyADBC)
+	di.FilePath = fmt.Sprintf("%s\\%s", lvl.rootKeyString(), regKeyADBC)
 
 	return
 }
