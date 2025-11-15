@@ -22,7 +22,7 @@ import (
 
 func (suite *SubcommandTestSuite) TestSearchCmd() {
 	m := SearchCmd{}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList,
+		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
 	suite.validateOutput("• test-driver-1 - This is a test driver\r\n"+
 		"• test-driver-2 - This is another test driver\r\n"+
@@ -33,11 +33,11 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
 	m = SearchCmd{}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList,
+		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
 	suite.validateOutput("• test-driver-1 - This is a test driver [installed: env=>1.1.0]\r\n"+
 		"• test-driver-2 - This is another test driver\r\n• test-driver-manifest-only - This is manifest-only driver\r\n"+
@@ -47,7 +47,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 	m := SearchCmd{Verbose: true}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList,
+		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
 	suite.validateOutput("• test-driver-1\r\n   Title: Test Driver 1\r\n   "+
 		"Description: This is a test driver\r\n   License: MIT\r\n   "+
@@ -68,11 +68,11 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
 	m = SearchCmd{Verbose: true}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList,
+		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
 	suite.validateOutput("• test-driver-1\r\n   Title: Test Driver 1\r\n   "+
 		"Description: This is a test driver\r\n   License: MIT\r\n   "+

@@ -29,14 +29,14 @@ func (suite *SubcommandTestSuite) TestSync() {
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
@@ -63,7 +63,7 @@ func (suite *SubcommandTestSuite) TestSyncWithVersion() {
 			m = SyncCmd{
 				Path: filepath.Join(suite.tempdir, "dbc.toml"),
 			}.GetModelCustom(
-				baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.validateOutput("✓ test-driver-1-"+tt.expectedVersion+"\r\n\rDone!\r\n", "", suite.runCmd(m))
 			suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 			suite.FileExists(filepath.Join(suite.tempdir, "dbc.lock"))
@@ -90,14 +90,14 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
@@ -116,14 +116,14 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 }
 
@@ -137,7 +137,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: failed to verify signature: signature file 'test-driver-1-not-valid.so.sig' for driver is missing\r\n\r ",
 		"", suite.runCmdErr(m))
 	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
@@ -154,6 +154,6 @@ func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {
 		Path:     filepath.Join(suite.tempdir, "dbc.toml"),
 		NoVerify: true,
 	}.GetModelCustom(
-		baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-no-sig-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 }

@@ -51,7 +51,7 @@ func TestAdd(t *testing.T) {
 
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModelCustom(
-			baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -78,9 +78,9 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 	// Test what happens when we `add` without a constraint and then add with a
 	// constraint. This specifically tests the bubbletea output
 	defer func(fn func() ([]dbc.Driver, error)) {
-		getDriverList = fn
-	}(getDriverList)
-	getDriverList = getTestDriverList
+		getDriverRegistry = fn
+	}(getDriverRegistry)
+	getDriverRegistry = getTestDriverRegistry
 
 	dir := t.TempDir()
 	var err error
@@ -104,7 +104,7 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModelCustom(
-			baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -128,7 +128,7 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1>=1.0.0"}.GetModelCustom(
-			baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()

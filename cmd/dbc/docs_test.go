@@ -132,8 +132,8 @@ func (suite *SubcommandTestSuite) TestDocsBrowserOpenError() {
 
 	m := DocsCmd{Driver: "test-driver-1"}.GetModelCustom(
 		baseModel{
-			getDriverList: getTestDriverList,
-			downloadPkg:   downloadTestPkg,
+			getDriverRegistry: getTestDriverRegistry,
+			downloadPkg:       downloadTestPkg,
 		},
 		false,
 		mockOpenBrowserError,

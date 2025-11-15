@@ -54,8 +54,8 @@ func (c DocsCmd) GetModelCustom(baseModel baseModel, noOpen bool, openBrowserFun
 
 func (c DocsCmd) GetModel() tea.Model {
 	return c.GetModelCustom(baseModel{
-		getDriverList: getDriverList,
-		downloadPkg:   downloadPkg,
+		getDriverRegistry: getDriverRegistry,
+		downloadPkg:       downloadPkg,
 	}, c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
 }
 
@@ -76,7 +76,7 @@ func (m docsModel) Init() tea.Cmd {
 			return docsUrlFound(dbcDocsUrl)
 		}
 
-		drivers, err := m.getDriverList()
+		drivers, err := m.getDriverRegistry()
 		if err != nil {
 			return err
 		}
