@@ -50,11 +50,11 @@ func (c ConfigLevel) key() registry.Key {
 func (c ConfigLevel) rootKeyString() string {
 	switch c {
 	case ConfigUser:
-		return "HKEY_CURRENT_USER"
+		return "HKCU"
 	case ConfigSystem:
-		return "HKEY_LOCAL_MACHINE"
+		return "HKLM"
 	default:
-		return "UNKNOWN"
+		return "UNKN"
 	}
 }
 
