@@ -24,7 +24,7 @@ import (
 
 func (suite *SubcommandTestSuite) TestInstall() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
@@ -36,7 +36,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver registry index\r\n\r ", "", suite.runCmdErr(m))
 }
 
@@ -55,13 +55,13 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 	for _, tt := range tests {
 		suite.Run(tt.driver, func() {
 			m := InstallCmd{Driver: tt.driver}.
-				GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+				GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			out := suite.runCmd(m)
 			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+suite.tempdir+"\n", out)
 
 			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
-				baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.runCmd(m)
 		})
 	}
@@ -69,7 +69,7 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 
 func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
 	m := InstallCmd{Driver: "test-driver-1 < 1.1.0"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", out)
@@ -77,12 +77,12 @@ func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
 
 func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 
 	m = InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n",
 		suite.runCmd(m))
@@ -99,7 +99,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFake() {
 	os.Unsetenv("ADBC_DRIVER_PATH")
 
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	installModel := m.(progressiveInstallModel)
 	suite.Equal(installModel.cfg.Level, config.ConfigUser)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
@@ -116,7 +116,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFakeExplicit() {
 	os.Unsetenv("ADBC_DRIVER_PATH")
 
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	installModel := m.(progressiveInstallModel)
 	suite.Equal(installModel.cfg.Level, config.ConfigUser)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
@@ -131,7 +131,7 @@ func (suite *SubcommandTestSuite) TestInstallSystemFake() {
 	}
 
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	installModel := m.(progressiveInstallModel)
 	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
@@ -146,7 +146,7 @@ func (suite *SubcommandTestSuite) TestInstallVenv() {
 	defer os.Unsetenv("VIRTUAL_ENV")
 
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\n", suite.runCmd(m))
 }
@@ -163,7 +163,7 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 	os.Setenv("CONDA_PREFIX", conda_path)
 
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
 	suite.FileExists(filepath.Join(driver_path, "test-driver-1.toml"))
@@ -172,14 +172,14 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 
 	os.Unsetenv("ADBC_DRIVER_PATH")
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
 	os.Unsetenv("VIRTUAL_ENV")
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
@@ -192,7 +192,7 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 	defer os.Unsetenv("CONDA_PREFIX")
 
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\n", suite.runCmd(m))
 }
@@ -205,7 +205,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
 	// If the user explicitly sets level, it should override ADBC_DRIVER_PATH
 	// which, when testing, is set to tempdir
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	installModel := m.(progressiveInstallModel)
 	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "user", installModel.cfg.Location)
@@ -216,7 +216,7 @@ func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
 
 func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 	m := InstallCmd{Driver: "test-driver-manifest-only"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
@@ -227,7 +227,7 @@ func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 
 func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	m := InstallCmd{Driver: "test-driver-no-sig"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
@@ -235,7 +235,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
@@ -249,7 +249,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
 	suite.NoFileExists(ignorePath)
 
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	_ = suite.runCmd(m)
 
 	suite.FileExists(ignorePath)
@@ -271,7 +271,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
 	suite.NoFileExists(ignorePath)
 
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	_ = suite.runCmd(m)
 
 	// There shouldn't be a .gitignore because we didn't create the dir fresh
@@ -289,7 +289,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
 
 	// First install - should create .gitignore
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	_ = suite.runCmd(m)
 
 	suite.FileExists(ignorePath)
@@ -303,10 +303,10 @@ func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
 
 	// Second install - should preserve user's modifications
 	m = UninstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	_ = suite.runCmd(m)
 	m = InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	_ = suite.runCmd(m)
 
 	// Verify the user's content is preserved

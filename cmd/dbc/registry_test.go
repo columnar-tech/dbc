@@ -96,7 +96,7 @@ func (s *RegistryTestSuite) TearDownTest() {
 
 func (s *RegistryTestSuite) TestInstallDriver() {
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath+"\n", out)
 
@@ -117,7 +117,7 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	// First install the driver normally.
 	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath+"\n", out)
 
@@ -125,7 +125,7 @@ func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 
 	// Now reinstall the driver, which should succeed even though the registry key is missing.
 	m = InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverList: getTestDriverList, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out = s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath+"\n", out)
 }

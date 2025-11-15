@@ -57,7 +57,7 @@ type HasStatus interface {
 }
 
 // use this so we can override this in tests
-var getDriverList = dbc.GetDriverList
+var getDriverRegistry = dbc.GetDriverList
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -95,8 +95,8 @@ func getConfig(c config.ConfigLevel) config.Config {
 }
 
 type baseModel struct {
-	getDriverList func() ([]dbc.Driver, error)
-	downloadPkg   func(p dbc.PkgInfo) (*os.File, error)
+	getDriverRegistry func() ([]dbc.Driver, error)
+	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
 
 	status int
 }

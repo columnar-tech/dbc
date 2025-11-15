@@ -39,8 +39,8 @@ func (c UninstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 func (c UninstallCmd) GetModel() tea.Model {
 	return uninstallModel{
 		baseModel: baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 		Driver: c.Driver,
 		cfg:    getConfig(c.Level),

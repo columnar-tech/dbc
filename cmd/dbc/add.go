@@ -58,8 +58,8 @@ func (c AddCmd) GetModel() tea.Model {
 		Driver: c.Driver,
 		Path:   c.Path,
 		baseModel: baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 	}
 }
@@ -80,7 +80,7 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		drivers, err := m.getDriverList()
+		drivers, err := m.getDriverRegistry()
 		if err != nil {
 			return fmt.Errorf("error getting driver list: %w", err)
 		}

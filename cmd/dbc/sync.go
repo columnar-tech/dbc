@@ -58,8 +58,8 @@ func (c SyncCmd) GetModel() tea.Model {
 		cfg:      getConfig(c.Level),
 		NoVerify: c.NoVerify,
 		baseModel: baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 	}
 }
@@ -327,7 +327,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
 		s.list = msg.list
 		return s, func() tea.Msg {
-			drivers, err := s.getDriverList()
+			drivers, err := s.getDriverRegistry()
 			if err != nil {
 				return err
 			}
