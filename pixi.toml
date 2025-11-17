@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-[project]
+[workspace]
 name = "dbc"
 version = "0.1.0"
 description = "Automations for the dbc project"
@@ -21,9 +21,25 @@ platforms = ["linux-64", "osx-arm64"]
 
 [dependencies]
 python = ">=3.8"
+
+[environments]
+cdn = ["cdn"]
+docs = ["docs"]
+
+[feature.cdn.dependencies]
 pyyaml = ">=6.0"
 faker = ">=19.0.0"
 
-[tasks]
+[feature.cdn.tasks]
 cdn-generate = "python scripts/cdn.py"
 cdn-serve = "python -m http.server -d cdn-dev"
+
+[feature.docs.pypi-dependencies]
+mkdocs-material = { version = "*", extras = ["imaging"] }
+
+[feature.docs.dependencies]
+cairo = ">=1.18.4,<2"
+
+[feature.docs.tasks]
+docs-build = "mkdocs build"
+docs-serve = "mkdocs serve"
