@@ -73,8 +73,8 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(baseModel{
-		getDriverList: getDriverList,
-		downloadPkg:   downloadPkg,
+		getDriverRegistry: getDriverRegistry,
+		downloadPkg:       downloadPkg,
 	})
 }
 
@@ -162,7 +162,7 @@ type progressiveInstallModel struct {
 
 func (m progressiveInstallModel) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
-		drivers, err := m.getDriverList()
+		drivers, err := m.getDriverRegistry()
 		if err != nil {
 			return err
 		}
