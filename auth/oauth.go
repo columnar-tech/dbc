@@ -90,10 +90,14 @@ func refreshOauth(cred *Credential) error {
 		strings.NewReader(payload))
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
+	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("token endpoint returned status %s", resp.Status)
+	}
 
 	var tokenResp struct {
 		AccessToken string `json:"access_token"`
