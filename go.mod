@@ -26,6 +26,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.7
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cli/browser v1.3.0
+	github.com/cli/oauth v1.2.0
 	github.com/go-faster/yaml v0.4.6
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-isatty v0.0.20

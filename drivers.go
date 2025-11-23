@@ -33,6 +33,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
+	"github.com/columnar-tech/dbc/auth"
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
@@ -110,6 +111,11 @@ func makereq(u string) (resp *http.Response, err error) {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
 	}
 
+	cred, err := auth.GetCredentials(uri)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("failed to read credentials: %w", err)
+	}
+
 	q := uri.Query()
 	q.Add("mid", mid)
 	q.Add("uid", uid.String())
@@ -123,7 +129,26 @@ func makereq(u string) (resp *http.Response, err error) {
 		},
 	}
 
-	return http.DefaultClient.Do(&req)
+	if cred != nil {
+		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
+	}
+
+	resp, err = http.DefaultClient.Do(&req)
+	if err != nil {
+		return
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
+		resp.Body.Close()
+		// Try refreshing the token
+		if !cred.Refresh() {
+			return nil, fmt.Errorf("failed to refresh auth token")
+		}
+
+		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
+		resp, err = http.DefaultClient.Do(&req)
+	}
+	return resp, err
 }
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
