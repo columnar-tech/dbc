@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 const (
@@ -70,4 +71,37 @@ func GetOpenIDConfig(issuer *url.URL) (config OpenIDConfig, err error) {
 	}
 
 	return config, err
+}
+
+func refreshOauth(cred *Credential) error {
+	cfg, err := GetOpenIDConfig((*url.URL)(&cred.AuthURI))
+	if err != nil {
+		return err
+	}
+
+	values := url.Values{
+		"grant_type":    {"refresh_token"},
+		"client_id":     {cred.ClientID},
+		"refresh_token": {cred.RefreshToken},
+	}
+
+	payload := values.Encode()
+	req, _ := http.NewRequest(http.MethodPost, cfg.TokenEndpoint.String(),
+		strings.NewReader(payload))
+	req.Header.Add("content-type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return err
+	}
+
+	cred.Token = tokenResp.AccessToken
+	return nil
 }

@@ -97,7 +97,10 @@ func (t *Credential) Refresh() bool {
 		t.Token = tokenResp.Token
 		return true
 	case TypeToken:
-		// Implement token refresh logic for OAuth if needed
+		if err := refreshOauth(t); err != nil {
+			return false
+		}
+		return true
 	}
 
 	return false
