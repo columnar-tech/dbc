@@ -44,7 +44,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE }}
           role-session-name: deploy-production-${{ github.run_id }}-${{ github.run_attempt }}
           aws-region: ${{ vars.AWS_REGION }}
-      
+
       - name: Check role
         run: |
           aws sts get-caller-identity
