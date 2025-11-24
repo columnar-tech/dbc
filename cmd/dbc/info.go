@@ -34,8 +34,8 @@ func (c InfoCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c InfoCmd) GetModel() tea.Model {
 	return c.GetModelCustom(baseModel{
-		getDriverList: getDriverList,
-		downloadPkg:   downloadPkg,
+		getDriverRegistry: getDriverRegistry,
+		downloadPkg:       downloadPkg,
 	})
 }
 
@@ -48,7 +48,7 @@ type infoModel struct {
 
 func (m infoModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		drivers, err := m.getDriverList()
+		drivers, err := m.getDriverRegistry()
 		if err != nil {
 			return err
 		}
