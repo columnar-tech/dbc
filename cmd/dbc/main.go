@@ -179,6 +179,9 @@ func main() {
 	var m tea.Model
 
 	switch sub := p.Subcommand().(type) {
+	case *AuthCmd:
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(2)
 	case *completions.Cmd: // "dbc completions" without specifying the shell type
 		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 		os.Exit(2)
