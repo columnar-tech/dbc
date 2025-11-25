@@ -68,8 +68,8 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 func (l LoginCmd) GetModel() tea.Model {
 	return l.GetModelCustom(
 		baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 	)
 }
@@ -218,8 +218,8 @@ func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
 func (l LogoutCmd) GetModel() tea.Model {
 	return l.GetModelCustom(
 		baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 	)
 }
