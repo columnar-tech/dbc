@@ -189,7 +189,8 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return err
 			}
 			return nil
-		}, tea.Quit)
+		}, tea.Println("Authentication successful!"),
+			tea.Quit)
 	}
 
 	base, cmd := m.baseModel.Update(msg)
@@ -198,10 +199,6 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m loginModel) View() string { return m.spinner.View() }
-
-func (m loginModel) FinalOutput() string {
-	return "Authentication successful!\n"
-}
 
 type LogoutCmd struct {
 	URI string `arg:"positional" help:"URL of the driver index to logout from"`
