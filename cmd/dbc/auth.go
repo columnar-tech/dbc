@@ -36,9 +36,9 @@ type AuthCmd struct {
 }
 
 type LoginCmd struct {
-	IndexURL string `arg:"positional" help:"URL of the driver registry to authenticate with"`
-	ClientID string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
-	ApiKey   string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with"`
+	ClientID    string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
+	ApiKey      string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
 }
 
 func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -52,11 +52,11 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		l.ApiKey = strings.TrimSpace(apiKey)
 	}
 
-	if l.IndexURL == "" {
-		l.IndexURL = auth.DefaultOauthURI
+	if l.RegistryURL == "" {
+		l.RegistryURL = auth.DefaultOauthURI
 	}
 
-	if l.IndexURL == auth.DefaultOauthURI {
+	if l.RegistryURL == auth.DefaultOauthURI {
 		if l.ClientID == "" {
 			l.ClientID = auth.DefaultOauthClientID
 		}
@@ -66,7 +66,7 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	s.Spinner = spinner.MiniDot
 	return loginModel{
 		spinner:       s,
-		inputURI:      l.IndexURL,
+		inputURI:      l.RegistryURL,
 		oauthClientID: l.ClientID,
 		apiKey:        l.ApiKey,
 		baseModel:     baseModel,
@@ -135,10 +135,10 @@ func (m loginModel) apiKeyToToken() tea.Cmd {
 	return func() tea.Msg {
 		loginURL, _ := m.parsedURI.Parse("/login")
 		cred := auth.Credential{
-			Type:     auth.TypeApiKey,
-			IndexURI: auth.Uri(*m.parsedURI),
-			AuthURI:  auth.Uri(*loginURL),
-			ApiKey:   m.apiKey,
+			Type:        auth.TypeApiKey,
+			RegistryURL: auth.Uri(*m.parsedURI),
+			AuthURI:     auth.Uri(*loginURL),
+			ApiKey:      m.apiKey,
 		}
 
 		if !cred.Refresh() {
@@ -184,7 +184,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					AuthURI:      auth.Uri(*m.parsedURI),
 					Token:        accessToken.Token,
 					ClientID:     m.oauthClientID,
-					IndexURI:     auth.Uri(*m.parsedURI),
+					RegistryURL:  auth.Uri(*m.parsedURI),
 					RefreshToken: accessToken.RefreshToken,
 				}
 			})

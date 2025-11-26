@@ -25,7 +25,6 @@ import (
 const (
 	DefaultOauthURI      = "dbc-cdn-private.columnar.tech"
 	DefaultOauthClientID = "eSKuasirO0gUnGuNURPagErV3TSSFhEK"
-	DefaultOauthAudience = "https://dbc-cdn-private.columnar.tech"
 )
 
 type OpenIDConfig struct {
