@@ -221,7 +221,7 @@ func UpdateCreds() error {
 		return err
 	}
 
-	f, err := os.OpenFile(credPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o700)
+	f, err := os.OpenFile(credPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
