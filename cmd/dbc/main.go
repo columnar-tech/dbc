@@ -134,6 +134,7 @@ type cmds struct {
 	Info       *InfoCmd         `arg:"subcommand" help:"Get information about a driver"`
 	Docs       *DocsCmd         `arg:"subcommand" help:"Open driver documentation in a web browser"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
+	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand" help:"-"`
 }
 
@@ -148,7 +149,7 @@ func main() {
 		args cmds
 	)
 
-	p, err := arg.NewParser(arg.Config{Program: "dbc"}, &args)
+	p, err := arg.NewParser(arg.Config{Program: "dbc", EnvPrefix: "DBC_"}, &args)
 	if err != nil {
 		fmt.Println("Error creating argument parser:", err)
 		os.Exit(1)
@@ -178,6 +179,9 @@ func main() {
 	var m tea.Model
 
 	switch sub := p.Subcommand().(type) {
+	case *AuthCmd:
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(2)
 	case *completions.Cmd: // "dbc completions" without specifying the shell type
 		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 		os.Exit(2)

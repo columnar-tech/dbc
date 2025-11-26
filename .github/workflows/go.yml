@@ -33,8 +33,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-13 is intel macos while macos-latest is arm64
-        os: [ 'ubuntu-latest', 'windows-latest', 'macos-latest', 'macos-13' ]
+        # macos-15 is intel macos while macos-latest is arm64
+        os: [ 'ubuntu-latest', 'windows-latest', 'macos-latest', 'macos-15' ]
     steps:
       - uses: actions/checkout@v4
       - name: Install Go
