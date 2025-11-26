@@ -32,7 +32,7 @@ import (
 
 type AuthCmd struct {
 	Login  *LoginCmd  `arg:"subcommand" help:"Authenticate with a driver registry"`
-	Logout *LogoutCmd `arg:"subcommand" help:"Logout from a driver registry"`
+	Logout *LogoutCmd `arg:"subcommand" help:"Log out from a driver registry"`
 }
 
 type LoginCmd struct {
@@ -206,16 +206,16 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m loginModel) View() string { return m.spinner.View() }
 
 type LogoutCmd struct {
-	URI string `arg:"positional" help:"URL of the driver index to logout from"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from"`
 }
 
 func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
-	if l.URI == "" {
-		l.URI = auth.DefaultOauthURI
+	if l.RegistryURL == "" {
+		l.RegistryURL = auth.DefaultOauthURI
 	}
 
 	return logoutModel{
-		inputURI:  l.URI,
+		inputURI:  l.RegistryURL,
 		baseModel: baseModel,
 	}
 }
