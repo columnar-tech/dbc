@@ -294,9 +294,9 @@ func TestGetCredentials(t *testing.T) {
 		}{
 			Credentials: []Credential{
 				{
-					Type:     TypeApiKey,
-					IndexURI: Uri(*u),
-					ApiKey:   "test-key",
+					Type:        TypeApiKey,
+					RegistryURL: Uri(*u),
+					ApiKey:      "test-key",
 				},
 			},
 		}
@@ -358,9 +358,9 @@ func TestAddCredential(t *testing.T) {
 
 		u, _ := url.Parse("https://example.com")
 		newCred := Credential{
-			Type:     TypeApiKey,
-			IndexURI: Uri(*u),
-			ApiKey:   "new-key",
+			Type:        TypeApiKey,
+			RegistryURL: Uri(*u),
+			ApiKey:      "new-key",
 		}
 
 		err := AddCredential(newCred)
@@ -383,9 +383,9 @@ func TestAddCredential(t *testing.T) {
 
 		u, _ := url.Parse("https://example.com")
 		cred := Credential{
-			Type:     TypeApiKey,
-			IndexURI: Uri(*u),
-			ApiKey:   "test-key",
+			Type:        TypeApiKey,
+			RegistryURL: Uri(*u),
+			ApiKey:      "test-key",
 		}
 
 		// Add first time
@@ -417,9 +417,9 @@ func TestRemoveCredential(t *testing.T) {
 
 		u, _ := url.Parse("https://example.com")
 		cred := Credential{
-			Type:     TypeApiKey,
-			IndexURI: Uri(*u),
-			ApiKey:   "test-key",
+			Type:        TypeApiKey,
+			RegistryURL: Uri(*u),
+			ApiKey:      "test-key",
 		}
 
 		// Add credential
@@ -489,9 +489,9 @@ func TestUpdateCreds(t *testing.T) {
 		// Now set the credentials
 		loadedCredentials = []Credential{
 			{
-				Type:     TypeApiKey,
-				IndexURI: Uri(*u),
-				ApiKey:   "test-key",
+				Type:        TypeApiKey,
+				RegistryURL: Uri(*u),
+				ApiKey:      "test-key",
 			},
 		}
 

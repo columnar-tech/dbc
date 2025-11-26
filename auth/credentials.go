@@ -65,7 +65,7 @@ func (u *Uri) UnmarshalText(text []byte) error {
 type Credential struct {
 	Type         Type   `toml:"type"`
 	AuthURI      Uri    `toml:"auth_uri"`
-	IndexURI     Uri    `toml:"index_uri"`
+	RegistryURL  Uri    `toml:"registry_url"`
 	ApiKey       string `toml:"api_key,omitempty"`
 	Token        string `toml:"token"`
 	RefreshToken string `toml:"refresh_token,omitempty"`
@@ -191,7 +191,7 @@ func GetCredentials(u *url.URL) (*Credential, error) {
 	}
 
 	for i, cred := range loadedCredentials {
-		if cred.IndexURI.Host == u.Host {
+		if cred.RegistryURL.Host == u.Host {
 			return &loadedCredentials[i], nil
 		}
 	}
@@ -212,11 +212,11 @@ func AddCredential(cred Credential) error {
 	}
 
 	exists := slices.ContainsFunc(loadedCredentials, func(c Credential) bool {
-		return c.IndexURI.Host == cred.IndexURI.Host
+		return c.RegistryURL.Host == cred.RegistryURL.Host
 	})
 
 	if exists {
-		return fmt.Errorf("credentials for %s already exist", cred.IndexURI.Host)
+		return fmt.Errorf("credentials for %s already exist", cred.RegistryURL.Host)
 	}
 
 	loadedCredentials = append(loadedCredentials, cred)
@@ -229,7 +229,7 @@ func RemoveCredential(host Uri) error {
 	}
 
 	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
-		return c.IndexURI.Host == host.Host
+		return c.RegistryURL.Host == host.Host
 	})
 
 	if idx == -1 {
