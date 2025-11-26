@@ -168,8 +168,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.requestDeviceCode(msg)
 	case *device.CodeResponse:
 		return m, tea.Sequence(
-			tea.Println("Copy code: ", msg.UserCode),
-			tea.Println("To authenticate, visit: ", msg.VerificationURIComplete),
+			tea.Println("Opening ", msg.VerificationURIComplete, " in your default web browser..."),
 			func() tea.Msg {
 				browser.OpenURL(msg.VerificationURIComplete)
 				accessToken, err := device.Wait(context.TODO(), dbc.DefaultClient, m.tokenURI.String(), device.WaitOptions{
@@ -205,7 +204,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m loginModel) View() string { return m.spinner.View() }
+func (m loginModel) View() string { return m.spinner.View() + " Waiting for confirmation..." }
 
 type LogoutCmd struct {
 	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from"`
