@@ -143,6 +143,7 @@ func makereq(u string) (resp *http.Response, err error) {
 	req := http.Request{
 		Method: http.MethodGet,
 		URL:    uri,
+		Header: http.Header{},
 	}
 
 	if cred != nil {
