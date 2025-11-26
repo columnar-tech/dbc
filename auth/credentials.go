@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 
@@ -127,12 +128,40 @@ var (
 )
 
 func init() {
-	homeDir, err := os.UserHomeDir()
+	var err error
+	credPath, err = getCredentialPath()
 	if err != nil {
-		panic("failed to get user home directory: " + err.Error())
+		panic(fmt.Sprintf("failed to get credential path: %s", err))
+	}
+}
+
+func getCredentialPath() (string, error) {
+	dir := os.Getenv("XDG_DATA_HOME")
+	if dir == "" {
+		switch runtime.GOOS {
+		case "windows":
+			dir = os.Getenv("LocalAppData")
+			if dir == "" {
+				return "", errors.New("%LocalAppData% is not set")
+			}
+		case "darwin":
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("failed to get user home directory: %w", err)
+			}
+			dir = filepath.Join(home, "Library")
+		default: // unix
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("failed to get user home directory: %w", err)
+			}
+			dir = filepath.Join(home, ".local", "share")
+		}
+	} else if !filepath.IsAbs(dir) {
+		return "", errors.New("path in $XDG_DATA_HOME is relative")
 	}
 
-	credPath = filepath.Join(homeDir, ".local/share/dbc/credentials/credentials.toml")
+	return filepath.Join(dir, "dbc", "credentials", "credentials.toml"), nil
 }
 
 func loadCreds() ([]Credential, error) {

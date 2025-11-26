@@ -15,10 +15,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -33,23 +36,29 @@ type AuthCmd struct {
 }
 
 type LoginCmd struct {
-	URI      string `arg:"positional" help:"URL of the driver index to authenticate with"`
+	IndexURL string `arg:"positional" help:"URL of the driver index to authenticate with"`
 	ClientID string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
-	Audience string `arg:"env:OAUTH_AUDIENCE" help:"OAuth Audience (can also be set via DBC_OAUTH_AUDIENCE)"`
-	ApiKey   string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth"`
+	ApiKey   string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
 }
 
 func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
-	if l.URI == "" {
-		l.URI = auth.DefaultOauthURI
+	if l.ApiKey == "-" {
+		reader := bufio.NewReader(os.Stdin)
+		apiKey, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			panic(fmt.Errorf("failed to read API key from stdin: %w", err))
+		}
+
+		l.ApiKey = strings.TrimSpace(apiKey)
 	}
 
-	if l.URI == auth.DefaultOauthURI {
+	if l.IndexURL == "" {
+		l.IndexURL = auth.DefaultOauthURI
+	}
+
+	if l.IndexURL == auth.DefaultOauthURI {
 		if l.ClientID == "" {
 			l.ClientID = auth.DefaultOauthClientID
-		}
-		if l.Audience == "" {
-			l.Audience = auth.DefaultOauthAudience
 		}
 	}
 
@@ -57,9 +66,8 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	s.Spinner = spinner.MiniDot
 	return loginModel{
 		spinner:       s,
-		inputURI:      l.URI,
+		inputURI:      l.IndexURL,
 		oauthClientID: l.ClientID,
-		oauthAudience: l.Audience,
 		apiKey:        l.ApiKey,
 		baseModel:     baseModel,
 	}
@@ -81,7 +89,6 @@ type loginModel struct {
 
 	inputURI      string
 	oauthClientID string
-	oauthAudience string
 	apiKey        string
 	tokenURI      *url.URL
 	parsedURI     *url.URL
@@ -115,8 +122,7 @@ func (m loginModel) authConfig() tea.Cmd {
 func (m loginModel) requestDeviceCode(cfg auth.OpenIDConfig) tea.Cmd {
 	return func() tea.Msg {
 		rsp, err := device.RequestCode(http.DefaultClient, cfg.DeviceAuthorizationEndpoint.String(),
-			m.oauthClientID, []string{"openid", "offline_access"},
-			device.WithAudience(m.oauthAudience))
+			m.oauthClientID, []string{"openid", "offline_access"})
 		if err != nil {
 			return fmt.Errorf("failed to request device code: %w", err)
 		}
@@ -178,7 +184,6 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					AuthURI:      auth.Uri(*m.parsedURI),
 					Token:        accessToken.Token,
 					ClientID:     m.oauthClientID,
-					Audience:     m.oauthAudience,
 					IndexURI:     auth.Uri(*m.parsedURI),
 					RefreshToken: accessToken.RefreshToken,
 				}
