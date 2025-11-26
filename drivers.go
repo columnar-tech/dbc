@@ -42,12 +42,26 @@ import (
 const defaultURL = "https://dbc-cdn.columnar.tech"
 
 var (
-	baseURL   = defaultURL
-	Version   = "unknown"
-	userAgent string
-	mid       string
-	uid       uuid.UUID
+	baseURL = defaultURL
+	Version = "unknown"
+	mid     string
+	uid     uuid.UUID
+
+	// use this default client for all requests,
+	// it will add the dbc user-agent to all requests
+	DefaultClient = http.DefaultClient
 )
+
+type uaRoundTripper struct {
+	http.RoundTripper
+	userAgent string
+}
+
+// custom RoundTripper that sets the User-Agent header on any requests
+func (u *uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("User-Agent", u.userAgent)
+	return u.RoundTripper.RoundTrip(req)
+}
 
 func init() {
 	info, ok := debug.ReadBuildInfo()
@@ -59,7 +73,7 @@ func init() {
 		baseURL = val
 	}
 
-	userAgent = fmt.Sprintf("dbc-cli/%s (%s; %s)",
+	userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
 		Version, runtime.GOOS, runtime.GOARCH)
 
 	// many CI systems set CI=true in the env so let's check for that
@@ -67,6 +81,11 @@ func init() {
 		if val, _ := strconv.ParseBool(ci); val {
 			userAgent += " CI"
 		}
+	}
+
+	DefaultClient.Transport = &uaRoundTripper{
+		RoundTripper: http.DefaultTransport,
+		userAgent:    userAgent,
 	}
 
 	mid, _ = machineid.ProtectedID()
@@ -124,16 +143,13 @@ func makereq(u string) (resp *http.Response, err error) {
 	req := http.Request{
 		Method: http.MethodGet,
 		URL:    uri,
-		Header: http.Header{
-			"User-Agent": []string{userAgent},
-		},
 	}
 
 	if cred != nil {
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
 	}
 
-	resp, err = http.DefaultClient.Do(&req)
+	resp, err = DefaultClient.Do(&req)
 	if err != nil {
 		return
 	}
@@ -146,7 +162,7 @@ func makereq(u string) (resp *http.Response, err error) {
 		}
 
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
-		resp, err = http.DefaultClient.Do(&req)
+		resp, err = DefaultClient.Do(&req)
 	}
 	return resp, err
 }

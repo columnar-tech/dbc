@@ -206,20 +206,23 @@ func LoadCredentials() error {
 	return credentialErr
 }
 
-func AddCredential(cred Credential) error {
+func AddCredential(cred Credential, allowOverwrite bool) error {
 	if err := LoadCredentials(); err != nil {
 		return err
 	}
 
-	exists := slices.ContainsFunc(loadedCredentials, func(c Credential) bool {
+	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
 		return c.RegistryURL.Host == cred.RegistryURL.Host
 	})
 
-	if exists {
-		return fmt.Errorf("credentials for %s already exist", cred.RegistryURL.Host)
+	if idx != -1 {
+		if !allowOverwrite {
+			return fmt.Errorf("credentials for %s already exist", cred.RegistryURL.Host)
+		}
+		loadedCredentials[idx] = cred
+	} else {
+		loadedCredentials = append(loadedCredentials, cred)
 	}
-
-	loadedCredentials = append(loadedCredentials, cred)
 	return UpdateCreds()
 }
 

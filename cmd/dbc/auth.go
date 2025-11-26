@@ -19,14 +19,15 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 )
 
@@ -121,7 +122,7 @@ func (m loginModel) authConfig() tea.Cmd {
 
 func (m loginModel) requestDeviceCode(cfg auth.OpenIDConfig) tea.Cmd {
 	return func() tea.Msg {
-		rsp, err := device.RequestCode(http.DefaultClient, cfg.DeviceAuthorizationEndpoint.String(),
+		rsp, err := device.RequestCode(dbc.DefaultClient, cfg.DeviceAuthorizationEndpoint.String(),
 			m.oauthClientID, []string{"openid", "offline_access"})
 		if err != nil {
 			return fmt.Errorf("failed to request device code: %w", err)
@@ -170,7 +171,8 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tea.Println("Copy code: ", msg.UserCode),
 			tea.Println("To authenticate, visit: ", msg.VerificationURIComplete),
 			func() tea.Msg {
-				accessToken, err := device.Wait(context.TODO(), http.DefaultClient, m.tokenURI.String(), device.WaitOptions{
+				browser.OpenURL(msg.VerificationURIComplete)
+				accessToken, err := device.Wait(context.TODO(), dbc.DefaultClient, m.tokenURI.String(), device.WaitOptions{
 					ClientID:   m.oauthClientID,
 					DeviceCode: msg,
 				})
@@ -190,7 +192,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 	case auth.Credential:
 		return m, tea.Sequence(func() tea.Msg {
-			if err := auth.AddCredential(msg); err != nil {
+			if err := auth.AddCredential(msg, true); err != nil {
 				return err
 			}
 			return nil
@@ -253,9 +255,13 @@ func (m logoutModel) Init() tea.Cmd {
 func (m logoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case *url.URL:
-		return m, tea.Sequence(func() tea.Msg {
-			return auth.RemoveCredential(auth.Uri(*msg))
-		}, tea.Quit)
+		return m, func() tea.Msg {
+			if err := auth.RemoveCredential(auth.Uri(*msg)); err != nil {
+				return fmt.Errorf("failed to log out: %w", err)
+			}
+
+			return tea.QuitMsg{}
+		}
 	}
 
 	base, cmd := m.baseModel.Update(msg)

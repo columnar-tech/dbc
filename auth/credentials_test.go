@@ -363,7 +363,7 @@ func TestAddCredential(t *testing.T) {
 			ApiKey:      "new-key",
 		}
 
-		err := AddCredential(newCred)
+		err := AddCredential(newCred, false)
 		require.NoError(t, err)
 
 		// Verify it was added
@@ -389,13 +389,54 @@ func TestAddCredential(t *testing.T) {
 		}
 
 		// Add first time
-		err := AddCredential(cred)
+		err := AddCredential(cred, false)
 		require.NoError(t, err)
 
 		// Try to add again
-		err = AddCredential(cred)
+		err = AddCredential(cred, false)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "already exist")
+	})
+
+	// Reset for next test
+	loaded = sync.Once{}
+	loadedCredentials = nil
+
+	t.Run("overwrite existing credential when allowOverwrite is true", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		credPath = filepath.Join(tmpDir, "credentials.toml")
+
+		u, _ := url.Parse("https://example.com")
+		originalCred := Credential{
+			Type:        TypeApiKey,
+			RegistryURL: Uri(*u),
+			ApiKey:      "original-key",
+		}
+
+		// Add first credential
+		err := AddCredential(originalCred, false)
+		require.NoError(t, err)
+
+		// Verify original credential was added
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Len(t, creds, 1)
+		assert.Equal(t, "original-key", creds[0].ApiKey)
+
+		// Overwrite with new credential
+		updatedCred := Credential{
+			Type:        TypeApiKey,
+			RegistryURL: Uri(*u),
+			ApiKey:      "updated-key",
+		}
+		err = AddCredential(updatedCred, true)
+		require.NoError(t, err)
+
+		// Verify credential was overwritten
+		creds, err = loadCreds()
+		require.NoError(t, err)
+		assert.Len(t, creds, 1)
+		assert.Equal(t, "updated-key", creds[0].ApiKey)
 	})
 }
 
@@ -423,7 +464,7 @@ func TestRemoveCredential(t *testing.T) {
 		}
 
 		// Add credential
-		err := AddCredential(cred)
+		err := AddCredential(cred, false)
 		require.NoError(t, err)
 
 		// Remove it
