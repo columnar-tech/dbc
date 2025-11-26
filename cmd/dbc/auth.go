@@ -31,12 +31,12 @@ import (
 )
 
 type AuthCmd struct {
-	Login  *LoginCmd  `arg:"subcommand" help:"Authenticate with a driver index"`
-	Logout *LogoutCmd `arg:"subcommand" help:"Logout from a driver index"`
+	Login  *LoginCmd  `arg:"subcommand" help:"Authenticate with a driver registry"`
+	Logout *LogoutCmd `arg:"subcommand" help:"Logout from a driver registry"`
 }
 
 type LoginCmd struct {
-	IndexURL string `arg:"positional" help:"URL of the driver index to authenticate with"`
+	IndexURL string `arg:"positional" help:"URL of the driver registry to authenticate with"`
 	ClientID string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
 	ApiKey   string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
 }
