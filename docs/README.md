@@ -17,26 +17,14 @@ limitations under the License.
 # dbc docs
 
 dbc uses [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) for docs.
-Building the docs requires a Python installation and a number of system libraries for social image generation.
-
-## Setup
-
-From the root of the repository, run:
-
-```sh
-uv venv
-source .venv/bin/activate
-uv pip install -r docs/requirements.txt
-```
-
-Then install the necessary graphics libraries from https://squidfunk.github.io/mkdocs-material/plugins/requirements/image-processing/#cairo-graphics.
+Building the docs requires a [Pixi](https://pixi.sh/) installation.
 
 ## Building
 
 To build the docs website, run,
 
 ```sh
-mkdocs build
+pixi run docs-build
 ```
 
 The built docs website will be in `./site` and you can preview it by running this (or something similar):
@@ -50,5 +38,5 @@ python -m http.server -d site
 mkdocs has live preview+reload. To use it while developing, run:
 
 ```sh
-mkdocs serve
+pixi run docs-serve
 ```
