@@ -42,8 +42,8 @@ func (c RemoveCmd) GetModel() tea.Model {
 		Driver: c.Driver,
 		Path:   c.Path,
 		baseModel: baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 	}
 }

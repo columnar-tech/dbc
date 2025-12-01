@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-func getTestDriverList() ([]dbc.Driver, error) {
+func getTestDriverRegistry() ([]dbc.Driver, error) {
 	drivers := struct {
 		Drivers []dbc.Driver `yaml:"drivers"`
 	}{}
@@ -67,15 +67,15 @@ func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 type SubcommandTestSuite struct {
 	suite.Suite
 
-	getDriverListFn       func() ([]dbc.Driver, error)
+	getDriverRegistryFn   func() ([]dbc.Driver, error)
 	openBrowserFn         func(string) error
 	fallbackDriverDocsUrl map[string]string
 	tempdir               string
 }
 
 func (suite *SubcommandTestSuite) SetupSuite() {
-	suite.getDriverListFn = getDriverList
-	getDriverList = getTestDriverList
+	suite.getDriverRegistryFn = getDriverRegistry
+	getDriverRegistry = getTestDriverRegistry
 	suite.openBrowserFn = openBrowserFunc
 	suite.fallbackDriverDocsUrl = fallbackDriverDocsUrl
 }
@@ -90,7 +90,7 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 }
 
 func (suite *SubcommandTestSuite) TearDownSuite() {
-	getDriverList = suite.getDriverListFn
+	getDriverRegistry = suite.getDriverRegistryFn
 	openBrowserFunc = suite.openBrowserFn
 	fallbackDriverDocsUrl = suite.fallbackDriverDocsUrl
 }

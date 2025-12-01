@@ -51,8 +51,8 @@ func (s SearchCmd) GetModel() tea.Model {
 		verbose: s.Verbose,
 		pattern: s.Pattern,
 		baseModel: baseModel{
-			getDriverList: getDriverList,
-			downloadPkg:   downloadPkg,
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
 		},
 	}
 }
@@ -66,7 +66,7 @@ type searchModel struct {
 
 func (m searchModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		drivers, err := m.getDriverList()
+		drivers, err := m.getDriverRegistry()
 		if err != nil {
 			return err
 		}
