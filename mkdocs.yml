@@ -44,6 +44,7 @@ nav:
       - Finding Drivers: guides/finding_drivers.md
       - Using a Driver List: guides/driver_list.md
       - Driver Managers: guides/driver_manager.md
+      - Python Notebooks: guides/python_notebooks.md
   - Concepts:
       - concepts/index.md
       - Driver: concepts/driver.md
