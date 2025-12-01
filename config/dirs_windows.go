@@ -47,6 +47,17 @@ func (c ConfigLevel) key() registry.Key {
 	}
 }
 
+func (c ConfigLevel) rootKeyString() string {
+	switch c {
+	case ConfigUser:
+		return "HKCU"
+	case ConfigSystem:
+		return "HKLM"
+	default:
+		return "UNKN"
+	}
+}
+
 func (c ConfigLevel) configLocation() string {
 	var prefix string
 	switch c {
@@ -109,7 +120,7 @@ func setKeyIntMust(k registry.Key, name string, value uint32) {
 	}
 }
 
-func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err error) {
+func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di DriverInfo, err error) {
 	dkey, err := registry.OpenKey(k, driverName, registry.READ)
 	if err != nil {
 		return di, err
@@ -143,6 +154,10 @@ func driverInfoFromKey(k registry.Key, driverName string) (di DriverInfo, err er
 	di.Driver.Shared.defaultPath = keyMust(dkey, "driver")
 	di.Driver.Entrypoint = keyOptional(dkey, "entrypoint")
 
+	// For drivers in the registry, set FilePath to the registry key instead
+	// of the filesystem path since that's technically where the driver exists.
+	di.FilePath = fmt.Sprintf("%s\\%s", lvl.rootKeyString(), regKeyADBC)
+
 	return
 }
 
@@ -171,7 +186,7 @@ func loadRegistryConfig(lvl ConfigLevel) Config {
 	}
 
 	for _, driver := range drivers {
-		di, err := driverInfoFromKey(k, driver)
+		di, err := driverInfoFromKey(k, driver, lvl)
 		if err != nil {
 			log.Println(err)
 			continue
@@ -241,7 +256,7 @@ func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 	}
 	defer k.Close()
 
-	return driverInfoFromKey(k, driverName)
+	return driverInfoFromKey(k, driverName, cfg.Level)
 }
 
 func CreateManifest(cfg Config, driver DriverInfo) (err error) {
