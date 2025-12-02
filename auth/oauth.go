@@ -60,7 +60,7 @@ func fetch[T any](u *url.URL, dest *T) error {
 }
 
 func GetOpenIDConfig(issuer *url.URL) (config OpenIDConfig, err error) {
-	for _, p := range []string{"oauth-authorization-server", "openid-configuration"} {
+	for _, p := range []string{"openid-configuration", "oauth-authorization-server"} {
 		u, _ := issuer.Parse("/.well-known/" + p)
 
 		err = fetch(u, &config)
