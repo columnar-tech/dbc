@@ -26,11 +26,16 @@ var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
 
 // Support drivers without a docs URL defined in the index
 var fallbackDriverDocsUrl = map[string]string{
+	"bigquery":   "https://docs.adbc-drivers.org/drivers/bigquery",
 	"duckdb":     "https://duckdb.org/docs/stable/clients/adbc",
 	"flightsql":  "https://arrow.apache.org/adbc/current/driver/flight_sql.html",
+	"mssql":      "https://docs.adbc-drivers.org/drivers/mssql",
+	"mysql":      "https://docs.adbc-drivers.org/drivers/mysql",
 	"postgresql": "https://arrow.apache.org/adbc/current/driver/postgresql.html",
+	"redshift":   "https://docs.adbc-drivers.org/drivers/redshift",
 	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
 	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
+	"trino":      "https://docs.adbc-drivers.org/drivers/trino",
 }
 
 var openBrowserFunc = browser.OpenURL
