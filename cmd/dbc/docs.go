@@ -26,11 +26,16 @@ var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
 
 // Support drivers without a docs URL defined in the index
 var fallbackDriverDocsUrl = map[string]string{
+	"bigquery":   "https://docs.adbc-drivers.org/drivers/bigquery",
 	"duckdb":     "https://duckdb.org/docs/stable/clients/adbc",
 	"flightsql":  "https://arrow.apache.org/adbc/current/driver/flight_sql.html",
+	"mssql":      "https://docs.adbc-drivers.org/drivers/mssql",
+	"mysql":      "https://docs.adbc-drivers.org/drivers/mysql",
 	"postgresql": "https://arrow.apache.org/adbc/current/driver/postgresql.html",
+	"redshift":   "https://docs.adbc-drivers.org/drivers/redshift",
 	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
 	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
+	"trino":      "https://docs.adbc-drivers.org/drivers/trino",
 }
 
 var openBrowserFunc = browser.OpenURL
@@ -99,20 +104,30 @@ func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 	}
 }
 
+func (m docsModel) getDocsUrlFor(driver *dbc.Driver) string {
+	if driver.DocsUrl != "" {
+		return driver.DocsUrl
+	}
+	fallbackUrl, keyExists := m.fallbackUrls[driver.Path]
+	if keyExists && fallbackUrl != "" {
+		return fallbackUrl
+	}
+
+	return ""
+}
+
 func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dbc.Driver:
 		m.drv = &msg
-		// TODO: Add logic for finding driver docs from index. For now, we only use
-		// fallback URLs.
-		url, keyExists := m.fallbackUrls[msg.Path]
-		if !keyExists {
+		docsUrl := m.getDocsUrlFor(m.drv)
+		if docsUrl == "" {
 			return m, func() tea.Msg {
 				return fmt.Errorf("no documentation available for driver `%s`", msg.Path)
 			}
 		} else {
 			return m, func() tea.Msg {
-				return docsUrlFound(url)
+				return docsUrlFound(docsUrl)
 			}
 		}
 
