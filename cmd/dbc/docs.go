@@ -99,20 +99,30 @@ func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 	}
 }
 
+func (m docsModel) getDocsUrlFor(driver *dbc.Driver) string {
+	if driver.DocsUrl != "" {
+		return driver.DocsUrl
+	}
+	fallbackUrl, keyExists := m.fallbackUrls[driver.Path]
+	if keyExists && fallbackUrl != "" {
+		return fallbackUrl
+	}
+
+	return ""
+}
+
 func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dbc.Driver:
 		m.drv = &msg
-		// TODO: Add logic for finding driver docs from index. For now, we only use
-		// fallback URLs.
-		url, keyExists := m.fallbackUrls[msg.Path]
-		if !keyExists {
+		docsUrl := m.getDocsUrlFor(m.drv)
+		if docsUrl == "" {
 			return m, func() tea.Msg {
 				return fmt.Errorf("no documentation available for driver `%s`", msg.Path)
 			}
 		} else {
 			return m, func() tea.Msg {
-				return docsUrlFound(url)
+				return docsUrlFound(docsUrl)
 			}
 		}
 

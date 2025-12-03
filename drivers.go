@@ -378,6 +378,7 @@ type Driver struct {
 	License string    `yaml:"license"`
 	Path    string    `yaml:"path"`
 	URLs    []string  `yaml:"urls"`
+	DocsUrl string    `yaml:"docs_url"`
 	PkgInfo []pkginfo `yaml:"pkginfo"`
 }
 

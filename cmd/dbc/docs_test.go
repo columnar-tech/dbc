@@ -56,7 +56,7 @@ func (suite *SubcommandTestSuite) TestDocsNoDriverArgNoOpen() {
 	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
-func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocs() {
+func (suite *SubcommandTestSuite) TestDocsDriverFoundWithFallbackDocs() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 	fallbackDriverDocsUrl = testFallbackUrls
@@ -142,4 +142,15 @@ func (suite *SubcommandTestSuite) TestDocsBrowserOpenError() {
 	output := suite.runCmdErr(m)
 
 	suite.Contains(output, "failed to open browser: browser not available")
+}
+
+func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocs() {
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+	fallbackDriverDocsUrl = testFallbackUrls
+
+	m := DocsCmd{Driver: "test-driver-docs-url"}.GetModel()
+	suite.runCmd(m)
+
+	suite.Equal("http://example.com", lastOpenedURL)
 }
