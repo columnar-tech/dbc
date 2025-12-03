@@ -86,3 +86,15 @@ drivers:
           - platform: macos_arm64
           - platform: windows_amd64
           - platform: windows_arm64
+  - name: Test Driver With Docs URL Set
+    description: This is manifest-only with its docs_url key set
+    license: Apache-2.0
+    path: test-driver-docs-url
+    docs_url: http://example.com
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+          - platform: macos_amd64
+          - platform: macos_arm64
+          - platform: windows_amd64

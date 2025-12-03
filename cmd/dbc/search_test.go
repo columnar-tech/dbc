@@ -28,7 +28,8 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 		"• test-driver-2 - This is another test driver\r\n"+
 		"• test-driver-manifest-only - This is manifest-only driver\r\n"+
 		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n\r ", "", suite.runCmd(m))
+		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
+		"• test-driver-docs-url - This is manifest-only with its docs_url key set\r\n\r ", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
@@ -42,7 +43,8 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 	suite.validateOutput("• test-driver-1 - This is a test driver [installed: env=>1.1.0]\r\n"+
 		"• test-driver-2 - This is another test driver\r\n• test-driver-manifest-only - This is manifest-only driver\r\n"+
 		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n\r ", "", suite.runCmd(m))
+		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
+		"• test-driver-docs-url - This is manifest-only with its docs_url key set\r\n\r ", "", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
@@ -63,6 +65,9 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 		"Available Versions:\r\n    ╰── 1.0.0\r\n"+
 		"• test-driver-invalid-manifest\r\n   Title: Test Driver Invalid Manifest\r\n   "+
 		"Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n   License: Apache-2.0\r\n   "+
+		"Available Versions:\r\n    ╰── 1.0.0\r\n"+
+		"• test-driver-docs-url\r\n   Title: Test Driver With Docs URL Set\r\n   "+
+		"Description: This is manifest-only with its docs_url key set\r\n   License: Apache-2.0\r\n   "+
 		"Available Versions:\r\n    ╰── 1.0.0\r\n\r ", "", suite.runCmd(m))
 }
 
@@ -96,6 +101,12 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"• test-driver-invalid-manifest\r\n"+
 		"   Title: Test Driver Invalid Manifest\r\n"+
 		"   Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
+		"   License: Apache-2.0\r\n"+
+		"   Available Versions:\r\n"+
+		"    ╰── 1.0.0\r\n"+
+		"• test-driver-docs-url\r\n"+
+		"   Title: Test Driver With Docs URL Set\r\n"+
+		"   Description: This is manifest-only with its docs_url key set\r\n"+
 		"   License: Apache-2.0\r\n"+
 		"   Available Versions:\r\n"+
 		"    ╰── 1.0.0\r\n\r ", "", suite.runCmd(m))
