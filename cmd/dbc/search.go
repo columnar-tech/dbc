@@ -131,7 +131,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 		}
 
 		if !verbose {
-			l.Item(nameStyle.Render(driver.Path) + " - " + descStyle.Render(driver.Desc) + suffix)
+			l.Item(nameStyle.Render(driver.Path) + suffix)
 			continue
 		}
 
