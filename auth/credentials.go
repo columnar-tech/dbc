@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -264,4 +265,50 @@ func UpdateCreds() error {
 	}{
 		Credentials: loadedCredentials,
 	})
+}
+
+var licenseURI = "https://dbc-cf-api.columnar.workers.dev/trial_license"
+
+func FetchColumnarLicense(cred *Credential) error {
+	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
+	_, err := os.Stat(licensePath)
+	if err == nil { // license exists already
+		return nil
+	}
+
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, licenseURI, nil)
+	if err != nil {
+		return err
+	}
+
+	var authToken string
+	switch cred.Type {
+	case TypeApiKey:
+		authToken = cred.ApiKey
+	case TypeToken:
+		authToken = "Bearer " + cred.GetAuthToken()
+	}
+
+	req.Header.Add("authorization", authToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to fetch license: %s", resp.Status)
+	}
+
+	licenseFile, err := os.OpenFile(licensePath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer licenseFile.Close()
+	_, err = licenseFile.ReadFrom(resp.Body)
+	return err
 }
