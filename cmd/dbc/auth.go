@@ -194,6 +194,10 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if err := auth.AddCredential(msg, true); err != nil {
 				return err
 			}
+
+			if msg.RegistryURL.Host == auth.DefaultOauthURI {
+				return auth.FetchColumnarLicense(&msg)
+			}
 			return nil
 		}, tea.Println("Authentication successful!"),
 			tea.Quit)
