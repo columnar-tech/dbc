@@ -27,6 +27,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -267,7 +268,7 @@ func UpdateCreds() error {
 	})
 }
 
-var licenseURI = "https://dbc-cf-api.columnar.workers.dev/trial_license"
+const licenseURI = "https://dbc-cf-api.columnar.workers.dev/trial_license"
 
 func FetchColumnarLicense(cred *Credential) error {
 	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
@@ -280,17 +281,27 @@ func FetchColumnarLicense(cred *Credential) error {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodGet, licenseURI, nil)
-	if err != nil {
-		return err
-	}
-
 	var authToken string
 	switch cred.Type {
 	case TypeApiKey:
 		authToken = cred.ApiKey
 	case TypeToken:
+		p := jwt.NewParser()
+		tk, err := p.Parse(cred.GetAuthToken(), nil)
+		if err != nil && !errors.Is(err, jwt.ErrTokenUnverifiable) {
+			return fmt.Errorf("failed to parse oauth token: %w", err)
+		}
+
+		_, ok := tk.Claims.(jwt.MapClaims)["urn:columnar:trial_start"]
+		if !ok {
+			return nil // not a trial account
+		}
 		authToken = "Bearer " + cred.GetAuthToken()
+	}
+
+	req, err := http.NewRequest(http.MethodGet, licenseURI, nil)
+	if err != nil {
+		return err
 	}
 
 	req.Header.Add("authorization", authToken)
