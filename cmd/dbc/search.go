@@ -28,9 +28,10 @@ import (
 )
 
 var (
-	nameStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("35"))
-	descStyle = lipgloss.NewStyle().Italic(true)
-	bold      = lipgloss.NewStyle().Bold(true)
+	nameStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("35"))
+	descStyle     = lipgloss.NewStyle().Italic(true)
+	bold          = lipgloss.NewStyle().Bold(true)
+	registryStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("63"))
 )
 
 type SearchCmd struct {
@@ -130,6 +131,12 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 			suffix = installedStyle.Render(" [installed: " + strings.Join(installed, ", ") + "]")
 		}
 
+		var regTag string
+		if driver.Registry.Name != "" {
+			regTag = registryStyle.Render(" [" + driver.Registry.Name + "]")
+			suffix += regTag
+		}
+
 		if !verbose {
 			l.Item(nameStyle.Render(driver.Path) + " - " + descStyle.Render(driver.Desc) + suffix)
 			continue
@@ -155,7 +162,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 			versionTree.Child(v)
 		}
 
-		l.Item(nameStyle.Render(driver.Path)).Item(
+		l.Item(nameStyle.Render(driver.Path) + regTag).Item(
 			list.New(bold.Render("Title: ")+descStyle.Render(driver.Title), bold.Render("Description: ")+descStyle.Render(driver.Desc),
 				bold.Render("License: ")+driver.License,
 				installedVersionTree,
