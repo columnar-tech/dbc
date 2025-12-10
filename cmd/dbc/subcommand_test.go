@@ -32,7 +32,7 @@ import (
 )
 
 var testRegistry = dbc.Index{
-	Name:    "Test Registry",
+	Name:    "",
 	BaseURL: must(url.Parse("https://registry.columnar.tech")),
 }
 
