@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,6 +30,11 @@ import (
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/suite"
 )
+
+var testRegistry = dbc.Index{
+	Name:    "Test Registry",
+	BaseURL: must(url.Parse("https://registry.columnar.tech")),
+}
 
 func getTestDriverRegistry() ([]dbc.Driver, error) {
 	drivers := struct {
@@ -41,7 +47,13 @@ func getTestDriverRegistry() ([]dbc.Driver, error) {
 	}
 	defer f.Close()
 
-	return drivers.Drivers, yaml.NewDecoder(f).Decode(&drivers)
+	if err := yaml.NewDecoder(f).Decode(&drivers); err != nil {
+		return nil, err
+	}
+	for i := range drivers.Drivers {
+		drivers.Drivers[i].Registry = &testRegistry
+	}
+	return drivers.Drivers, nil
 }
 
 func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
