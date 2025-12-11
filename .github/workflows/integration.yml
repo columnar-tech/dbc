@@ -18,7 +18,19 @@ on:
   push:
     branches:
       - "main"
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/dbc/**'
+      - 'ci/scripts/run_integration.sh'
   pull_request:
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/dbc/**'
+      - 'ci/scripts/run_integration.sh'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
