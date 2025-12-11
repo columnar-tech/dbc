@@ -22,13 +22,14 @@ on:
       - '**.go'
       - 'go.mod'
       - 'go.sum'
+      - 'cmd/dbc/**'
       - 'ci/scripts/run_integration.sh'
   pull_request:
     paths:
       - '**.go'
-      - 'cmd/dbc/**'
       - 'go.mod'
       - 'go.sum'
+      - 'cmd/dbc/**'
       - 'ci/scripts/run_integration.sh'
 
 concurrency:
