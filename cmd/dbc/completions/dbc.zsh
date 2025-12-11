@@ -20,6 +20,7 @@ function _dbc {
                 'sync[Install all drivers in the driver list]' \
                 'search[Search for drivers]' \
                 'info[Get detailed information about a specific driver]' \
+                'docs[Open driver documentation in a web browser]' \
                 'remove[Remove a driver from the driver list]' \
                 'completion[Generate shell completions]' \
                 '--help[Show help]' \
@@ -50,6 +51,9 @@ function _dbc {
                 ;;
                 info)
                     _dbc_info_completions
+                ;;
+                docs)
+                    _dbc_docs_completions
                 ;;
                 remove)
                     _dbc_remove_completions
@@ -118,6 +122,14 @@ function _dbc_info_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        ':driver name: '
+}
+
+function _dbc_docs_completions {
+    _arguments  \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        '--no-open[Print the documentation URL instead of opening it in a web browser]' \
         ':driver name: '
 }
 

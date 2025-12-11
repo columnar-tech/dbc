@@ -4,7 +4,7 @@ _dbc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="install uninstall init add sync search info remove completion"
+    local subcommands="install uninstall init add sync search info docs remove completion"
     local global_opts="--help -h --version --quiet -q"
 
     # If we're completing the first argument (subcommand)
@@ -37,6 +37,9 @@ _dbc() {
             ;;
         info)
             _dbc_info_completions
+            ;;
+        docs)
+            _dbc_docs_completions
             ;;
         remove)
             _dbc_remove_completions
@@ -178,6 +181,20 @@ _dbc_search_completions() {
 }
 
 _dbc_info_completions() {
+    COMPREPLY=()
+}
+
+_dbc_docs_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "--no-open" -- "$cur"))
+        return 0
+    fi
+
+    # Driver name completion (no specific completion available)
     COMPREPLY=()
 }
 
