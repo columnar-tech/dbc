@@ -26,6 +26,7 @@ on:
   pull_request:
     paths:
       - '**.go'
+      - 'cmd/dbc/**'
       - 'go.mod'
       - 'go.sum'
       - 'ci/scripts/run_integration.sh'
