@@ -24,7 +24,9 @@ function _dbc {
                 'completion[Generate shell completions]' \
                 '--help[Show help]' \
                 '-h[Show help]' \
-                '--version[Show version]'
+                '--version[Show version]' \
+                '--quiet[Suppress all output]' \
+                '-q[Suppress all output]'
         ;;
         args)
             case $line[1] in

@@ -5,7 +5,7 @@ _dbc() {
     _init_completion || return
 
     local subcommands="install uninstall init add sync search info remove completion"
-    local global_opts="--help -h --version"
+    local global_opts="--help -h --version --quiet -q"
 
     # If we're completing the first argument (subcommand)
     if [[ $cword -eq 1 ]]; then

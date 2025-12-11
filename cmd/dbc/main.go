@@ -136,6 +136,7 @@ type cmds struct {
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand" help:"-"`
+	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
 }
 
 func (cmds) Version() string {
@@ -201,17 +202,22 @@ func main() {
 
 	if !isatty.IsTerminal(os.Stdout.Fd()) {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
+	} else if args.Quiet {
+		// Quiet still prints stderr as GNU standard is to supress "usual" output
+		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr))
 	} else {
 		prog = tea.NewProgram(m)
 	}
 
 	if m, err = prog.Run(); err != nil {
-		fmt.Println("Error running program:", err)
+		fmt.Fprintln(os.Stderr, "Error running program:", err)
 		os.Exit(1)
 	}
 
-	if fo, ok := m.(HasFinalOutput); ok {
-		fmt.Print(fo.FinalOutput())
+	if !args.Quiet {
+		if fo, ok := m.(HasFinalOutput); ok {
+			fmt.Print(fo.FinalOutput())
+		}
 	}
 
 	if h, ok := m.(HasStatus); ok {

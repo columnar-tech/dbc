@@ -25,6 +25,7 @@ end
 complete -c dbc -n '__fish_dbc_needs_command' -l help -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -s h -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -l version -d 'Show version'
+complete -c dbc -n '__fish_dbc_needs_command' -l quiet -s q -d 'Suppress all output'
 
 # Subcommands
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'install' -d 'Install a driver'
