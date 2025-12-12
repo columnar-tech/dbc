@@ -268,7 +268,11 @@ func UpdateCreds() error {
 	})
 }
 
-const licenseURI = "https://dbc-cf-api.columnar.workers.dev/trial_license"
+func IsColumnarPrivateRegistry(u *url.URL) bool {
+	return u.Host == DefaultOauthURI
+}
+
+const licenseURI = "https://heimdall.columnar.tech/trial_license"
 
 func FetchColumnarLicense(cred *Credential) error {
 	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
