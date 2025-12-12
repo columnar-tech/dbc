@@ -60,8 +60,9 @@ func (s SearchCmd) GetModel() tea.Model {
 type searchModel struct {
 	baseModel
 
-	verbose bool
-	pattern *regexp.Regexp
+	verbose      bool
+	pattern      *regexp.Regexp
+	finalDrivers []dbc.Driver
 }
 
 func (m searchModel) Init() tea.Cmd {
@@ -92,8 +93,8 @@ func (m searchModel) filterDrivers(drivers []dbc.Driver) []dbc.Driver {
 func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case []dbc.Driver:
-		return m, tea.Sequence(
-			tea.Println(viewDrivers(msg, m.verbose)), tea.Quit)
+		m.finalDrivers = msg
+		return m, tea.Sequence(tea.Quit)
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
@@ -163,5 +164,9 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 			).Enumerator(emptyEnumerator))
 	}
 
-	return l.String()
+	return l.String() + "\n"
+}
+
+func (m searchModel) FinalOutput() string {
+	return viewDrivers(m.finalDrivers, m.verbose)
 }
