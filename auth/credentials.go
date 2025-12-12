@@ -22,10 +22,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sync"
 
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -136,32 +136,11 @@ func init() {
 }
 
 func getCredentialPath() (string, error) {
-	dir := os.Getenv("XDG_DATA_HOME")
-	if dir == "" {
-		switch runtime.GOOS {
-		case "windows":
-			dir = os.Getenv("LocalAppData")
-			if dir == "" {
-				return "", errors.New("%LocalAppData% is not set")
-			}
-		case "darwin":
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("failed to get user home directory: %w", err)
-			}
-			dir = filepath.Join(home, "Library")
-		default: // unix
-			home, err := os.UserHomeDir()
-			if err != nil {
-				return "", fmt.Errorf("failed to get user home directory: %w", err)
-			}
-			dir = filepath.Join(home, ".local", "share")
-		}
-	} else if !filepath.IsAbs(dir) {
-		return "", errors.New("path in $XDG_DATA_HOME is relative")
+	dbcConfigDir, err := internal.GetDbcConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to get credentials path: %v", err)
 	}
-
-	return filepath.Join(dir, "dbc", "credentials", "credentials.toml"), nil
+	return filepath.Join(dbcConfigDir, "credentials", "credentials.toml"), nil
 }
 
 func loadCreds() ([]Credential, error) {
