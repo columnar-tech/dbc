@@ -80,7 +80,7 @@ func (t *Credential) Refresh() bool {
 			Method: http.MethodGet,
 			URL:    (*url.URL)(&t.AuthURI),
 			Header: http.Header{
-				"authorization": []string{t.ApiKey},
+				"authorization": []string{"Bearer " + t.ApiKey},
 			},
 		})
 		if err != nil || rsp.StatusCode != http.StatusOK {
