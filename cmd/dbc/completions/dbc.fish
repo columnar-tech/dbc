@@ -36,6 +36,7 @@ complete -f -c dbc -n '__fish_dbc_needs_command' -a 'sync' -d 'Install all drive
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'search' -d 'Search for drivers'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver from the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'info' -d 'Get detailed information about a specific driver'
+complete -f -c dbc -n '__fish_dbc_needs_command' -a 'docs' -d 'Open driver documentation in a web browser'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'completion' -d 'Generate shell completions'
 
 # install subcommand
@@ -73,6 +74,15 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand remove' -l path -s p -r -F -a '*.toml' -d 'Driver list to remove from'
+
+# info subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand info' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand info' -l help -d 'Help'
+
+# docs subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand docs' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand docs' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand docs' -l no-open -d 'Print the documentation URL instead of opening it in a web browser'
 
 # completion subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand completion' -s h -d 'Help'
