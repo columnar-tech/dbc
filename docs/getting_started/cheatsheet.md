@@ -18,4 +18,4 @@ limitations under the License.
 
 The dbc cheatsheet covers commands for installing dbc, driver discovery, driver management, and driver lists.
 
-<object class="pdf" data="/dbc/assets/cheatsheet.pdf" />
+<img src="/dbc/assets/cheatsheet.svg" />
