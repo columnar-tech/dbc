@@ -39,10 +39,25 @@ import (
 	machineid "github.com/zeroshade/machine-id"
 )
 
-const defaultURL = "https://dbc-cdn.columnar.tech"
+type Registry struct {
+	Name    string
+	Drivers []Driver
+	BaseURL *url.URL
+}
+
+func mustParseURL(u string) *url.URL {
+	uri, err := url.Parse(u)
+	if err != nil {
+		panic(fmt.Sprintf("failed to parse URL %s: %v", u, err))
+	}
+	return uri
+}
 
 var (
-	baseURL = defaultURL
+	registries = []Registry{
+		{BaseURL: mustParseURL("https://dbc-cdn.columnar.tech")},
+		{BaseURL: mustParseURL("https://dbc-cdn-private.columnar.tech")},
+	}
 	Version = "unknown"
 	mid     string
 	uid     uuid.UUID
@@ -70,7 +85,9 @@ func init() {
 	}
 
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
-		baseURL = val
+		registries = []Registry{
+			{BaseURL: mustParseURL(val)},
+		}
 	}
 
 	userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
@@ -168,18 +185,24 @@ func makereq(u string) (resp *http.Response, err error) {
 	return resp, err
 }
 
-var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	resp, err := makereq(baseURL + "/index.yaml")
+func getDriverListFromIndex(index *Registry) ([]Driver, error) {
+	resp, err := makereq(index.BaseURL.JoinPath("/index.yaml").String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		// ignore registries we aren't authorized to access
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, nil
+		}
+
 		return nil, fmt.Errorf("failed to fetch drivers: %s", resp.Status)
 	}
 
 	defer resp.Body.Close()
 	drivers := struct {
+		Name    string   `yaml:"name"`
 		Drivers []Driver `yaml:"drivers"`
 	}{}
 
@@ -188,13 +211,35 @@ var getDrivers = sync.OnceValues(func() ([]Driver, error) {
 		return nil, fmt.Errorf("failed to parse driver registry index: %s", err)
 	}
 
-	// Sort by path (short name)
+	if drivers.Name != "" {
+		index.Name = drivers.Name
+	}
+
+	// Set registry reference
+	for i := range drivers.Drivers {
+		drivers.Drivers[i].Registry = index
+	}
+
 	result := drivers.Drivers
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Path < result[j].Path
 	})
 
 	return result, nil
+}
+
+var getDrivers = sync.OnceValues(func() ([]Driver, error) {
+	allDrivers := make([]Driver, 0)
+	for i := range registries {
+		drivers, err := getDriverListFromIndex(&registries[i])
+		if err != nil {
+			return nil, err
+		}
+		registries[i].Drivers = drivers
+		allDrivers = append(allDrivers, drivers...)
+	}
+
+	return allDrivers, nil
 })
 
 //go:embed columnar.pubkey
@@ -288,7 +333,7 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 		return PkgInfo{}, fmt.Errorf("no packages available for version %s", p.Version)
 	}
 
-	base, _ := url.Parse(baseURL)
+	base := d.Registry.BaseURL
 	for _, pkg := range p.Packages {
 		if pkg.PlatformTuple == platformTuple {
 			var uri *url.URL
@@ -326,6 +371,8 @@ func filter[T any](items iter.Seq[T], predicate func(T) bool) iter.Seq[T] {
 }
 
 type Driver struct {
+	Registry *Registry `yaml:"-"`
+
 	Title   string    `yaml:"name"`
 	Desc    string    `yaml:"description"`
 	License string    `yaml:"license"`

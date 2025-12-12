@@ -153,7 +153,7 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 	t.Run("successful refresh with apikey", func(t *testing.T) {
 		// Create test server
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			assert.Equal(t, "Bearer test-api-key", r.Header.Get("Authorization"))
+			assert.Equal(t, "test-api-key", r.Header.Get("Authorization"))
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{"access_token": "new-token"}`))
 		}))
