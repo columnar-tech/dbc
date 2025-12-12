@@ -39,7 +39,7 @@ import (
 	machineid "github.com/zeroshade/machine-id"
 )
 
-type Index struct {
+type Registry struct {
 	Name    string
 	Drivers []Driver
 	BaseURL *url.URL
@@ -54,7 +54,7 @@ func mustParseURL(u string) *url.URL {
 }
 
 var (
-	registries = []Index{
+	registries = []Registry{
 		{BaseURL: mustParseURL("https://dbc-cdn.columnar.tech")},
 		{BaseURL: mustParseURL("https://dbc-cdn-private.columnar.tech")},
 	}
@@ -82,6 +82,12 @@ func init() {
 	info, ok := debug.ReadBuildInfo()
 	if ok {
 		Version = info.Main.Version
+	}
+
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		registries = []Registry{
+			{BaseURL: mustParseURL(val)},
+		}
 	}
 
 	userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
@@ -179,7 +185,7 @@ func makereq(u string) (resp *http.Response, err error) {
 	return resp, err
 }
 
-func getDriverListFromIndex(index *Index) ([]Driver, error) {
+func getDriverListFromIndex(index *Registry) ([]Driver, error) {
 	resp, err := makereq(index.BaseURL.JoinPath("/index.yaml").String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
@@ -365,7 +371,7 @@ func filter[T any](items iter.Seq[T], predicate func(T) bool) iter.Seq[T] {
 }
 
 type Driver struct {
-	Registry *Index `yaml:"-"`
+	Registry *Registry `yaml:"-"`
 
 	Title   string    `yaml:"name"`
 	Desc    string    `yaml:"description"`

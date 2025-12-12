@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-var testRegistry = dbc.Index{
+var testRegistry = dbc.Registry{
 	Name:    "",
 	BaseURL: must(url.Parse("https://registry.columnar.tech")),
 }
