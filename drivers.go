@@ -34,6 +34,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
@@ -108,7 +109,7 @@ func init() {
 	mid, _ = machineid.ProtectedID()
 
 	// get user config dir
-	userdir, err := os.UserConfigDir()
+	dbcConfigDir, err := internal.GetDbcConfigDir()
 	if err != nil {
 		// if we can't get the dir for some reason, just generate a new UUID
 		uid = uuid.New()
@@ -116,12 +117,7 @@ func init() {
 	}
 
 	// try to read the existing UUID file
-	dirname := "columnar"
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		dirname = "Columnar"
-	}
-
-	fp := filepath.Join(userdir, dirname, "dbc", "uid.uuid")
+	fp := filepath.Join(dbcConfigDir, "uid.uuid")
 	data, err := os.ReadFile(fp)
 	if err == nil {
 		if err = uid.UnmarshalBinary(data); err == nil {
