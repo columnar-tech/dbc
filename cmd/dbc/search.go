@@ -164,7 +164,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 			).Enumerator(emptyEnumerator))
 	}
 
-	return l.String()
+	return l.String() + "\n"
 }
 
 func (m searchModel) FinalOutput() string {
