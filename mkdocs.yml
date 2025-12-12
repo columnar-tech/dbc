@@ -38,6 +38,7 @@ nav:
       - Installation: getting_started/installation.md
       - First steps: getting_started/first_steps.md
       - FAQ: getting_started/faq.md
+      - Cheatsheet: getting_started/cheatsheet.md
   - Guides:
       - guides/index.md
       - Installing Drivers: guides/installing.md
