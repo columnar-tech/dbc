@@ -21,7 +21,7 @@ on:
         description: "Where to deploy to"
         required: true
         type: environment
-    
+
       release_tag:
         description: "Tag of the GitHub release (example: v0.0.1)"
         required: true
@@ -51,7 +51,7 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE }}
           role-session-name: deploy-${{ inputs.environment }}-${{ github.run_id }}-${{ github.run_attempt }}
           aws-region: ${{ vars.AWS_REGION }}
-      
+
       - name: Check role
         run: |
           aws sts get-caller-identity
@@ -61,7 +61,7 @@ jobs:
           gh release download ${{ inputs.release_tag }} --repo ${{ github.repository }}
         env:
           GH_TOKEN: ${{ github.token }}
-      
+
       - name: Upload artifacts
         run: |
           aws s3 cp . s3://dbc-distribution/${{ inputs.release_tag }} --recursive

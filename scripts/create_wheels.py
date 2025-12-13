@@ -194,7 +194,7 @@ def write_wheel(out_dir, *, name, version, tag, metadata, description, contents)
         {
             **contents,
             f"{dist_info}/entry_points.txt": make_message([],
-               '[console_scripts]\ndbc = dbc.__main__:dummy'),
+                '[console_scripts]\ndbc = dbc.__main__:dummy'),
             f"{dist_info}/METADATA": make_message(
                 [
                     ("Metadata-Version", "2.4"),
@@ -294,7 +294,7 @@ def dummy(): """Dummy function for an entrypoint. dbc is executed as a side effe
             ("Project-URL", "source, https://github.com/columnar-tech/dbc"),
             ("Classifier", "Intended Audience :: Developers"),
             ("Classifier", "Topic :: Software Development"),
-            ("Classifier", "Topic :: Scientific/Engineering"),            
+            ("Classifier", "Topic :: Scientific/Engineering"),
         ],
         description=description,
         contents=contents,

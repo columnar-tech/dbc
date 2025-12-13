@@ -18,10 +18,10 @@ limitations under the License.
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   {{ if eq .MsiArch "x64" }}
   <?define ArchString = "(64 bit)" ?>
-  <?define Win64 = "yes" ?>  
+  <?define Win64 = "yes" ?>
   {{ else }}
   <?define ArchString = "" ?>
-  <?define Win64 = "no" ?>  
+  <?define Win64 = "no" ?>
   {{ end }}
   <Fragment>
     <UI Id="WixUI_Minimal">

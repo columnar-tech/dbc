@@ -145,7 +145,7 @@ download_binary_and_run_installer() {
                 ;;
             --verbose)
                 PRINT_VERBOSE=1
-                ;;                        
+                ;;
             *)
                 OPTIND=1
                 if [ "${arg%%--*}" = "" ]; then
@@ -185,7 +185,7 @@ download_binary_and_run_installer() {
     # look up what archives support this platform
     local _artifact_name
     _artifact_name="$(select_archive_for_arch "$_true_arch")" || return 1
-   
+
     # download the archive
     local _url="$ARTIFACT_DOWNLOAD_URL/$_artifact_name"
     local _dir
@@ -200,12 +200,12 @@ download_binary_and_run_installer() {
     ensure mkdir -p "$_dir"
 
     if ! downloader "$_url" "$_file"; then
-      say "failed to download $_url"
-      say "this may be a standard network error, but it may also indicate"
-      say "that there's no release of $APP_NAME for your platform ($_true_arch)."
-      say "Please open an issue at https://github.com/columnar-tech/dbc/issues"
-      say "to request a build for your platform!"    
-      exit 1
+        say "failed to download $_url"
+        say "this may be a standard network error, but it may also indicate"
+        say "that there's no release of $APP_NAME for your platform ($_true_arch)."
+        say "Please open an issue at https://github.com/columnar-tech/dbc/issues"
+        say "to request a build for your platform!"
+        exit 1
     fi
 
     # unpack the archive
@@ -254,7 +254,7 @@ select_archive_for_arch() {
 
     # try each archive, checking runtime conditions like libc versions
     # accepting the first one that matches, as it's the best match
-    case "$_true_arch" in 
+    case "$_true_arch" in
         "aarch64-apple-darwin")
             _archive="dbc-darwin-arm64-${APP_VERSION}.tar.gz"
             if [ -n "$_archive" ]; then
@@ -985,7 +985,7 @@ install() {
     # To do this we need these values:
 
     # The actual path we're going to install to
-    local _install_dir        
+    local _install_dir
     # Path to the an shell script that adds install_dir to PATH
     local _env_script_path
     # Potentially-late-bound version of install_dir to write env_script
@@ -1003,7 +1003,7 @@ install() {
     # to the older generic one
     if [ -n "${DBC_INSTALL_DIR:-}" ]; then
         _force_install_dir="$DBC_INSTALL_DIR"
-        _install_layout="flat"    
+        _install_layout="flat"
     elif [ -n "$UNMANAGED_INSTALL" ]; then
         _force_install_dir="$UNMANAGED_INSTALL"
         _install_layout="flat"
@@ -1014,19 +1014,19 @@ install() {
     if [ -n "${_force_install_dir:-}" ]; then
         case "$_install_layout" in
             "hierarchical")
-                _install_dir="$_force_install_dir/bin"                
+                _install_dir="$_force_install_dir/bin"
                 _env_script_path="$_force_install_dir/env"
                 _install_dir_expr="$(replace_home "$_force_install_dir/bin")"
                 _env_script_path_expr="$(replace_home "$_force_install_dir/env")"
                 ;;
             "cargo-home")
-                _install_dir="$_force_install_dir/bin"                
+                _install_dir="$_force_install_dir/bin"
                 _env_script_path="$_force_install_dir/env"
                 _install_dir_expr="$(replace_home "$_force_install_dir/bin")"
                 _env_script_path_expr="$(replace_home "$_force_install_dir/env")"
                 ;;
             "flat")
-                _install_dir="$_force_install_dir"                
+                _install_dir="$_force_install_dir"
                 _env_script_path="$_force_install_dir/env"
                 _install_dir_expr="$(replace_home "$_force_install_dir")"
                 _env_script_path_expr="$(replace_home "$_force_install_dir/env")"
@@ -1040,7 +1040,7 @@ install() {
         _install_layout="flat"
         # Install to $XDG_BIN_HOME
         if [ -n "${XDG_BIN_HOME:-}" ]; then
-            _install_dir="$XDG_BIN_HOME"            
+            _install_dir="$XDG_BIN_HOME"
             _env_script_path="$XDG_BIN_HOME/env"
             _install_dir_expr="$(replace_home "$_install_dir")"
             _env_script_path_expr="$(replace_home "$_env_script_path")"
@@ -1050,7 +1050,7 @@ install() {
         _install_layout="flat"
         # Install to $XDG_DATA_HOME/../bin
         if [ -n "${XDG_DATA_HOME:-}" ]; then
-            _install_dir="$XDG_DATA_HOME/../bin"            
+            _install_dir="$XDG_DATA_HOME/../bin"
             _env_script_path="$XDG_DATA_HOME/../bin/env"
             _install_dir_expr="$(replace_home "$_install_dir")"
             _env_script_path_expr="$(replace_home "$_env_script_path")"
@@ -1060,7 +1060,7 @@ install() {
         _install_layout="flat"
         # Install to $HOME/.local/bin
         if [ -n "${INFERRED_HOME:-}" ]; then
-            _install_dir="$INFERRED_HOME/.local/bin"            
+            _install_dir="$INFERRED_HOME/.local/bin"
             _env_script_path="$INFERRED_HOME/.local/bin/env"
             _install_dir_expr="$INFERRED_HOME_EXPRESSION/.local/bin"
             _env_script_path_expr="$INFERRED_HOME_EXPRESSION/.local/bin/env"
@@ -1078,11 +1078,11 @@ install() {
     _fish_env_script_path_expr="${_env_script_path_expr}.fish"
 
     say "Installing to $_install_dir:"
-    ensure mkdir -p "$_install_dir"    
+    ensure mkdir -p "$_install_dir"
 
     # copy all the binaries to the install dir
     local _src_dir="$1"
-    local _bins="$2"    
+    local _bins="$2"
     local _arch="$3"
     for _bin_name in $_bins; do
         local _bin="$_src_dir/$_bin_name"
@@ -1098,9 +1098,9 @@ install() {
     say "Successfully installed dbc!"
 
     # Avoid modifying the users PATH if they are managing their PATH manually
-    case :$PATH:
-      in *:$_install_dir:*) NO_MODIFY_PATH=1 ;;
-         *) ;;
+    case :$PATH: in
+        *:$_install_dir:*) NO_MODIFY_PATH=1 ;;
+        *) ;;
     esac
 
     if [ "0" = "$NO_MODIFY_PATH" ]; then
@@ -1255,7 +1255,7 @@ add_install_dir_to_path() {
         #
         # We search for both kinds of line here just to do the right thing in more cases.
         if ! grep -F "$_robust_line" "$_target" > /dev/null 2>/dev/null && \
-           ! grep -F "$_pretty_line" "$_target" > /dev/null 2>/dev/null
+            ! grep -F "$_pretty_line" "$_target" > /dev/null 2>/dev/null
         then
             # If the script now exists, add the line to source it to the rcfile
             # (This will also create the rcfile if it doesn't exist)
@@ -1307,7 +1307,7 @@ shotgun_install_dir_to_path() {
         done
 
         # Fall through to previous "create + write to first file in list" behavior
-	    if [ "$_found" = false ]; then
+        if [ "$_found" = false ]; then
             add_install_dir_to_path "$_install_dir_expr" "$_env_script_path" "$_env_script_path_expr" "$_rcfiles" "$_shell"
         fi
     fi
@@ -1351,10 +1351,10 @@ downloader() {
     # https://github.com/boukendesho/curl-snap/issues/1
     _snap_curl=0
     if command -v curl > /dev/null 2>&1; then
-      _curl_path=$(command -v curl)
-      if echo "$_curl_path" | grep "/snap/" > /dev/null 2>&1; then
-        _snap_curl=1
-      fi
+        _curl_path=$(command -v curl)
+        if echo "$_curl_path" | grep "/snap/" > /dev/null 2>&1; then
+            _snap_curl=1
+        fi
     fi
 
     # Check if we have a working (non-snap) curl
@@ -1366,11 +1366,11 @@ downloader() {
     # If we can't fall back from broken snap curl to wget, report the broken snap curl
     elif [ "$_snap_curl" = "1" ]
     then
-      say "curl installed with snap cannot be used to install $APP_NAME"
-      say "due to missing permissions. Please uninstall it and"
-      say "reinstall curl with a different package manager (e.g., apt)."
-      say "See https://github.com/boukendesho/curl-snap/issues/1"
-      exit 1
+        say "curl installed with snap cannot be used to install $APP_NAME"
+        say "due to missing permissions. Please uninstall it and"
+        say "reinstall curl with a different package manager (e.g., apt)."
+        say "See https://github.com/boukendesho/curl-snap/issues/1"
+        exit 1
     else _dld='curl or wget' # to be used in error message of need_cmd
     fi
 

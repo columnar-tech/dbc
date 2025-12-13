@@ -9,7 +9,7 @@ function _dbc {
     _arguments -C \
         "1: :->subcommand" \
         "*::arg:->args"
-    
+
     case $state in
         subcommand)
             _values "dbc command" \
@@ -66,7 +66,7 @@ function _dbc {
     esac
 }
 
-function _dbc_install_completions {    
+function _dbc_install_completions {
     _arguments \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
@@ -96,7 +96,7 @@ function _dbc_add_completions {
         '(-h)--help[Help]' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
-        ':driver name: '        
+        ':driver name: '
 }
 
 function _dbc_sync_completions {
