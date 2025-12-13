@@ -22,3 +22,4 @@ For detailed guides on using dbc, see the following pages:
 - [Finding Drivers](./finding_drivers.md)
 - [Using a Driver List](./driver_list.md)
 - [Installing a Driver Manager](./driver_manager.md)
+- [Python Notebooks](./python_notebooks.md)
