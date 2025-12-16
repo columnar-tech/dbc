@@ -18,7 +18,7 @@ limitations under the License.
 
 The term "driver manifest" refers to an [ADBC Driver Manfifest](https://arrow.apache.org/adbc/current/format/driver_manifests.html).
 
-In short, a driver manfiest is a metadata file that stores key information about a driver, including the information a [Driver Manager](./driver_manager.md) needs to load it.
+In short, a driver manifest is a metadata file that stores key information about a driver, including the information a [Driver Manager](./driver_manager.md) needs to load it.
 
 For example, here's an example driver manifest for the MySQL ADBC driver:
 

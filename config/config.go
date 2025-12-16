@@ -342,7 +342,7 @@ func UninstallDriverShared(info DriverInfo) error {
 		// Run filepath.Clean on sharedPath mainly to catch inner ".." in the path
 		sharedPath = filepath.Clean(sharedPath)
 
-		// Don't remove anything that isn't contained withing the found driver's
+		// Don't remove anything that isn't contained within the found driver's
 		// config directory (i.e., avoid malicious driver manifests)
 		if !strings.HasPrefix(sharedPath, info.FilePath) {
 			continue
