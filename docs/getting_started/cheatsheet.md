@@ -20,6 +20,6 @@ The dbc cheatsheet covers commands for installing dbc, driver discovery, driver 
 
 <a href="/dbc/assets/cheatsheet.pdf" class="md-button md-button--primary">Download</a>
 
-<img src="/dbc/assets/cheatsheet.svg" />
+<img src="/dbc/assets/cheatsheet.png" />
 
 This work is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
