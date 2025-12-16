@@ -74,7 +74,7 @@ drivers:
           - platform: windows_amd64
           - platform: windows_arm64
   - name: Test Driver Invalid Manifest
-    description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.
+    description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.
     license: Apache-2.0
     path: test-driver-invalid-manifest
     pkginfo:

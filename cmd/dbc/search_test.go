@@ -28,7 +28,7 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 		"• test-driver-2 - This is another test driver\n"+
 		"• test-driver-manifest-only - This is manifest-only driver\n"+
 		"• test-driver-no-sig - Driver manifest missing Files.signature entry\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\n", suite.runCmd(m))
+		"• test-driver-invalid-manifest - This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
@@ -43,7 +43,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 		"• test-driver-2 - This is another test driver\n"+
 		"• test-driver-manifest-only - This is manifest-only driver\n"+
 		"• test-driver-no-sig - Driver manifest missing Files.signature entry\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\n", suite.runCmd(m))
+		"• test-driver-invalid-manifest - This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
@@ -63,7 +63,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 		"Description: Driver manifest missing Files.signature entry\n   License: Apache-2.0\n   "+
 		"Available Versions:\n    ╰── 1.0.0\n"+
 		"• test-driver-invalid-manifest\n   Title: Test Driver Invalid Manifest\n   "+
-		"Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\n   License: Apache-2.0\n   "+
+		"Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n   License: Apache-2.0\n   "+
 		"Available Versions:\n    ╰── 1.0.0\n", suite.runCmd(m))
 }
 
@@ -96,7 +96,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"    ╰── 1.0.0\n"+
 		"• test-driver-invalid-manifest\n"+
 		"   Title: Test Driver Invalid Manifest\n"+
-		"   Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
+		"   Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
 		"   License: Apache-2.0\n"+
 		"   Available Versions:\n"+
 		"    ╰── 1.0.0\n", suite.runCmd(m))
