@@ -14,13 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-# Getting Started Overview
+# Cheatsheet
 
-See the following pages related to getting started with dbc:
+The dbc cheatsheet covers commands for installing dbc, driver discovery, driver management, and driver lists.
 
-- [Installation](./installation.md)
-- [First steps](./first_steps.md)
-- [FAQ](./faq.md)
-- [Cheatsheet](./cheatsheet.md)
+<a href="/dbc/assets/cheatsheet.pdf" class="md-button md-button--primary">Download</a>
 
-For an overview of dbc, see our [Introduction](../index.md).
+[![dbc cheatsheet](/dbc/assets/cheatsheet.png)](/dbc/assets/cheatsheet.pdf)
+
+This work is licensed under [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/).
