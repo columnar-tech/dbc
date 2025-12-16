@@ -18,7 +18,7 @@ limitations under the License.
 
 The dbc cheatsheet covers commands for installing dbc, driver discovery, driver management, and driver lists.
 
-[Download PDF](/dbc/assets/cheatsheet.pdf){ .md-button .md-button--primary }
+<a href="/dbc/assets/cheatsheet.pdf" class="md-button md-button--primary">Download</a>
 
 <img src="/dbc/assets/cheatsheet.svg" />
 
