@@ -97,6 +97,11 @@ func (c ConfigLevel) String() string {
 	}
 }
 
+// GetLocation returns the filesystem path for the given config level.
+func GetLocation(level ConfigLevel) string {
+	return level.configLocation()
+}
+
 func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	switch strings.ToLower(strings.TrimSpace(string(b))) {
 	case "system":
