@@ -59,11 +59,16 @@ jobs:
         # the file with `test_registry` also requires windows, so we can safely add this tag
         # without it running on non-windows OSes
         run: go test -v -tags test_registry ./...
-      - name: Run Integration Tests (Unix)
+      - name: Run User Integration Tests (Unix)
         if: runner.os != 'Windows'
         env:
           DBC_RUN_INTEGRATION_TESTS: 1
-        run: sudo -E go test -v -tags test_integration -run TestIntegration ./cmd/dbc
+        run: go test -v -tags test_integration,test_user -run TestIntegration ./cmd/dbc
+      - name: Run System Integration Tests (Unix)
+        if: runner.os != 'Windows'
+        env:
+          DBC_RUN_INTEGRATION_TESTS: 1
+        run: sudo go test -v -tags test_integration,test_system -run TestIntegration ./cmd/dbc
       - name: Run Integration Tests (Windows)
         if: runner.os == 'Windows'
         env:

@@ -20,12 +20,10 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -65,28 +63,4 @@ func (s *IntegrationTestSuite) run(m tea.Model) string {
 // user and system files and the Windows registry.
 func TestIntegration(t *testing.T) {
 	suite.Run(t, new(IntegrationTestSuite))
-}
-
-func (suite *IntegrationTestSuite) TestInstallUser() {
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	out := suite.run(m)
-	loc := config.GetLocation(config.ConfigUser)
-
-	suite.Equal("\nInstalled test-driver-1 1.1.0 to "+loc+"\n", out)
-	suite.driverIsInstalled("test-driver-1", config.ConfigUser)
-	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
-	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
-}
-
-func (suite *IntegrationTestSuite) TestInstallSystem() {
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	out := suite.run(m)
-	loc := config.GetLocation(config.ConfigSystem)
-
-	suite.Equal("\nInstalled test-driver-1 1.1.0 to "+loc+"\n", out)
-	suite.driverIsInstalled("test-driver-1", config.ConfigSystem)
-	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
-	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
 }
