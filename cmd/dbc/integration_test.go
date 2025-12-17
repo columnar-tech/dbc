@@ -19,6 +19,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -31,6 +32,13 @@ import (
 
 type IntegrationTestSuite struct {
 	suite.Suite
+}
+
+func (suite *IntegrationTestSuite) SetupSuite() {
+	// Integration tests require both the build tag AND environment variable
+	if os.Getenv("DBC_RUN_INTEGRATION_TESTS") == "" {
+		suite.T().Skip("Set DBC_RUN_INTEGRATION_TESTS=1 to run integration tests")
+	}
 }
 
 func (s *IntegrationTestSuite) run(m tea.Model) string {
