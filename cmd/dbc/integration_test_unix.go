@@ -18,6 +18,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/columnar-tech/dbc/config"
 )
@@ -25,4 +26,9 @@ import (
 func (suite *IntegrationTestSuite) TearDownTest() {
 	os.RemoveAll(config.GetLocation(config.ConfigUser))
 	os.RemoveAll(config.GetLocation(config.ConfigSystem))
+}
+
+func (suite *IntegrationTestSuite) driverIsInstalled(driverID string, level config.ConfigLevel) {
+	loc := config.GetLocation(level)
+	suite.FileExists(filepath.Join(loc, driverID+".toml"))
 }
