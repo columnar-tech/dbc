@@ -63,9 +63,9 @@ jobs:
         if: runner.os != 'Windows'
         env:
           DBC_RUN_INTEGRATION_TESTS: 1
-        run: sudo -E go test -v -tags test_integration ./cmd/dbc
+        run: sudo -E go test -v -tags test_integration -run TestIntegration ./cmd/dbc
       - name: Run Integration Tests (Windows)
         if: runner.os == 'Windows'
         env:
           DBC_RUN_INTEGRATION_TESTS: 1
-        run: go test -v -tags test_integration ./cmd/dbc
+        run: go test -v -tags test_integration -run TestIntegration ./cmd/dbc
