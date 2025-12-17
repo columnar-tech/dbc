@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build test_integration,test_system
+//go:build test_integration && test_system
 
 package main
 
