@@ -28,6 +28,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
+	"golang.org/x/sys/windows/registry"
 )
 
 type IntegrationTestSuite struct {
@@ -78,7 +79,9 @@ func (suite *IntegrationTestSuite) TestInstallUser() {
 	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(loc, "test-driver-1.toml"))
 	} else {
-		// TODO: Windows
+		k, err := registry.OpenKey(registry.CURRENT_USER, `SOFTWARE\ADBC\Drivers\test-driver-1`, registry.QUERY_VALUE)
+		suite.Require().NoError(err, "registry key should exist")
+		defer k.Close()
 	}
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
@@ -94,7 +97,9 @@ func (suite *IntegrationTestSuite) TestInstallSystem() {
 	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(loc, "test-driver-1.toml"))
 	} else {
-		// TODO: Windows
+		k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SOFTWARE\ADBC\Drivers\test-driver-1`, registry.QUERY_VALUE)
+		suite.Require().NoError(err, "registry key should exist")
+		defer k.Close()
 	}
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
