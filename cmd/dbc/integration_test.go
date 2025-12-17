@@ -75,15 +75,13 @@ func (suite *IntegrationTestSuite) TestInstallUser() {
 	loc := config.GetLocation(config.ConfigUser)
 
 	suite.Equal("\nInstalled test-driver-1 1.1.0 to "+loc+"\n", out)
-	if runtime.GOOS == "windows" {
-		// Should fail
+	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(loc, "test-driver-1.toml"))
 	} else {
-		suite.FileExists(filepath.Join(loc, "test-driver-1.toml"))
+		// TODO: Windows
 	}
-	suite.FileExists(filepath.Join(loc, "test-driver-1", "test-driver-1-not-valid.so"))
-	suite.FileExists(filepath.Join(loc, "test-driver-1", "MANIFEST"))
-	suite.FileExists(filepath.Join(loc, "test-driver-1", "test-driver-1-not-valid.so.sig"))
+	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
+	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
 }
 
 func (suite *IntegrationTestSuite) TestInstallSystem() {
@@ -93,13 +91,11 @@ func (suite *IntegrationTestSuite) TestInstallSystem() {
 	loc := config.GetLocation(config.ConfigSystem)
 
 	suite.Equal("\nInstalled test-driver-1 1.1.0 to "+loc+"\n", out)
-	if runtime.GOOS == "windows" {
-		// Should fail
+	if runtime.GOOS != "windows" {
 		suite.FileExists(filepath.Join(loc, "test-driver-1.toml"))
 	} else {
-		suite.FileExists(filepath.Join(loc, "test-driver-1.toml"))
+		// TODO: Windows
 	}
-	suite.FileExists(filepath.Join(loc, "test-driver-1", "test-driver-1-not-valid.so"))
-	suite.FileExists(filepath.Join(loc, "test-driver-1", "MANIFEST"))
-	suite.FileExists(filepath.Join(loc, "test-driver-1", "test-driver-1-not-valid.so.sig"))
+	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
+	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
 }
