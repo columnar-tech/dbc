@@ -29,7 +29,7 @@ func (suite *IntegrationTestSuite) TestInstallSystem() {
 
 	loc := config.GetLocation(config.ConfigSystem)
 	suite.Equal("\nInstalled test-driver-1 1.1.0 to "+loc+"\n", out)
-	suite.driverIsInstalled(config.ConfigSystem, "test-driver-1", "1.1.0")
+	suite.driverIsInstalled(config.ConfigSystem, "test-driver-1")
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
 }

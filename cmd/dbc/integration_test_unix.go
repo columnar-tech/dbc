@@ -1,3 +1,5 @@
+//go:build test_integration && !windows
+
 // Copyright 2025 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,13 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build test_integration && !windows
-
 package main
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/columnar-tech/dbc/config"
 )
@@ -28,13 +27,16 @@ func (suite *IntegrationTestSuite) TearDownTest() {
 	os.RemoveAll(config.GetLocation(config.ConfigSystem))
 }
 
-func (suite *IntegrationTestSuite) driverIsInstalled(level config.ConfigLevel, path string) {
-	manifestPath := filepath.Join(cfg.Location, path+".toml")
-	suite.FileExists(manifestPath)
+func (suite *IntegrationTestSuite) driverIsInstalled(level config.ConfigLevel, driverID string) {
+	cfg := config.Config{
+		Level:    level,
+		Location: config.GetLocation(level),
+	}
 
-	driverInfo, err := config.GetDriver(cfg, path)
+	driverInfo, err := config.GetDriver(cfg, driverID)
 	suite.Require().NoError(err, "should be able to load driver from manifest")
-	driverPath := driverInfo.Driver.Shared.Get(config.PlatformTuple())
 
+	// Get and verify driver path exists
+	driverPath := driverInfo.Driver.Shared.Get(config.PlatformTuple())
 	suite.FileExists(driverPath)
 }
