@@ -28,7 +28,13 @@ func (suite *IntegrationTestSuite) TearDownTest() {
 	os.RemoveAll(config.GetLocation(config.ConfigSystem))
 }
 
-func (suite *IntegrationTestSuite) driverIsInstalled(driverID string, level config.ConfigLevel) {
-	loc := config.GetLocation(level)
-	suite.FileExists(filepath.Join(loc, driverID+".toml"))
+func (suite *IntegrationTestSuite) driverIsInstalled(level config.ConfigLevel, path string) {
+	manifestPath := filepath.Join(cfg.Location, path+".toml")
+	suite.FileExists(manifestPath)
+
+	driverInfo, err := config.GetDriver(cfg, path)
+	suite.Require().NoError(err, "should be able to load driver from manifest")
+	driverPath := driverInfo.Driver.Shared.Get(config.PlatformTuple())
+
+	suite.FileExists(driverPath)
 }

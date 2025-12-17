@@ -26,10 +26,10 @@ func (suite *IntegrationTestSuite) TestInstallSystem() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.run(m)
-	loc := config.GetLocation(config.ConfigSystem)
 
+	loc := config.GetLocation(config.ConfigSystem)
 	suite.Equal("\nInstalled test-driver-1 1.1.0 to "+loc+"\n", out)
-	suite.driverIsInstalled("test-driver-1", config.ConfigSystem)
+	suite.driverIsInstalled(config.ConfigSystem, "test-driver-1", "1.1.0")
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so"))
 	suite.FileExists(filepath.Join(loc, "test-driver-1.1", "test-driver-1-not-valid.so.sig"))
 }

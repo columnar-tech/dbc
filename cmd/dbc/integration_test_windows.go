@@ -39,8 +39,7 @@ func (suite *IntegrationTestSuite) TearDownTest() {
 	os.RemoveAll(config.GetLocation(config.ConfigSystem))
 }
 
-func (suite *IntegrationTestSuite) driverIsInstalled(driverID string, level config.ConfigLevel) {
-	// On Windows, drivers are registered in the Windows Registry
+func (suite *IntegrationTestSuite) driverIsInstalled(level config.ConfigLevel, path string) {
 	var rootKey registry.Key
 	if level == config.ConfigUser {
 		rootKey = registry.CURRENT_USER
@@ -48,7 +47,12 @@ func (suite *IntegrationTestSuite) driverIsInstalled(driverID string, level conf
 		rootKey = registry.LOCAL_MACHINE
 	}
 
-	k, err := registry.OpenKey(rootKey, `SOFTWARE\ADBC\Drivers\`+driverID, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(rootKey, `SOFTWARE\ADBC\Drivers\`+path, registry.QUERY_VALUE)
 	suite.Require().NoError(err, "registry key should exist")
 	defer k.Close()
+
+	driverPath, _, err = k.GetStringValue("driver")
+	suite.Require().NoError(err)
+
+	suite.FileExists(driverPath)
 }
