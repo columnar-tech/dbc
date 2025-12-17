@@ -121,4 +121,6 @@ extra_javascript:
 plugins:
   - privacy
   - search
-  - social
+  - social:
+      cards_layout_options:
+        logo: docs/assets/icon-512.png
