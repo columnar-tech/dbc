@@ -146,7 +146,7 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
+	m := InstallCmd{Driver: "test-driver-manifest-only", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
