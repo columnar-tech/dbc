@@ -17,6 +17,8 @@
 package main
 
 import (
+	"errors"
+	"io"
 	"os"
 
 	"github.com/columnar-tech/dbc/config"
@@ -29,13 +31,41 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 	// Clean up the registry and filesystem after each test
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
-	regKeyADBC := "SOFTWARE\\ADBC\\Drivers"
+
 	if user {
-		suite.Require().NoError(registry.DeleteKey(registry.CURRENT_USER, regKeyADBC))
+		suite.Require().NoError(deleteRegistryKeyRecursive(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers"))
 		suite.Require().NoError(os.RemoveAll(config.GetLocation(config.ConfigUser)))
 	}
 	if system {
-		suite.Require().NoError(registry.DeleteKey(registry.LOCAL_MACHINE, regKeyADBC))
+		suite.Require().NoError(deleteRegistryKeyRecursive(registry.LOCAL_MACHINE, "SOFTWARE\\ADBC\\Drivers"))
 		suite.Require().NoError(os.RemoveAll(config.GetLocation(config.ConfigSystem)))
 	}
+}
+
+// recursively deletes a registry key and all its subkeys
+// TODO: Somewhat duplicated with clearRegistry in registry_test.go
+// This is slightly more aggressive in that it deletes the top level key too
+func deleteRegistryKeyRecursive(root registry.Key, path string) error {
+	k, err := registry.OpenKey(root, path, registry.ALL_ACCESS)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer k.Close()
+
+	// Delete all subkeys
+	subkeys, err := k.ReadSubKeyNames(-1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	for _, subkey := range subkeys {
+		if err := registry.DeleteKey(k, subkey); err != nil {
+			return err
+		}
+	}
+
+	// Delete the top level key
+	return registry.DeleteKey(root, path)
 }
