@@ -56,11 +56,11 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 			out := suite.runCmd(m)
 			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+suite.tempdir+"\n", out)
-
+			suite.driverIsInstalled("test-driver-1", true)
 			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
 				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.runCmd(m)
-			suite.driverIsInstalled(tt.driver)
+			suite.driverIsNotInstalled("test-driver-1")
 		})
 	}
 }
