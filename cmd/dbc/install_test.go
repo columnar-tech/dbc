@@ -251,7 +251,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallCreatesSymlinks() {
-	if runtime.GOOS == "Windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
+	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
 		suite.T().Skip("Symlinks aren't created on Windows for User and System config levels")
 	}
 
