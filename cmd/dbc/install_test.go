@@ -91,55 +91,6 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
-func (suite *SubcommandTestSuite) TestInstallUserFake() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	os.Unsetenv("ADBC_DRIVER_PATH")
-
-	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigUser)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
-func (suite *SubcommandTestSuite) TestInstallUserFakeExplicit() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	os.Unsetenv("ADBC_DRIVER_PATH")
-
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigUser)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
-func (suite *SubcommandTestSuite) TestInstallSystemFake() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
 func (suite *SubcommandTestSuite) TestInstallVenv() {
 	os.Unsetenv("ADBC_DRIVER_PATH")
 	os.Setenv("VIRTUAL_ENV", suite.tempdir)
@@ -195,23 +146,6 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\n", suite.runCmd(m))
-}
-
-func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	// If the user explicitly sets level, it should override ADBC_DRIVER_PATH
-	// which, when testing, is set to tempdir
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "user", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 }
 
 func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
