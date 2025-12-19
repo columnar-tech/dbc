@@ -51,13 +51,19 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 
 	for _, tt := range tests {
 		suite.Run(tt.driver, func() {
-			m := InstallCmd{Driver: tt.driver, Level: config.ConfigEnv}.
+			m := InstallCmd{Driver: tt.driver, Level: suite.configLevel}.
 				GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			out := suite.runCmd(m)
+
+			expectedPath := suite.tempdir
+			if suite.configLevel != config.ConfigEnv {
+				expectedPath = config.GetLocation(suite.configLevel)
+			}
+
 			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+suite.tempdir+"\n", out)
+				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+expectedPath+"\n", out)
 			suite.driverIsInstalled("test-driver-1", true)
-			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
+			m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(
 				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.runCmd(m)
 		})
@@ -146,10 +152,16 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	expectedPath := suite.tempdir
+	if suite.configLevel != config.ConfigEnv {
+		expectedPath = config.GetLocation(suite.configLevel)
+	}
+
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
+		"\nInstalled test-driver-manifest-only 1.0.0 to "+expectedPath+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
 	suite.driverIsInstalled("test-driver-manifest-only", false)
 }
