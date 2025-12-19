@@ -186,8 +186,14 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	// installing.
 	//
 	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	symlink := filepath.Join(location, "..", driver.ID+".toml")
-	os.Symlink(manifest_path, symlink)
+	// Security: Clean paths and use Base to prevent path traversal attacks
+	cleanedLocation := filepath.Clean(location)
+	parentDir := filepath.Dir(cleanedLocation)
+	safeDriverID := filepath.Base(driver.ID) // Strip any path separators from ID
+	symlink := filepath.Join(parentDir, safeDriverID+".toml")
+	if filepath.Dir(symlink) == parentDir {
+		os.Symlink(manifest_path, symlink)
+	}
 
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,

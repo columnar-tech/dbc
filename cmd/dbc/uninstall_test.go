@@ -210,3 +210,25 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	// they're still around
 	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
 }
+
+func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
+	// Install a driver
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+	suite.driverIsInstalled("test-driver-1", true)
+
+	// Verify symlink is in place in the parent dir and is actually a symlink
+	manifestPath := filepath.Join(suite.Dir(), "..", "test-driver-1.toml")
+	suite.FileExists(manifestPath)
+	info, err := os.Lstat(manifestPath)
+	suite.NoError(err)
+	suite.Equal(os.ModeSymlink, info.Mode()&os.ModeSymlink, "Expected test-driver-1.toml to be a symlink")
+
+	// Uninstall the driver
+	m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModel()
+	_ = suite.runCmd(m)
+
+	// Verify symlink is gone
+	suite.NoFileExists(manifestPath)
+}
