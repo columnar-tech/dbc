@@ -17,7 +17,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"github.com/columnar-tech/dbc/config"
 )
@@ -29,9 +28,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n", out)
-	if runtime.GOOS != "windows" {
-		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
-	}
+	suite.driverIsInstalled("test-driver-1")
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
@@ -54,7 +51,7 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 
 	for _, tt := range tests {
 		suite.Run(tt.driver, func() {
-			m := InstallCmd{Driver: tt.driver}.
+			m := InstallCmd{Driver: tt.driver, Level: suite.configLevel}.
 				GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			out := suite.runCmd(m)
 			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
@@ -63,6 +60,7 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
 				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.runCmd(m)
+			suite.driverIsInstalled(tt.driver)
 		})
 	}
 }
@@ -154,9 +152,7 @@ func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
-	if runtime.GOOS != "windows" {
-		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
-	}
+	suite.driverIsInstalled("test-driver-manifest-only")
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {

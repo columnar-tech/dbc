@@ -145,9 +145,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
-	if runtime.GOOS != "windows" {
-		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
-	}
+	suite.driverIsInstalled("test-driver-manifest-only")
 
 	// Verify the sidecar folder exists before we uninstall
 	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
@@ -161,9 +159,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	m = UninstallCmd{Driver: "test-driver-manifest-only"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Driver `test-driver-manifest-only` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
-	if runtime.GOOS != "windows" {
-		suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
-	}
+	suite.driverIsNotInstalled("test-driver-manifest-only")
 	suite.NoDirExists(filepath.Join(suite.tempdir, new_sidecar_path))
 }
 
