@@ -143,30 +143,25 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
-	expectedPath := suite.tempdir
-	if suite.configLevel != config.ConfigEnv {
-		expectedPath = config.GetLocation(suite.configLevel)
-	}
-
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+expectedPath+"\n"+
+		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
 	suite.driverIsInstalled("test-driver-manifest-only", false)
 
 	// Verify the sidecar folder exists before we uninstall
 	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
-	err := os.Rename(filepath.Join(expectedPath, "test-driver-manifest-only"), filepath.Join(expectedPath, new_sidecar_path))
+	err := os.Rename(filepath.Join(suite.Dir(), "test-driver-manifest-only"), filepath.Join(suite.Dir(), new_sidecar_path))
 	if err != nil {
 		suite.Fail(fmt.Sprintf("Failed to rename sidecar folder. Something is wrong with this test: %v", err))
 	}
-	suite.DirExists(filepath.Join(expectedPath, new_sidecar_path))
+	suite.DirExists(filepath.Join(suite.Dir(), new_sidecar_path))
 
 	// Now uninstall and verify we clean up
 	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Driver `test-driver-manifest-only` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
 	suite.driverIsNotInstalled("test-driver-manifest-only")
-	suite.NoDirExists(filepath.Join(expectedPath, new_sidecar_path))
+	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
 }
 
 // See https://github.com/columnar-tech/dbc/issues/37
@@ -175,15 +170,10 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 		suite.T().Skip()
 	}
 
-	expectedPath := suite.tempdir
-	if suite.configLevel != config.ConfigEnv {
-		expectedPath = config.GetLocation(suite.configLevel)
-	}
-
 	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
-	suite.FileExists(filepath.Join(expectedPath, "test-driver-invalid-manifest.toml"))
+	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 
 	// The installed manifest should have a Driver.shared set to a folder, not the .so
 	// We only need a partial struct definition to read in the Driver.shared table
@@ -193,7 +183,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 		}
 	}
 	var invalidManifest partialManifest
-	f, err := os.Open(filepath.Join(expectedPath, "test-driver-invalid-manifest.toml"))
+	f, err := os.Open(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 	if err != nil {
 		suite.Error(err)
 	}
@@ -212,11 +202,11 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
 
 	// Ensure we don't nuke the installation directory which is the original (major) issue
-	suite.DirExists(expectedPath)
+	suite.DirExists(suite.Dir())
 
 	// We do remove the manifest
-	suite.NoFileExists(filepath.Join(expectedPath, "test-driver-invalid-manifest.toml"))
+	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 	// But we don't remove the driver shared folder in this edge case, so we assert
 	// they're still around
-	suite.FileExists(filepath.Join(expectedPath, "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
+	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
 }

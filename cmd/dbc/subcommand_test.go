@@ -123,6 +123,15 @@ func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
 	return filelist
 }
 
+// Get the base directory for where drivers are installed. Use this instead of
+// hardcoding checks to suite.tempdir to make tests support other config levels.
+func (suite *SubcommandTestSuite) Dir() string {
+	if suite.configLevel == config.ConfigEnv {
+		return suite.tempdir
+	}
+	return config.GetLocation(suite.configLevel)
+}
+
 func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
