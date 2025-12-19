@@ -345,6 +345,9 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 		if err := os.Remove(manifest); err != nil {
 			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 		}
+
+		// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+		removeManifestSymlink(info.FilePath, info.ID)
 	}
 
 	return nil

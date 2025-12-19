@@ -164,6 +164,28 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 	return m.DriverInfo, nil
 }
 
+// Create a symlink to manifestPath in the parent dir
+func createManifestSymlink(location, driverID, manifestPath string) {
+	parentDir := filepath.Dir(filepath.Clean(location))
+	safeDriverID := filepath.Base(driverID)
+	symlink := filepath.Join(parentDir, safeDriverID+".toml")
+
+	if filepath.Dir(symlink) == parentDir {
+		os.Symlink(manifestPath, symlink)
+	}
+}
+
+// Remove the symlink to manifestPath in the parent dir
+func removeManifestSymlink(filePath, driverID string) {
+	parentDir := filepath.Dir(filepath.Clean(filePath))
+	safeDriverID := filepath.Base(driverID)
+	symlink := filepath.Join(parentDir, safeDriverID+".toml")
+
+	if filepath.Dir(symlink) == parentDir {
+		os.Remove(symlink)
+	}
+}
+
 func createDriverManifest(location string, driver DriverInfo) error {
 	if _, err := os.Stat(location); errors.Is(err, fs.ErrNotExist) {
 		if err := os.MkdirAll(location, 0755); err != nil {
@@ -186,14 +208,7 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	// installing.
 	//
 	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	// Security: Clean paths and use Base to prevent path traversal attacks
-	cleanedLocation := filepath.Clean(location)
-	parentDir := filepath.Dir(cleanedLocation)
-	safeDriverID := filepath.Base(driver.ID) // Strip any path separators from ID
-	symlink := filepath.Join(parentDir, safeDriverID+".toml")
-	if filepath.Dir(symlink) == parentDir {
-		os.Symlink(manifest_path, symlink)
-	}
+	createManifestSymlink(location, driver.ID, manifest_path)
 
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,

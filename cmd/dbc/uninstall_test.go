@@ -212,6 +212,10 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 }
 
 func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
+	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
+		suite.T().Skip("Symlinks aren't created on Windows for User and System config levels")
+	}
+
 	// Install a driver
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
