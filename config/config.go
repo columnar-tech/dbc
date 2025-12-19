@@ -97,6 +97,10 @@ func (c ConfigLevel) String() string {
 	}
 }
 
+func GetLocation(lvl ConfigLevel) string {
+	return lvl.configLocation()
+}
+
 func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	switch strings.ToLower(strings.TrimSpace(string(b))) {
 	case "system":

@@ -104,10 +104,6 @@ func (suite *SubcommandTestSuite) SetupTest() {
 	suite.Require().NoError(os.Setenv("ADBC_DRIVER_PATH", suite.tempdir))
 }
 
-func (suite *SubcommandTestSuite) TearDownTest() {
-	suite.Require().NoError(os.Unsetenv("ADBC_DRIVER_PATH"))
-}
-
 func (suite *SubcommandTestSuite) TearDownSuite() {
 	getDriverRegistry = suite.getDriverRegistryFn
 	openBrowserFunc = suite.openBrowserFn
