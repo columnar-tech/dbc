@@ -49,7 +49,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
 	shared = "some.dll"`
 	os.WriteFile(path.Join(suite.tempdir, "found.toml"), []byte(contents), 0644)
 
-	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
+	m := UninstallCmd{Driver: "found", Level: suite.configLevel}.GetModel()
 	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
 }
 
@@ -70,7 +70,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
 	os.WriteFile(path.Join(suite.tempdir, "found.toml"), []byte(contents), 0o644)
 	os.WriteFile(path.Join(pkgdir, "some.dll"), []byte("anything"), 0o644)
 
-	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
+	m := UninstallCmd{Driver: "found", Level: suite.configLevel}.GetModel()
 	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
 }
 
@@ -82,7 +82,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 	}
 
 	// Install to Env first
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
@@ -97,7 +97,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 
 	// Uninstall from Env level
-	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
@@ -113,7 +113,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 	}
 
 	// Install to Env first
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
@@ -172,7 +172,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
-	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
@@ -198,7 +198,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	suite.DirExists(value)
 	// and continue
 
-	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.GetModel()
+	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
 
 	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
