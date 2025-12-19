@@ -59,3 +59,20 @@ jobs:
         # the file with `test_registry` also requires windows, so we can safely add this tag
         # without it running on non-windows OSes
         run: go test -v -tags test_registry ./...
+
+      # User and System level tests
+      - name: Run Tests (User)
+        run: go test -v ./...
+        env:
+          DBC_TEST_LEVEL_USER: 1
+      - name: Run Tests (System, Unixlike)
+        # Run system tests with sudo on Unixlikes to replicate what users do
+        if: runner.os != 'Windows'
+        run: sudo go test -v ./...
+        env:
+          DBC_TEST_LEVEL_SYSTEM: 1
+      - name: Run Tests (System, Windows)
+        if: runner.os == 'Windows'
+        run: go test -v ./...
+        env:
+          DBC_TEST_LEVEL_SYSTEM: 1

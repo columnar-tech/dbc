@@ -27,6 +27,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/suite"
 )
@@ -83,6 +84,8 @@ type SubcommandTestSuite struct {
 	openBrowserFn         func(string) error
 	fallbackDriverDocsUrl map[string]string
 	tempdir               string
+
+	configLevel config.ConfigLevel
 }
 
 func (suite *SubcommandTestSuite) SetupSuite() {
@@ -90,6 +93,10 @@ func (suite *SubcommandTestSuite) SetupSuite() {
 	getDriverRegistry = getTestDriverRegistry
 	suite.openBrowserFn = openBrowserFunc
 	suite.fallbackDriverDocsUrl = fallbackDriverDocsUrl
+
+	if suite.configLevel == config.ConfigUnknown {
+		suite.configLevel = config.ConfigEnv
+	}
 }
 
 func (suite *SubcommandTestSuite) SetupTest() {
@@ -171,6 +178,24 @@ func (suite *SubcommandTestSuite) validateOutput(expected, extra, actual string)
 	suite.Equal(terminalPrefix+expected+terminalSuffix+extra, actual)
 }
 
-func TestSubcommands(t *testing.T) {
-	suite.Run(t, new(SubcommandTestSuite))
+// The SubcommandTestSuite is only run for ConfigEnv by default but can be run
+// for other config levels by setting DBC_TEST_LEVEL_USER=1 or
+// DBC_TEST_LEVEL_SYSTEM=1 for ConfigUser and ConfigSystem (respectively).
+// Testing ConfigUser and ConfigSystem is mainly intended to be done in CI.
+func TestSubcommandsEnv(t *testing.T) {
+	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigEnv})
+}
+
+func TestSubcommandsUser(t *testing.T) {
+	if os.Getenv("DBC_TEST_LEVEL_USER") != "1" {
+		t.Skip("Skipping tests for config level configUser because DBC_TEST_LEVEL_USER!=\"1\"")
+	}
+	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigUser})
+}
+
+func TestSubcommandsSystem(t *testing.T) {
+	if os.Getenv("DBC_TEST_LEVEL_SYSTEM") != "1" {
+		t.Skip("Skipping tests for config level configSystem because DBC_TEST_LEVEL_SYSTEM!=\"1\"")
+	}
+	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigSystem})
 }
