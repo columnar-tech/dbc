@@ -26,7 +26,8 @@ func (suite *SubcommandTestSuite) TestInstall() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
-	suite.Contains(out, "Installed test-driver-1 1.1.0")
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir()+"\n", out)
 	suite.driverIsInstalled("test-driver-1", true)
 }
 
