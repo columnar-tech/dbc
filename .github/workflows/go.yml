@@ -68,7 +68,7 @@ jobs:
       - name: Run Tests (System, Unixlike)
         # Run system tests with sudo on Unixlikes to replicate what users do
         if: runner.os != 'Windows'
-        run: sudo go test -v ./...
+        run: sudo -E go test -v ./...
         env:
           DBC_TEST_LEVEL_SYSTEM: 1
       - name: Run Tests (System, Windows)
