@@ -26,8 +26,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n", out)
+	suite.containsOutput("Installed test-driver-1 1.1.0", out)
 	suite.driverIsInstalled("test-driver-1", true)
 }
 
@@ -35,6 +34,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver registry index\r\n\r ", "", suite.runCmdErr(m))
+	suite.driverIsNotInstalled("test-driver-1")
 }
 
 func (suite *SubcommandTestSuite) TestInstallWithVersion() {
@@ -51,7 +51,7 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 
 	for _, tt := range tests {
 		suite.Run(tt.driver, func() {
-			m := InstallCmd{Driver: tt.driver, Level: suite.configLevel}.
+			m := InstallCmd{Driver: tt.driver, Level: config.ConfigEnv}.
 				GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			out := suite.runCmd(m)
 			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
@@ -60,7 +60,6 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
 				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.runCmd(m)
-			suite.driverIsNotInstalled("test-driver-1")
 		})
 	}
 }

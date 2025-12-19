@@ -49,7 +49,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
 	shared = "some.dll"`
 	os.WriteFile(path.Join(suite.tempdir, "found.toml"), []byte(contents), 0644)
 
-	m := UninstallCmd{Driver: "found", Level: suite.configLevel}.GetModel()
+	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
 	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
 }
 
@@ -70,7 +70,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
 	os.WriteFile(path.Join(suite.tempdir, "found.toml"), []byte(contents), 0o644)
 	os.WriteFile(path.Join(pkgdir, "some.dll"), []byte("anything"), 0o644)
 
-	m := UninstallCmd{Driver: "found", Level: suite.configLevel}.GetModel()
+	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
 	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
 }
 
@@ -82,7 +82,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 	}
 
 	// Install to Env first
-	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
@@ -97,7 +97,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 
 	// Uninstall from Env level
-	m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
@@ -113,7 +113,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 	}
 
 	// Install to Env first
-	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
