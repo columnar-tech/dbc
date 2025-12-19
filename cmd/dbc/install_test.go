@@ -28,7 +28,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n", out)
-	suite.driverIsInstalled("test-driver-1")
+	suite.driverIsInstalled("test-driver-1", true)
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
@@ -152,7 +152,7 @@ func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
-	suite.driverIsInstalled("test-driver-manifest-only")
+	suite.driverIsInstalled("test-driver-manifest-only", false)
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {

@@ -221,14 +221,16 @@ func TestSubcommandsSystem(t *testing.T) {
 	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigSystem})
 }
 
-func (suite *SubcommandTestSuite) driverIsInstalled(path string) {
+func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {
 	cfg := config.Get()[suite.configLevel]
 
 	driver, err := config.GetDriver(cfg, path)
 	suite.Require().NoError(err, "driver manifest should exist for driver `%s`", path)
 
-	sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
-	suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
+	if checkShared {
+		sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
+		suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
+	}
 }
 
 func (suite *SubcommandTestSuite) driverIsNotInstalled(path string) {
