@@ -178,10 +178,6 @@ func (suite *SubcommandTestSuite) validateOutput(expected, extra, actual string)
 	suite.Equal(terminalPrefix+expected+terminalSuffix+extra, actual)
 }
 
-func (suite *SubcommandTestSuite) containsOutput(expected, actual string) {
-	suite.Contains(expected, actual)
-}
-
 // The SubcommandTestSuite is only run for ConfigEnv by default but is
 // parametrized by configLevel so tests can be run for other levels. Tests must
 // opt into this behavior by instantiating subcommands with `suite.configLevel`

@@ -26,7 +26,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
-	suite.containsOutput("Installed test-driver-1 1.1.0", out)
+	suite.Contains(out, "Installed test-driver-1 1.1.0")
 	suite.driverIsInstalled("test-driver-1", true)
 }
 
