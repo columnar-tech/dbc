@@ -178,24 +178,45 @@ func (suite *SubcommandTestSuite) validateOutput(expected, extra, actual string)
 	suite.Equal(terminalPrefix+expected+terminalSuffix+extra, actual)
 }
 
-// The SubcommandTestSuite is only run for ConfigEnv by default but can be run
-// for other config levels by setting DBC_TEST_LEVEL_USER=1 or
-// DBC_TEST_LEVEL_SYSTEM=1 for ConfigUser and ConfigSystem (respectively).
-// Testing ConfigUser and ConfigSystem is mainly intended to be done in CI.
+// The SubcommandTestSuite is only run for ConfigEnv by default but is
+// parametrized by configLevel so tests can be run for other levels. Tests must
+// opt into this behavior by instantiating subcommands with `suite.configLevel`
+// like:
+//
+//	m := InstallCmd{Driver: "foo", Level: suite.configLevel}
+//	                                      ^---- here
+//
+// and can opt out of this behavior by specifying it separately like:
+//
+//	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+//
+// When any level is explicitly requested, tests are only run for that level.
+// i.e., to run tests for multiple levels, each level must be specified
+// separately.
 func TestSubcommandsEnv(t *testing.T) {
-	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigEnv})
+	_, env := os.LookupEnv("DBC_TEST_LEVEL_ENV")
+	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
+	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
+
+	// Run if explicitly requested, or if no levels were requested (default
+	// behavior)
+	if env || (!user && !system) {
+		suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigEnv})
+		return
+	}
+	t.Skip("skipping tests for config level: ConfigEnv")
 }
 
 func TestSubcommandsUser(t *testing.T) {
-	if os.Getenv("DBC_TEST_LEVEL_USER") != "1" {
-		t.Skip("Skipping tests for config level configUser because DBC_TEST_LEVEL_USER!=\"1\"")
+	if _, ok := os.LookupEnv("DBC_TEST_LEVEL_USER"); !ok {
+		t.Skip("skipping tests for config level: ConfigUser")
 	}
 	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigUser})
 }
 
 func TestSubcommandsSystem(t *testing.T) {
-	if os.Getenv("DBC_TEST_LEVEL_SYSTEM") != "1" {
-		t.Skip("Skipping tests for config level configSystem because DBC_TEST_LEVEL_SYSTEM!=\"1\"")
+	if _, ok := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM"); !ok {
+		t.Skip("skipping tests for config level: ConfigSystem")
 	}
 	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigSystem})
 }
