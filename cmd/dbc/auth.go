@@ -195,12 +195,11 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return err
 			}
 
-			if msg.RegistryURL.Host == auth.DefaultOauthURI {
+			if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.RegistryURL)) {
 				return auth.FetchColumnarLicense(&msg)
 			}
 			return nil
-		}, tea.Println("Authentication successful!"),
-			tea.Quit)
+		}, tea.Println("Authentication successful!"), tea.Quit)
 	}
 
 	base, cmd := m.baseModel.Update(msg)
