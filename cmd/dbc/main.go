@@ -120,11 +120,15 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case error:
-		if errors.Is(msg, auth.ErrNoTrialLicense) {
+		switch {
+		case errors.Is(msg, auth.ErrTrialExpired):
+			return m, tea.Println(errStyle.Render("Could not download license, trial has expired"))
+		case errors.Is(msg, auth.ErrNoTrialLicense):
 			return m, tea.Println(errStyle.Render("Could not download license, trial not started"))
+		default:
+			m.status = 1
+			return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 		}
-		m.status = 1
-		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
 	}
 	return m, nil
 }

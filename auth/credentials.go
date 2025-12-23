@@ -274,7 +274,10 @@ func IsColumnarPrivateRegistry(u *url.URL) bool {
 
 const licenseURI = "https://heimdall.columnar.tech/trial_license"
 
-var ErrNoTrialLicense = errors.New("no trial license found")
+var (
+	ErrNoTrialLicense = errors.New("no trial license found")
+	ErrTrialExpired   = errors.New("trial license has expired")
+)
 
 func FetchColumnarLicense(cred *Credential) error {
 	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
@@ -318,7 +321,14 @@ func FetchColumnarLicense(cred *Credential) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to fetch license: %s", resp.Status)
+		switch resp.StatusCode {
+		case http.StatusBadRequest:
+			return ErrNoTrialLicense
+		case http.StatusForbidden:
+			return ErrTrialExpired
+		default:
+			return fmt.Errorf("failed to fetch license: %s", resp.Status)
+		}
 	}
 
 	licenseFile, err := os.OpenFile(licensePath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
