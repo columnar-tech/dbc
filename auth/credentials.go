@@ -274,6 +274,8 @@ func IsColumnarPrivateRegistry(u *url.URL) bool {
 
 const licenseURI = "https://heimdall.columnar.tech/trial_license"
 
+var ErrNoTrialLicense = errors.New("no trial license found")
+
 func FetchColumnarLicense(cred *Credential) error {
 	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
 	_, err := os.Stat(licensePath)
@@ -298,7 +300,7 @@ func FetchColumnarLicense(cred *Credential) error {
 
 		_, ok := tk.Claims.(jwt.MapClaims)["urn:columnar:trial_start"]
 		if !ok {
-			return nil // not a trial account
+			return ErrNoTrialLicense
 		}
 		authToken = "Bearer " + cred.GetAuthToken()
 	}
