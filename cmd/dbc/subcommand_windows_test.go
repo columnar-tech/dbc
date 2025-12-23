@@ -34,11 +34,11 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 
 	if user {
 		suite.Require().NoError(deleteRegistryKeyRecursive(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers"))
-		suite.Require().NoError(os.RemoveAll(config.GetLocation(config.ConfigUser)))
+		suite.Require().NoError(os.RemoveAll(config.Get()[config.ConfigUser].Location))
 	}
 	if system {
 		suite.Require().NoError(deleteRegistryKeyRecursive(registry.LOCAL_MACHINE, "SOFTWARE\\ADBC\\Drivers"))
-		suite.Require().NoError(os.RemoveAll(config.GetLocation(config.ConfigSystem)))
+		suite.Require().NoError(os.RemoveAll(config.Get()[config.ConfigSystem].Location))
 	}
 }
 

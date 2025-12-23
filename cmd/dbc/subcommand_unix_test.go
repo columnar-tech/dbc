@@ -29,9 +29,9 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
 	if user {
-		suite.Require().NoError(os.RemoveAll(config.GetLocation(config.ConfigUser)))
+		suite.Require().NoError(os.RemoveAll(config.ConfigUser.ConfigLocation()))
 	}
 	if system {
-		suite.Require().NoError(os.RemoveAll(config.GetLocation(config.ConfigSystem)))
+		suite.Require().NoError(os.RemoveAll(config.ConfigSystem.ConfigLocation()))
 	}
 }

@@ -63,7 +63,7 @@ func init() {
 	}
 }
 
-func (c ConfigLevel) configLocation() string {
+func (c ConfigLevel) ConfigLocation() string {
 	switch c {
 	case ConfigSystem:
 		return systemConfigDir

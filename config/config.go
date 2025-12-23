@@ -97,10 +97,6 @@ func (c ConfigLevel) String() string {
 	}
 }
 
-func GetLocation(lvl ConfigLevel) string {
-	return lvl.configLocation()
-}
-
 func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	switch strings.ToLower(strings.TrimSpace(string(b))) {
 	case "system":
@@ -167,7 +163,7 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 }
 
 func loadConfig(lvl ConfigLevel) Config {
-	cfg := Config{Level: lvl, Location: lvl.configLocation()}
+	cfg := Config{Level: lvl, Location: lvl.ConfigLocation()}
 	if cfg.Location == "" {
 		return cfg
 	}
@@ -401,9 +397,9 @@ func UninstallDriverShared(info DriverInfo) error {
 	// here first.
 	filesystemLocation := info.FilePath
 	if strings.Contains(info.FilePath, "HKCU\\") {
-		filesystemLocation = ConfigUser.configLocation()
+		filesystemLocation = ConfigUser.ConfigLocation()
 	} else if strings.Contains(info.FilePath, "HKLM\\") {
-		filesystemLocation = ConfigSystem.configLocation()
+		filesystemLocation = ConfigSystem.ConfigLocation()
 	}
 
 	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)

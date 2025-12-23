@@ -129,7 +129,7 @@ func (suite *SubcommandTestSuite) Dir() string {
 	if suite.configLevel == config.ConfigEnv {
 		return suite.tempdir
 	}
-	return config.GetLocation(suite.configLevel)
+	return suite.configLevel.ConfigLocation()
 }
 
 func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {

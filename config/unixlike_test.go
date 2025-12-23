@@ -28,9 +28,9 @@ func TestSystemConfigDir(t *testing.T) {
 	os := runtime.GOOS
 
 	if os == "darwin" {
-		assert.Equal(t, "/Library/Application Support/ADBC/Drivers", ConfigSystem.configLocation())
+		assert.Equal(t, "/Library/Application Support/ADBC/Drivers", ConfigSystem.ConfigLocation())
 	} else {
-		assert.Equal(t, "/etc/adbc/drivers", ConfigSystem.configLocation())
+		assert.Equal(t, "/etc/adbc/drivers", ConfigSystem.ConfigLocation())
 	}
 
 }
@@ -41,6 +41,6 @@ func TestSystemConfigWithEnv(t *testing.T) {
 		prefix = os.Getenv("CONDA_PREFIX")
 	}
 	if prefix != "" {
-		assert.Equal(t, prefix+"/etc/adbc/drivers", ConfigSystem.configLocation())
+		assert.Equal(t, prefix+"/etc/adbc/drivers", ConfigSystem.ConfigLocation())
 	}
 }
