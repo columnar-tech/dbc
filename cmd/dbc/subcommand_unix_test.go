@@ -23,8 +23,6 @@ import (
 )
 
 func (suite *SubcommandTestSuite) TearDownTest() {
-	suite.Require().NoError(os.Unsetenv("ADBC_DRIVER_PATH"))
-
 	// Clean up filesystem after each test
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")

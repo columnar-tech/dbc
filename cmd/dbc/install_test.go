@@ -92,9 +92,8 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
-	os.Unsetenv("ADBC_DRIVER_PATH")
-	os.Setenv("VIRTUAL_ENV", suite.tempdir)
-	defer os.Unsetenv("VIRTUAL_ENV")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
+	suite.T().Setenv("VIRTUAL_ENV", suite.tempdir)
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -109,9 +108,10 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	venv_path := filepath.Join(suite.tempdir, "venv_path")
 	conda_path := filepath.Join(suite.tempdir, "conda_path")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	os.Setenv("VIRTUAL_ENV", venv_path)
-	os.Setenv("CONDA_PREFIX", conda_path)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
+	suite.T().Setenv("VIRTUAL_ENV", venv_path)
+	suite.T().Setenv("CONDA_PREFIX", conda_path)
 
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -121,26 +121,23 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 	suite.NoFileExists(filepath.Join(venv_path, "test-driver-1.toml"))
 	suite.NoFileExists(filepath.Join(conda_path, "test-driver-1.toml"))
 
-	os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
-	os.Unsetenv("VIRTUAL_ENV")
+	suite.T().Setenv("VIRTUAL_ENV", "")
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
-
-	os.Unsetenv("CONDA_PREFIX")
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
-	os.Unsetenv("ADBC_DRIVER_PATH")
-	os.Setenv("CONDA_PREFIX", suite.tempdir)
-	defer os.Unsetenv("CONDA_PREFIX")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
+	suite.T().Setenv("CONDA_PREFIX", suite.tempdir)
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -176,8 +173,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	defer os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
 
 	suite.NoFileExists(ignorePath)
 
@@ -191,8 +187,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
 func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	defer os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
 
 	// Create the directory before we install the driver
 	mkdirerr := os.MkdirAll(driver_path, 0o755)
@@ -215,8 +210,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
 func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	defer os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
 
 	suite.NoFileExists(ignorePath)
 
