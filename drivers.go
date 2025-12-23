@@ -168,7 +168,7 @@ func makereq(u string) (resp *http.Response, err error) {
 			// if we're accessing the private registry then attempt to
 			// fetch the trial license. This will be a no-op if they have
 			// a license saved already, and if they haven't started their
-			// trial, then this will silently fail.
+			// trial or it is expired, then this will silently fail.
 			_ = auth.FetchColumnarLicense(cred)
 		}
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
