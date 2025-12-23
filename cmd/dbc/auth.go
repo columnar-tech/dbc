@@ -83,6 +83,10 @@ func (l LoginCmd) GetModel() tea.Model {
 	)
 }
 
+type authSuccessMsg struct {
+	cred auth.Credential
+}
+
 type loginModel struct {
 	baseModel
 
@@ -190,16 +194,22 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			})
 	case auth.Credential:
-		return m, tea.Sequence(func() tea.Msg {
+		return m, func() tea.Msg {
 			if err := auth.AddCredential(msg, true); err != nil {
 				return err
 			}
-
-			if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.RegistryURL)) {
-				return auth.FetchColumnarLicense(&msg)
-			}
-			return nil
-		}, tea.Println("Authentication successful!"), tea.Quit)
+			return authSuccessMsg{cred: msg}
+		}
+	case authSuccessMsg:
+		return m, tea.Sequence(tea.Println("Authentication successful!"),
+			func() tea.Msg {
+				if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
+					return auth.FetchColumnarLicense(&msg.cred)
+				}
+				return nil
+			})
+	case nil:
+		return m, tea.Quit
 	}
 
 	base, cmd := m.baseModel.Update(msg)
