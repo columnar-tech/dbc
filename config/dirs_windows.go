@@ -162,7 +162,7 @@ func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di D
 }
 
 func loadRegistryConfig(lvl ConfigLevel) Config {
-	ret := Config{Level: lvl, Location: lvl.configLocation()}
+	ret := Config{Level: lvl, Location: lvl.ConfigLocation()}
 	k, err := registry.OpenKey(lvl.key(), regKeyADBC, registry.READ)
 	if err != nil {
 		return ret
