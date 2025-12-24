@@ -58,7 +58,7 @@ func (c ConfigLevel) rootKeyString() string {
 	}
 }
 
-func (c ConfigLevel) configLocation() string {
+func (c ConfigLevel) ConfigLocation() string {
 	var prefix string
 	switch c {
 	case ConfigSystem:
