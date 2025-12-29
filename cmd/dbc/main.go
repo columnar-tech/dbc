@@ -135,7 +135,7 @@ type cmds struct {
 	Docs       *DocsCmd         `arg:"subcommand" help:"Open driver documentation in a web browser"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
-	Completion *completions.Cmd `arg:"subcommand" help:"-"`
+	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
 }
 
