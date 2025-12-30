@@ -23,21 +23,11 @@ import (
 )
 
 func TestConfigEnvVarHierarchy(t *testing.T) {
-	// Record old values and reset when done
-	originalAdbcConfigPath := os.Getenv("ADBC_DRIVER_PATH")
-	originalVirtualEnv := os.Getenv("VIRTUAL_ENV")
-	originalCondaPrefix := os.Getenv("CONDA_PREFIX")
-	defer func() {
-		os.Setenv("ADBC_DRIVER_PATH", originalAdbcConfigPath)
-		os.Setenv("VIRTUAL_ENV", originalVirtualEnv)
-		os.Setenv("CONDA_PREFIX", originalCondaPrefix)
-	}()
-
 	// Test the order is honored (ADBC_DRIVER_PATH before VIRTUAL_ENV before
 	// CONDA_PREFIX) and unset each one (in order) to verify.
-	os.Setenv("ADBC_DRIVER_PATH", "some_adbc_driver_path")
-	os.Setenv("VIRTUAL_ENV", "some_virtual_env")
-	os.Setenv("CONDA_PREFIX", "some_conda_prefix")
+	t.Setenv("ADBC_DRIVER_PATH", "some_adbc_driver_path")
+	t.Setenv("VIRTUAL_ENV", "some_virtual_env")
+	t.Setenv("CONDA_PREFIX", "some_conda_prefix")
 
 	cfg := loadConfig(ConfigEnv)
 	assert.Equal(t, "some_adbc_driver_path"+string(filepath.ListSeparator)+

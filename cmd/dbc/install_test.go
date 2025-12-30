@@ -23,21 +23,20 @@ import (
 )
 
 func (suite *SubcommandTestSuite) TestInstall() {
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir+"\n", out)
-	if runtime.GOOS != "windows" {
-		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
-	}
+		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
-	m := InstallCmd{Driver: "foo", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: "foo", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver registry index\r\n\r ", "", suite.runCmdErr(m))
+	suite.driverIsNotInstalled("test-driver-1")
 }
 
 func (suite *SubcommandTestSuite) TestInstallWithVersion() {
@@ -54,13 +53,14 @@ func (suite *SubcommandTestSuite) TestInstallWithVersion() {
 
 	for _, tt := range tests {
 		suite.Run(tt.driver, func() {
-			m := InstallCmd{Driver: tt.driver}.
+			m := InstallCmd{Driver: tt.driver, Level: suite.configLevel}.
 				GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			out := suite.runCmd(m)
-			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+suite.tempdir+"\n", out)
 
-			m = UninstallCmd{Driver: "test-driver-1"}.GetModelCustom(
+			suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+				"\nInstalled test-driver-1 "+tt.expectedVersion+" to "+suite.Dir()+"\n", out)
+			suite.driverIsInstalled("test-driver-1", true)
+			m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(
 				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 			suite.runCmd(m)
 		})
@@ -91,59 +91,9 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
-func (suite *SubcommandTestSuite) TestInstallUserFake() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	os.Unsetenv("ADBC_DRIVER_PATH")
-
-	m := InstallCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigUser)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
-func (suite *SubcommandTestSuite) TestInstallUserFakeExplicit() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	os.Unsetenv("ADBC_DRIVER_PATH")
-
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigUser)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
-func (suite *SubcommandTestSuite) TestInstallSystemFake() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
 func (suite *SubcommandTestSuite) TestInstallVenv() {
-	os.Unsetenv("ADBC_DRIVER_PATH")
-	os.Setenv("VIRTUAL_ENV", suite.tempdir)
-	defer os.Unsetenv("VIRTUAL_ENV")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
+	suite.T().Setenv("VIRTUAL_ENV", suite.tempdir)
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -158,9 +108,10 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	venv_path := filepath.Join(suite.tempdir, "venv_path")
 	conda_path := filepath.Join(suite.tempdir, "conda_path")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	os.Setenv("VIRTUAL_ENV", venv_path)
-	os.Setenv("CONDA_PREFIX", conda_path)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
+	suite.T().Setenv("VIRTUAL_ENV", venv_path)
+	suite.T().Setenv("CONDA_PREFIX", conda_path)
 
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -170,26 +121,23 @@ func (suite *SubcommandTestSuite) TestInstallEnvironmentPrecedence() {
 	suite.NoFileExists(filepath.Join(venv_path, "test-driver-1.toml"))
 	suite.NoFileExists(filepath.Join(conda_path, "test-driver-1.toml"))
 
-	os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 
-	os.Unsetenv("VIRTUAL_ENV")
+	suite.T().Setenv("VIRTUAL_ENV", "")
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
-
-	os.Unsetenv("CONDA_PREFIX")
 }
 
 func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
-	os.Unsetenv("ADBC_DRIVER_PATH")
-	os.Setenv("CONDA_PREFIX", suite.tempdir)
-	defer os.Unsetenv("CONDA_PREFIX")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
+	suite.T().Setenv("CONDA_PREFIX", suite.tempdir)
 
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -197,32 +145,14 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers")+"\n", suite.runCmd(m))
 }
 
-func (suite *SubcommandTestSuite) TestInstallUserFakeExplicitLevelOverrides() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip()
-	}
-
-	// If the user explicitly sets level, it should override ADBC_DRIVER_PATH
-	// which, when testing, is set to tempdir
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	installModel := m.(progressiveInstallModel)
-	suite.Equal(installModel.cfg.Level, config.ConfigSystem)
-	installModel.cfg.Location = filepath.Join(suite.tempdir, "user", installModel.cfg.Location)
-	m = installModel // <- We need to reassign to make the change stick
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
-}
-
 func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only"}.
+	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
+		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
-	if runtime.GOOS != "windows" {
-		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
-	}
+	suite.driverIsInstalled("test-driver-manifest-only", false)
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
@@ -243,8 +173,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	defer os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
 
 	suite.NoFileExists(ignorePath)
 
@@ -258,8 +187,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
 func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	defer os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
 
 	// Create the directory before we install the driver
 	mkdirerr := os.MkdirAll(driver_path, 0o755)
@@ -282,8 +210,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
 func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
-	os.Setenv("ADBC_DRIVER_PATH", driver_path)
-	defer os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
 
 	suite.NoFileExists(ignorePath)
 
@@ -315,4 +242,23 @@ func (suite *SubcommandTestSuite) TestInstallGitignorePreserveUserModified() {
 		suite.Error(err)
 	}
 	suite.Equal(userContent, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestInstallCreatesSymlinks() {
+	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
+		suite.T().Skip("Symlinks aren't created on Windows for User and System config levels")
+	}
+
+	// Install a driver
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+	suite.driverIsInstalled("test-driver-1", true)
+
+	// Verify symlink is in place in the parent dir and is actually a symlink
+	manifestPath := filepath.Join(suite.Dir(), "..", "test-driver-1.toml")
+	suite.FileExists(manifestPath)
+	info, err := os.Lstat(manifestPath)
+	suite.NoError(err)
+	suite.Equal(os.ModeSymlink, info.Mode()&os.ModeSymlink, "Expected test-driver-1.toml to be a symlink")
 }
