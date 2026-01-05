@@ -63,7 +63,7 @@ func init() {
 	}
 }
 
-func (c ConfigLevel) configLocation() string {
+func (c ConfigLevel) ConfigLocation() string {
 	switch c {
 	case ConfigSystem:
 		return systemConfigDir
@@ -117,6 +117,11 @@ func UninstallDriver(_ Config, info DriverInfo) error {
 	if err := os.Remove(manifest); err != nil {
 		return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 	}
+
+	// Remove the symlink created during installation (one level up from the
+	// manifest)
+	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+	removeManifestSymlink(info.FilePath, info.ID)
 
 	if err := UninstallDriverShared(info); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)

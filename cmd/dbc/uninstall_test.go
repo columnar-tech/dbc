@@ -140,31 +140,28 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 }
 
 func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only"}.
+	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.tempdir+"\n"+
+		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+"\n"+
 			"\nMust have libtest_driver installed to load this driver\n", suite.runCmd(m))
-	if runtime.GOOS != "windows" {
-		suite.FileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
-	}
+	suite.driverIsInstalled("test-driver-manifest-only", false)
 
 	// Verify the sidecar folder exists before we uninstall
 	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
-	err := os.Rename(filepath.Join(suite.tempdir, "test-driver-manifest-only"), filepath.Join(suite.tempdir, new_sidecar_path))
+	err := os.Rename(filepath.Join(suite.Dir(), "test-driver-manifest-only"), filepath.Join(suite.Dir(), new_sidecar_path))
 	if err != nil {
 		suite.Fail(fmt.Sprintf("Failed to rename sidecar folder. Something is wrong with this test: %v", err))
 	}
-	suite.DirExists(filepath.Join(suite.tempdir, new_sidecar_path))
+	suite.DirExists(filepath.Join(suite.Dir(), new_sidecar_path))
 
 	// Now uninstall and verify we clean up
-	m = UninstallCmd{Driver: "test-driver-manifest-only"}.
+	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Driver `test-driver-manifest-only` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
-	if runtime.GOOS != "windows" {
-		suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-manifest-only.toml"))
-	}
-	suite.NoDirExists(filepath.Join(suite.tempdir, new_sidecar_path))
+	suite.driverIsNotInstalled("test-driver-manifest-only")
+	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
 }
 
 // See https://github.com/columnar-tech/dbc/issues/37
@@ -172,10 +169,11 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
-	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.
+
+	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
-	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 
 	// The installed manifest should have a Driver.shared set to a folder, not the .so
 	// We only need a partial struct definition to read in the Driver.shared table
@@ -185,7 +183,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 		}
 	}
 	var invalidManifest partialManifest
-	f, err := os.Open(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+	f, err := os.Open(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 	if err != nil {
 		suite.Error(err)
 	}
@@ -198,17 +196,43 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	suite.DirExists(value)
 	// and continue
 
-	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.GetModel()
+	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
 
 	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
 
-	// Ensure we don't nuke the tempdir which is the original (major) issue
-	suite.DirExists(suite.tempdir)
+	// Ensure we don't nuke the installation directory which is the original (major) issue
+	suite.DirExists(suite.Dir())
 
 	// We do remove the manifest
-	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest.toml"))
+	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 	// But we don't remove the driver shared folder in this edge case, so we assert
 	// they're still around
-	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
+	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
+}
+
+func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
+	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
+		suite.T().Skip("Symlinks aren't created on Windows for User and System config levels")
+	}
+
+	// Install a driver
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	_ = suite.runCmd(m)
+	suite.driverIsInstalled("test-driver-1", true)
+
+	// Verify symlink is in place in the parent dir and is actually a symlink
+	manifestPath := filepath.Join(suite.Dir(), "..", "test-driver-1.toml")
+	suite.FileExists(manifestPath)
+	info, err := os.Lstat(manifestPath)
+	suite.NoError(err)
+	suite.Equal(os.ModeSymlink, info.Mode()&os.ModeSymlink, "Expected test-driver-1.toml to be a symlink")
+
+	// Uninstall the driver
+	m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModel()
+	_ = suite.runCmd(m)
+
+	// Verify symlink is gone
+	suite.NoFileExists(manifestPath)
 }

@@ -58,7 +58,7 @@ func (c ConfigLevel) rootKeyString() string {
 	}
 }
 
-func (c ConfigLevel) configLocation() string {
+func (c ConfigLevel) ConfigLocation() string {
 	var prefix string
 	switch c {
 	case ConfigSystem:
@@ -162,7 +162,7 @@ func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di D
 }
 
 func loadRegistryConfig(lvl ConfigLevel) Config {
-	ret := Config{Level: lvl, Location: lvl.configLocation()}
+	ret := Config{Level: lvl, Location: lvl.ConfigLocation()}
 	k, err := registry.OpenKey(lvl.key(), regKeyADBC, registry.READ)
 	if err != nil {
 		return ret
@@ -345,6 +345,9 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 		if err := os.Remove(manifest); err != nil {
 			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 		}
+
+		// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+		removeManifestSymlink(info.FilePath, info.ID)
 	}
 
 	return nil

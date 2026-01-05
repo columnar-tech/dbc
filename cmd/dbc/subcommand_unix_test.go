@@ -14,33 +14,22 @@
 
 //go:build !windows
 
-package config
+package main
 
 import (
 	"os"
-	"runtime"
-	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/columnar-tech/dbc/config"
 )
 
-func TestSystemConfigDir(t *testing.T) {
-	os := runtime.GOOS
-
-	if os == "darwin" {
-		assert.Equal(t, "/Library/Application Support/ADBC/Drivers", ConfigSystem.ConfigLocation())
-	} else {
-		assert.Equal(t, "/etc/adbc/drivers", ConfigSystem.ConfigLocation())
+func (suite *SubcommandTestSuite) TearDownTest() {
+	// Clean up filesystem after each test
+	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
+	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
+	if user {
+		suite.Require().NoError(os.RemoveAll(config.ConfigUser.ConfigLocation()))
 	}
-
-}
-
-func TestSystemConfigWithEnv(t *testing.T) {
-	prefix := os.Getenv("VIRTUAL_ENV")
-	if prefix == "" {
-		prefix = os.Getenv("CONDA_PREFIX")
-	}
-	if prefix != "" {
-		assert.Equal(t, prefix+"/etc/adbc/drivers", ConfigSystem.ConfigLocation())
+	if system {
+		suite.Require().NoError(os.RemoveAll(config.ConfigSystem.ConfigLocation()))
 	}
 }

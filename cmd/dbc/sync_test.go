@@ -76,7 +76,7 @@ func (suite *SubcommandTestSuite) TestSyncWithVersion() {
 }
 
 func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
-	os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
 
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
@@ -84,8 +84,7 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
 	suite.runCmd(m)
 
-	os.Setenv("VIRTUAL_ENV", suite.tempdir)
-	defer os.Unsetenv("VIRTUAL_ENV")
+	suite.T().Setenv("VIRTUAL_ENV", suite.tempdir)
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
@@ -102,7 +101,7 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 }
 
 func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
-	os.Unsetenv("ADBC_DRIVER_PATH")
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
 
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
@@ -110,8 +109,7 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
 	suite.runCmd(m)
 
-	os.Setenv("CONDA_PREFIX", suite.tempdir)
-	defer os.Unsetenv("CONDA_PREFIX")
+	suite.T().Setenv("CONDA_PREFIX", suite.tempdir)
 
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),

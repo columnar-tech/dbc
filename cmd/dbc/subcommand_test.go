@@ -27,6 +27,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/suite"
 )
@@ -83,6 +84,8 @@ type SubcommandTestSuite struct {
 	openBrowserFn         func(string) error
 	fallbackDriverDocsUrl map[string]string
 	tempdir               string
+
+	configLevel config.ConfigLevel
 }
 
 func (suite *SubcommandTestSuite) SetupSuite() {
@@ -90,15 +93,15 @@ func (suite *SubcommandTestSuite) SetupSuite() {
 	getDriverRegistry = getTestDriverRegistry
 	suite.openBrowserFn = openBrowserFunc
 	suite.fallbackDriverDocsUrl = fallbackDriverDocsUrl
+
+	if suite.configLevel == config.ConfigUnknown {
+		suite.configLevel = config.ConfigEnv
+	}
 }
 
 func (suite *SubcommandTestSuite) SetupTest() {
 	suite.tempdir = suite.T().TempDir()
-	suite.Require().NoError(os.Setenv("ADBC_DRIVER_PATH", suite.tempdir))
-}
-
-func (suite *SubcommandTestSuite) TearDownTest() {
-	suite.Require().NoError(os.Unsetenv("ADBC_DRIVER_PATH"))
+	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir)
 }
 
 func (suite *SubcommandTestSuite) TearDownSuite() {
@@ -118,6 +121,15 @@ func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
 		return nil
 	}))
 	return filelist
+}
+
+// Get the base directory for where drivers are installed. Use this instead of
+// hardcoding checks to suite.tempdir to make tests support other config levels.
+func (suite *SubcommandTestSuite) Dir() string {
+	if suite.configLevel == config.ConfigEnv {
+		return suite.tempdir
+	}
+	return suite.configLevel.ConfigLocation()
 }
 
 func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
@@ -171,6 +183,64 @@ func (suite *SubcommandTestSuite) validateOutput(expected, extra, actual string)
 	suite.Equal(terminalPrefix+expected+terminalSuffix+extra, actual)
 }
 
-func TestSubcommands(t *testing.T) {
-	suite.Run(t, new(SubcommandTestSuite))
+// The SubcommandTestSuite is only run for ConfigEnv by default but is
+// parametrized by configLevel so tests can be run for other levels. Tests must
+// opt into this behavior by instantiating subcommands with `suite.configLevel`
+// like:
+//
+//	m := InstallCmd{Driver: "foo", Level: suite.configLevel}
+//	                                      ^---- here
+//
+// and can opt out of this behavior by specifying it separately like:
+//
+//	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+//
+// When any level is explicitly requested, tests are only run for that level.
+// i.e., to run tests for multiple levels, each level must be specified
+// separately.
+func TestSubcommandsEnv(t *testing.T) {
+	_, env := os.LookupEnv("DBC_TEST_LEVEL_ENV")
+	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
+	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
+
+	// Run if explicitly requested, or if no levels were requested (default
+	// behavior)
+	if env || (!user && !system) {
+		suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigEnv})
+		return
+	}
+	t.Skip("skipping tests for config level: ConfigEnv")
+}
+
+func TestSubcommandsUser(t *testing.T) {
+	if _, ok := os.LookupEnv("DBC_TEST_LEVEL_USER"); !ok {
+		t.Skip("skipping tests for config level: ConfigUser")
+	}
+	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigUser})
+}
+
+func TestSubcommandsSystem(t *testing.T) {
+	if _, ok := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM"); !ok {
+		t.Skip("skipping tests for config level: ConfigSystem")
+	}
+	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigSystem})
+}
+
+func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {
+	cfg := config.Get()[suite.configLevel]
+
+	driver, err := config.GetDriver(cfg, path)
+	suite.Require().NoError(err, "driver manifest should exist for driver `%s`", path)
+
+	if checkShared {
+		sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
+		suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
+	}
+}
+
+func (suite *SubcommandTestSuite) driverIsNotInstalled(path string) {
+	cfg := config.Get()[suite.configLevel]
+
+	_, err := config.GetDriver(cfg, path)
+	suite.Require().Error(err, "driver manifest should not exist for driver `%s`", path)
 }
