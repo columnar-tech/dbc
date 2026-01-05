@@ -206,10 +206,8 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
 					return auth.FetchColumnarLicense(&msg.cred)
 				}
-				return nil
+				return tea.Quit()
 			})
-	case nil:
-		return m, tea.Quit
 	}
 
 	base, cmd := m.baseModel.Update(msg)
