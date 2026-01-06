@@ -24,12 +24,12 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 	m := SearchCmd{}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("• test-driver-1 - This is a test driver\r\n"+
-		"• test-driver-2 - This is another test driver\r\n"+
-		"• test-driver-manifest-only - This is manifest-only driver\r\n"+
-		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
-		"• test-driver-docs-url - This is manifest-only with its docs_url key set\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "• test-driver-1 - This is a test driver\n"+
+		"• test-driver-2 - This is another test driver\n"+
+		"• test-driver-manifest-only - This is manifest-only driver\n"+
+		"• test-driver-no-sig - Driver manifest missing Files.signature entry\n"+
+		"• test-driver-invalid-manifest - This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
+		"• test-driver-docs-url - This is manifest-only with its docs_url key set\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
@@ -40,36 +40,36 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 	m = SearchCmd{}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("• test-driver-1 - This is a test driver [installed: env=>1.1.0]\r\n"+
-		"• test-driver-2 - This is another test driver\r\n"
-		"• test-driver-manifest-only - This is manifest-only driver\r\n"+
-		"• test-driver-no-sig - Driver manifest missing Files.signature entry\r\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
-		"• test-driver-docs-url - This is manifest-only with its docs_url key set\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "• test-driver-1 - This is a test driver [installed: env=>1.1.0]\n"+
+		"• test-driver-2 - This is another test driver\n"+
+		"• test-driver-manifest-only - This is manifest-only driver\n"+
+		"• test-driver-no-sig - Driver manifest missing Files.signature entry\n"+
+		"• test-driver-invalid-manifest - This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
+		"• test-driver-docs-url - This is manifest-only with its docs_url key set\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 	m := SearchCmd{Verbose: true}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("• test-driver-1\r\n   Title: Test Driver 1\r\n   "+
-		"Description: This is a test driver\r\n   License: MIT\r\n   "+
-		"Available Versions:\r\n    ├── 1.0.0\r\n    ╰── 1.1.0\r\n"+
-		"• test-driver-2\r\n   Title: Test Driver 2\r\n   "+
-		"Description: This is another test driver\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ├── 2.0.0\r\n    ╰── 2.1.0\r\n"+
-		"• test-driver-manifest-only\r\n   Title: Test Driver Manifest Only\r\n   "+
-		"Description: This is manifest-only driver\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ╰── 1.0.0\r\n"+
-		"• test-driver-no-sig\r\n   Title: Test Driver No Signature\r\n   "+
-		"Description: Driver manifest missing Files.signature entry\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ╰── 1.0.0\r\n"+
-		"• test-driver-invalid-manifest\r\n   Title: Test Driver Invalid Manifest\r\n   "+
-		"Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ╰── 1.0.0\r\n"+
-		"• test-driver-docs-url\r\n   Title: Test Driver With Docs URL Set\r\n   "+
-		"Description: This is manifest-only with its docs_url key set\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ╰── 1.0.0\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "• test-driver-1\n   Title: Test Driver 1\n   "+
+		"Description: This is a test driver\n   License: MIT\n   "+
+		"Available Versions:\n    ├── 1.0.0\n    ╰── 1.1.0\n"+
+		"• test-driver-2\n   Title: Test Driver 2\n   "+
+		"Description: This is another test driver\n   License: Apache-2.0\n   "+
+		"Available Versions:\n    ├── 2.0.0\n    ╰── 2.1.0\n"+
+		"• test-driver-manifest-only\n   Title: Test Driver Manifest Only\n   "+
+		"Description: This is manifest-only driver\n   License: Apache-2.0\n   "+
+		"Available Versions:\n    ╰── 1.0.0\n"+
+		"• test-driver-no-sig\n   Title: Test Driver No Signature\n   "+
+		"Description: Driver manifest missing Files.signature entry\n   License: Apache-2.0\n   "+
+		"Available Versions:\n    ╰── 1.0.0\n"+
+		"• test-driver-invalid-manifest\n   Title: Test Driver Invalid Manifest\n   "+
+		"Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n   License: Apache-2.0\n   "+
+		"Available Versions:\n    ╰── 1.0.0\n"+
+		"• test-driver-docs-url\n   Title: Test Driver With Docs URL Set\n   "+
+		"Description: This is manifest-only with its docs_url key set\n   License: Apache-2.0\n   "+
+		"Available Versions:\n    ╰── 1.0.0\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
@@ -80,35 +80,35 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 	m = SearchCmd{Verbose: true}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("• test-driver-1\r\n   Title: Test Driver 1\r\n   "+
-		"Description: This is a test driver\r\n   License: MIT\r\n   "+
-		"Installed Versions:\r\n    ╰── 1.1.0\r\n        ╰── env => "+filepath.Join(suite.tempdir)+
-		"\r\n   Available Versions:\r\n    ├── 1.0.0\r\n    ╰── 1.1.0\r\n"+
-		"• test-driver-2\r\n   Title: Test Driver 2\r\n   "+
-		"Description: This is another test driver\r\n   License: Apache-2.0\r\n   "+
-		"Available Versions:\r\n    ├── 2.0.0\r\n    ╰── 2.1.0\r\n"+
-		"• test-driver-manifest-only\r\n"+
-		"   Title: Test Driver Manifest Only\r\n"+
-		"   Description: This is manifest-only driver\r\n"+
-		"   License: Apache-2.0\r\n"+
-		"   Available Versions:\r\n"+
-		"    ╰── 1.0.0\r\n"+
-		"• test-driver-no-sig\r\n"+
-		"   Title: Test Driver No Signature\r\n"+
-		"   Description: Driver manifest missing Files.signature entry\r\n"+
-		"   License: Apache-2.0\r\n"+
-		"   Available Versions:\r\n"+
-		"    ╰── 1.0.0\r\n"+
-		"• test-driver-invalid-manifest\r\n"+
-		"   Title: Test Driver Invalid Manifest\r\n"+
-		"   Description: This is test driver with an invalid manfiest. See https://github.com/columnar-tech/dbc/issues/37.\r\n"+
-		"   License: Apache-2.0\r\n"+
-		"   Available Versions:\r\n"+
-		"    ╰── 1.0.0\r\n"+
-		"• test-driver-docs-url\r\n"+
-		"   Title: Test Driver With Docs URL Set\r\n"+
-		"   Description: This is manifest-only with its docs_url key set\r\n"+
-		"   License: Apache-2.0\r\n"+
-		"   Available Versions:\r\n"+
-		"    ╰── 1.0.0\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "• test-driver-1\n   Title: Test Driver 1\n   "+
+		"Description: This is a test driver\n   License: MIT\n   "+
+		"Installed Versions:\n    ╰── 1.1.0\n        ╰── env => "+filepath.Join(suite.tempdir)+
+		"\n   Available Versions:\n    ├── 1.0.0\n    ╰── 1.1.0\n"+
+		"• test-driver-2\n   Title: Test Driver 2\n   "+
+		"Description: This is another test driver\n   License: Apache-2.0\n   "+
+		"Available Versions:\n    ├── 2.0.0\n    ╰── 2.1.0\n"+
+		"• test-driver-manifest-only\n"+
+		"   Title: Test Driver Manifest Only\n"+
+		"   Description: This is manifest-only driver\n"+
+		"   License: Apache-2.0\n"+
+		"   Available Versions:\n"+
+		"    ╰── 1.0.0\n"+
+		"• test-driver-no-sig\n"+
+		"   Title: Test Driver No Signature\n"+
+		"   Description: Driver manifest missing Files.signature entry\n"+
+		"   License: Apache-2.0\n"+
+		"   Available Versions:\n"+
+		"    ╰── 1.0.0\n"+
+		"• test-driver-invalid-manifest\n"+
+		"   Title: Test Driver Invalid Manifest\n"+
+		"   Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
+		"   License: Apache-2.0\n"+
+		"   Available Versions:\n"+
+		"    ╰── 1.0.0\n"+
+		"• test-driver-docs-url\n"+
+		"   Title: Test Driver With Docs URL Set\n"+
+		"   Description: This is manifest-only with its docs_url key set\n"+
+		"   License: Apache-2.0\n"+
+		"   Available Versions:\n"+
+		"    ╰── 1.0.0\n", suite.runCmd(m))
 }
