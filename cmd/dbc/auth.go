@@ -204,7 +204,9 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(tea.Println("Authentication successful!"),
 			func() tea.Msg {
 				if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
-					return auth.FetchColumnarLicense(&msg.cred)
+					if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
+						return err
+					}
 				}
 				return tea.Quit()
 			})

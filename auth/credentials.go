@@ -313,7 +313,7 @@ func FetchColumnarLicense(cred *Credential) error {
 		return err
 	}
 
-	req.Header.Add("authorization", authToken)
+	req.Header.Add("authorization", "Bearer "+authToken)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
