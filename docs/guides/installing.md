@@ -62,7 +62,7 @@ To install a specific version, you can pass a version constraint with the name:
 $ dbc install "mysql=0.1.0"
 ```
 
-The syntax for specifiying a version may be familiar to you if you've used other package managers.
+The syntax for specifying a version may be familiar to you if you've used other package managers.
 
 !!! note
     dbc uses the [github.com/Masterminds/semver/v3](https://pkg.go.dev/github.com/Masterminds/semver/v3#section-readme) package whose README has a good overview of the syntax it allows. In short, you can use `=`, `!=`, `>`, `<`, `>=`, `<=`, `~`, `^`, ranges like `1.2 - 1.4.5`, and wildcards (`x`, `X`, or `*`).
@@ -180,7 +180,7 @@ Installed mysql 0.1.0 to /Users/user/tmp/my-adbc-project/.venv/etc/adbc/drivers
 
 !!! note
 
-    [`ADBC_DRIVER_PATH`](#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+    [`ADBC_DRIVER_PATH`](#adbc_driver_path) takes precedence over a virtual environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual environments before Conda environments.
 
 ## Conda Support
 
@@ -200,7 +200,7 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
 !!! note
 
-    [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual enviroments before Conda environments.
+    [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual environments before Conda environments.
 
 ## Uninstalling Drivers
 

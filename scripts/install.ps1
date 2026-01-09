@@ -176,7 +176,7 @@ function Download($download_url, $platforms) {
     $bin_names = $info["bins"]
     $artifact_name = $info["artifact_name"]
 
-    # Make a new temp dir to unpack thigns to
+    # Make a new temp dir to unpack things to
     $tmp = New-Temp-Dir
     $dir_path = "$tmp\$app_name$zip_ext"
 

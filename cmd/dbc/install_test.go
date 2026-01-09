@@ -184,7 +184,7 @@ func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
 	suite.FileExists(ignorePath)
 }
 
-func (suite *SubcommandTestSuite) TestInstallGitignoreExisingDir() {
+func (suite *SubcommandTestSuite) TestInstallGitignoreExistingDir() {
 	driver_path := filepath.Join(suite.tempdir, "driver_path")
 	ignorePath := filepath.Join(driver_path, ".gitignore")
 	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
