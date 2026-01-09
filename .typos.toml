@@ -1,0 +1,10 @@
+[files]
+extend-exclude = ["columnar.pubkey", "go.mod", "go.sum", "pixi.lock"]
+
+[type.fo]
+extend-glob = ["*.go", ".goreleaser.yaml"]
+extend-words = { fo = "fo" }
+
+[type.ine]
+extend-glob = ["**/first_steps.md"]
+extend-words = { ine = "ine" }
