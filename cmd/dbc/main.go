@@ -203,7 +203,7 @@ func main() {
 	if !isatty.IsTerminal(os.Stdout.Fd()) {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else if args.Quiet {
-		// Quiet still prints stderr as GNU standard is to supress "usual" output
+		// Quiet still prints stderr as GNU standard is to suppress "usual" output
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr))
 	} else {
 		prog = tea.NewProgram(m)
