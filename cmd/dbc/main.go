@@ -227,7 +227,7 @@ func main() {
 
 	if !args.Quiet {
 		if fo, ok := m.(HasFinalOutput); ok {
-			fmt.Print(fo.FinalOutput())
+			fmt.Println(fo.FinalOutput())
 		}
 	}
 
