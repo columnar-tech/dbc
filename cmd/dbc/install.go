@@ -339,6 +339,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(func() tea.Msg {
 			return config.CreateManifest(m.cfg, msg.DriverInfo)
 		}, tea.Quit)
+	case error:
+		if m.jsonOutput {
+			return m, tea.Sequence(tea.Println(fmt.Sprintf(`{"status":"error","error":"%s"}`, msg.Error())), tea.Quit)
+		}
 	}
 
 	base, cmd := m.baseModel.Update(msg)
@@ -356,7 +360,7 @@ func checkbox(label string, checked bool) string {
 var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 func (m progressiveInstallModel) View() string {
-	if m.status != 0 {
+	if m.status != 0 || m.jsonOutput {
 		return ""
 	}
 
@@ -369,7 +373,7 @@ func (m progressiveInstallModel) View() string {
 	var b strings.Builder
 	for s := range stDone {
 		if s == m.state {
-			b.WriteString(fmt.Sprintf("[%s] %s...", m.spinner.View(), s.String()))
+			fmt.Fprintf(&b, "[%s] %s...", m.spinner.View(), s.String())
 			if s == stDownloading {
 				b.WriteString(" " + m.p.View())
 			}

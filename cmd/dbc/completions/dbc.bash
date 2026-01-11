@@ -62,11 +62,11 @@ _dbc_install_completions() {
         --level|-l)
             COMPREPLY=($(compgen -W "user system" -- "$cur"))
             return 0
-            ;;
+            ;;        
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--no-verify --level -l" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json --no-verify --level -l" -- "$cur"))
         return 0
     fi
 
@@ -172,7 +172,7 @@ _dbc_search_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h -v" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h -v --json" -- "$cur"))
         return 0
     fi
 
@@ -181,6 +181,16 @@ _dbc_search_completions() {
 }
 
 _dbc_info_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "--json" -- "$cur"))
+        return 0
+    fi
+
+    # Driver name completion (no specific completion available)
     COMPREPLY=()
 }
 
