@@ -218,10 +218,10 @@ func (m progressiveInstallModel) FinalOutput() string {
 		}
 
 		if output.Conflict != "" {
-			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s\n", output.Conflict)
+			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", output.Conflict)
 		}
 
-		fmt.Fprintf(&b, "Installed %s %s to %s\n",
+		fmt.Fprintf(&b, "\nInstalled %s %s to %s\n",
 			output.Driver, output.Version, output.Location)
 
 		if output.Message != "" {
