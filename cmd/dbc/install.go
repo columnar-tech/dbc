@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -51,6 +52,7 @@ type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 	Driver   string             `arg:"positional,required" help:"Driver to install"`
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 }
 
@@ -58,11 +60,12 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	return progressiveInstallModel{
-		Driver:    c.Driver,
-		NoVerify:  c.NoVerify,
-		spinner:   s,
-		cfg:       getConfig(c.Level),
-		baseModel: baseModel,
+		Driver:     c.Driver,
+		NoVerify:   c.NoVerify,
+		jsonOutput: c.Json,
+		spinner:    s,
+		cfg:        getConfig(c.Level),
+		baseModel:  baseModel,
 		p: dbc.NewFileProgress(
 			progress.WithDefaultGradient(),
 			progress.WithWidth(20),
@@ -147,6 +150,7 @@ type progressiveInstallModel struct {
 	Driver       string
 	VersionInput *semver.Version
 	NoVerify     bool
+	jsonOutput   bool
 	cfg          config.Config
 
 	DriverPackage      dbc.PkgInfo
@@ -173,6 +177,10 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 func (m progressiveInstallModel) FinalOutput() string {
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			if m.jsonOutput {
+				return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
+					m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			}
 			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
 				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 		}
@@ -180,16 +188,44 @@ func (m progressiveInstallModel) FinalOutput() string {
 
 	var b strings.Builder
 	if m.state == stDone {
+		var output struct {
+			Status   string `json:"status"`
+			Driver   string `json:"driver"`
+			Version  string `json:"version"`
+			Location string `json:"location"`
+			Message  string `json:"message,omitempty"`
+			Conflict string `json:"conflict,omitempty"`
+		}
+
+		output.Status = "installed"
+		output.Driver = m.Driver
+		output.Version = m.DriverPackage.Version.String()
+		output.Location = filepath.SplitList(m.cfg.Location)[0]
 		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
-				m.conflictingInfo.ID, m.conflictingInfo.Version))
+			output.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
+		}
+
+		if m.postInstallMessage != "" {
+			output.Message = m.postInstallMessage
+		}
+
+		if m.jsonOutput {
+			jsonOutput, err := json.Marshal(output)
+			if err != nil {
+				return fmt.Sprintf(`{"status":"error","error":"%s"}`, err.Error())
+			}
+			return string(jsonOutput)
+		}
+
+		if output.Conflict != "" {
+			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s\n", output.Conflict))
 		}
 
 		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
-			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+			output.Driver, output.Version, output.Location))
 
-		if m.postInstallMessage != "" {
-			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+		if output.Message != "" {
+			b.WriteString("\n" + postMsgStyle.Render(output.Message) + "\n")
 		}
 	}
 	return b.String()
