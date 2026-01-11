@@ -87,7 +87,7 @@ _dbc_uninstall_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--level -l" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json --level -l" -- "$cur"))
         return 0
     fi
 

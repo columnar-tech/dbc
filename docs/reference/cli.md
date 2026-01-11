@@ -132,6 +132,10 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 
 <h3>Options</h3>
 
+`--json`
+
+:   Print output as JSON instead of plaintext
+
 `--level LEVEL`, `-l LEVEL`
 
 :   The configuration level to uninstall the driver from (`user`, or `system`). See [Config Level](config_level.md).
