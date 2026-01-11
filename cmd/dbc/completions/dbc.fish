@@ -42,6 +42,7 @@ complete -f -c dbc -n '__fish_dbc_needs_command' -a 'completion' -d 'Generate sh
 # install subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -s h -d 'Show Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l help -d 'Show Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l no-verify -d 'Do not verify the driver after installation'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l level -s l -d 'Installation level' -xa 'user system'
 
@@ -69,6 +70,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l no-verify -d 'Do not
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
+complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l json -d 'Print output as JSON instead of plaintext'
 
 # remove subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'
@@ -78,6 +80,7 @@ complete -c dbc -n '__fish_dbc_using_subcommand remove' -l path -s p -r -F -a '*
 # info subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand info' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand info' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand info' -l json -d 'Print output as JSON instead of plaintext'
 
 # docs subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand docs' -s h -d 'Help'

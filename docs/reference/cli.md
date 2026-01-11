@@ -66,6 +66,10 @@ $ dbc search [FILTER]
 
 <h3>Options</h3>
 
+`--json`
+
+:   Print output as JSON instead of plaintext
+
 `--verbose`, `-v`
 
 :   Enable verbose output
@@ -93,6 +97,10 @@ $ dbc install [OPTIONS] <DRIVER>
 :   Name of the driver to install. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`.
 
 <h3>Options</h3>
+
+`--json`
+
+:   Print output as JSON instead of plaintext
 
 `--level LEVEL`, `-l LEVEL`
 
@@ -254,6 +262,10 @@ $ dbc info <DRIVER>
 :   Name of the driver to get information for.
 
 <h3>Options</h3>
+
+`--json`
+
+:   Print output as JSON instead of plaintext
 
 `--quiet`, `-q`
 
