@@ -38,7 +38,7 @@ var (
 
 type SearchCmd struct {
 	Verbose bool           `arg:"-v" help:"Enable verbose output"`
-	Json    bool           `help:"Output JSON instead of plaintext"`
+	Json    bool           `help:"Print output as JSON instead of plaintext"`
 	Pattern *regexp.Regexp `arg:"positional" help:"Pattern to search for"`
 }
 
