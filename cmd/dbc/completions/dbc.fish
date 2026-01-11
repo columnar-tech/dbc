@@ -47,6 +47,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l no-verify -d 'Do 
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l level -s l -d 'Installation level' -xa 'user system'
 
 # uninstall subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand uninstall' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand uninstall' -l level -s l -d 'Installation level' -xa 'user system'
 
 # init subcommand

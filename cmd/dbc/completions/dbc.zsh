@@ -81,6 +81,7 @@ function _dbc_uninstall_completions {
     _arguments \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
+        '--json[Print output as JSON instead of plaintext]' \
         ':driver name: '
 }
 
