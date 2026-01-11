@@ -24,7 +24,7 @@ import (
 
 type InfoCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to get info about"`
-	Json   bool   `help:"Output JSON instead of plaintext"`
+	Json   bool   `help:"Print output as JSON instead of plaintext"`
 }
 
 func (c InfoCmd) GetModelCustom(baseModel baseModel) tea.Model {
