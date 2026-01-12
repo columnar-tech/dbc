@@ -62,16 +62,20 @@ func (m uninstallModel) Init() tea.Cmd {
 	return m.startUninstall
 }
 
+func (m uninstallModel) FinalOutput() string {
+	if m.jsonOutput {
+		return fmt.Sprintf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver)
+	}
+	return fmt.Sprintf("Driver `%s` uninstalled successfully!\n", m.Driver)
+}
+
 func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, 0)
 	switch msg := msg.(type) {
 	case config.DriverInfo:
 		return m.performUninstall(msg)
 	case driverDidUninstallMsg:
-		if m.jsonOutput {
-			return m, tea.Sequence(tea.Printf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver), tea.Quit)
-		}
-		return m, tea.Sequence(tea.Printf("Driver `%s` uninstalled successfully!\n", m.Driver), tea.Quit)
+		return m, tea.Quit
 	case error:
 		m.status = 1
 		if m.jsonOutput {
