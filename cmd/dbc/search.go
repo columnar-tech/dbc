@@ -116,7 +116,8 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 	installedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	l := list.New()
-	t := table.New().Border(lipgloss.HiddenBorder())
+	t := table.New().Border(lipgloss.HiddenBorder()).
+		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
 	for _, driver := range d {
 		var installed []string
 		installedVerbose := make(map[string][]string)
