@@ -578,29 +578,33 @@ func TestGetCredentialPath(t *testing.T) {
 	t.Run("default behavior for each platform", func(t *testing.T) {
 		switch runtime.GOOS {
 		case "windows":
+			appData := os.Getenv("LocalAppData")
+			if appData == "" {
+				t.Errorf("failed to get LocalAppData")
+			}
 			path, err := getCredentialPath()
 			require.NoError(t, err)
-			assert.Contains(t, path, "dbc")
-			assert.Contains(t, path, "credentials")
-			assert.Contains(t, path, "credentials.toml")
+			assert.Equal(t, filepath.Join(appData, "dbc", "credentials", "credentials.toml"), path)
 
 		case "darwin":
+			userHome, err := os.UserHomeDir()
+			if err != nil {
+				t.Errorf("failed to get user home directory")
+			}
+
 			path, err := getCredentialPath()
 			require.NoError(t, err)
-			assert.Contains(t, path, "Library")
-			assert.Contains(t, path, "dbc")
-			assert.Contains(t, path, "credentials")
-			assert.Contains(t, path, "credentials.toml")
+			assert.Equal(t, filepath.Join(userHome, "Library", "dbc", "credentials", "credentials.toml"), path)
 
 		default:
+			userHome, err := os.UserHomeDir()
+			if err != nil {
+				t.Errorf("failed to get user home directory")
+			}
+
 			path, err := getCredentialPath()
 			require.NoError(t, err)
-			assert.Contains(t, path, ".local")
-			assert.Contains(t, path, "share")
-			assert.Contains(t, path, "dbc")
-			assert.Contains(t, path, "credentials")
-			assert.Contains(t, path, "credentials.toml")
-
+			assert.Equal(t, filepath.Join(userHome, ".local", "share", "dbc", "credentials", "credentials.toml"), path)
 		}
 	})
 }
