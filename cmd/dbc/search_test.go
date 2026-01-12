@@ -24,12 +24,13 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 	m := SearchCmd{}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r ", "• test-driver-1 - This is a test driver\n"+
-		"• test-driver-2 - This is another test driver\n"+
-		"• test-driver-manifest-only - This is manifest-only driver\n"+
-		"• test-driver-no-sig - Driver manifest missing Files.signature entry\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
-		"• test-driver-docs-url - This is manifest-only with its docs_url key set\n", suite.runCmd(m))
+	suite.validateOutput("\r ",
+		"test-driver-1                This is a test driver                                                                             \n"+
+			"test-driver-2                This is another test driver                                                                       \n"+
+			"test-driver-manifest-only    This is manifest-only driver                                                                      \n"+
+			"test-driver-no-sig           Driver manifest missing Files.signature entry                                                     \n"+
+			"test-driver-invalid-manifest This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37. \n"+
+			"test-driver-docs-url         This is manifest-only with its docs_url key set                                                   \n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
@@ -40,12 +41,13 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 	m = SearchCmd{}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r ", "• test-driver-1 - This is a test driver [installed: env=>1.1.0]\n"+
-		"• test-driver-2 - This is another test driver\n"+
-		"• test-driver-manifest-only - This is manifest-only driver\n"+
-		"• test-driver-no-sig - Driver manifest missing Files.signature entry\n"+
-		"• test-driver-invalid-manifest - This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
-		"• test-driver-docs-url - This is manifest-only with its docs_url key set\n", suite.runCmd(m))
+	suite.validateOutput("\r ",
+		"test-driver-1                This is a test driver                                                                              [installed: env=>1.1.0]\n"+
+			"test-driver-2                This is another test driver                                                                                               \n"+
+			"test-driver-manifest-only    This is manifest-only driver                                                                                              \n"+
+			"test-driver-no-sig           Driver manifest missing Files.signature entry                                                                             \n"+
+			"test-driver-invalid-manifest This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.                         \n"+
+			"test-driver-docs-url         This is manifest-only with its docs_url key set                                                                           \n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
