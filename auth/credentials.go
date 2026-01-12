@@ -305,7 +305,9 @@ func FetchColumnarLicense(cred *Credential) error {
 		if !ok {
 			return ErrNoTrialLicense
 		}
-		authToken = "Bearer " + cred.GetAuthToken()
+		authToken = cred.GetAuthToken()
+	default:
+		return fmt.Errorf("unsupported credential type: %s", cred.Type)
 	}
 
 	req, err := http.NewRequest(http.MethodGet, licenseURI, nil)
@@ -336,6 +338,9 @@ func FetchColumnarLicense(cred *Credential) error {
 		return err
 	}
 	defer licenseFile.Close()
-	_, err = licenseFile.ReadFrom(resp.Body)
+	if _, err = licenseFile.ReadFrom(resp.Body); err != nil {
+		licenseFile.Close()
+		os.Remove(licensePath)
+	}
 	return err
 }
