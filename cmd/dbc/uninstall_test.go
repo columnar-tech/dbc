@@ -50,7 +50,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
 	os.WriteFile(path.Join(suite.tempdir, "found.toml"), []byte(contents), 0644)
 
 	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
-	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
@@ -71,7 +71,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
 	os.WriteFile(path.Join(pkgdir, "some.dll"), []byte("anything"), 0o644)
 
 	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
-	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!\n", suite.runCmd(m))
 }
 
 // Test what happens when a user installs a driver in multiple locations
@@ -159,7 +159,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	// Now uninstall and verify we clean up
 	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Driver `test-driver-manifest-only` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "Driver `test-driver-manifest-only` uninstalled successfully!\n", suite.runCmd(m))
 	suite.driverIsNotInstalled("test-driver-manifest-only")
 	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
 }
@@ -199,7 +199,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
 
-	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
+	suite.validateOutput("\r ", "Driver `test-driver-invalid-manifest` uninstalled successfully!\n", output)
 
 	// Ensure we don't nuke the installation directory which is the original (major) issue
 	suite.DirExists(suite.Dir())
