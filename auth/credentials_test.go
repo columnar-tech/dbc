@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -552,5 +553,54 @@ func TestUpdateCreds(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, creds, 1)
 		assert.Equal(t, "test-key", creds[0].ApiKey)
+	})
+}
+
+func TestGetCredentialPath(t *testing.T) {
+	t.Run("honors XDG_DATA_HOME when set to an absolute path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("XDG_DATA_HOME", tmpDir)
+
+		path, err := getCredentialPath()
+		require.NoError(t, err)
+		expected := filepath.Join(tmpDir, "dbc", "credentials", "credentials.toml")
+		assert.Equal(t, expected, path)
+	})
+
+	t.Run("errors if XDG_DATA_HOME is set to a relative path", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", "any/relative/path")
+
+		_, err := getCredentialPath()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "path in $XDG_DATA_HOME is relative")
+	})
+
+	t.Run("default behavior for each platform", func(t *testing.T) {
+		switch runtime.GOOS {
+		case "windows":
+			path, err := getCredentialPath()
+			require.NoError(t, err)
+			assert.Contains(t, path, "dbc")
+			assert.Contains(t, path, "credentials")
+			assert.Contains(t, path, "credentials.toml")
+
+		case "darwin":
+			path, err := getCredentialPath()
+			require.NoError(t, err)
+			assert.Contains(t, path, "Library")
+			assert.Contains(t, path, "dbc")
+			assert.Contains(t, path, "credentials")
+			assert.Contains(t, path, "credentials.toml")
+
+		default:
+			path, err := getCredentialPath()
+			require.NoError(t, err)
+			assert.Contains(t, path, ".local")
+			assert.Contains(t, path, "share")
+			assert.Contains(t, path, "dbc")
+			assert.Contains(t, path, "credentials")
+			assert.Contains(t, path, "credentials.toml")
+
+		}
 	})
 }
