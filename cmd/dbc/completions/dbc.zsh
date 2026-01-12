@@ -71,6 +71,7 @@ function _dbc_install_completions {
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
         '--no-verify[do not verify the driver after installation]' \
+        '--json[Print output as JSON instead of plaintext]' \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
         ':driver name: '
@@ -80,6 +81,7 @@ function _dbc_uninstall_completions {
     _arguments \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
+        '--json[Print output as JSON instead of plaintext]' \
         ':driver name: '
 }
 
@@ -115,6 +117,7 @@ function _dbc_search_completions {
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
         '-v[verbose]' \
+        '--json[Print output as JSON instead of plaintext]' \
         ':search term: '
 }
 
@@ -122,6 +125,7 @@ function _dbc_info_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        '--json[Print output as JSON instead of plaintext]' \
         ':driver name: '
 }
 

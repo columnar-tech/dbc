@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,12 +24,14 @@ import (
 
 type InfoCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to get info about"`
+	Json   bool   `help:"Print output as JSON instead of plaintext"`
 }
 
 func (c InfoCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return infoModel{
-		baseModel: baseModel,
-		driver:    c.Driver,
+		baseModel:  baseModel,
+		jsonOutput: c.Json,
+		driver:     c.Driver,
 	}
 }
 
@@ -42,8 +45,9 @@ func (c InfoCmd) GetModel() tea.Model {
 type infoModel struct {
 	baseModel
 
-	driver string
-	drv    dbc.Driver
+	driver     string
+	jsonOutput bool
+	drv        dbc.Driver
 }
 
 func (m infoModel) Init() tea.Cmd {
@@ -83,6 +87,35 @@ func formatDriverInfo(drv dbc.Driver) string {
 	return b.String()
 }
 
+func driverInfoJSON(drv dbc.Driver) string {
+	info := drv.MaxVersion()
+
+	var driverInfoOutput = struct {
+		Driver   string   `json:"driver"`
+		Version  string   `json:"version"`
+		Title    string   `json:"title"`
+		License  string   `json:"license"`
+		Desc     string   `json:"description"`
+		Packages []string `json:"packages"`
+	}{
+		Driver:  drv.Path,
+		Version: info.Version.String(),
+		Title:   drv.Title,
+		License: drv.License,
+		Desc:    drv.Desc,
+	}
+	for _, pkg := range info.Packages {
+		driverInfoOutput.Packages = append(driverInfoOutput.Packages, pkg.PlatformTuple)
+	}
+
+	jsonBytes, err := json.Marshal(driverInfoOutput)
+	if err != nil {
+		return err.Error()
+	}
+
+	return string(jsonBytes)
+}
+
 func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dbc.Driver:
@@ -96,6 +129,9 @@ func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m infoModel) FinalOutput() string {
+	if m.jsonOutput {
+		return driverInfoJSON(m.drv)
+	}
 	return formatDriverInfo(m.drv)
 }
 
