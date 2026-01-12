@@ -22,6 +22,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/list"
+	"github.com/charmbracelet/lipgloss/table"
 	"github.com/charmbracelet/lipgloss/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
@@ -115,6 +116,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 	installedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	l := list.New()
+	t := table.New().Border(lipgloss.HiddenBorder())
 	for _, driver := range d {
 		var installed []string
 		installedVerbose := make(map[string][]string)
@@ -135,11 +137,11 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 		var regTag string
 		if driver.Registry.Name != "" {
 			regTag = registryStyle.Render(" [" + driver.Registry.Name + "]")
-			suffix += regTag
 		}
 
 		if !verbose {
-			l.Item(nameStyle.Render(driver.Path) + " - " + descStyle.Render(driver.Desc) + suffix)
+			t.Row(nameStyle.Render(driver.Path)+regTag,
+				descStyle.Render(driver.Desc), suffix)
 			continue
 		}
 
@@ -171,6 +173,9 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 			).Enumerator(emptyEnumerator))
 	}
 
+	if !verbose {
+		return t.String() + "\n"
+	}
 	return l.String() + "\n"
 }
 
