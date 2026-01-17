@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -264,4 +266,81 @@ func UpdateCreds() error {
 	}{
 		Credentials: loadedCredentials,
 	})
+}
+
+func IsColumnarPrivateRegistry(u *url.URL) bool {
+	return u.Host == DefaultOauthURI
+}
+
+const licenseURI = "https://heimdall.columnar.tech/trial_license"
+
+var (
+	ErrNoTrialLicense = errors.New("no trial license found")
+	ErrTrialExpired   = errors.New("trial license has expired")
+)
+
+func FetchColumnarLicense(cred *Credential) error {
+	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
+	_, err := os.Stat(licensePath)
+	if err == nil { // license exists already
+		return nil
+	}
+
+	if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+
+	var authToken string
+	switch cred.Type {
+	case TypeApiKey:
+		authToken = cred.ApiKey
+	case TypeToken:
+		p := jwt.NewParser()
+		tk, err := p.Parse(cred.GetAuthToken(), nil)
+		if err != nil && !errors.Is(err, jwt.ErrTokenUnverifiable) {
+			return fmt.Errorf("failed to parse oauth token: %w", err)
+		}
+
+		_, ok := tk.Claims.(jwt.MapClaims)["urn:columnar:trial_start"]
+		if !ok {
+			return ErrNoTrialLicense
+		}
+		authToken = cred.GetAuthToken()
+	default:
+		return fmt.Errorf("unsupported credential type: %s", cred.Type)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, licenseURI, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Add("authorization", "Bearer "+authToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		switch resp.StatusCode {
+		case http.StatusBadRequest:
+			return ErrNoTrialLicense
+		case http.StatusForbidden:
+			return ErrTrialExpired
+		default:
+			return fmt.Errorf("failed to fetch license: %s", resp.Status)
+		}
+	}
+
+	licenseFile, err := os.OpenFile(licensePath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer licenseFile.Close()
+	if _, err = licenseFile.ReadFrom(resp.Body); err != nil {
+		licenseFile.Close()
+		os.Remove(licensePath)
+	}
+	return err
 }

@@ -17,6 +17,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -81,6 +82,10 @@ func (l LoginCmd) GetModel() tea.Model {
 			downloadPkg:       downloadPkg,
 		},
 	)
+}
+
+type authSuccessMsg struct {
+	cred auth.Credential
 }
 
 type loginModel struct {
@@ -190,13 +195,32 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			})
 	case auth.Credential:
-		return m, tea.Sequence(func() tea.Msg {
+		return m, func() tea.Msg {
 			if err := auth.AddCredential(msg, true); err != nil {
 				return err
 			}
-			return nil
-		}, tea.Println("Authentication successful!"),
-			tea.Quit)
+			return authSuccessMsg{cred: msg}
+		}
+	case authSuccessMsg:
+		return m, tea.Sequence(tea.Println("Authentication successful!"),
+			func() tea.Msg {
+				if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
+					if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
+						return err
+					}
+				}
+				return tea.Quit()
+			})
+	case error:
+		switch {
+		case errors.Is(msg, auth.ErrTrialExpired) ||
+			errors.Is(msg, auth.ErrNoTrialLicense):
+			// ignore these errors during auth login
+			// the user can still login but won't be able to download trial licenses
+			return m, tea.Quit
+		default:
+			// for other errors, let the baseModel update handle it.
+		}
 	}
 
 	base, cmd := m.baseModel.Update(msg)

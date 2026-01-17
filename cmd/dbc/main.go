@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -23,6 +24,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/mattn/go-isatty"
@@ -119,7 +121,16 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case error:
 		m.status = 1
-		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
+		var cmd tea.Cmd
+		switch {
+		case errors.Is(msg, auth.ErrTrialExpired):
+			cmd = tea.Println(errStyle.Render("Could not download license, trial has expired"))
+		case errors.Is(msg, auth.ErrNoTrialLicense):
+			cmd = tea.Println(errStyle.Render("Could not download license, trial not started"))
+		default:
+			cmd = tea.Println("Error: ", msg.Error())
+		}
+		return m, tea.Sequence(cmd, tea.Quit)
 	}
 	return m, nil
 }
