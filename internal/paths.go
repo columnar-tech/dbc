@@ -27,7 +27,7 @@ import (
 func GetUserConfigPath() (string, error) {
 	userdir, err := os.UserConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get dbc config dir: %v", err)
+		return "", fmt.Errorf("failed to get user config directory %v", err)
 	}
 
 	// Capitalize Columnar on Windows and macOS for consistent style
