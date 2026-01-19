@@ -24,6 +24,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestGetUserConfigPath(t *testing.T) {
+	t.Run("returns correct path for each platform", func(t *testing.T) {
+		path, err := GetUserConfigPath()
+		require.NoError(t, err)
+		require.NotEmpty(t, path)
+
+		userConfigDir, err := os.UserConfigDir()
+		require.NoError(t, err)
+
+		switch runtime.GOOS {
+		case "windows":
+			expected := filepath.Join(userConfigDir, "Columnar", "dbc")
+			assert.Equal(t, expected, path)
+			assert.Contains(t, path, "Columnar", "'Columnar' in path should be capitalized on Windows")
+
+		case "darwin":
+			expected := filepath.Join(userConfigDir, "Columnar", "dbc")
+			assert.Equal(t, expected, path)
+			assert.Contains(t, path, "Columnar", "'Columnar' in path should be capitalized on macOS")
+			assert.Contains(t, path, "Library/Application Support", "macOS should use Application Support")
+
+		default:
+			expected := filepath.Join(userConfigDir, "columnar", "dbc")
+			assert.Equal(t, expected, path)
+			assert.Contains(t, path, "columnar", "'columnar' in path should be lowercase")
+		}
+	})
+}
+
 func TestGetCredentialPath(t *testing.T) {
 	t.Run("honors XDG_DATA_HOME when set to an absolute path", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -74,5 +103,29 @@ func TestGetCredentialPath(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, filepath.Join(userHome, ".local", "share", "dbc", "credentials", "credentials.toml"), path)
 		}
+	})
+
+	t.Run("macOS uses GetUserConfigPath internally", func(t *testing.T) {
+		if runtime.GOOS != "darwin" {
+			t.Skip("macOS-specific test")
+		}
+
+		// Get both paths
+		credPath, err := GetCredentialPath()
+		require.NoError(t, err)
+
+		configPath, err := GetUserConfigPath()
+		require.NoError(t, err)
+
+		// Credential path should start with config path on macOS
+		assert.True(t, filepath.IsAbs(credPath), "credential path should be absolute")
+		assert.Contains(t, credPath, configPath, "macOS credential path should contain config path")
+		assert.Contains(t, credPath, "credentials/credentials.toml", "should end with credentials/credentials.toml")
+	})
+
+	t.Run("path ends with credentials.toml", func(t *testing.T) {
+		path, err := GetCredentialPath()
+		require.NoError(t, err)
+		assert.Equal(t, "credentials.toml", filepath.Base(path))
 	})
 }

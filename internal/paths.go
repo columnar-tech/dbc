@@ -41,7 +41,8 @@ func GetUserConfigPath() (string, error) {
 	return finalDir, nil
 }
 
-// Directory for dbc credentials
+// Directory for dbc credentials. This dir is distinct from GetUserConfigPath
+// except for on macOS where it's the same
 func GetCredentialPath() (string, error) {
 	dir := os.Getenv("XDG_DATA_HOME")
 	if dir == "" {
