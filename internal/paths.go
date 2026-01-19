@@ -23,7 +23,7 @@ import (
 )
 
 // Directory for dbc config, uuid/machine-ids but only for credentials on macOS.
-// See credentials.go for
+// See GetCredentialPath for credentials behavior.
 func GetUserConfigPath() (string, error) {
 	userdir, err := os.UserConfigDir()
 	if err != nil {
