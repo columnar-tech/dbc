@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -37,21 +38,24 @@ var (
 
 type SearchCmd struct {
 	Verbose bool           `arg:"-v" help:"Enable verbose output"`
+	Json    bool           `help:"Print output as JSON instead of plaintext"`
 	Pattern *regexp.Regexp `arg:"positional" help:"Pattern to search for"`
 }
 
 func (s SearchCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return searchModel{
-		verbose:   s.Verbose,
-		pattern:   s.Pattern,
-		baseModel: baseModel,
+		verbose:    s.Verbose,
+		outputJson: s.Json,
+		pattern:    s.Pattern,
+		baseModel:  baseModel,
 	}
 }
 
 func (s SearchCmd) GetModel() tea.Model {
 	return searchModel{
-		verbose: s.Verbose,
-		pattern: s.Pattern,
+		verbose:    s.Verbose,
+		pattern:    s.Pattern,
+		outputJson: s.Json,
 		baseModel: baseModel{
 			getDriverRegistry: getDriverRegistry,
 			downloadPkg:       downloadPkg,
@@ -63,6 +67,7 @@ type searchModel struct {
 	baseModel
 
 	verbose      bool
+	outputJson   bool
 	pattern      *regexp.Regexp
 	finalDrivers []dbc.Driver
 }
@@ -119,16 +124,7 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 	t := table.New().Border(lipgloss.HiddenBorder()).
 		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
 	for _, driver := range d {
-		var installed []string
-		installedVerbose := make(map[string][]string)
-
-		for k, v := range current {
-			if drv, ok := v.Drivers[driver.Path]; ok {
-				installed = append(installed, fmt.Sprintf("%s=>%s", k, drv.Version))
-				existing := installedVerbose[drv.Version.String()]
-				installedVerbose[drv.Version.String()] = append(existing, fmt.Sprintf("%s => %s", k, drv.FilePath))
-			}
-		}
+		installed, installedVerbose := getInstalled(driver, current)
 
 		var suffix string
 		if len(installed) > 0 {
@@ -180,6 +176,87 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 	return l.String() + "\n"
 }
 
+func viewDriversJSON(d []dbc.Driver, verbose bool) string {
+	current := config.Get()
+
+	if !verbose {
+		type output struct {
+			Driver      string   `json:"driver"`
+			Description string   `json:"description"`
+			Installed   []string `json:"installed,omitempty"`
+			Registry    string   `json:"registry,omitempty"`
+		}
+
+		var result []output
+		for _, driver := range d {
+			installed, _ := getInstalled(driver, current)
+			result = append(result, output{
+				Driver:      driver.Path,
+				Description: driver.Desc,
+				Installed:   installed,
+				Registry:    driver.Registry.Name,
+			})
+		}
+
+		jsonBytes, err := json.Marshal(result)
+		if err != nil {
+			return fmt.Sprintf("error marshaling JSON: %v", err)
+		}
+		return string(jsonBytes)
+	}
+
+	type output struct {
+		Driver            string              `json:"driver"`
+		Description       string              `json:"description"`
+		License           string              `json:"license"`
+		Registry          string              `json:"registry,omitempty"`
+		InstalledVersions map[string][]string `json:"installed_versions,omitempty"`
+		AvailableVersions []string            `json:"available_versions,omitempty"`
+	}
+
+	var result []output
+	for _, driver := range d {
+		_, installedVerbose := getInstalled(driver, current)
+
+		var availableVersions []string
+		for _, v := range driver.Versions(config.PlatformTuple()) {
+			availableVersions = append(availableVersions, v.String())
+		}
+
+		result = append(result, output{
+			Driver:            driver.Path,
+			Description:       driver.Desc,
+			License:           driver.License,
+			Registry:          driver.Registry.Name,
+			InstalledVersions: installedVerbose,
+			AvailableVersions: availableVersions,
+		})
+	}
+
+	jsonBytes, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Sprintf("error marshaling JSON: %v", err)
+	}
+	return string(jsonBytes)
+}
+
+func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) ([]string, map[string][]string) {
+	var installed []string
+	installedVerbose := make(map[string][]string)
+
+	for k, v := range cfg {
+		if drv, ok := v.Drivers[driver.Path]; ok {
+			installed = append(installed, fmt.Sprintf("%s=>%s", k, drv.Version))
+			existing := installedVerbose[drv.Version.String()]
+			installedVerbose[drv.Version.String()] = append(existing, fmt.Sprintf("%s => %s", k, drv.FilePath))
+		}
+	}
+	return installed, installedVerbose
+}
+
 func (m searchModel) FinalOutput() string {
+	if m.outputJson {
+		return viewDriversJSON(m.finalDrivers, m.verbose)
+	}
 	return viewDrivers(m.finalDrivers, m.verbose)
 }
