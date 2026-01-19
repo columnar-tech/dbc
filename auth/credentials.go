@@ -268,6 +268,10 @@ func UpdateCreds() error {
 	})
 }
 
+func PurgeCredentials() error {
+	return os.RemoveAll(filepath.Dir(credPath))
+}
+
 func IsColumnarPrivateRegistry(u *url.URL) bool {
 	return u.Host == DefaultOauthURI
 }

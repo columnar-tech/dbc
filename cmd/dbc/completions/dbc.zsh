@@ -23,6 +23,7 @@ function _dbc {
                 'docs[Open driver documentation in a web browser]' \
                 'remove[Remove a driver from the driver list]' \
                 'completion[Generate shell completions]' \
+                'auth[Authenticate with a driver registry]' \
                 '--help[Show help]' \
                 '-h[Show help]' \
                 '--version[Show version]' \
@@ -60,6 +61,9 @@ function _dbc {
                 ;;
                 completion)
                     _dbc_completion_completions
+                ;;
+                auth)
+                    _dbc_auth_completions
                 ;;
             esac
         ;;
@@ -151,6 +155,50 @@ function _dbc_completion_completions {
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
         ':shell type:(bash zsh fish)'
+}
+
+function _dbc_auth_completions {
+    local line state
+
+    _arguments -C \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        "1: :->auth_subcommand" \
+        "*::arg:->auth_args"
+
+    case $state in
+        auth_subcommand)
+            _values "auth subcommand" \
+                'login[Authenticate with a driver registry]' \
+                'logout[Log out from a driver registry]'
+        ;;
+        auth_args)
+            case $line[1] in
+                login)
+                    _dbc_auth_login_completions
+                ;;
+                logout)
+                    _dbc_auth_logout_completions
+                ;;
+            esac
+        ;;
+    esac
+}
+
+function _dbc_auth_login_completions {
+    _arguments \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        '--api-key[Authenticate using an API key instead of OAuth]: :' \
+        ':registry URL: '
+}
+
+function _dbc_auth_logout_completions {
+    _arguments \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        '--purge[Remove all local auth credentials for dbc]' \
+        ':registry URL: '
 }
 
 # don't run the completion function when being source-d or eval-d
