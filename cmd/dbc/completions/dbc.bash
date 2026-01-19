@@ -62,7 +62,7 @@ _dbc_install_completions() {
         --level|-l)
             COMPREPLY=($(compgen -W "user system" -- "$cur"))
             return 0
-            ;;        
+            ;;
     esac
 
     if [[ "$cur" == -* ]]; then
