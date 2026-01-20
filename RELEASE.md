@@ -44,6 +44,8 @@ checklist of steps:
       options and subcommands?
 - [ ] *(Before promoting a pre-release)* Has the pre-release been 
       manually tested?
+- [ ] After pushing the tag, you will need to approve the deployment
+      on the Actions tab of the repo.
 
 Once the above checklist is completed, just push the new tag to
 kick off the release process.
