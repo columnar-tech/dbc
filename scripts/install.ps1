@@ -189,7 +189,15 @@ function Download($download_url, $platforms) {
     if ($auth_token) {
         $wc.Headers["Authorization"] = "Bearer $auth_token"
     }
-    $wc.downloadFile($url, $dir_path)
+    try {
+        $wc.DownloadFile($url, $dir_path)
+    } catch [System.Net.WebException] {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+        if ($statusCode -eq 403) {
+            throw "Error: dbc is not available for your platform: ($arch). Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
+        }
+        throw "Error: Failed to download $url. HTTP Status Code: $statusCode"
+    }    
 
     Write-Verbose "Unpacking to $tmp"
 

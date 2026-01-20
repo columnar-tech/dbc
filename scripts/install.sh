@@ -1374,21 +1374,32 @@ downloader() {
     else _dld='curl or wget' # to be used in error message of need_cmd
     fi
 
+    SUCCESS=0
+    HTTP_STATUS=0
     if [ "$1" = --check ]
     then need_cmd "$_dld"
     elif [ "$_dld" = curl ]; then
         if [ -n "${AUTH_TOKEN:-}" ]; then
-            curl -sSfL --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -o "$2"
+            HTTP_STATUS=$(curl -sSfL --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -o "$2" -w "%{http_code}" 2> /dev/null)
+            SUCCESS=$?
         else
-            curl -sSfL "$1" -o "$2"
+            HTTP_STATUS=$(curl -sSfL "$1" -o "$2" -w "%{http_code}" 2> /dev/null)
+            SUCCESS=$?
         fi
     elif [ "$_dld" = wget ]; then
         if [ -n "${AUTH_TOKEN:-}" ]; then
-            wget --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -O "$2"
+            HTTP_STATUS=$(wget -NS --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -O "$2" 2>&1 | grep "HTTP/" | awk '{print $2}')
+            SUCCESS=$?
         else
-            wget "$1" -O "$2"
+            HTTP_STATUS=$(wget -NS "$1" -O "$2" 2>&1 | grep "HTTP/" | awk '{print $2}')
+            SUCCESS=$?
         fi
     else err "Unknown downloader"   # should not reach here
+    fi
+
+    if [ "$SUCCESS" -ne 0 ] || [ "$HTTP_STATUS" -eq 403 ]; then
+        say "Error: dbc is not available for your platform. Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
+        exit 1
     fi
 }
 
