@@ -16,6 +16,7 @@ package dbc
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -38,6 +39,11 @@ import (
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
+)
+
+var (
+	ErrUnauthorized         = errors.New("not authorized")
+	ErrUnauthorizedColumnar = errors.New("not authorized to access")
 )
 
 type Registry struct {
@@ -184,6 +190,17 @@ func makereq(u string) (resp *http.Response, err error) {
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
 		resp, err = DefaultClient.Do(&req)
 	}
+
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		err = ErrUnauthorized
+		if auth.IsColumnarPrivateRegistry(uri) && cred != nil {
+			err = ErrUnauthorizedColumnar
+		}
+		resp.Body.Close()
+		return nil, fmt.Errorf("%s%s: %w", uri.Host, uri.Path, err)
+	}
+
 	return resp, err
 }
 
