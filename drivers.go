@@ -159,7 +159,7 @@ func makereq(u string) (resp *http.Response, err error) {
 	}
 
 	if uri.Path == "/index.yaml" {
-		req.Header.Set("Accept", "application/x-yaml")
+		req.Header.Set("Accept", "application/yaml")
 	}
 
 	if cred != nil {
