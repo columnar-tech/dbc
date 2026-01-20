@@ -232,6 +232,7 @@ func (m loginModel) View() string { return m.spinner.View() + " Waiting for conf
 
 type LogoutCmd struct {
 	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from"`
+	Purge       bool   `arg:"--purge" help:"Remove all local auth credentials for dbc"`
 }
 
 func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -242,6 +243,7 @@ func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return logoutModel{
 		inputURI:  l.RegistryURL,
 		baseModel: baseModel,
+		purge:     l.Purge,
 	}
 }
 
@@ -258,6 +260,7 @@ type logoutModel struct {
 	baseModel
 
 	inputURI string
+	purge    bool
 }
 
 func (m logoutModel) Init() tea.Cmd {
@@ -279,8 +282,14 @@ func (m logoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case *url.URL:
 		return m, func() tea.Msg {
-			if err := auth.RemoveCredential(auth.Uri(*msg)); err != nil {
-				return fmt.Errorf("failed to log out: %w", err)
+			if m.purge {
+				if err := auth.PurgeCredentials(); err != nil {
+					return fmt.Errorf("failed to purge credentials: %w", err)
+				}
+			} else {
+				if err := auth.RemoveCredential(auth.Uri(*msg)); err != nil {
+					return fmt.Errorf("failed to log out: %w", err)
+				}
 			}
 
 			return tea.QuitMsg{}
