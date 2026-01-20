@@ -1375,6 +1375,7 @@ downloader() {
     fi
 
     SUCCESS=0
+    HTTP_STATUS=0
     if [ "$1" = --check ]
     then need_cmd "$_dld"
     elif [ "$_dld" = curl ]; then
@@ -1397,7 +1398,7 @@ downloader() {
     fi
 
     if [ "$SUCCESS" -ne 0 ] || [ "$HTTP_STATUS" -eq 403 ]; then
-        say "Error: No package available for your platform ($2). Please contact support@columnar.tech for assistance."
+        say "Error: No package available for your platform. Please contact support@columnar.tech for assistance."
         exit 1
     fi
 }
