@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -274,9 +275,16 @@ func (suite *SubcommandTestSuite) TestLogoutCmdPurge() {
 
 	suite.runCmd(m)
 
-	// Verify credentials file was removed
-	suite.NoFileExists(credPath)
-	suite.NoFileExists(licPath)
+	// Ensure credentials dir is empty
+	var filelist []string
+	suite.NoError(fs.WalkDir(os.DirFS(tmpDir), ".", func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		filelist = append(filelist, path)
+		return nil
+	}))
+	suite.Empty(filelist, "expected all credential files to be removed")
 }
 
 func (suite *SubcommandTestSuite) TestLogoutCmdNotFound() {
