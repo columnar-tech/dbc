@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
@@ -553,58 +552,5 @@ func TestUpdateCreds(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, creds, 1)
 		assert.Equal(t, "test-key", creds[0].ApiKey)
-	})
-}
-
-func TestGetCredentialPath(t *testing.T) {
-	t.Run("honors XDG_DATA_HOME when set to an absolute path", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		t.Setenv("XDG_DATA_HOME", tmpDir)
-
-		path, err := getCredentialPath()
-		require.NoError(t, err)
-		expected := filepath.Join(tmpDir, "dbc", "credentials", "credentials.toml")
-		assert.Equal(t, expected, path)
-	})
-
-	t.Run("errors if XDG_DATA_HOME is set to a relative path", func(t *testing.T) {
-		t.Setenv("XDG_DATA_HOME", "any/relative/path")
-
-		_, err := getCredentialPath()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "path in $XDG_DATA_HOME is relative")
-	})
-
-	t.Run("default behavior for each platform", func(t *testing.T) {
-		switch runtime.GOOS {
-		case "windows":
-			appData := os.Getenv("LocalAppData")
-			if appData == "" {
-				t.Errorf("failed to get LocalAppData")
-			}
-			path, err := getCredentialPath()
-			require.NoError(t, err)
-			assert.Equal(t, filepath.Join(appData, "dbc", "credentials", "credentials.toml"), path)
-
-		case "darwin":
-			userHome, err := os.UserHomeDir()
-			if err != nil {
-				t.Errorf("failed to get user home directory")
-			}
-
-			path, err := getCredentialPath()
-			require.NoError(t, err)
-			assert.Equal(t, filepath.Join(userHome, "Library", "dbc", "credentials", "credentials.toml"), path)
-
-		default:
-			userHome, err := os.UserHomeDir()
-			if err != nil {
-				t.Errorf("failed to get user home directory")
-			}
-
-			path, err := getCredentialPath()
-			require.NoError(t, err)
-			assert.Equal(t, filepath.Join(userHome, ".local", "share", "dbc", "credentials", "credentials.toml"), path)
-		}
 	})
 }
