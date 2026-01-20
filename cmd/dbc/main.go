@@ -127,8 +127,14 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = tea.Println(errStyle.Render("Could not download license, trial has expired"))
 		case errors.Is(msg, auth.ErrNoTrialLicense):
 			cmd = tea.Println(errStyle.Render("Could not download license, trial not started"))
+		case errors.Is(msg, dbc.ErrUnauthorized):
+			cmd = tea.Sequence(tea.Println(errStyle.Render(msg.Error())),
+				tea.Println(msgStyle.Render("Did you run `dbc auth login`?")))
+		case errors.Is(msg, dbc.ErrUnauthorizedColumnar):
+			cmd = tea.Sequence(tea.Println(errStyle.Render(msg.Error())),
+				tea.Println(msgStyle.Render("Do you have an active license for this driver? Contact support@columnar.tech for assistance.")))
 		default:
-			cmd = tea.Println("Error: ", msg.Error())
+			cmd = tea.Println(errStyle.Render("Error: " + msg.Error()))
 		}
 		return m, tea.Sequence(cmd, tea.Quit)
 	}
@@ -227,7 +233,9 @@ func main() {
 
 	if !args.Quiet {
 		if fo, ok := m.(HasFinalOutput); ok {
-			fmt.Println(fo.FinalOutput())
+			if output := fo.FinalOutput(); output != "" {
+				fmt.Println(output)
+			}
 		}
 	}
 
