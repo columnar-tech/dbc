@@ -1398,7 +1398,7 @@ downloader() {
     fi
 
     if [ "$SUCCESS" -ne 0 ] || [ "$HTTP_STATUS" -eq 403 ]; then
-        say "Error: No package available for your platform. Please contact support@columnar.tech for assistance."
+        say "Error: dbc is not available for your platform. Please contact support@columnar.tech for assistance."
         exit 1
     fi
 }
