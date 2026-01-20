@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -232,6 +233,58 @@ func (suite *SubcommandTestSuite) TestLogoutCmdSuccess() {
 	storedCred, err = auth.GetCredentials(u)
 	suite.Require().NoError(err)
 	suite.Nil(storedCred)
+}
+
+func (suite *SubcommandTestSuite) TestLogoutCmdPurge() {
+	// Setup temp credential path
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+	auth.ResetCredentialsForTesting()
+
+	// Add a credential
+	u, _ := url.Parse("https://example.com")
+	cred := auth.Credential{
+		Type:        auth.TypeApiKey,
+		RegistryURL: auth.Uri(*u),
+		ApiKey:      "test-key",
+	}
+	err := auth.AddCredential(cred, false)
+	suite.Require().NoError(err)
+
+	// Verify credential exists
+	storedCred, err := auth.GetCredentials(u)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(storedCred)
+
+	// Test LogoutCmd with purge
+	cmd := LogoutCmd{
+		RegistryURL: "https://example.com",
+		Purge:       true,
+	}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	licPath := filepath.Join(tmpDir, "columnar.lic")
+	f, err := os.Create(licPath)
+	suite.Require().NoError(err)
+	f.Close()
+
+	suite.runCmd(m)
+
+	// Ensure credentials dir is empty
+	var filelist []string
+	suite.NoError(fs.WalkDir(os.DirFS(tmpDir), ".", func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		filelist = append(filelist, path)
+		return nil
+	}))
+	suite.Empty(filelist, "expected all credential files to be removed")
 }
 
 func (suite *SubcommandTestSuite) TestLogoutCmdNotFound() {
