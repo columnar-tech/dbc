@@ -158,6 +158,10 @@ func makereq(u string) (resp *http.Response, err error) {
 		Header: http.Header{},
 	}
 
+	if uri.Path == "/index.yaml" {
+		req.Header.Set("Accept", "application/x-yaml")
+	}
+
 	if cred != nil {
 		if auth.IsColumnarPrivateRegistry(uri) {
 			// if we're accessing the private registry then attempt to
