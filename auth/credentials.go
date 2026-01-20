@@ -269,7 +269,21 @@ func UpdateCreds() error {
 }
 
 func PurgeCredentials() error {
-	return os.RemoveAll(filepath.Dir(credPath))
+	var fileList = []string{
+		"credentials.toml",
+		"columnar.lic",
+	}
+
+	prefix := filepath.Dir(credPath)
+
+	for _, file := range fileList {
+		fullPath := filepath.Join(prefix, file)
+		if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func IsColumnarPrivateRegistry(u *url.URL) bool {
