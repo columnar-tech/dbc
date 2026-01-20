@@ -1,4 +1,4 @@
-# Copyright 2025 Columnar Technologies Inc.
+# Copyright 2026 Columnar Technologies Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ site_description: dbc is a command line tool for installing and managing ADBC dr
 site_url: https://docs.columnar.tech/dbc
 repo_url: https://github.com/columnar-tech/dbc
 repo_name: dbc
-copyright: Copyright &copy; <a href="https://columnar.tech">2025 Columnar Technologies Inc.</a>
+copyright: Copyright &copy; <a href="https://columnar.tech">2026 Columnar Technologies Inc.</a>
 markdown_extensions:
   - admonition
   - def_list
