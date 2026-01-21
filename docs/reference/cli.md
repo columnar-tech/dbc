@@ -46,6 +46,7 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#info">dbc info</a></dt><dd><p>Get information about a driver</p></dd>
 <dt><a href="#docs">dbc docs</a></dt><dd><p>Open driver documentation in a web browser</p></dd>
+<dt><a href="#auth">dbc auth</a></dt><dd><p>Manage driver registry credentials</p></dd>
 </dl>
 
 ## search
@@ -301,3 +302,49 @@ $ dbc docs <DRIVER>
 `--quiet`, `-q`
 
 :   Suppress all output
+
+## auth
+
+{{ since_version('v0.2.0') }}
+
+<h3>Usage</h3>
+
+```console
+$ dbc auth
+$ dbc auth login
+$ dbc auth logout
+```
+
+<h3>Subcommands</h3>
+
+### login
+
+<h3>Arguments</h3>
+
+`REGISTRYURL`
+
+:   Optional. URL of the driver registry to authenticate with.
+
+<h3>Options</h3>
+
+`--clientid CLIENTID`
+
+:   OAuth Client ID (can also be set via `DBC_OAUTH_CLIENT_ID`)
+
+`--api-key API-KEY`
+
+:   Authenticate using an API key instead of OAuth (use '-' to read from stdin)
+
+### logout
+
+<h3>Arguments</h3>
+
+`REGISTRYURL`
+
+:   Optional. URL of the driver registry to log out from
+
+<h3>Options</h3>
+
+`--purge`
+
+:   Remove all local auth credentials for dbc
