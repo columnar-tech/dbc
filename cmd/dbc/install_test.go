@@ -262,3 +262,15 @@ func (suite *SubcommandTestSuite) TestInstallCreatesSymlinks() {
 	suite.NoError(err)
 	suite.Equal(os.ModeSymlink, info.Mode()&os.ModeSymlink, "Expected test-driver-1.toml to be a symlink")
 }
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackage() {
+	packagePath := filepath.Join("testdata", "test-driver-1.tar.gz")
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
+}
