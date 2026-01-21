@@ -16,7 +16,7 @@
 def define_env(env):
     @env.macro
     def since_version(version):
-        """Create a "since v1.2.3" badge for annotation featuresw ith.
+        """Create a "since v1.2.3" badge for annotation features with.
 
         Args:
             version: git tag for version
