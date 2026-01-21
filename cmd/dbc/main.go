@@ -23,6 +23,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/alexflint/go-arg"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
@@ -288,6 +289,14 @@ func main() {
 			if preamble := hp.Preamble(); preamble != "" {
 				lipgloss.Print(preamble)
 			}
+		}
+	}
+
+	latestVer, err := dbc.GetLatestDbcVersion()
+	if !args.Quiet && dbc.Version != "(devel)" && err == nil {
+		if semver.MustParse(dbc.Version).LessThan(latestVer) {
+			fmt.Printf(descStyle.Render("dbc Version %s is available! You are using %s, please upgrade.\n\n"),
+				latestVer, dbc.Version)
 		}
 	}
 
