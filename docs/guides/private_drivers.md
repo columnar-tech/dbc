@@ -34,6 +34,6 @@ In your browser, you will see a **Device Confirmation** prompt and, once you cli
 
 ## Starting a Trial
 
-To use any drivers you install marked with `[private]`, you must obtain a obtain a license. Licenses can be obtained from your [Account](https://cloud.columnar.tech/account) page by clicking "Start Free 14-Day Trial".
+To use any drivers you install marked with `[private]`, you must obtain a obtain a license. Licenses can be obtained from your [Account](https://cloud.columnar.tech/account) page by clicking **Start Free 14-Day Trial**.
 
 Once your license is created in the web interface, you do not need to download the license manually. If you ran `dbc auth login` before starting a license, you will need to run `dbc auth logout` and then run `dbc auth login` again to download your license.
