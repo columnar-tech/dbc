@@ -274,3 +274,14 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackage() {
 		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
 	suite.driverIsInstalled("test-driver-1", true)
 }
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageNotFound() {
+	packagePath := filepath.Join("testdata", "test-driver-2.tar.gz")
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\nError: open "+packagePath+
+		": no such file or directory\r\n\r ", "", out)
+	suite.driverIsNotInstalled("test-driver-2")
+}
