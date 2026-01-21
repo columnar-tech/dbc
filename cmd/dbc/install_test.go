@@ -285,3 +285,20 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNotFound() {
 		": no such file or directory\r\n\r ", "", out)
 	suite.driverIsNotInstalled("test-driver-2")
 }
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
+	packagePath := filepath.Join("testdata", "test-driver-no-sig.tar.gz")
+	m := InstallCmd{Driver: packagePath}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+
+	suite.Empty(suite.getFilesInTempDir())
+	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
+
+	m = InstallCmd{Driver: packagePath, NoVerify: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.Dir()+"\n", suite.runCmd(m))
+}
