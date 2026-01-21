@@ -51,7 +51,7 @@ $ dbc search sql
 
 ## Private Drivers
 
-If you are [logged in](./private_registries.md) to a private registry, you will see some drivers marked with a `[private]` label:
+If you are [logged in](./private_drivers.md) to a private registry, you will see some drivers marked with a `[private]` label:
 
 ```console
 $ go run ./cmd/dbc search
