@@ -54,7 +54,7 @@ $ dbc search sql
 If you are [logged in](./private_drivers.md) to a private registry, you will see some drivers marked with a `[private]` label:
 
 ```console
-$ go run ./cmd/dbc search
+$ dbc search
 ...
 oracle [private] An ADBC driver for Oracle Database developed by Columnar
 ```
