@@ -300,5 +300,5 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
 		"[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.Dir()+"\n", suite.runCmd(m))
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
