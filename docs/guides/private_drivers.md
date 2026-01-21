@@ -22,7 +22,7 @@ Most drivers available with dbc are hosted on Columnar's public [driver registry
 
 ## Logging In
 
-To log into Columnar's private registry, run `dbc auth login`. You will see the following in your terminal and your default web browser will be opened:
+To log into Columnar's private driver registry, run `dbc auth login`. You will see the following in your terminal and your default web browser will be opened:
 
 ```console
 $ go run ./cmd/dbc auth login
