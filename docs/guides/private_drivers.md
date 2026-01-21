@@ -30,7 +30,7 @@ Opening https://auth.columnar.tech/activate?user_code=XXXX-XXXX in your default 
 ⠏ Waiting for confirmation...
 ```
 
-In your browser, you will see a "Device Confirmation" prompt and, once you click "Continue", you will be redirected to log in with your login provider of choice.
+In your browser, you will see a **Device Confirmation** prompt and, once you click **Continue**, you will be redirected to log in with your login provider of choice.
 
 ## Starting a Trial
 
