@@ -154,6 +154,7 @@ type cmds struct {
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
+	Proxy      string           `arg:"--proxy" help:"Proxy server URL for HTTP requests"`
 }
 
 func (cmds) Version() string {
@@ -186,6 +187,13 @@ func main() {
 			os.Exit(0)
 		default:
 			p.FailSubcommand(err.Error(), p.SubcommandNames()...)
+		}
+	}
+
+	if args.Proxy != "" {
+		if err := dbc.SetProxy(args.Proxy); err != nil {
+			fmt.Fprintf(os.Stderr, "Error setting proxy: %v\n", err)
+			os.Exit(1)
 		}
 	}
 

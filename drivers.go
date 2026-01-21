@@ -85,6 +85,34 @@ func (u *uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return u.RoundTripper.RoundTrip(req)
 }
 
+// SetProxy configures the HTTP client to use the specified proxy server.
+// If proxy is empty, it uses the default transport (which may still respect HTTP_PROXY env var).
+func SetProxy(proxy string) error {
+	var transport http.RoundTripper = http.DefaultTransport
+	if proxy != "" {
+		proxyURL, err := url.Parse(proxy)
+		if err != nil {
+			return fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		transport = &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+	}
+
+	// Preserve the user agent from the current transport
+	var userAgent string
+	if ua, ok := DefaultClient.Transport.(*uaRoundTripper); ok {
+		userAgent = ua.userAgent
+	} else {
+		// Fallback, should not happen
+		userAgent = "dbc-cli"
+	}
+
+	DefaultClient.Transport = &uaRoundTripper{
+		RoundTripper: transport,
+		userAgent:    userAgent,
+	}
+	return nil
+}
+
 func init() {
 	info, ok := debug.ReadBuildInfo()
 	if ok {
