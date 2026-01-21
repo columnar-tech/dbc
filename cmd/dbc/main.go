@@ -230,7 +230,7 @@ func main() {
 	latestVer, err := dbc.GetLatestDbcVersion()
 	if !args.Quiet && dbc.Version != "(devel)" && err == nil {
 		if semver.MustParse(dbc.Version).LessThan(latestVer) {
-			fmt.Printf(descStyle.Render("dbc Version %s is available! You are using %s, please upgrade.\n\n"),
+			fmt.Printf(descStyle.Render("dbc version %s is available! You are using version %s. Please upgrade.\n\n"),
 				latestVer, dbc.Version)
 		}
 	}
