@@ -502,3 +502,17 @@ func SignedByColumnar(lib, sig io.Reader) error {
 
 	return result.SignatureError()
 }
+
+func GetLatestDbcVersion() (*semver.Version, error) {
+	resp, err := makereq("https://dbc.columnar.tech")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch latest dbc version: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return nil, fmt.Errorf("failed to fetch latest dbc version: %s", resp.Status)
+	}
+
+	return semver.NewVersion(resp.Header.Get("x-dbc-latest"))
+}
