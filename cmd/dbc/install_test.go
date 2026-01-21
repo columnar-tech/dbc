@@ -281,8 +281,12 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNotFound() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 
+	errmsg := "no such file or directory"
+	if runtime.GOOS == "windows" {
+		errmsg = "The system cannot find the file specified."
+	}
 	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\nError: open "+packagePath+
-		": no such file or directory\r\n\r ", "", out)
+		": "+errmsg+"\r\n\r ", "", out)
 	suite.driverIsNotInstalled("test-driver-2")
 }
 
