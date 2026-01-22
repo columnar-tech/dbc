@@ -75,3 +75,7 @@ $ dbc auth logout --purge
 ```
 
 Note that this command only removes the local copy of your license and does not cancel your trial.
+
+## API Keys
+
+TODO
