@@ -20,7 +20,7 @@ limitations under the License.
 
 Most drivers available with dbc are hosted on Columnar's public [driver registry](../reference/driver_registry.md). However, some of the drivers you see when you run `dbc search` may be marked with a `[private]` label.
 
-To use these drivers, you must:
+To install and use these drivers, you must:
 
 1. Log in to [Columnar Cloud](https://cloud.columnar.tech) with dbc
 2. Start a trial license
@@ -41,7 +41,7 @@ In your browser, you will see a **Device Confirmation** prompt and, once you cli
 
 ## Starting a Trial
 
-While you can install private drivers without a trial, you must have a license to use one. This is a separate step from logging in.
+To install and use a private driver, you must start a trial and obtain a license. This is a separate step from logging in.
 
 Licenses can be obtained from your [Account](https://cloud.columnar.tech/account) page on Columnar Cloud by clicking **Start Free 14-Day Trial**. Follow any instructions in the dialog that opens up and click **Accept** to create your license.
 
