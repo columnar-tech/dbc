@@ -63,6 +63,10 @@ func (m uninstallModel) Init() tea.Cmd {
 }
 
 func (m uninstallModel) FinalOutput() string {
+	if m.status != 0 {
+		return ""
+	}
+
 	if m.jsonOutput {
 		return fmt.Sprintf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver)
 	}
