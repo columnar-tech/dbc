@@ -45,16 +45,9 @@ While you can install private drivers without a trial, you must have a license t
 
 Licenses can be obtained from your [Account](https://cloud.columnar.tech/account) page on Columnar Cloud by clicking **Start Free 14-Day Trial**. Follow any instructions in the dialog that opens up and click **Accept** to create your license.
 
-!!! warning
+### Downloading Your License
 
-    dbc can automatically obtain your license but only if you run `dbc auth logout` and run `dbc auth login` again after starting your trial.
-
-    For example, you will most likely follow these steps the first time you
-
-    1. Run `dbc auth login`
-    2. Start a trial license on your [Account](https://cloud.columnar.tech/account) page
-    3. Run `dbc auth logout`
-    4. Run `dbc auth login`
+dbc will automatically download your license when you try to install a private driver after you start your trial.
 
 If you'd prefer to download the license manually, you can click **Download License File** and place the downloaded file in the appropriate location for your operating system:
 
