@@ -47,7 +47,10 @@ Licenses can be obtained from your [Account](https://cloud.columnar.tech/account
 
 ### Downloading Your License
 
-dbc will automatically download your license when you try to install a private driver after you start your trial.
+dbc will automatically download your license if you:
+
+1. Have an active license
+2. Run `dbc install` with a private driver
 
 If you'd prefer to download the license manually, you can click **Download License File** and place the downloaded file in the appropriate location for your operating system:
 
@@ -55,7 +58,7 @@ If you'd prefer to download the license manually, you can click **Download Licen
 - macOS:  `~/Library/Application Support/Columnar/dbc/credentials`
 - Linux: `~/.local/share/dbc/credentials`
 
-You may also use a custom location by setting the environment variable `XDG_DATA_HOME` to an absolute path of your choosing.
+You may also use a custom location by setting the environment variable `XDG_DATA_HOME` to an absolute path of your choosing. If you do this, you must ensure you set the same value of `XDG_DATA_HOME` when loading drivers with the [driver manager](../concepts/driver_manager.md) for the drivers to find your license.
 
 ## Logging Out
 
