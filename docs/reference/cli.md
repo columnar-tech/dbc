@@ -323,7 +323,7 @@ $ dbc auth logout
 
 `REGISTRYURL`
 
-:   Optional. URL of the driver registry to authenticate with. Defaults to Columnar's private driver registry if not provided.
+:   Optional. URL of the driver registry to authenticate with. Defaults to [https://dbc-cdn-private.columnar.tech/](https://dbc-cdn-private.columnar.tech/).
 
 <h3>Options</h3>
 
