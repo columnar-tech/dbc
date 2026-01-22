@@ -105,6 +105,30 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 }
 
+func (suite *SubcommandTestSuite) TestUninstallDriverTwice() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	// Install to Env first
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+
+	// Uninstall from Env level
+	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+
+	// Uninstall from Env level
+	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Error: failed to find driver `test-driver-1` in order to uninstall it: searched "+suite.tempdir+"\r\n\r ", "", suite.runCmdErr(m))
+}
+
 // Test whether the use can override the default behavior and uninstall
 // a driver at a specific level
 func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
