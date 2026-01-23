@@ -38,7 +38,7 @@ type AuthCmd struct {
 }
 
 type LoginCmd struct {
-	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with [default: https://dbc-cdn-private.columnar.tech/]"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with [default: https://dbc-cdn-private.columnar.tech]"`
 	ClientID    string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
 	ApiKey      string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
 }
@@ -231,7 +231,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m loginModel) View() string { return m.spinner.View() + " Waiting for confirmation..." }
 
 type LogoutCmd struct {
-	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from [default: https://dbc-cdn-private.columnar.tech/]"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from [default: https://dbc-cdn-private.columnar.tech]"`
 	Purge       bool   `arg:"--purge" help:"Remove all local auth credentials for dbc"`
 }
 
