@@ -231,7 +231,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m loginModel) View() string { return m.spinner.View() + " Waiting for confirmation..." }
 
 type LogoutCmd struct {
-	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from [default: https://dbc-cdn-private.columnar.tech/]"`
 	Purge       bool   `arg:"--purge" help:"Remove all local auth credentials for dbc"`
 }
 
