@@ -24,6 +24,13 @@
   text-decoration: underline;
 }
 
+/* Disable highlighting for shell built-ins. This means words in console blocks
+like echo, export, logout, and source will use the same color as other commands
+and won't show up highlighted as purple. */
+.highlight .nb {
+  color: inherit;
+}
+
 /* Hide the site name in the header... */
 .md-header__title .md-header__topic:first-of-type {
   display: none !important;
