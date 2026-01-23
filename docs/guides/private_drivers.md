@@ -74,4 +74,25 @@ Note that this command only removes the local copy of your license and does not 
 
 ## API Keys
 
-TODO
+dbc also supports logging in to private driver registries via API key. This is primarily intended for use [Continuous Integration](https://en.wikipedia.org/wiki/Continuous_integration) systems or any system where logging in with a web browser is not possible.
+
+To create an API key, open a web browser to your [API keys](https://cloud.columnar.tech/apikeys) page.
+
+!!! note inline end
+
+    If you've already created an API key, you will see a **Create API Key** button instead.
+
+If you haven't created any API keys before, you will see a **Create Your First API Key** button. After clicking that, enter a name, optionally choose an expiration, and click **Create**. On the following screen, you will see your new API key and instructions to copy it to your clipboard.
+
+!!! note
+
+    API keys grant full access to your account so be sure to store it in a secure way.
+
+
+Then to use your API to log in, run:
+
+```console
+$ dbc auth login --api-key "<YOUR_API_KEY_HERE>"
+```
+
+Once you've run this successfully, dbc is now logged in and you can install private drivers as you would normally.
