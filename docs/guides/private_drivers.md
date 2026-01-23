@@ -70,7 +70,7 @@ By default, the `logout` command doesn't purge any driver licenses from your sys
 $ dbc auth logout --purge
 ```
 
-Note that this command only removes the local copy of your license and does not cancel your trial.
+Note that this command only removes the local copy of your license and does not cancel any active licenses you may have in your [Columnar Cloud](https://cloud.columnar.tech) account. After running `dbc auth logout --purge`, the next time you run `dbc auth login`, your license will be automatically downloaded again.
 
 ## API Keys
 
