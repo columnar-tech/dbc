@@ -310,7 +310,6 @@ $ dbc docs <DRIVER>
 <h3>Usage</h3>
 
 ```console
-$ dbc auth
 $ dbc auth login
 $ dbc auth logout
 ```
