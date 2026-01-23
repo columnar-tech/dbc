@@ -29,7 +29,9 @@ Continue reading to learn how to log in and start a trial.
 
 ## Logging In
 
-To log into Columnar's private driver registry, run `dbc auth login`. You will see the following in your terminal and your default web browser will be opened:
+To log into Columnar's private driver registry, run `dbc auth login`. This will automatically create an account for you the first time you log in.
+
+You will see the following in your terminal and your default web browser will be opened:
 
 ```console
 $ dbc auth login
