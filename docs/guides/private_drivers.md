@@ -25,7 +25,7 @@ To install and use these drivers, you must:
 1. Log in to [Columnar Cloud](https://cloud.columnar.tech) with dbc
 2. Start a trial license
 
-Continue reading to learn how to log in start a trial.
+Continue reading to learn how to log in and start a trial.
 
 ## Logging In
 
