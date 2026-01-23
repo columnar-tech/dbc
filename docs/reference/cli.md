@@ -341,7 +341,7 @@ $ dbc auth logout
 
 `REGISTRYURL`
 
-:   Optional. URL of the driver registry to log out from
+:   Optional. URL of the driver registry to log out from. Defaults to [https://dbc-cdn-private.columnar.tech/](https://dbc-cdn-private.columnar.tech/).
 
 <h3>Options</h3>
 
