@@ -348,3 +348,7 @@ $ dbc auth logout
 `--purge`
 
 :   Remove all local auth credentials for dbc
+
+    !!! warning
+
+        ADBC drivers that require a license (i.e., private drivers) will stop working after you run this command. You can re-download your license with `dbc auth login`. See [Downloading Your License](../guides/private_drivers.md#downloading-your-license).

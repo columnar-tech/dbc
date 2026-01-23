@@ -72,7 +72,14 @@ By default, the `logout` command doesn't purge any driver licenses from your sys
 $ dbc auth logout --purge
 ```
 
-Note that this command only removes the local copy of your license and does not cancel any active licenses you may have in your [Columnar Cloud](https://cloud.columnar.tech) account. After running `dbc auth logout --purge`, the next time you run `dbc auth login`, your license will be automatically downloaded again.
+!!! note
+
+    Note that this command only removes the local copy of your license and does not cancel any active licenses you may have in your [Columnar Cloud](https://cloud.columnar.tech) account.
+
+!!! warning
+
+    ADBC drivers that require a license (i.e., private drivers) will stop working after you run this command. You can re-download your license with `dbc auth login`. See [Downloading Your License](#downloading-your-license).
+
 
 ## API Keys
 
