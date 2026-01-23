@@ -132,7 +132,7 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				tea.Println(msgStyle.Render("Did you run `dbc auth login`?")))
 		case errors.Is(msg, dbc.ErrUnauthorizedColumnar):
 			cmd = tea.Sequence(tea.Println(errStyle.Render(msg.Error())),
-				tea.Println(msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://cloud.columnar.tech/account and run `dbc auth logout` and `dbc auth login` again make your license available. Contact support@columnar.tech if you need assistance.")))
+				tea.Println(msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://cloud.columnar.tech/account and try this command again. Contact support@columnar.tech if you need assistance.")))
 		default:
 			cmd = tea.Println(errStyle.Render("Error: " + msg.Error()))
 		}
