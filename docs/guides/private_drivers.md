@@ -18,7 +18,7 @@ limitations under the License.
 
 {{ since_version('v0.2.0') }}
 
-Most drivers available with dbc are hosted on Columnar's public [driver registry](../reference/driver_registry.md). However, some of the drivers you see when you run `dbc search` may be marked with a `[private]` label.
+Most drivers available with dbc are hosted on Columnar's public [driver registry](../concepts/driver_registry.md). However, some of the drivers you see when you run `dbc search` may be marked with a `[private]` label.
 
 To install and use these drivers, you must:
 
