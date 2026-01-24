@@ -63,7 +63,7 @@ func mustParseURL(u string) *url.URL {
 var (
 	registries = []Registry{
 		{BaseURL: mustParseURL("https://dbc-cdn.columnar.tech")},
-		{BaseURL: mustParseURL("https://dbc-cdn-private.columnar.tech")},
+		{BaseURL: mustParseURL("https://" + auth.DefaultOauthURI())},
 	}
 	Version = "unknown"
 	mid     string
