@@ -316,6 +316,7 @@ homebrew_casks:
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://columnar.tech/dbc"
     description: "A CLI utility for managing ADBC drivers"
+    skip_upload: auto # auto skips prereleases
     repository:
       owner: "columnar-tech"
       name: "homebrew-tap"
