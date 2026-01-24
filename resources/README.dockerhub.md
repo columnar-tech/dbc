@@ -17,10 +17,44 @@ limitations under the License.
 [dbc](https://columnar.tech/dbc) is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
 This is the official set of Docker images for dbc.
 
+Note: These images are intended to be an easy way to run dbc and aren't designed for running typical analytical workloads inside the container. We recommend building your own images for more complicated use cases.
+
 ## Usage
 
+To run dbc and have it print its usage:
+
 ```sh
-docker run -it --rm columnar/dbc:latest dbc --help
+docker run -it --rm columnar/dbc:latest --help
+```
+
+To search for drivers,
+
+```sh
+docker run -it --rm columnar/dbc:latest search
+```
+
+To install a driver, a few extra flags must be set. The reason for this is that dbc's docker images are based on the scratch image which has no filesystem.
+
+Instead of attempting to install a driver into the container (which will fail), we mount a folder from our host (`$(pwd)/drivers`) into the container and specify that dbc should use that by setting the `ADBC_DRIVER_PATH` environment variable:
+
+```sh
+docker run --rm \
+    -v $(pwd)/drivers:/drivers \
+    -e ADBC_DRIVER_PATH=/drivers \
+    dbc:latest install sqlite
+```
+
+You should now see the sqlite driver installed _outside_ of the container,
+
+```sh
+$ tree drivers
+drivers
+├── sqlite_linux_arm64_v1.10.0
+│   ├── libadbc_driver_sqlite.so
+│   ├── libadbc_driver_sqlite.so.sig
+│   ├── LICENSE.txt
+│   └── NOTICE.txt
+└── sqlite.toml
 ```
 
 ## Image tags

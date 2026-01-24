@@ -12,6 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+FROM alpine:latest AS base
+
+# Notes
+# 1. `ca-certificates` is so we can use TLS (i.e., so dbc search works)
+# 2. Creating /tmp is so we can install drivers (dbc uses /tmp)
+RUN apk --update add ca-certificates && \
+  mkdir -p /tmp && \
+  chmod 1777 /tmp
+
 FROM scratch
+COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=base /tmp /tmp
 ENTRYPOINT ["/dbc"]
 COPY dbc /
