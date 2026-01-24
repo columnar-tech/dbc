@@ -306,3 +306,18 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 		"[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageFixUpName() {
+	origPackagePath, err := filepath.Abs(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	packagePath := filepath.Join(suite.tempdir, "test-driver-1_"+config.PlatformTuple()+"_v1.0.0.tgz")
+	suite.Require().NoError(os.Symlink(origPackagePath, packagePath))
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
+}

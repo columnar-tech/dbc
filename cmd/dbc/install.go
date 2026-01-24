@@ -168,7 +168,7 @@ type progressiveInstallModel struct {
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
-	if strings.HasSuffix(m.Driver, ".tar.gz") {
+	if strings.HasSuffix(m.Driver, ".tar.gz") || strings.HasSuffix(m.Driver, ".tgz") {
 		return tea.Batch(m.spinner.Tick, func() tea.Msg {
 			return localInstallMsg{}
 		})
@@ -290,8 +290,15 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 
 func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model, tea.Cmd) {
 	m.state = stInstalling
-	if strings.HasSuffix(m.Driver, ".tar.gz") {
-		m.Driver = strings.TrimSuffix(filepath.Base(m.Driver), ".tar.gz")
+	if m.isLocal {
+		driverName := strings.TrimSuffix(
+			strings.TrimSuffix(filepath.Base(m.Driver), ".tar.gz"), ".tgz")
+		parts := strings.Split(driverName, "_"+config.PlatformTuple()+"_")
+		if len(parts) < 2 {
+			m.Driver = driverName
+		} else {
+			m.Driver = parts[0] // drivername_platform_arch_version grab drivername
+		}
 	}
 
 	return m, func() tea.Msg {
