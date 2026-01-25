@@ -262,3 +262,62 @@ func (suite *SubcommandTestSuite) TestInstallCreatesSymlinks() {
 	suite.NoError(err)
 	suite.Equal(os.ModeSymlink, info.Mode()&os.ModeSymlink, "Expected test-driver-1.toml to be a symlink")
 }
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackage() {
+	packagePath := filepath.Join("testdata", "test-driver-1.tar.gz")
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageNotFound() {
+	packagePath := filepath.Join("testdata", "test-driver-2.tar.gz")
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	errmsg := "no such file or directory"
+	if runtime.GOOS == "windows" {
+		errmsg = "The system cannot find the file specified."
+	}
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\nError: open "+packagePath+
+		": "+errmsg+"\r\n\r ", "", out)
+	suite.driverIsNotInstalled("test-driver-2")
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
+	packagePath := filepath.Join("testdata", "test-driver-no-sig.tar.gz")
+	m := InstallCmd{Driver: packagePath}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+
+	suite.Empty(suite.getFilesInTempDir())
+	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
+
+	m = InstallCmd{Driver: packagePath, NoVerify: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir+"\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageFixUpName() {
+	origPackagePath, err := filepath.Abs(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	packagePath := filepath.Join(suite.tempdir, "test-driver-1_"+config.PlatformTuple()+"_v1.0.0.tgz")
+	suite.Require().NoError(os.Symlink(origPackagePath, packagePath))
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
+}

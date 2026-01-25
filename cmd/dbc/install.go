@@ -119,6 +119,8 @@ type writeDriverManifestMsg struct {
 	DriverInfo config.DriverInfo
 }
 
+type localInstallMsg struct{}
+
 type installState int
 
 const (
@@ -162,9 +164,16 @@ type progressiveInstallModel struct {
 	p       dbc.FileProgressModel
 
 	width, height int
+	isLocal       bool
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
+	if strings.HasSuffix(m.Driver, ".tar.gz") || strings.HasSuffix(m.Driver, ".tgz") {
+		return tea.Batch(m.spinner.Tick, func() tea.Msg {
+			return localInstallMsg{}
+		})
+	}
+
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		drivers, err := m.getDriverRegistry()
 		if err != nil {
@@ -281,6 +290,17 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 
 func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model, tea.Cmd) {
 	m.state = stInstalling
+	if m.isLocal {
+		driverName := strings.TrimSuffix(
+			strings.TrimSuffix(filepath.Base(m.Driver), ".tar.gz"), ".tgz")
+		parts := strings.Split(driverName, "_"+config.PlatformTuple()+"_")
+		if len(parts) < 2 {
+			m.Driver = driverName
+		} else {
+			m.Driver = parts[0] // drivername_platform_arch_version grab drivername
+		}
+	}
+
 	return m, func() tea.Msg {
 		if m.conflictingInfo.ID != "" {
 			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
@@ -313,6 +333,17 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case []dbc.Driver:
 		return m.searchForDriver(msg)
+	case localInstallMsg:
+		m.isLocal = true
+		return m, tea.Sequence(
+			tea.Printf("Installing from local package: %s\n", m.Driver),
+			func() tea.Msg {
+				localDrv, err := os.Open(m.Driver)
+				if err != nil {
+					return err
+				}
+				return localDrv
+			})
 	case dbc.PkgInfo:
 		m.DriverPackage = msg
 		di, err := config.GetDriver(m.cfg, m.Driver)
@@ -324,6 +355,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *os.File:
 		return m.startInstalling(msg)
 	case config.Manifest:
+		if m.DriverPackage.Version == nil {
+			m.DriverPackage = msg.ToPackageInfo()
+		}
+
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {
@@ -372,6 +407,10 @@ func (m progressiveInstallModel) View() string {
 
 	var b strings.Builder
 	for s := range stDone {
+		if m.isLocal && (s == stSearching || s == stDownloading) {
+			continue
+		}
+
 		if s == m.state {
 			fmt.Fprintf(&b, "[%s] %s...", m.spinner.View(), s.String())
 			if s == stDownloading {
