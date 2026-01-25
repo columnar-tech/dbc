@@ -258,10 +258,8 @@ func PurgeCredentials() error {
 }
 
 func IsColumnarPrivateRegistry(u *url.URL) bool {
-	return u.Host == DefaultOauthURI
+	return u.Host == defaultOauthURI
 }
-
-const licenseURI = "https://heimdall.columnar.tech/trial_license"
 
 var (
 	ErrNoTrialLicense = errors.New("no trial license found")

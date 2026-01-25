@@ -37,8 +37,8 @@ func (suite *SubcommandTestSuite) TestLoginCmdDefaults() {
 
 	loginM, ok := m.(loginModel)
 	suite.Require().True(ok, "expected loginModel")
-	suite.Equal(auth.DefaultOauthURI, loginM.inputURI)
-	suite.Equal(auth.DefaultOauthClientID, loginM.oauthClientID)
+	suite.Equal(auth.DefaultOauthURI(), loginM.inputURI)
+	suite.Equal(auth.DefaultOauthClientID(), loginM.oauthClientID)
 	suite.Equal("", loginM.apiKey)
 }
 
@@ -66,7 +66,7 @@ func (suite *SubcommandTestSuite) TestLoginCmdWithClientID() {
 
 	loginM, ok := m.(loginModel)
 	suite.Require().True(ok, "expected loginModel")
-	suite.Equal(auth.DefaultOauthURI, loginM.inputURI)
+	suite.Equal(auth.DefaultOauthURI(), loginM.inputURI)
 	suite.Equal("custom-client-id", loginM.oauthClientID)
 }
 
@@ -180,7 +180,7 @@ func (suite *SubcommandTestSuite) TestLogoutCmdDefaults() {
 
 	logoutM, ok := m.(logoutModel)
 	suite.Require().True(ok, "expected logoutModel")
-	suite.Equal(auth.DefaultOauthURI, logoutM.inputURI)
+	suite.Equal(auth.DefaultOauthURI(), logoutM.inputURI)
 }
 
 func (suite *SubcommandTestSuite) TestLogoutCmdWithRegistryURL() {

@@ -55,12 +55,12 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	}
 
 	if l.RegistryURL == "" {
-		l.RegistryURL = auth.DefaultOauthURI
+		l.RegistryURL = auth.DefaultOauthURI()
 	}
 
-	if l.RegistryURL == auth.DefaultOauthURI {
+	if l.RegistryURL == auth.DefaultOauthURI() {
 		if l.ClientID == "" {
-			l.ClientID = auth.DefaultOauthClientID
+			l.ClientID = auth.DefaultOauthClientID()
 		}
 	}
 
@@ -237,7 +237,7 @@ type LogoutCmd struct {
 
 func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	if l.RegistryURL == "" {
-		l.RegistryURL = auth.DefaultOauthURI
+		l.RegistryURL = auth.DefaultOauthURI()
 	}
 
 	return logoutModel{
