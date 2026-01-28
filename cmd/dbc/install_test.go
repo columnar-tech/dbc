@@ -35,7 +35,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver registry index\r\n\r ", "", suite.runCmdErr(m))
+	suite.validateOutput("\r ", "\nError: could not find driver: driver `foo` not found in driver registry index", suite.runCmdErr(m))
 	suite.driverIsNotInstalled("test-driver-1")
 }
 
@@ -285,8 +285,8 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNotFound() {
 	if runtime.GOOS == "windows" {
 		errmsg = "The system cannot find the file specified."
 	}
-	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\nError: open "+packagePath+
-		": "+errmsg+"\r\n\r ", "", out)
+	suite.validateOutput("Installing from local package: "+packagePath+
+		"\r\n\r\n\r ", "\nError: open "+packagePath+": "+errmsg, out)
 	suite.driverIsNotInstalled("test-driver-2")
 }
 

@@ -56,6 +56,7 @@ type HasFinalOutput interface {
 
 type HasStatus interface {
 	Status() int
+	Err() error
 }
 
 // use this so we can override this in tests
@@ -101,15 +102,13 @@ type baseModel struct {
 	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
 
 	status int
+	err    error
 }
 
-func (m baseModel) Init() tea.Cmd { return nil }
-func (m baseModel) View() string  { return "" }
-
-func (m baseModel) Status() int {
-	return m.status
-}
-
+func (m baseModel) Init() tea.Cmd       { return nil }
+func (m baseModel) View() string        { return "" }
+func (m baseModel) Status() int         { return m.status }
+func (m baseModel) Err() error          { return m.err }
 func (m baseModel) FinalOutput() string { return "" }
 
 func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -120,23 +119,8 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 	case error:
-		m.status = 1
-		var cmd tea.Cmd
-		switch {
-		case errors.Is(msg, auth.ErrTrialExpired):
-			cmd = tea.Println(errStyle.Render("Could not download license, trial has expired"))
-		case errors.Is(msg, auth.ErrNoTrialLicense):
-			cmd = tea.Println(errStyle.Render("Could not download license, trial not started"))
-		case errors.Is(msg, dbc.ErrUnauthorized):
-			cmd = tea.Sequence(tea.Println(errStyle.Render(msg.Error())),
-				tea.Println(msgStyle.Render("Did you run `dbc auth login`?")))
-		case errors.Is(msg, dbc.ErrUnauthorizedColumnar):
-			cmd = tea.Sequence(tea.Println(errStyle.Render(msg.Error())),
-				tea.Println(msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://cloud.columnar.tech/account and try this command again. Contact support@columnar.tech if you need assistance.")))
-		default:
-			cmd = tea.Println(errStyle.Render("Error: " + msg.Error()))
-		}
-		return m, tea.Sequence(cmd, tea.Quit)
+		m.status, m.err = 1, msg
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -161,6 +145,22 @@ func (cmds) Version() string {
 }
 
 var prog *tea.Program
+
+func formatErr(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrTrialExpired):
+		return errStyle.Render("Could not download license, trial has expired")
+	case errors.Is(err, auth.ErrNoTrialLicense):
+		return errStyle.Render("Could not download license, trial not started")
+	case errors.Is(err, dbc.ErrUnauthorized):
+		return errStyle.Render(err.Error())
+	case errors.Is(err, dbc.ErrUnauthorizedColumnar):
+		return errStyle.Render(err.Error()) + "\n" +
+			msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://cloud.columnar.tech/account and try this command again. Contact support if you believe this is an error.")
+	default:
+		return errStyle.Render("Error: " + err.Error())
+	}
+}
 
 func main() {
 	var (
@@ -240,6 +240,9 @@ func main() {
 	}
 
 	if h, ok := m.(HasStatus); ok {
+		if err := h.Err(); err != nil {
+			fmt.Println(formatErr(err))
+		}
 		os.Exit(h.Status())
 	}
 }

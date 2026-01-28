@@ -32,5 +32,5 @@ func (suite *SubcommandTestSuite) TestInfo_DriverNotFound() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 
-	suite.validateOutput("Error: driver `non-existent-driver` not found in driver registry index\r\n\r ", "", out)
+	suite.validateOutput("\r ", "\nError: driver `non-existent-driver` not found in driver registry index", out)
 }
