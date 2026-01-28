@@ -31,8 +31,7 @@ func (suite *SubcommandTestSuite) TestUninstallNotFound() {
 	}
 
 	m := UninstallCmd{Driver: "notfound"}.GetModel()
-	suite.validateOutput("Error: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir+
-		"\r\n\r ", "", suite.runCmdErr(m))
+	suite.validateOutput("\r ", "\nError: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
@@ -126,7 +125,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverTwice() {
 	// Uninstall from Env level
 	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Error: failed to find driver `test-driver-1` in order to uninstall it: searched "+suite.tempdir+"\r\n\r ", "", suite.runCmdErr(m))
+	suite.validateOutput("\r ", "\nError: failed to find driver `test-driver-1` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
 // Test whether the use can override the default behavior and uninstall

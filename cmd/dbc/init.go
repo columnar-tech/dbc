@@ -36,6 +36,7 @@ type initModel struct {
 	Path string
 
 	status int
+	err    error
 }
 
 const initialList = `# dbc driver list
@@ -43,9 +44,8 @@ const initialList = `# dbc driver list
 [drivers]
 `
 
-func (m initModel) Status() int {
-	return m.status
-}
+func (m initModel) Status() int { return m.status }
+func (m initModel) Err() error  { return m.err }
 
 func (m initModel) Init() tea.Cmd {
 	return func() tea.Msg {
@@ -75,8 +75,8 @@ func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case error:
 		m.status = 1
-		return m, tea.Sequence(
-			tea.Println("Error: ", msg.Error()), tea.Quit)
+		m.err = msg
+		return m, tea.Quit
 	}
 	return m, nil
 }

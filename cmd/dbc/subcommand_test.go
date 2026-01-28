@@ -147,6 +147,9 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	m, err = prog.Run()
 	suite.Require().NoError(err)
 	suite.Equal(1, m.(HasStatus).Status(), "The subcommand did not exit with a status of 1 as expected.")
+	err = m.(HasStatus).Err()
+	suite.Require().Error(err, "Expected an error from the subcommand")
+	out.WriteString("\n" + formatErr(err))
 	return out.String()
 }
 

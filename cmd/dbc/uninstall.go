@@ -82,12 +82,11 @@ func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case error:
 		m.status = 1
+		m.err = msg
 		if m.jsonOutput {
 			return m, tea.Sequence(tea.Printf("{\"status\": \"error\", \"error\": \"%s\"}\n", msg.Error()), tea.Quit)
 		}
-		return m, tea.Sequence(
-			tea.Println(errStyle.Render("Error: "+msg.Error())),
-			tea.Quit)
+		return m, tea.Quit
 	}
 
 	return m, tea.Sequence(cmds...)

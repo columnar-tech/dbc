@@ -45,9 +45,9 @@ func TestAlreadyExists(t *testing.T) {
 	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
 		tea.WithContext(ctx))
 
-	_, err := p.Run()
+	outmodel, err := p.Run()
 	require.NoError(t, err)
-	assert.Contains(t, out.String(), "dbc.toml already exists")
+	assert.ErrorContains(t, outmodel.(HasStatus).Err(), "dbc.toml already exists")
 }
 
 func TestInit(t *testing.T) {
