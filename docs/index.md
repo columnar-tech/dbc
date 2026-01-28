@@ -123,6 +123,62 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         let mut driver = ManagedDriver::load_from_name("bigquery", ... )
         ```
 
+=== "Databricks"
+
+    ```console
+    $ dbc install databricks
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "databricks", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "databricks", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "databricks");
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="databricks", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("databricks")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("databricks", ... )
+        ```
+
 === "DuckDB"
 
     ```console
