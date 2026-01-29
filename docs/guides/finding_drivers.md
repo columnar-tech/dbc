@@ -35,6 +35,10 @@ oracle [private]   An ADBC driver for Oracle Database developed by Columnar
 teradata [private] An ADBC driver for Teradata developed by Columnar
 ```
 
+!!! note
+
+    The drivers listed above with the  `[private]` label require a license to use. See [./private_drivers.md](Private Drivers) to learn how to use these drivers.
+
 ## Finding a Specific Driver
 
 You can filter the list of drivers by a pattern.
