@@ -40,6 +40,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
 	}
 
 	contents := `name = "Some Found Driver"
+version = "1.0.0"
 
 	# Doesn't matter what's in here
 
@@ -60,6 +61,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
 	pkgdir := path.Join(suite.tempdir, "somepath")
 	os.Mkdir(pkgdir, 0o755)
 	contents := `name = "Found Driver"
+version = "1.0.0"
 
 	# Doesn't matter what's in here
 

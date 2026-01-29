@@ -35,6 +35,8 @@ const adbcEnvVar = "ADBC_DRIVER_PATH"
 
 var platformTuple string
 
+var ErrInvalidManifest = errors.New("invalid manifest")
+
 func init() {
 	os := runtime.GOOS
 	switch os {
@@ -299,6 +301,14 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 			di.ManifestVersion, currentManifestVersion)
 	}
 
+	// Callers can assume these fields are set so return an error if they aren't
+	if di.Name == "" {
+		return Manifest{}, fmt.Errorf("%w: %s", ErrInvalidManifest, "name is required")
+	}
+	if di.Version == nil {
+		return Manifest{}, fmt.Errorf("%w: %s", ErrInvalidManifest, "version is required")
+	}
+
 	result := Manifest{
 		DriverInfo: DriverInfo{
 			ID:        driverName,
@@ -323,12 +333,12 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 			if strVal, ok := v.(string); ok {
 				result.Driver.Shared.platformMap[k] = strVal
 			} else {
-				return Manifest{}, fmt.Errorf("invalid type for platform %s, expected string", k)
+				return Manifest{}, fmt.Errorf("%w: invalid type for platform %s, expected string", ErrInvalidManifest, k)
 			}
 		}
 	default:
 		if requireShared {
-			return Manifest{}, errors.New("invalid type for 'Driver.shared' in manifest, expected string or table")
+			return Manifest{}, fmt.Errorf("%w: %s", ErrInvalidManifest, "invalid type for 'Driver.shared' in manifest, expected string or table")
 		}
 	}
 
