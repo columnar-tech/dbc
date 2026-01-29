@@ -155,6 +155,7 @@ func TestLoadDriverFromInvalidManifest(t *testing.T) {
 			_, err := loadDriverFromManifest(prefix, driverName)
 			require.ErrorIs(t, err, ErrInvalidManifest)
 			require.ErrorContains(t, err, tt.errContains)
+			require.ErrorContains(t, err, manifestPath)
 		})
 	}
 }
