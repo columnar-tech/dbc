@@ -20,17 +20,19 @@ You can list the available drivers by running `dbc search`:
 
 ```console
 $ dbc search
-• bigquery - An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
-• databricks - An ADBC Driver for Databricks developed by the ADBC Driver Foundry
-• duckdb - An ADBC driver for DuckDB developed by the DuckDB Foundation
-• flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
-• mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
-• mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
-• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
-• redshift - An ADBC driver for Amazon Redshift developed by Columnar
-• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
-• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
-• trino - An ADBC Driver for Trino developed by the ADBC Driver Foundry
+bigquery           An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+databricks         An ADBC Driver for Databricks developed by the ADBC Driver Foundry
+duckdb             An ADBC driver for DuckDB developed by the DuckDB Foundation
+flightsql          An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+mssql              An ADBC driver for Microsoft SQL Server developed by Columnar
+mysql              An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+postgresql         An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+redshift           An ADBC driver for Amazon Redshift developed by Columnar
+snowflake          An ADBC driver for Snowflake developed under the Apache Software Foundation
+sqlite             An ADBC driver for SQLite developed under the Apache Software Foundation
+trino              An ADBC Driver for Trino developed by the ADBC Driver Foundry
+oracle [private]   An ADBC driver for Oracle Database developed by Columnar
+teradata [private] An ADBC driver for Teradata developed by Columnar
 ```
 
 ## Finding a Specific Driver
@@ -42,11 +44,11 @@ For example, you can find drivers with 'sql' in their name by running,
 
 ```console
 $ dbc search sql
-• flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
-• mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
-• mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
-• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
-• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
+flightsql  An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+mssql      An ADBC driver for Microsoft SQL Server developed by Columnar
+mysql      An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+postgresql An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+sqlite     An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 
 ## Options
@@ -141,4 +143,16 @@ $ dbc search --verbose
    Available Versions:
     ├── 0.1.0
     ╰── 0.2.0
+• oracle [private]
+   Title: Columnar ADBC Driver for Oracle Database
+   Description: An ADBC driver for Oracle Database developed by Columnar
+   License: LicenseRef-PBL
+   Available Versions:
+    ╰── 0.4.4
+• teradata [private]
+   Title: Columnar ADBC Driver for Teradata
+   Description: An ADBC driver for Teradata developed by Columnar
+   License: LicenseRef-PBL
+   Available Versions:
+    ╰── 0.1.1
 ```
