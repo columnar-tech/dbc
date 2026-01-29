@@ -682,7 +682,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
         let mut driver = ManagedDriver::load_from_name("trino", ... )
         ```
-=== "Oracle Database"
+=== "Oracle"
 
     ```console
     $ dbc install oracle
