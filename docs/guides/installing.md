@@ -42,6 +42,10 @@ teradata [private] An ADBC driver for Teradata developed by Columnar
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.
 
+!!! note
+
+    The drivers listed above with the  `[private]` label require a license to use. See [./private_drivers.md](Private Drivers) to learn how to use these drivers.
+
 ## Installing a Driver
 
 To install a specific driver, such as `mysql`, run:
