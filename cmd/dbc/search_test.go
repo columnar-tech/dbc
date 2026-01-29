@@ -15,7 +15,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/columnar-tech/dbc/config"
 )
@@ -113,4 +115,35 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"   License: Apache-2.0\n"+
 		"   Available Versions:\n"+
 		"    ╰── 1.0.0\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSearchCmdWithMissingVersionInManifest() {
+	// Install a driver
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	// Corrupt the manifest by removing the version key
+	manifestPath := filepath.Join(suite.tempdir, "test-driver-1.toml")
+	manifestData, err := os.ReadFile(manifestPath)
+	suite.Require().NoError(err, "should be able to read manifest file")
+
+	// Remove the version line from the manifest
+	lines := []string{}
+	for _, line := range strings.Split(string(manifestData), "\n") {
+		if !strings.HasPrefix(line, "version =") {
+			lines = append(lines, line)
+		}
+	}
+	corruptedManifest := strings.Join(lines, "\n")
+
+	err = os.WriteFile(manifestPath, []byte(corruptedManifest), 0644)
+	suite.Require().NoError(err, "should be able to write corrupted manifest")
+
+	suite.Require().NotPanics(func() {
+		m = SearchCmd{}.GetModelCustom(
+			baseModel{getDriverRegistry: getTestDriverRegistry,
+				downloadPkg: downloadTestPkg})
+		suite.runCmd(m)
+	}, "Search should not panic when manifest is missing version key")
 }
