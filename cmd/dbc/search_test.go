@@ -140,7 +140,6 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithMissingVersionInManifest() {
 	err = os.WriteFile(manifestPath, []byte(corruptedManifest), 0644)
 	suite.Require().NoError(err, "should be able to write corrupted manifest")
 
-	// This should panic when trying to access the nil Version pointer
 	suite.Require().NotPanics(func() {
 		m = SearchCmd{}.GetModelCustom(
 			baseModel{getDriverRegistry: getTestDriverRegistry,
