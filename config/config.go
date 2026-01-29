@@ -303,10 +303,10 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 
 	// Callers can assume these fields are set so return an error if they aren't
 	if di.Name == "" {
-		return Manifest{}, fmt.Errorf("%w: %s", ErrInvalidManifest, "name is required")
+		return Manifest{}, fmt.Errorf("%w: name is required", ErrInvalidManifest)
 	}
 	if di.Version == nil {
-		return Manifest{}, fmt.Errorf("%w: %s", ErrInvalidManifest, "version is required")
+		return Manifest{}, fmt.Errorf("%w: version is required", ErrInvalidManifest)
 	}
 
 	result := Manifest{
@@ -338,7 +338,7 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 		}
 	default:
 		if requireShared {
-			return Manifest{}, fmt.Errorf("%w: %s", ErrInvalidManifest, "invalid type for 'Driver.shared' in manifest, expected string or table")
+			return Manifest{}, fmt.Errorf("%w: invalid type for 'Driver.shared' in manifest, expected string or table", ErrInvalidManifest)
 		}
 	}
 
