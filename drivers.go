@@ -87,7 +87,7 @@ func (u *uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func init() {
 	info, ok := debug.ReadBuildInfo()
-	if ok {
+	if ok && Version == "unknown" {
 		Version = info.Main.Version
 	}
 
