@@ -61,8 +61,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 === "Homebrew"
 
     ```console
-    $ brew tap columnar-tech/tap
-    $ brew install --cask dbc
+    $ brew install columnar-tech/tap/dbc
     ```
 
 <br/>2. Use dbc to install drivers:
