@@ -20,7 +20,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/alexflint/go-arg"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -227,12 +226,8 @@ func main() {
 		prog = tea.NewProgram(m)
 	}
 
-	latestVer, err := dbc.GetLatestDbcVersion()
-	if !args.Quiet && dbc.Version != "(devel)" && err == nil {
-		if semver.MustParse(dbc.Version).LessThan(latestVer) {
-			fmt.Printf(descStyle.Render("dbc version %s is available! You are using version %s. Please upgrade.\n\n"),
-				latestVer, dbc.Version)
-		}
+	if !args.Quiet {
+		notifyLatest()
 	}
 
 	if m, err = prog.Run(); err != nil {
