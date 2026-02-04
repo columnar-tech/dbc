@@ -23,7 +23,7 @@ func (suite *SubcommandTestSuite) TestSync() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
 
-	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModel()
 	suite.runCmd(m)
 
 	m = SyncCmd{
@@ -57,7 +57,7 @@ func (suite *SubcommandTestSuite) TestSyncWithVersion() {
 			m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 			suite.runCmd(m)
 
-			m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: tt.driver}.GetModel()
+			m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{tt.driver}}.GetModel()
 			suite.runCmd(m)
 
 			m = SyncCmd{
@@ -81,7 +81,7 @@ func (suite *SubcommandTestSuite) TestSyncVirtualEnv() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
 
-	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModel()
 	suite.runCmd(m)
 
 	suite.T().Setenv("VIRTUAL_ENV", suite.tempdir)
@@ -106,7 +106,7 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
 
-	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-1"}.GetModel()
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModel()
 	suite.runCmd(m)
 
 	suite.T().Setenv("CONDA_PREFIX", suite.tempdir)
@@ -129,7 +129,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
 
-	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-no-sig"}.GetModel()
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-no-sig"}}.GetModel()
 	suite.runCmd(m)
 
 	m = SyncCmd{
@@ -146,7 +146,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
 
-	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: "test-driver-no-sig"}.GetModel()
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-no-sig"}}.GetModel()
 	suite.runCmd(m)
 
 	m = SyncCmd{
