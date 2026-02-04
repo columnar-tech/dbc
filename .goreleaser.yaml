@@ -317,6 +317,13 @@ homebrew_casks:
     homepage: "https://columnar.tech/dbc"
     description: "A CLI utility for managing ADBC drivers"
     skip_upload: auto # auto skips prereleases
+    zap:
+      delete:
+        - ~/.config/columnar/dbc
+    completions:
+      bash: cmd/dbc/completions/dbc.bash
+      zsh: cmd/dbc/completions/dbc.zsh
+      fish: cmd/dbc/completions/dbc.fish
     repository:
       owner: "columnar-tech"
       name: "homebrew-tap"
