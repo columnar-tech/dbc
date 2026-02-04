@@ -407,6 +407,24 @@ func UninstallDriverShared(info DriverInfo) error {
 	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
 	// work. We do want to clean this folder up so here we guess what it is and
 	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
+	//
+	// For the User and System config levels, info.FilePath is set to the
+	// appropriate registry key instead of the filesystem so so we handle that
+	// here first.
+	if strings.Contains(info.FilePath, "HKCU\\") {
+		root, err = os.OpenRoot(ConfigUser.ConfigLocation())
+		if err != nil {
+			return fmt.Errorf("error opening user config location %s: %w", ConfigUser.ConfigLocation(), err)
+		}
+		defer root.Close()
+	} else if strings.Contains(info.FilePath, "HKLM\\") {
+		root, err = os.OpenRoot(ConfigSystem.ConfigLocation())
+		if err != nil {
+			return fmt.Errorf("error opening system config location %s: %w", ConfigSystem.ConfigLocation(), err)
+		}
+		defer root.Close()
+	}
+
 	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
 	extra_folder = filepath.Clean(extra_folder)
 	finfo, err := root.Stat(extra_folder)
