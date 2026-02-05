@@ -208,3 +208,96 @@ version = '>=1.0.0'
 `, string(data))
 	}
 }
+
+func (suite *SubcommandTestSuite) TestAddWithPre() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver with --pre flag
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-2"},
+		Pre:    true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-2]
+prerelease = 'allow'
+`, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestAddWithPreOnlyPrereleaseDriver() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver that only has prerelease versions with --pre flag
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-only-pre"},
+		Pre:    true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-only-pre]
+prerelease = 'allow'
+`, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestAddWithoutPreOnlyPrereleaseDriver() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Try to add driver that only has prerelease versions without --pre flag (should fail)
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-only-pre"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "driver `test-driver-only-pre` not found in driver registry index")
+}
+
+func (suite *SubcommandTestSuite) TestAddWithPreAndConstraint() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver with --pre flag and a version constraint
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-2>=2.0.0"},
+		Pre:    true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-2]
+prerelease = 'allow'
+version = '>=2.0.0'
+`, string(data))
+}

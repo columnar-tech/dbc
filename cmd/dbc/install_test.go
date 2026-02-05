@@ -321,3 +321,24 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageFixUpName() {
 		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
 	suite.driverIsInstalled("test-driver-1", true)
 }
+
+func (suite *SubcommandTestSuite) TestInstallWithPreOnlyPrereleaseDriver() {
+	// Install test-driver-only-pre with --pre flag, should succeed
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: suite.configLevel, Pre: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-only-pre 0.9.0-alpha.1 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-only-pre", false)
+}
+
+func (suite *SubcommandTestSuite) TestInstallWithoutPreOnlyPrereleaseDriver() {
+	// Try to install test-driver-only-pre without --pre flag, should fail
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: suite.configLevel, Pre: false}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.Contains(out, "driver `test-driver-only-pre` not found")
+	suite.driverIsNotInstalled("test-driver-only-pre")
+}

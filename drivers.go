@@ -464,7 +464,7 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 			return p.Version.Prerelease() == ""
 		}))
 		if len(pkglist) == 0 {
-			return PkgInfo{}, fmt.Errorf("driver %s not found", d.Path)
+			return PkgInfo{}, fmt.Errorf("driver `%s` not found", d.Path)
 		}
 	}
 
