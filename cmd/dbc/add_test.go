@@ -301,3 +301,28 @@ prerelease = 'allow'
 version = '>=2.0.0'
 `, string(data))
 }
+
+func (suite *SubcommandTestSuite) TestAddExplicitPrereleaseWithoutPreFlag() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add explicit prerelease version WITHOUT --pre flag, should succeed per requirement
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-only-pre=0.9.0-alpha.1"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents - should NOT include prerelease = 'allow' since --pre was not specified
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-only-pre]
+version = '=0.9.0-alpha.1'
+`, string(data))
+}

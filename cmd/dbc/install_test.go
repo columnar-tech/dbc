@@ -342,3 +342,14 @@ func (suite *SubcommandTestSuite) TestInstallWithoutPreOnlyPrereleaseDriver() {
 	suite.Contains(out, "driver `test-driver-only-pre` not found")
 	suite.driverIsNotInstalled("test-driver-only-pre")
 }
+
+func (suite *SubcommandTestSuite) TestInstallExplicitPrereleaseWithoutPreFlag() {
+	// Install explicit prerelease version WITHOUT --pre flag, should succeed per requirement
+	m := InstallCmd{Driver: "test-driver-only-pre=0.9.0-alpha.1", Level: suite.configLevel, Pre: false}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-only-pre 0.9.0-alpha.1 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-only-pre", false)
+}

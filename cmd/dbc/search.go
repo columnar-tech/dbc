@@ -40,7 +40,7 @@ type SearchCmd struct {
 	Verbose bool           `arg:"-v" help:"Enable verbose output"`
 	Json    bool           `help:"Print output as JSON instead of plaintext"`
 	Pattern *regexp.Regexp `arg:"positional" help:"Pattern to search for"`
-	Pre     bool           `arg:"--pre" help:"Include pre-release versions in search results"`
+	Pre     bool           `arg:"--pre" help:"Include pre-release drivers and versions (hidden by default)"`
 }
 
 func (s SearchCmd) GetModelCustom(baseModel baseModel) tea.Model {

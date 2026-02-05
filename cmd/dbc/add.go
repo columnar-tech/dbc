@@ -44,7 +44,7 @@ func driverListPath(path string) (string, error) {
 type AddCmd struct {
 	Driver []string `arg:"positional,required" help:"Driver to add"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
-	Pre    bool     `arg:"--pre" help:"Allow pre-release versions when adding driver constraints"`
+	Pre    bool     `arg:"--pre" help:"Include pre-release versions (sets prerelease='allow')"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
