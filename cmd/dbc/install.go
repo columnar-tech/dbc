@@ -54,6 +54,7 @@ type InstallCmd struct {
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Pre      bool               `arg:"--pre" help:"Allow installation of pre-release driver versions"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -63,6 +64,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		Driver:     c.Driver,
 		NoVerify:   c.NoVerify,
 		jsonOutput: c.Json,
+		Pre:        c.Pre,
 		spinner:    s,
 		cfg:        getConfig(c.Level),
 		baseModel:  baseModel,
@@ -82,7 +84,7 @@ func (c InstallCmd) GetModel() tea.Model {
 }
 
 func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || (noVerify && m.Files.Signature == "") {
+	if m.Files.Driver == "" || noVerify {
 		return nil
 	}
 
@@ -153,6 +155,7 @@ type progressiveInstallModel struct {
 	VersionInput *semver.Version
 	NoVerify     bool
 	jsonOutput   bool
+	Pre          bool
 	cfg          config.Config
 
 	DriverPackage      dbc.PkgInfo
@@ -254,6 +257,7 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 
 	return m, func() tea.Msg {
 		if vers != nil {
+			vers.IncludePrerelease = m.Pre
 			pkg, err := d.GetWithConstraint(vers, config.PlatformTuple())
 			if err != nil {
 				return err
@@ -261,7 +265,7 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 			return pkg
 		}
 
-		pkg, err := d.GetPackage(nil, config.PlatformTuple())
+		pkg, err := d.GetPackage(nil, config.PlatformTuple(), m.Pre)
 		if err != nil {
 			return err
 		}

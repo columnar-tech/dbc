@@ -44,6 +44,7 @@ func driverListPath(path string) (string, error) {
 type AddCmd struct {
 	Driver []string `arg:"positional,required" help:"Driver to add"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
+	Pre    bool     `arg:"--pre" help:"Allow pre-release versions when adding driver constraints"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -51,6 +52,7 @@ func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		baseModel: baseModel,
 		Driver:    c.Driver,
 		Path:      c.Path,
+		Pre:       c.Pre,
 	}
 }
 
@@ -58,6 +60,7 @@ func (c AddCmd) GetModel() tea.Model {
 	return addModel{
 		Driver: c.Driver,
 		Path:   c.Path,
+		Pre:    c.Pre,
 		baseModel: baseModel{
 			getDriverRegistry: getDriverRegistry,
 			downloadPkg:       downloadPkg,
@@ -70,8 +73,8 @@ type addModel struct {
 
 	Driver []string
 	Path   string
-
-	list DriversList
+	Pre    bool
+	list   DriversList
 }
 
 func (m addModel) Init() tea.Cmd {
@@ -131,14 +134,23 @@ func (m addModel) Init() tea.Cmd {
 			}
 
 			if spec.Vers != nil {
+				spec.Vers.IncludePrerelease = m.Pre
 				_, err = drv.GetWithConstraint(spec.Vers, config.PlatformTuple())
 				if err != nil {
 					return fmt.Errorf("error getting driver: %w", err)
+				}
+			} else {
+				if !m.Pre && !drv.HasNonPrerelease() {
+					return fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
 				}
 			}
 
 			current, ok := m.list.Drivers[spec.Name]
 			m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers}
+			if m.Pre {
+				m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers, Prerelease: "allow"}
+			}
+
 			new := m.list.Drivers[spec.Name]
 			currentString := func() string {
 				if current.Version != nil {

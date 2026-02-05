@@ -29,7 +29,8 @@ type DriversList struct {
 }
 
 type driverSpec struct {
-	Version *semver.Constraints `toml:"version"`
+	Prerelease string              `toml:"prerelease,omitempty"`
+	Version    *semver.Constraints `toml:"version"`
 }
 
 func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
