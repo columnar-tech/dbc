@@ -124,3 +124,36 @@ plugins:
   - social:
       cards_layout_options:
         logo: docs/assets/icon-512.png
+  - llmstxt:
+      full_output: llms-full.txt
+      markdown_description: |
+        dbc simplifies the installation and management of Apache Arrow Database
+        Connectivity (ADBC) drivers across multiple platforms including macOS,
+        Linux, and Windows. It supports installing pre-built drivers with a
+        single command, managing multiple drivers without conflicts, and creating
+        reproducible environments with driver list files. dbc works great in
+        CI/CD environments and can be installed via pip, Docker, Homebrew, and more.
+      sections:
+        Getting Started:
+          - getting_started/installation.md: Installation instructions for all platforms
+          - getting_started/first_steps.md: Getting started with your first driver
+          - getting_started/faq.md: Frequently asked questions
+        Guides:
+          - guides/installing.md: How to install ADBC drivers
+          - guides/finding_drivers.md: Discovering available drivers
+          - guides/driver_list.md: Using driver lists for reproducible setups
+          - guides/driver_manager.md: Working with driver managers
+          - guides/python_notebooks.md: Using dbc in Python notebooks
+        Concepts:
+          - concepts/driver.md: What is an ADBC driver
+          - concepts/driver_manager.md: Understanding driver managers
+          - concepts/driver_manifest.md: Driver manifest files
+          - concepts/driver_list.md: Driver list files for reproducibility
+          - concepts/driver_registry.md: Driver registries
+        Reference:
+          - reference/index.md
+          - reference/cli.md: CLI command reference
+          - reference/config_level.md: Configuration levels
+          - reference/driver_list.md: Driver list file format
+          - reference/supported_platforms.md: Supported platforms
+          - reference/analytics.md: Analytics and telemetry

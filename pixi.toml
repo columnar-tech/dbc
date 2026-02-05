@@ -36,6 +36,7 @@ cdn-serve = "python -m http.server -d cdn-dev"
 
 [feature.docs.pypi-dependencies]
 mkdocs-material = { version = "*", extras = ["imaging"] }
+mkdocs-llmstxt = "*"
 
 [feature.docs.dependencies]
 cairo = ">=1.18.4,<2"
