@@ -169,7 +169,6 @@ func (m addModel) Init() tea.Cmd {
 					spec.Name, currentString, newStr)) + "\n"
 			}
 
-			m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers}
 			result += nameStyle.Render("added", spec.Name, "to driver list")
 			if spec.Vers != nil {
 				result += nameStyle.Render(" with constraint", spec.Vers.String())
