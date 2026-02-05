@@ -40,7 +40,7 @@ Before creating and pushing the tags, please consult the following
 checklist of steps:
 
 - [ ] Are the docs up to date with any new/changed features?
-    - [ ] Is the `llmstxt` plugin config in sync with the main `nav` in [mkdocs.yml](mkdocs.yml)?
+- [ ] Is the `llmstxt` plugin config in sync with the main `nav` in [mkdocs.yml](mkdocs.yml)?
 - [ ] Are the auto-complete scripts up to date with changes to the
       options and subcommands?
 - [ ] *(Before promoting a pre-release)* Has the pre-release been
