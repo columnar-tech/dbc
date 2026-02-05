@@ -348,7 +348,17 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 // Common, non-platform-specific code for uninstalling a driver. Called by
 // platform-specific UninstallDriver function.
 func UninstallDriverShared(info DriverInfo) error {
-	root, err := os.OpenRoot(info.FilePath)
+	// For the User and System config levels, info.FilePath is set to the
+	// appropriate registry key instead of the filesystem on windows so we
+	// handle that here first.
+	filesystemLocation := info.FilePath
+	if strings.Contains(info.FilePath, "HKCU\\") {
+		filesystemLocation = ConfigUser.ConfigLocation()
+	} else if strings.Contains(info.FilePath, "HKLM\\") {
+		filesystemLocation = ConfigSystem.ConfigLocation()
+	}
+
+	root, err := os.OpenRoot(filesystemLocation)
 	if err != nil {
 		return fmt.Errorf("error opening driver path %s: %w", info.FilePath, err)
 	}
@@ -407,32 +417,12 @@ func UninstallDriverShared(info DriverInfo) error {
 	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
 	// work. We do want to clean this folder up so here we guess what it is and
 	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
-	//
-	// For the User and System config levels, info.FilePath is set to the
-	// appropriate registry key instead of the filesystem so so we handle that
-	// here first.
 	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
 	extra_folder = filepath.Clean(extra_folder)
-	if runtime.GOOS != "windows" {
-		finfo, err := root.Stat(extra_folder)
-		if err == nil && finfo.IsDir() && extra_folder != "." {
-			_ = root.RemoveAll(extra_folder)
-			// ignore errors
-		}
-	} else {
-		filesystemLocation := info.FilePath
-		if strings.Contains(info.FilePath, "HKCU\\") {
-			filesystemLocation = ConfigUser.ConfigLocation()
-		} else if strings.Contains(info.FilePath, "HKLM\\") {
-			filesystemLocation = ConfigSystem.ConfigLocation()
-		}
-
-		extra_path := filepath.Join(filesystemLocation, extra_folder)
-		finfo, err := os.Stat(extra_path)
-		if err == nil && finfo.IsDir() && extra_path != "." {
-			_ = os.RemoveAll(extra_path)
-			// ignore errors
-		}
+	finfo, err := root.Stat(extra_folder)
+	if err == nil && finfo.IsDir() && extra_folder != "." {
+		_ = root.RemoveAll(extra_folder)
+		// ignore errors
 	}
 
 	return nil
