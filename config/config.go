@@ -368,7 +368,7 @@ func UninstallDriverShared(info DriverInfo) error {
 		// Make sharedPath relative to info.FilePath and use it within root
 		// to ensure that nothing can escape the intended directory.
 		// (i.e. avoid malicious driver manifests)
-		sharedPath, err = filepath.Rel(info.FilePath, sharedPath)
+		sharedPath, err = filepath.Rel(filesystemLocation, sharedPath)
 		if err != nil {
 			// If we can't make it relative, something is wrong, skip
 			continue
