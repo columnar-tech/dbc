@@ -40,9 +40,10 @@ Before creating and pushing the tags, please consult the following
 checklist of steps:
 
 - [ ] Are the docs up to date with any new/changed features?
-- [ ] Are the auto-complete scripts up to date with changes to the 
+    - [ ] Is the `llmstxt` plugin config in sync with the main `nav` in [mkdocs.yml](mkdocs.yml)?
+- [ ] Are the auto-complete scripts up to date with changes to the
       options and subcommands?
-- [ ] *(Before promoting a pre-release)* Has the pre-release been 
+- [ ] *(Before promoting a pre-release)* Has the pre-release been
       manually tested?
 - [ ] After pushing the tag, you will need to approve the deployment
       on the Actions tab of the repo.
