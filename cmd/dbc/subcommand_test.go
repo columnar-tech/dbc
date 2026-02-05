@@ -72,6 +72,8 @@ func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 		return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
 	case "test-driver-invalid-manifest":
 		return os.Open(filepath.Join("testdata", "test-driver-invalid-manifest.tar.gz"))
+	case "test-driver-only-pre":
+		return os.Open(filepath.Join("testdata", "test-driver-only-pre.tar.gz"))
 	default:
 		return nil, fmt.Errorf("unknown driver: %s", pkg.Driver.Path)
 	}
