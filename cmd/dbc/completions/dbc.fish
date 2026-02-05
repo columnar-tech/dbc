@@ -45,6 +45,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand install' -s h -d 'Show Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l help -d 'Show Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l no-verify -d 'Do not verify the driver after installation'
+complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l pre -d 'Include pre-release versions (hidden by default)'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l level -s l -d 'Installation level' -xa 'user system'
 
 # uninstall subcommand
@@ -59,6 +60,7 @@ complete -c dbc -n '__fish_dbc_using_subcommand init' -F -a '*.toml' -d 'File to
 # add subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand add' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand add' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand add' -l pre -d 'Include pre-release versions (sets prerelease=allow)'
 complete -c dbc -n '__fish_dbc_using_subcommand add' -l path -s p -r -F -a '*.toml' -d 'Driver list to add to'
 
 # sync subcommand
@@ -73,6 +75,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l json -d 'Print output as JSON instead of plaintext'
+complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l pre -d 'Include pre-release drivers and versions (hidden by default)'
 
 # remove subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'

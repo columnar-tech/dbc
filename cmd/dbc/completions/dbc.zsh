@@ -76,6 +76,7 @@ function _dbc_install_completions {
         '(-h)--help[Help]' \
         '--no-verify[do not verify the driver after installation]' \
         '--json[Print output as JSON instead of plaintext]' \
+        '--pre[Include pre-release versions (hidden by default)]' \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
         ':driver name: '
@@ -100,6 +101,7 @@ function _dbc_add_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        '--pre[Include pre-release versions (sets prerelease='\''allow'\'')]' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
         ':driver name: '
@@ -122,6 +124,7 @@ function _dbc_search_completions {
         '(-h)--help[Help]' \
         '-v[verbose]' \
         '--json[Print output as JSON instead of plaintext]' \
+        '--pre[Include pre-release drivers and versions (hidden by default)]' \
         ':search term: '
 }
 
