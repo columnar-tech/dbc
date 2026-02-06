@@ -316,7 +316,11 @@ homebrew_casks:
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://columnar.tech/dbc"
     description: "A CLI utility for managing ADBC drivers"
-    skip_upload: auto # auto skips prereleases
+    skip_upload: auto # auto skips prereleases    
+    completions:
+      bash: cmd/dbc/completions/dbc.bash
+      zsh: cmd/dbc/completions/dbc.zsh
+      fish: cmd/dbc/completions/dbc.fish
     repository:
       owner: "columnar-tech"
       name: "homebrew-tap"
