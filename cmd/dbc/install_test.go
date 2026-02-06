@@ -15,10 +15,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -352,4 +354,60 @@ func (suite *SubcommandTestSuite) TestInstallExplicitPrereleaseWithoutPreFlag() 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-only-pre 0.9.0-alpha.1 to "+suite.Dir()+"\n", out)
 	suite.driverIsInstalled("test-driver-only-pre", false)
+}
+
+func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailure() {
+	// Test that install command handles partial registry failure gracefully
+	// (one registry succeeds, another fails - returns both drivers and error)
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://secondary-registry.example.com: failed to fetch driver registry: network error")
+	}
+
+	// Should succeed if the requested driver is found in the available drivers
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	// Should install successfully without printing the registry error
+	suite.Contains(out, "Installed test-driver-1 1.1.0")
+	suite.driverIsInstalled("test-driver-1", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailureDriverNotFound() {
+	// Test that install command shows registry errors when the requested driver is not found
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://secondary-registry.example.com: failed to fetch driver registry: network error")
+	}
+
+	// Should fail with enhanced error message if the requested driver is not found
+	m := InstallCmd{Driver: "nonexistent-driver", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	// Should show the driver not found error AND the registry error
+	suite.Contains(out, "could not find driver")
+	suite.Contains(out, "nonexistent-driver")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "failed to fetch driver registry")
+	suite.Contains(out, "network error")
+}
+
+func (suite *SubcommandTestSuite) TestInstallCompleteRegistryFailure() {
+	// Test that install command handles complete registry failure (no drivers returned)
+	completeFailingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry https://primary-registry.example.com: connection timeout")
+	}
+
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.Contains(out, "connection timeout")
+	suite.driverIsNotInstalled("test-driver-1")
 }

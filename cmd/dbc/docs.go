@@ -67,12 +67,13 @@ func (c DocsCmd) GetModel() tea.Model {
 type docsModel struct {
 	baseModel
 
-	driver       string
-	drv          *dbc.Driver
-	urlToOpen    string
-	noOpen       bool
-	fallbackUrls map[string]string
-	openBrowser  func(string) error
+	driver         string
+	drv            *dbc.Driver
+	urlToOpen      string
+	noOpen         bool
+	fallbackUrls   map[string]string
+	openBrowser    func(string) error
+	registryErrors error // Store registry errors for better error messages
 }
 
 func (m docsModel) Init() tea.Cmd {
@@ -81,13 +82,18 @@ func (m docsModel) Init() tea.Cmd {
 			return docsUrlFound(dbcDocsUrl)
 		}
 
-		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
 		}
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
+			// If we have registry errors, enhance the error message
+			if registryErr != nil {
+				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
+			}
 			return err
 		}
 

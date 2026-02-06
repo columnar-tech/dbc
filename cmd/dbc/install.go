@@ -168,6 +168,13 @@ type progressiveInstallModel struct {
 
 	width, height int
 	isLocal       bool
+
+	registryErrors error // Store registry errors for better error messages
+}
+
+type driversWithRegistryError struct {
+	drivers []dbc.Driver
+	err     error
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
@@ -179,10 +186,12 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		// Return both drivers and error - we'll decide how to handle based on whether
+		// the requested driver is found
+		return driversWithRegistryError{
+			drivers: drivers,
+			err:     err,
 		}
-		return drivers
 	})
 }
 
@@ -252,6 +261,10 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	m.Driver = driverName
 	d, err := findDriver(m.Driver, list)
 	if err != nil {
+		// If we have registry errors, enhance the error message
+		if m.registryErrors != nil {
+			return m, errCmd("could not find driver: %w\n\nNote: Some driver registries were unavailable:\n%s", err, m.registryErrors.Error())
+		}
 		return m, errCmd("could not find driver: %w", err)
 	}
 
@@ -335,7 +348,11 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p, cmd := m.p.Update(msg)
 		m.p = p.(dbc.FileProgressModel)
 		return m, cmd
+	case driversWithRegistryError:
+		m.registryErrors = msg.err
+		return m.searchForDriver(msg.drivers)
 	case []dbc.Driver:
+		// For backwards compatibility, still handle plain driver list
 		return m.searchForDriver(msg)
 	case localInstallMsg:
 		m.isLocal = true

@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -45,20 +46,26 @@ func (c InfoCmd) GetModel() tea.Model {
 type infoModel struct {
 	baseModel
 
-	driver     string
-	jsonOutput bool
-	drv        dbc.Driver
+	driver         string
+	jsonOutput     bool
+	drv            dbc.Driver
+	registryErrors error // Store registry errors for better error messages
 }
 
 func (m infoModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
 		}
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
+			// If we have registry errors, enhance the error message
+			if registryErr != nil {
+				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
+			}
 			return err
 		}
 

@@ -88,7 +88,8 @@ type syncModel struct {
 	progress      progress.Model
 	width, height int
 
-	done bool
+	done           bool
+	registryErrors error // Store registry errors for better error messages
 }
 
 type driversListMsg struct {
@@ -166,6 +167,10 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// locate the driver info in the CDN driver registry index
 		drv, err := findDriver(name, s.driverIndex)
 		if err != nil {
+			// If we have registry errors, enhance the error message
+			if s.registryErrors != nil {
+				return nil, fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, s.registryErrors.Error())
+			}
 			return nil, err
 		}
 
@@ -331,12 +336,29 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.list = msg.list
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()
+			// Return both drivers and error - we'll decide how to handle based on whether
+			// all requested drivers can be found
+			return driversWithRegistryError{
+				drivers: drivers,
+				err:     err,
+			}
+		}
+	case driversWithRegistryError:
+		s.registryErrors = msg.err
+		// If we have no drivers and there's an error, fail immediately
+		if len(msg.drivers) == 0 && msg.err != nil {
+			return s, errCmd("error getting driver list: %w", msg.err)
+		}
+		s.driverIndex = msg.drivers
+		return s, func() tea.Msg {
+			items, err := s.createInstallList(s.list)
 			if err != nil {
 				return err
 			}
-			return drivers
+			return items
 		}
 	case []dbc.Driver:
+		// For backwards compatibility, still handle plain driver list
 		s.driverIndex = msg
 		return s, func() tea.Msg {
 			items, err := s.createInstallList(s.list)
