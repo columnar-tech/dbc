@@ -16,6 +16,8 @@ package main
 
 import (
 	"fmt"
+
+	"github.com/columnar-tech/dbc"
 )
 
 var testFallbackUrls = map[string]string{
@@ -153,4 +155,81 @@ func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocs() {
 	suite.runCmd(m)
 
 	suite.Equal("http://example.com", lastOpenedURL)
+}
+
+func (suite *SubcommandTestSuite) TestDocsPartialRegistryFailure() {
+	// Test that docs command handles partial registry failure gracefully
+	// (one registry succeeds, another fails - returns both drivers and error)
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://fallback-registry.example.com: failed to fetch driver registry: timeout")
+	}
+
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+	fallbackDriverDocsUrl = testFallbackUrls
+
+	// Should succeed if the requested driver is found in the available drivers
+	m := DocsCmd{Driver: "test-driver-1"}.GetModelCustom(
+		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg},
+		false,
+		mockOpenBrowserSuccess,
+		testFallbackUrls,
+	)
+
+	suite.runCmd(m)
+	// Should open docs successfully without showing the registry error
+	suite.Equal("https://test.example.com/driver1", lastOpenedURL)
+}
+
+func (suite *SubcommandTestSuite) TestDocsPartialRegistryFailureDriverNotFound() {
+	// Test that docs command shows registry errors when the requested driver is not found
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://fallback-registry.example.com: failed to fetch driver registry: timeout")
+	}
+
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+
+	// Should fail with enhanced error message if the requested driver is not found
+	m := DocsCmd{Driver: "nonexistent-driver"}.GetModelCustom(
+		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg},
+		false,
+		mockOpenBrowserSuccess,
+		testFallbackUrls,
+	)
+
+	out := suite.runCmdErr(m)
+	// Should show the driver not found error AND the registry error
+	suite.Contains(out, "driver `nonexistent-driver` not found")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "failed to fetch driver registry")
+	suite.Contains(out, "timeout")
+	suite.Equal("", lastOpenedURL, "browser should not be opened on error")
+}
+
+func (suite *SubcommandTestSuite) TestDocsCompleteRegistryFailure() {
+	// Test that docs command handles complete registry failure (no drivers returned)
+	completeFailingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry https://main-registry.example.com: connection timeout")
+	}
+
+	openBrowserFunc = mockOpenBrowserSuccess
+	lastOpenedURL = ""
+
+	m := DocsCmd{Driver: "test-driver-1"}.GetModelCustom(
+		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg},
+		false,
+		mockOpenBrowserSuccess,
+		testFallbackUrls,
+	)
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "connection timeout")
+	suite.Equal("", lastOpenedURL, "browser should not be opened on error")
 }
