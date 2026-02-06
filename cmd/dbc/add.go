@@ -94,10 +94,14 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return fmt.Errorf("error getting driver list: %w", err)
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
 		}
+		// Store registry errors to use later if driver is not found
+		// We continue processing if we have some drivers
+		var registryErrors error = registryErr
 
 		p, err := driverListPath(m.Path)
 		if err != nil {
@@ -130,6 +134,10 @@ func (m addModel) Init() tea.Cmd {
 
 			drv, err := findDriver(spec.Name, drivers)
 			if err != nil {
+				// If we have registry errors, enhance the error message
+				if registryErrors != nil {
+					return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())
+				}
 				return err
 			}
 
@@ -141,7 +149,12 @@ func (m addModel) Init() tea.Cmd {
 				}
 			} else {
 				if !m.Pre && !drv.HasNonPrerelease() {
-					return fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
+					err := fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
+					// If we have registry errors, enhance the error message
+					if registryErrors != nil {
+						return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())
+					}
+					return err
 				}
 			}
 

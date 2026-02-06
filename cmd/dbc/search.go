@@ -201,7 +201,7 @@ func viewDrivers(d []dbc.Driver, verbose bool, allowPre bool) string {
 	return l.String()
 }
 
-func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool) string {
+func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors error) string {
 	current := config.Get()
 
 	if !verbose {
@@ -212,14 +212,14 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool) string {
 			Registry    string   `json:"registry,omitempty"`
 		}
 
-		var result []output
+		var driverList []output
 		for _, driver := range d {
 			installed, _ := getInstalled(driver, current)
 			if !allowPre && !driver.HasNonPrerelease() && len(installed) == 0 {
 				continue
 			}
 
-			result = append(result, output{
+			driverList = append(driverList, output{
 				Driver:      driver.Path,
 				Description: driver.Desc,
 				Installed:   installed,
@@ -227,7 +227,17 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool) string {
 			})
 		}
 
-		jsonBytes, err := json.Marshal(result)
+		type result struct {
+			Drivers []output `json:"drivers"`
+			Warning string   `json:"warning,omitempty"`
+		}
+
+		res := result{Drivers: driverList}
+		if registryErrors != nil && len(d) > 0 {
+			res.Warning = registryErrors.Error()
+		}
+
+		jsonBytes, err := json.Marshal(res)
 		if err != nil {
 			return fmt.Sprintf("error marshaling JSON: %v", err)
 		}
@@ -243,7 +253,7 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool) string {
 		AvailableVersions []string            `json:"available_versions,omitempty"`
 	}
 
-	var result []output
+	var driverList []output
 	for _, driver := range d {
 		_, installedVerbose := getInstalled(driver, current)
 
@@ -256,7 +266,7 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool) string {
 			availableVersions = append(availableVersions, v.String())
 		}
 
-		result = append(result, output{
+		driverList = append(driverList, output{
 			Driver:            driver.Path,
 			Description:       driver.Desc,
 			License:           driver.License,
@@ -266,7 +276,17 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool) string {
 		})
 	}
 
-	jsonBytes, err := json.Marshal(result)
+	type result struct {
+		Drivers []output `json:"drivers"`
+		Warning string   `json:"warning,omitempty"`
+	}
+
+	res := result{Drivers: driverList}
+	if registryErrors != nil && len(d) > 0 {
+		res.Warning = registryErrors.Error()
+	}
+
+	jsonBytes, err := json.Marshal(res)
 	if err != nil {
 		return fmt.Sprintf("error marshaling JSON: %v", err)
 	}
@@ -290,17 +310,19 @@ func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) (
 func (m searchModel) FinalOutput() string {
 	var output string
 
-	// Display warning about registry errors if any occurred
-	if m.registryErrors != nil {
-		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
-		output = warningStyle.Render("Warning: ") + "Some driver registries were unavailable:\n"
-		output += m.registryErrors.Error() + "\n\n"
+	// Display driver list first
+	if m.outputJson {
+		output = viewDriversJSON(m.finalDrivers, m.verbose, m.pre, m.registryErrors)
+	} else {
+		output = viewDrivers(m.finalDrivers, m.verbose, m.pre)
 	}
 
-	if m.outputJson {
-		output += viewDriversJSON(m.finalDrivers, m.verbose, m.pre)
-	} else {
-		output += viewDrivers(m.finalDrivers, m.verbose, m.pre)
+	// Display warning about registry errors after the driver list (only if we have some drivers to show)
+	// If we have no drivers, the error is returned via the error mechanism
+	if !m.outputJson && m.registryErrors != nil && len(m.finalDrivers) > 0 {
+		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+		output += "\n" + warningStyle.Render("Warning: ") + "Some driver registries were unavailable:\n"
+		output += m.registryErrors.Error() + "\n"
 	}
 
 	return output

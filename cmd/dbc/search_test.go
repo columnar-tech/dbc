@@ -245,5 +245,28 @@ func (suite *SubcommandTestSuite) TestSearchCmdCompleteRegistryFailure() {
 		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 
+	// Should show the error
 	suite.Contains(out, "DNS resolution failed")
+	// Should NOT show the warning when no drivers are available
+	suite.NotContains(out, "Warning:")
+	suite.NotContains(out, "Some driver registries were unavailable")
+}
+
+func (suite *SubcommandTestSuite) TestSearchCmdPartialRegistryFailureJSON() {
+	// Test that JSON search output includes warning about partial registry failure
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		drivers, _ := getTestDriverRegistry()
+		return drivers, fmt.Errorf("registry https://backup-registry.example.com: connection timeout")
+	}
+
+	m := SearchCmd{Json: true}.GetModelCustom(
+		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	// JSON output should include the warning field
+	suite.Contains(out, `"warning"`)
+	suite.Contains(out, "connection timeout")
+	// Should still have drivers
+	suite.Contains(out, `"drivers"`)
+	suite.Contains(out, "test-driver-1")
 }
