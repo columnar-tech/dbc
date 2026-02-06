@@ -405,6 +405,12 @@ type Driver struct {
 	PkgInfo []pkginfo `yaml:"pkginfo"`
 }
 
+func (d Driver) HasNonPrerelease() bool {
+	return slices.ContainsFunc(d.PkgInfo, func(p pkginfo) bool {
+		return p.Version.Prerelease() == ""
+	})
+}
+
 func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (PkgInfo, error) {
 	if len(d.PkgInfo) == 0 {
 		return PkgInfo{}, fmt.Errorf("no package info available for driver %s", d.Path)
@@ -451,21 +457,31 @@ func (d Driver) Versions(platformTuple string) semver.Collection {
 	return versions
 }
 
-func (d Driver) GetPackage(version *semver.Version, platformTuple string) (PkgInfo, error) {
+func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowPrerelease bool) (PkgInfo, error) {
+	pkglist := d.PkgInfo
+	if !allowPrerelease && (version == nil || version.Prerelease() != "") {
+		pkglist = slices.Collect(filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
+			return p.Version.Prerelease() == ""
+		}))
+		if len(pkglist) == 0 {
+			return PkgInfo{}, fmt.Errorf("driver `%s` not found (but prerelease versions filtered out)", d.Path)
+		}
+	}
+
 	var pkg pkginfo
 	if version == nil {
-		pkg = slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
+		pkg = slices.MaxFunc(pkglist, func(a, b pkginfo) int {
 			return a.Version.Compare(b.Version)
 		})
 		version = pkg.Version
 	} else {
-		idx := slices.IndexFunc(d.PkgInfo, func(p pkginfo) bool {
+		idx := slices.IndexFunc(pkglist, func(p pkginfo) bool {
 			return p.Version.Equal(version)
 		})
 		if idx == -1 {
 			return PkgInfo{}, fmt.Errorf("version %s not found", version)
 		}
-		pkg = d.PkgInfo[idx]
+		pkg = pkglist[idx]
 	}
 
 	return pkg.GetPackage(d, platformTuple)

@@ -175,13 +175,16 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// for that constraint, then we want to install the version in the lockfile
 		if info.Version != nil && (spec.Version == nil || spec.Version.Check(info.Version)) {
 			// install the locked version and verify checksum
-			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple())
+			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple(), spec.Prerelease == "allow")
 		} else {
 			// no locked version or driver list version doesn't match locked file
 			if spec.Version != nil {
+				if spec.Prerelease == "allow" {
+					spec.Version.IncludePrerelease = true
+				}
 				pkg, err = drv.GetWithConstraint(spec.Version, config.PlatformTuple())
 			} else {
-				pkg, err = drv.GetPackage(nil, config.PlatformTuple())
+				pkg, err = drv.GetPackage(nil, config.PlatformTuple(), spec.Prerelease == "allow")
 			}
 		}
 

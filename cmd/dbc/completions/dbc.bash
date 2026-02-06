@@ -69,7 +69,7 @@ _dbc_install_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--json --no-verify --level -l" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json --no-verify --level -l --pre" -- "$cur"))
         return 0
     fi
 
@@ -133,7 +133,7 @@ _dbc_add_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --path -p" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --path -p --pre" -- "$cur"))
         return 0
     fi
 
@@ -175,7 +175,7 @@ _dbc_search_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h -v --json" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h -v --json --pre" -- "$cur"))
         return 0
     fi
 

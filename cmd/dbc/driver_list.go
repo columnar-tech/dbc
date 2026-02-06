@@ -29,7 +29,8 @@ type DriversList struct {
 }
 
 type driverSpec struct {
-	Version *semver.Constraints `toml:"version"`
+	Prerelease string              `toml:"prerelease,omitempty"`
+	Version    *semver.Constraints `toml:"version"`
 }
 
 func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
@@ -58,7 +59,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	for name, spec := range m.Drivers {
 		drv, ok := dmap[name]
 		if !ok {
-			return nil, fmt.Errorf("driver %s not found", name)
+			return nil, fmt.Errorf("driver `%s` not found", name)
 		}
 
 		pkg, err := drv.GetWithConstraint(spec.Version, config.PlatformTuple())
