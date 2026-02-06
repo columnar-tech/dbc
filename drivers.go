@@ -252,17 +252,19 @@ func getDriverListFromIndex(index *Registry) ([]Driver, error) {
 }
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
+	var totalErr error
 	allDrivers := make([]Driver, 0)
 	for i := range registries {
 		drivers, err := getDriverListFromIndex(&registries[i])
 		if err != nil {
-			return nil, err
+			totalErr = errors.Join(totalErr, fmt.Errorf("registry %s: %w", registries[i].BaseURL, err))
+			continue
 		}
 		registries[i].Drivers = drivers
 		allDrivers = append(allDrivers, drivers...)
 	}
 
-	return allDrivers, nil
+	return allDrivers, totalErr
 })
 
 //go:embed columnar.pubkey

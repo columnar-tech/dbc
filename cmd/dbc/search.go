@@ -63,21 +63,28 @@ func (s SearchCmd) GetModel() tea.Model {
 type searchModel struct {
 	baseModel
 
-	verbose      bool
-	outputJson   bool
-	pre          bool
-	pattern      *regexp.Regexp
-	finalDrivers []dbc.Driver
+	verbose        bool
+	outputJson     bool
+	pre            bool
+	pattern        *regexp.Regexp
+	finalDrivers   []dbc.Driver
+	registryErrors error // Store registry errors to display as warnings
+}
+
+type driversWithErrorMsg struct {
+	drivers []dbc.Driver
+	err     error
 }
 
 func (m searchModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		// Don't fail completely if we have some drivers - return them with the error
+		// This allows graceful degradation when some registries fail
+		return driversWithErrorMsg{
+			drivers: m.filterDrivers(drivers),
+			err:     err,
 		}
-
-		return m.filterDrivers(drivers)
 	}
 }
 
@@ -97,7 +104,17 @@ func (m searchModel) filterDrivers(drivers []dbc.Driver) []dbc.Driver {
 
 func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case driversWithErrorMsg:
+		m.finalDrivers = msg.drivers
+		m.registryErrors = msg.err
+		// If we have no drivers and there's an error, fail the command
+		if len(msg.drivers) == 0 && msg.err != nil {
+			m.err = msg.err
+			m.status = 1
+		}
+		return m, tea.Sequence(tea.Quit)
 	case []dbc.Driver:
+		// For backwards compatibility, still handle plain driver list
 		m.finalDrivers = msg
 		return m, tea.Sequence(tea.Quit)
 	default:
@@ -271,8 +288,20 @@ func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) (
 }
 
 func (m searchModel) FinalOutput() string {
-	if m.outputJson {
-		return viewDriversJSON(m.finalDrivers, m.verbose, m.pre)
+	var output string
+
+	// Display warning about registry errors if any occurred
+	if m.registryErrors != nil {
+		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+		output = warningStyle.Render("Warning: ") + "Some driver registries were unavailable:\n"
+		output += m.registryErrors.Error() + "\n\n"
 	}
-	return viewDrivers(m.finalDrivers, m.verbose, m.pre)
+
+	if m.outputJson {
+		output += viewDriversJSON(m.finalDrivers, m.verbose, m.pre)
+	} else {
+		output += viewDrivers(m.finalDrivers, m.verbose, m.pre)
+	}
+
+	return output
 }

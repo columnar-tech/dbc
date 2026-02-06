@@ -15,10 +15,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -205,4 +207,43 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPre() {
 			"test-driver-no-sig           Driver manifest missing Files.signature entry                                                                                     \n"+
 			"test-driver-invalid-manifest This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.                                 \n"+
 			"test-driver-docs-url         This is manifest-only with its docs_url key set                                                                                   ", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSearchCmdPartialRegistryFailure() {
+	// Test that search command handles partial registry failure gracefully
+	// (one registry succeeds, another fails - returns both drivers and error)
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://backup-registry.example.com: failed to fetch driver registry: connection timeout")
+	}
+
+	// The search should succeed and display a warning about the failed registry
+	m := SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	// Should show warning about registry failure
+	suite.Contains(out, "Warning:")
+	suite.Contains(out, "Some driver registries were unavailable")
+	suite.Contains(out, "failed to fetch driver registry")
+	suite.Contains(out, "connection timeout")
+
+	// Should still display drivers from the successful registry
+	suite.Contains(out, "test-driver-1")
+	suite.Contains(out, "test-driver-2")
+}
+
+func (suite *SubcommandTestSuite) TestSearchCmdCompleteRegistryFailure() {
+	// Test that search command handles complete registry failure (no drivers returned)
+	completeFailingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry https://main-registry.example.com: DNS resolution failed")
+	}
+
+	m := SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.Contains(out, "DNS resolution failed")
 }
