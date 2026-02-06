@@ -54,7 +54,7 @@ type InstallCmd struct {
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
-	Pre      bool               `arg:"--pre" help:"Include pre-release versions (hidden by default)"`
+	Pre      bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
