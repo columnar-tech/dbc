@@ -68,6 +68,27 @@ The syntax for specifying a version may be familiar to you if you've used other 
 !!! note
     dbc uses the [github.com/Masterminds/semver/v3](https://pkg.go.dev/github.com/Masterminds/semver/v3#section-readme) package whose README has a good overview of the syntax it allows. In short, you can use `=`, `!=`, `>`, `<`, `>=`, `<=`, `~`, `^`, ranges like `1.2 - 1.4.5`, and wildcards (`x`, `X`, or `*`).
 
+## Pre-release Versions
+
+By default, dbc hides pre-release versions when searching for and installing drivers. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.
+
+To include pre-release versions when installing a driver, use the `--pre` flag:
+
+```console
+$ dbc install --pre mysql
+```
+
+This will allow dbc to consider pre-release versions when selecting the latest version to install.
+
+You can also install a specific pre-release version explicitly without using the `--pre` flag:
+
+```console
+$ dbc install "mysql=1.0.0-beta.1"
+```
+
+!!! note
+    When you explicitly specify a pre-release version (like `mysql=1.0.0-beta.1`), the `--pre` flag is not required. The `--pre` flag is only needed when you want dbc to implicitly consider pre-release versions during version resolution.
+
 ## Updating a Driver
 
 dbc doesn't offer a specific "update" or "upgrade" command but `dbc install` can do essentially the same thing.

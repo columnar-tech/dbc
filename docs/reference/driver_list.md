@@ -19,7 +19,7 @@ limitations under the License.
 `dbc.toml` is the default filename dbc uses for a [driver list](../concepts/driver_list.md). This page outlines the structure of that file.
 
 This file uses the [TOML](https://toml.io) file format and contains a single TOML Table called "drivers".
-Each driver must have a name and may optionally have a version constraint. See [Version Constraints](../guides/installing.md#version-constraints) to learn how to specify version constraints.
+Each driver must have a name and may optionally have a version constraint and pre-release configuration. See [Version Constraints](../guides/installing.md#version-constraints) to learn how to specify version constraints.
 
 ## Example
 
@@ -27,7 +27,8 @@ The following driver list specifies:
 
 - Whatever is the latest version of the "mysql" driver
 - The exact 1.4.0 version of the "duckdb" driver
-- The latest version in the 1.x.x major series for the "postgresql" driver.
+- The latest version in the 1.x.x major series for the "postgresql" driver
+- The latest version (including pre-releases) of the "snowflake" driver
 
 ```toml
 [drivers]
@@ -39,4 +40,34 @@ version = '=1.4.0'
 
 [drivers.postgresql]
 version = '=1.x.x'
+
+[drivers.snowflake]
+prerelease = 'allow'
 ```
+
+## Fields
+
+### `version`
+
+Optional. A version constraint string that specifies which versions of the driver are acceptable. If omitted, dbc will use the latest stable version available.
+
+See [Version Constraints](../guides/installing.md#version-constraints) for the full syntax.
+
+### `prerelease`
+
+Optional. Controls whether pre-release versions should be considered during version resolution.
+
+- When set to `'allow'`, dbc will consider pre-release versions when selecting which version to install
+- When omitted or set to any other value, only stable (non-pre-release) versions will be considered
+
+This field is typically set automatically when using `dbc add --pre`.
+
+**Example:**
+
+```toml
+[drivers.mysql]
+prerelease = 'allow'
+```
+
+!!! note
+    The `prerelease` field only affects implicit version resolution. If you specify an explicit pre-release version in the `version` field (like `version = '=1.0.0-beta.1'`), that exact version will be used regardless of the `prerelease` field.

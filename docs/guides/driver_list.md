@@ -112,6 +112,39 @@ $ cat dbc.toml
 version = '=0.1.0'
 ```
 
+## Pre-release Versions
+
+By default, when you add a driver to a driver list, dbc will only consider stable (non-pre-release) versions. If you want to allow pre-release versions when running `dbc sync`, use the `--pre` flag with `dbc add`:
+
+```console
+$ dbc add --pre mysql
+added mysql to driver list
+use `dbc sync` to install the drivers in the list
+$ cat dbc.toml
+[drivers]
+[drivers.mysql]
+prerelease = 'allow'
+```
+
+The `prerelease = 'allow'` field tells `dbc sync` to consider pre-release versions when resolving which version to install. This is useful for tracking the latest development versions of a driver.
+
+You can also add a specific pre-release version without using the `--pre` flag:
+
+```console
+$ dbc add "mysql=1.0.0-beta.1"
+added mysql to driver list with constraint =1.0.0-beta.1
+use `dbc sync` to install the drivers in the list
+$ cat dbc.toml
+[drivers]
+[drivers.mysql]
+version = '=1.0.0-beta.1'
+```
+
+When you specify an explicit pre-release version, the `prerelease` field is not needed since the version constraint itself is explicit.
+
+!!! note
+    The `prerelease = 'allow'` field only affects implicit version resolution. When you have an explicit version constraint that includes a pre-release version (like `=1.0.0-beta.1`), that exact version will be used regardless of the `prerelease` field.
+
 ## Removing Drivers
 
 Drivers can be removed from a driver list with the `dbc remove` command:
