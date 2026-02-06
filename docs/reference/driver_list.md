@@ -19,15 +19,15 @@ limitations under the License.
 `dbc.toml` is the default filename dbc uses for a [driver list](../concepts/driver_list.md). This page outlines the structure of that file.
 
 This file uses the [TOML](https://toml.io) file format and contains a single TOML Table called "drivers".
-Each driver must have a name and may optionally have a version constraint and pre-release configuration. See [Version Constraints](../guides/installing.md#version-constraints) to learn how to specify version constraints.
+Each driver must have a name and may optionally have a version constraint and pre-release setting. See [Version Constraints](../guides/installing.md#version-constraints) to learn how to specify version constraints.
 
 ## Example
 
 The following driver list specifies:
 
-- Whatever is the latest version of the "mysql" driver
+- Whatever is the latest stable version of the "mysql" driver
 - The exact 1.4.0 version of the "duckdb" driver
-- The latest version in the 1.x.x major series for the "postgresql" driver
+- The latest stable version in the 1.x.x major series for the "postgresql" driver
 - The latest version (including pre-releases) of the "snowflake" driver
 
 ```toml
@@ -69,5 +69,19 @@ This field is typically set automatically when using `dbc add --pre`.
 prerelease = 'allow'
 ```
 
-!!! note
-    The `prerelease` field only affects implicit version resolution. If you specify an explicit pre-release version in the `version` field (like `version = '=1.0.0-beta.1'`), that exact version will be used regardless of the `prerelease` field.
+**Interaction with version constraints:**
+
+The `prerelease` field only affects implicit version resolution. When your `version` constraint unambiguously references a pre-release by including a pre-release suffix (like `version = '>=1.0.0-beta.1'`), pre-release versions will be considered regardless of this field.
+
+However, if your version constraint is ambiguous and only pre-release versions satisfy it, `dbc sync` will fail unless `prerelease = 'allow'` is set. For example, if a driver has versions `0.1.0` and `0.1.1-beta.1`:
+
+```toml
+[drivers.mysql]
+version = '>0.1.0'
+# This will FAIL during sync, not install 0.1.1-beta.1
+```
+
+To allow the pre-release in this case, either:
+
+- Add `prerelease = 'allow'`
+- Change the constraint to reference the pre-release: `version = '>=0.1.1-beta.1'`

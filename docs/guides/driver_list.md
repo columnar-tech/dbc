@@ -114,6 +114,8 @@ version = '=0.1.0'
 
 ## Pre-release Versions
 
+### Allowing Pre-release Versions
+
 By default, when you add a driver to a driver list, dbc will only consider stable (non-pre-release) versions. If you want to allow pre-release versions when running `dbc sync`, use the `--pre` flag with `dbc add`:
 
 ```console
@@ -126,9 +128,14 @@ $ cat dbc.toml
 prerelease = 'allow'
 ```
 
-The `prerelease = 'allow'` field tells `dbc sync` to consider pre-release versions when resolving which version to install. This is useful for tracking the latest development versions of a driver.
+The `prerelease = 'allow'` field tells `dbc sync` to consider pre-release versions when resolving which version to install.
 
-You can also add a specific pre-release version without using the `--pre` flag:
+!!! note
+    The `prerelease = 'allow'` field only affects implicit version resolution. When your version constraint unambiguously references a pre-release (by including a pre-release suffix like `-beta.1`), that constraint will match pre-release versions regardless of the `prerelease` field.
+
+### Adding Specific Pre-release Versions
+
+You can add a driver with a version constraint that references a specific pre-release version without using the `--pre` flag. When your version constraint unambiguously references a pre-release by including a pre-release suffix, the `prerelease` field is not added:
 
 ```console
 $ dbc add "mysql=1.0.0-beta.1"
@@ -140,10 +147,20 @@ $ cat dbc.toml
 version = '=1.0.0-beta.1'
 ```
 
-When you specify an explicit pre-release version, the `prerelease` field is not needed since the version constraint itself is explicit.
+The version constraint `=1.0.0-beta.1` unambiguously indicates you want a pre-release, so `prerelease = 'allow'` is not needed.
 
-!!! note
-    The `prerelease = 'allow'` field only affects implicit version resolution. When you have an explicit version constraint that includes a pre-release version (like `=1.0.0-beta.1`), that exact version will be used regardless of the `prerelease` field.
+However, if your version constraint is ambiguous and only a pre-release version satisfies it, `dbc sync` will fail rather than install the pre-release. For example, if a driver has versions `0.1.0` and `0.1.1-beta.1`:
+
+```toml
+[drivers.mysql]
+version = '>0.1.0'
+# dbc sync will FAIL, not install 0.1.1-beta.1
+```
+
+To allow `0.1.1-beta.1` to be installed in this case, you must either:
+
+- Use `dbc add --pre` to add `prerelease = 'allow'`
+- Change the constraint to reference the pre-release: `version = '>=0.1.1-beta.1'`
 
 ## Removing Drivers
 

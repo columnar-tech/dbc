@@ -70,9 +70,11 @@ The syntax for specifying a version may be familiar to you if you've used other 
 
 ## Pre-release Versions
 
-By default, dbc hides pre-release versions when searching for and installing drivers. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.
+### Allowing Pre-release Versions
 
-To include pre-release versions when installing a driver, use the `--pre` flag:
+By default, dbc acts as if pre-release versions don't exist when searching for and installing drivers. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.
+
+To allow dbc to install a pre-release version when it's the newest version available, use the `--pre` flag:
 
 ```console
 $ dbc install --pre mysql
@@ -80,14 +82,29 @@ $ dbc install --pre mysql
 
 This will allow dbc to consider pre-release versions when selecting the latest version to install.
 
-You can also install a specific pre-release version explicitly without using the `--pre` flag:
+!!! note
+    The `--pre` flag allows dbc to install a pre-release version when you didn't ask for it explicitly. Without `--pre`, your version constraint must contain a pre-release suffix (like `-beta.1`) for dbc to consider pre-release versions.
+
+### Installing Specific Pre-release Versions
+
+You can install a specific pre-release version without using the `--pre` flag if your version constraint unambiguously references a pre-release by including a pre-release suffix:
 
 ```console
 $ dbc install "mysql=1.0.0-beta.1"
+$ dbc install "mysql>=1.0.0-beta.1"
 ```
 
-!!! note
-    When you explicitly specify a pre-release version (like `mysql=1.0.0-beta.1`), the `--pre` flag is not required. The `--pre` flag is only needed when you want dbc to implicitly consider pre-release versions during version resolution.
+However, if your version constraint is ambiguous and only a pre-release version satisfies it, dbc will fail rather than install the pre-release. For example, if a driver has versions `0.1.0` and `0.1.1-beta.1`:
+
+```console
+$ dbc install "mysql>0.1.0"
+# This will FAIL, not install 0.1.1-beta.1
+```
+
+To install `0.1.1-beta.1` in this case, you must either:
+
+- Use `--pre`: `dbc install --pre "mysql>0.1.0"`
+- Reference the pre-release explicitly: `dbc install "mysql>=0.1.1-beta.1"`
 
 ## Updating a Driver
 

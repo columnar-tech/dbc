@@ -116,7 +116,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 `--pre`
 
-:   Include pre-release versions (hidden by default)
+:   Allow implicit installation of pre-release versions
 
 `--quiet`, `-q`
 
