@@ -40,9 +40,13 @@ Before creating and pushing the tags, please consult the following
 checklist of steps:
 
 - [ ] Are the docs up to date with any new/changed features?
-- [ ] Is the `llmstxt` plugin config in sync with the main `nav` in [mkdocs.yml](mkdocs.yml)?
 - [ ] Are the auto-complete scripts up to date with changes to the
       options and subcommands?
+- [ ] If any new features or CLI subcommands/flags have been added in this
+  release, add `{{ since_version('v1.2.3') }}` tags in the docs where
+  appropriate
+- [ ] Is the `llmstxt` plugin config in sync with the main `nav` in
+  [mkdocs.yml](mkdocs.yml)?
 - [ ] *(Before promoting a pre-release)* Has the pre-release been
       manually tested?
 - [ ] After pushing the tag, you will need to approve the deployment
