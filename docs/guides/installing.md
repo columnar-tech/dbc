@@ -70,6 +70,8 @@ The syntax for specifying a version may be familiar to you if you've used other 
 
 ## Pre-release Versions
 
+{{ since_version('v0.2.0') }}
+
 ### Allowing Pre-release Versions
 
 By default, dbc acts as if pre-release versions don't exist when searching for and installing drivers. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.

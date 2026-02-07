@@ -145,6 +145,8 @@ $ dbc search --verbose
 
 ### Pre-release Versions
 
+{{ since_version('v0.2.0') }}
+
 By default, `dbc search` hides pre-release versions from search results. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.
 
 To include pre-release versions in search results, use the `--pre` flag:

@@ -114,6 +114,8 @@ version = '=0.1.0'
 
 ## Pre-release Versions
 
+{{ since_version('v0.2.0') }}
+
 ### Allowing Pre-release Versions
 
 By default, when you add a driver to a driver list, dbc will only consider stable (non-pre-release) versions. If you want to allow pre-release versions when running `dbc sync`, use the `--pre` flag with `dbc add`:

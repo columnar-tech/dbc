@@ -70,7 +70,7 @@ $ dbc search [FILTER]
 
 :   Print output as JSON instead of plaintext
 
-`--pre`
+`--pre` {{ since_version('v0.2.0') }}
 
 :   Include pre-release drivers and versions (hidden by default)
 
@@ -114,7 +114,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 :   Allow installation of drivers without a signature file
 
-`--pre`
+`--pre` {{ since_version('v0.2.0') }}
 
 :   Allow implicit installation of pre-release versions
 
@@ -196,7 +196,7 @@ $ dbc add <DRIVER>
 
 :   Driver list to add to [default: ./dbc.toml]
 
-`--pre`
+`--pre` {{ since_version('v0.2.0') }}
 
 :   Allow pre-release versions implicitly
 

@@ -55,6 +55,8 @@ See [Version Constraints](../guides/installing.md#version-constraints) for the f
 
 ### `prerelease`
 
+{{ since_version('v0.2.0') }}
+
 Optional. Controls whether pre-release versions should be considered during version resolution.
 
 - When set to `'allow'`, dbc will consider pre-release versions when selecting which version to install
