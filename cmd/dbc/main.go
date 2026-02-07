@@ -226,6 +226,10 @@ func main() {
 		prog = tea.NewProgram(m)
 	}
 
+	if !args.Quiet {
+		notifyLatest()
+	}
+
 	if m, err = prog.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error running program:", err)
 		os.Exit(1)
