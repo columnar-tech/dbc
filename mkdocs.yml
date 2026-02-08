@@ -14,7 +14,7 @@
 
 site_name: dbc
 site_author: columnar-tech
-site_description: dbc is a command line tool for installing and managing ADBC drivers
+site_description: dbc is the command line tool for installing and managing ADBC drivers
 site_url: https://docs.columnar.tech/dbc
 repo_url: https://github.com/columnar-tech/dbc
 repo_name: dbc
