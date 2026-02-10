@@ -49,6 +49,18 @@ $ dbc search sql
 • sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
 
+## Private Drivers
+
+If you are [logged in](./private_drivers.md) to a private registry, you will see some drivers marked with a `[private]` label:
+
+```console
+$ dbc search
+...
+oracle [private] An ADBC driver for Oracle Database developed by Columnar
+```
+
+These drivers can be [installed](./installing.md) and added to [driver lists](../concepts/driver_list.md) just like regular drivers.
+
 ## Options
 
 ### Verbose

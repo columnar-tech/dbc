@@ -2,6 +2,35 @@
   --md-default-bg-color: rgb(33, 33, 33);
   --md-code-bg-color: rgb(45, 45, 45);
 }
+
+/* since_version badge styling. see macros.py */
+.version-badge {
+  background: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.version-badge a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.version-badge a:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
+/* Disable highlighting for shell built-ins. This means words in console blocks
+like echo, export, logout, and source will use the same color as other commands
+and won't show up highlighted as purple. */
+.highlight .nb {
+  color: inherit;
+}
+
 /* Hide the site name in the header... */
 .md-header__title .md-header__topic:first-of-type {
   display: none !important;

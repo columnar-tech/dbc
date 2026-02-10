@@ -35,8 +35,9 @@ cdn-generate = "python scripts/cdn.py"
 cdn-serve = "python -m http.server -d cdn-dev"
 
 [feature.docs.pypi-dependencies]
-mkdocs-material = { version = "*", extras = ["imaging"] }
 mkdocs-llmstxt = "*"
+mkdocs-material = { version = "*", extras = ["imaging"] }
+mkdocs-macros-plugin = "*"
 
 [feature.docs.dependencies]
 cairo = ">=1.18.4,<2"
