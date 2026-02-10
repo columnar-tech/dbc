@@ -67,6 +67,8 @@ archives:
     files:
       - 'LICENSE*'
       - 'README*'
+      - src: 'cmd/dbc/completions/dbc.*'
+        strip_parent: true
       - src: '{{ .ArtifactPath }}*.sig'
         strip_parent: true
     # use zip for windows archives
@@ -318,9 +320,9 @@ homebrew_casks:
     description: "A CLI utility for managing ADBC drivers"
     skip_upload: auto # auto skips prereleases    
     completions:
-      bash: cmd/dbc/completions/dbc.bash
-      zsh: cmd/dbc/completions/dbc.zsh
-      fish: cmd/dbc/completions/dbc.fish
+      bash: dbc.bash
+      zsh: dbc.zsh
+      fish: dbc.fish
     repository:
       owner: "columnar-tech"
       name: "homebrew-tap"
