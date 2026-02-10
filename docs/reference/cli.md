@@ -56,7 +56,7 @@ Search for a driver to install.
 <h3>Usage</h3>
 
 ```console
-$ dbc search [FILTER]
+$ dbc search [PATTERN]
 ```
 
 <h3>Arguments</h3>
