@@ -172,3 +172,42 @@ $ dbc search --verbose
    Available Versions:
     ╰── 0.1.1
 ```
+
+### Pre-release Versions
+
+{{ since_version('v0.2.0') }}
+
+By default, `dbc search` hides pre-release versions from search results. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.
+
+To include pre-release versions in search results, use the `--pre` flag:
+
+```console
+$ dbc search --pre
+```
+
+Without `--pre`, `dbc search` will:
+
+- Hide drivers that have exclusively pre-release versions (no stable versions)
+- Exclude pre-release versions from the available versions list
+
+With `--pre`, `dbc search` will:
+
+- Show drivers even if they have exclusively pre-release versions
+- Include pre-release versions in the available versions list when using `--verbose`
+
+For example, with `--pre --verbose`:
+
+```console
+$ dbc search --pre --verbose mysql
+• mysql
+   Title: ADBC Driver Foundry Driver for MySQL
+   Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+   License: Apache-2.0
+   Available Versions:
+    ├── 0.1.0
+    ├── 0.2.0-beta.1
+    ╰── 0.2.0
+```
+
+!!! note
+    Using the `--pre` flag with `dbc search` only affects the visibility of pre-release versions in search results. To actually install a pre-release version, you need to either use `--pre` with `dbc install` or use a version constraint that unambiguously references a pre-release (by including a pre-release suffix like `-beta.1`).

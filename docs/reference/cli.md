@@ -71,6 +71,10 @@ $ dbc search [PATTERN]
 
 :   Print output as JSON instead of plaintext
 
+`--pre` {{ since_version('v0.2.0') }}
+
+:   Include pre-release drivers and versions (hidden by default)
+
 `--verbose`, `-v`
 
 :   Enable verbose output
@@ -110,6 +114,10 @@ $ dbc install [OPTIONS] <DRIVER>
 `--no-verify`
 
 :   Allow installation of drivers without a signature file
+
+`--pre` {{ since_version('v0.2.0') }}
+
+:   Allow implicit installation of pre-release versions
 
 `--quiet`, `-q`
 
@@ -188,6 +196,10 @@ $ dbc add <DRIVER>
 `--path FILE`, `-p FILE`
 
 :   Driver list to add to [default: ./dbc.toml]
+
+`--pre` {{ since_version('v0.2.0') }}
+
+:   Allow pre-release versions implicitly
 
 `--quiet`, `-q`
 
