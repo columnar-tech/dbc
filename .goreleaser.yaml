@@ -30,6 +30,9 @@ metadata:
   maintainers:
     - "Columnar <hello@columnar.tech>"
 
+git:
+  tag_sort: smartsemver  
+
 builds:
   - main: ./cmd/dbc
     binary: dbc
