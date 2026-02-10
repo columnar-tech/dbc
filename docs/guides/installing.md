@@ -25,20 +25,26 @@ To find out what drivers are available, use `dbc search`:
 
 ```console
 $ dbc search
-• bigquery - An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
-• databricks - An ADBC Driver for Databricks developed by the ADBC Driver Foundry
-• duckdb - An ADBC driver for DuckDB developed by the DuckDB Foundation
-• flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
-• mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
-• mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry
-• postgresql - An ADBC driver for PostgreSQL developed under the Apache Software Foundation
-• redshift - An ADBC driver for Amazon Redshift developed by Columnar
-• snowflake - An ADBC driver for Snowflake developed under the Apache Software Foundation
-• sqlite - An ADBC driver for SQLite developed under the Apache Software Foundation
-• trino - An ADBC Driver for Trino developed by the ADBC Driver Foundry
+bigquery           An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+databricks         An ADBC Driver for Databricks developed by the ADBC Driver Foundry
+duckdb             An ADBC driver for DuckDB developed by the DuckDB Foundation
+flightsql          An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+mssql              An ADBC driver for Microsoft SQL Server developed by Columnar
+mysql              An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+postgresql         An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+redshift           An ADBC driver for Amazon Redshift developed by Columnar
+snowflake          An ADBC driver for Snowflake developed under the Apache Software Foundation
+sqlite             An ADBC driver for SQLite developed under the Apache Software Foundation
+trino              An ADBC Driver for Trino developed by the ADBC Driver Foundry
+oracle [private]   An ADBC driver for Oracle Database developed by Columnar
+teradata [private] An ADBC driver for Teradata developed by Columnar
 ```
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.
+
+!!! note
+
+    The drivers listed above with the  `[private]` label require a license to use. See [./private_drivers.md](Private Drivers) to learn how to use these drivers.
 
 ## Installing a Driver
 
@@ -67,6 +73,46 @@ The syntax for specifying a version may be familiar to you if you've used other 
 
 !!! note
     dbc uses the [github.com/Masterminds/semver/v3](https://pkg.go.dev/github.com/Masterminds/semver/v3#section-readme) package whose README has a good overview of the syntax it allows. In short, you can use `=`, `!=`, `>`, `<`, `>=`, `<=`, `~`, `^`, ranges like `1.2 - 1.4.5`, and wildcards (`x`, `X`, or `*`).
+
+## Pre-release Versions
+
+{{ since_version('v0.2.0') }}
+
+### Allowing Pre-release Versions
+
+By default, dbc acts as if pre-release versions don't exist when searching for and installing drivers. Pre-release versions follow semantic versioning conventions and include version identifiers like `1.0.0-alpha.1`, `2.0.0-beta.3`, or `1.5.0-rc.1`.
+
+To allow dbc to install a pre-release version when it's the newest version available, use the `--pre` flag:
+
+```console
+$ dbc install --pre mysql
+```
+
+This will allow dbc to consider pre-release versions when selecting the latest version to install.
+
+!!! note
+    The `--pre` flag allows dbc to install a pre-release version when you didn't ask for it explicitly. Without `--pre`, your version constraint must contain a pre-release suffix (like `-beta.1`) for dbc to consider pre-release versions.
+
+### Installing Specific Pre-release Versions
+
+You can install a specific pre-release version without using the `--pre` flag if your version constraint unambiguously references a pre-release by including a pre-release suffix:
+
+```console
+$ dbc install "mysql=1.0.0-beta.1"
+$ dbc install "mysql>=1.0.0-beta.1"
+```
+
+However, if your version constraint is ambiguous and only a pre-release version satisfies it, dbc will fail rather than install the pre-release. For example, if a driver has versions `0.1.0` and `0.1.1-beta.1`:
+
+```console
+$ dbc install "mysql>0.1.0"
+# This will FAIL, not install 0.1.1-beta.1
+```
+
+To install `0.1.1-beta.1` in this case, you must either:
+
+- Use `--pre`: `dbc install --pre "mysql>0.1.0"`
+- Reference the pre-release explicitly: `dbc install "mysql>=0.1.1-beta.1"`
 
 ## Updating a Driver
 
@@ -202,6 +248,26 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 !!! note
 
     [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual environments before Conda environments.
+
+## From Local Archive
+
+dbc can install drivers from local archives as an alternative for users who can't or don't want to install from a [Driver Registry](../concepts/driver_registry.md). This is meant for advanced use cases and requires understanding the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) spec and loading process.
+
+To install from a local archive, pass the path to a local archive insted of a name and set the `--no-verify` flag to skip signature verification:
+
+```console
+$ dbc install --no-verify some_driver.tar.gz
+Installing from local package: some_driver.tar.gz
+
+[✓] installing
+[✓] verifying signature
+
+Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
+```
+
+!!! note
+
+    Make note of the name "some_driver" printed above as this will be the name to use when loading the driver with a [Driver Manager](../concepts/driver_manager.md). i.e., `dbapi.connect(driver="some_driver")`.
 
 ## Uninstalling Drivers
 

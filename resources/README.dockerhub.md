@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 -->
 
-[dbc](https://columnar.tech/dbc) is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
+[dbc](https://columnar.tech/dbc) is the command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.
 This is the official set of Docker images for dbc.
 
 Note: These images are intended to be an easy way to run dbc and aren't designed for running typical analytical workloads inside the container. We recommend building your own images for more complicated use cases.

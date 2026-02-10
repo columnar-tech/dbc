@@ -16,6 +16,8 @@ limitations under the License.
 
 # Driver Registry
 
-dbc installs drivers from a "driver registry" which is an internet-accessible index of installable [ADBC driver](./driver.md) packages. Currently, dbc supports a single driver registry which is located at [https://dbc-cdn.columnar.tech](https://dbc-cdn.columnar.tech) and is managed by [Columnar](https://columnar.tech).
+dbc installs drivers from a "driver registry" which is an internet-accessible index of installable [ADBC driver](./driver.md) packages.
 
-When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available in the driver registry by downloading `index.yaml` from [https://dbc-cdn.columnar.tech](https://dbc-cdn.columnar.tech/index.yaml) or using a cached copy.
+By default, dbc is configured to communicate with Columnar's public and private driver registries. Most drivers will be from the public registry but some will be marked with a `[private]` label which means they're from the private registry. See [Private Drivers](../guides/private_drivers.md) for information on how to install and use private drivers.
+
+When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available from each configured registry by downloading its `index.yaml` or using a cached copy.

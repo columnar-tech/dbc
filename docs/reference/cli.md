@@ -46,6 +46,7 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#info">dbc info</a></dt><dd><p>Get information about a driver</p></dd>
 <dt><a href="#docs">dbc docs</a></dt><dd><p>Open driver documentation in a web browser</p></dd>
+<dt><a href="#auth">dbc auth</a></dt><dd><p>Manage driver registry credentials</p></dd>
 </dl>
 
 ## search
@@ -55,7 +56,7 @@ Search for a driver to install.
 <h3>Usage</h3>
 
 ```console
-$ dbc search [FILTER]
+$ dbc search [PATTERN]
 ```
 
 <h3>Arguments</h3>
@@ -69,6 +70,10 @@ $ dbc search [FILTER]
 `--json` {{ since_version('v0.2.0') }}
 
 :   Print output as JSON instead of plaintext
+
+`--pre` {{ since_version('v0.2.0') }}
+
+:   Include pre-release drivers and versions (hidden by default)
 
 `--verbose`, `-v`
 
@@ -94,7 +99,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 `DRIVER`
 
-:   Name of the driver to install. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`.
+:   Name of the driver to install. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`. Can also be a path to a local driver archive, see [Installing Drivers: From Local Archive](../guides/installing.md#from-local-archive) for more information.
 
 <h3>Options</h3>
 
@@ -109,6 +114,10 @@ $ dbc install [OPTIONS] <DRIVER>
 `--no-verify`
 
 :   Allow installation of drivers without a signature file
+
+`--pre` {{ since_version('v0.2.0') }}
+
+:   Allow implicit installation of pre-release versions
 
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
@@ -187,6 +196,10 @@ $ dbc add <DRIVER>
 `--path FILE`, `-p FILE`
 
 :   Driver list to add to [default: ./dbc.toml]
+
+`--pre` {{ since_version('v0.2.0') }}
+
+:   Allow pre-release versions implicitly
 
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
@@ -303,3 +316,52 @@ $ dbc docs <DRIVER>
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
+
+## auth
+
+{{ since_version('v0.2.0') }}
+
+<h3>Usage</h3>
+
+```console
+$ dbc auth login
+$ dbc auth logout
+```
+
+<h3>Subcommands</h3>
+
+### login
+
+<h3>Arguments</h3>
+
+`REGISTRYURL`
+
+:   Optional. URL of the driver registry to authenticate with. Defaults to [https://dbc-cdn-private.columnar.tech/](https://dbc-cdn-private.columnar.tech/).
+
+<h3>Options</h3>
+
+`--clientid CLIENTID`
+
+:   OAuth Client ID (can also be set via `DBC_OAUTH_CLIENT_ID`)
+
+`--api-key API-KEY`
+
+:   Authenticate using an API key instead of OAuth (use '-' to read from stdin)
+
+### logout
+
+<h3>Arguments</h3>
+
+`REGISTRYURL`
+
+:   Optional. URL of the driver registry to log out from. Defaults to [https://dbc-cdn-private.columnar.tech/](https://dbc-cdn-private.columnar.tech/).
+
+<h3>Options</h3>
+
+`--purge`
+
+:   Remove all local auth credentials for dbc
+
+    !!! warning
+
+        ADBC drivers that require a license (i.e., private drivers) will stop working after you run this command. You can re-download your license with `dbc auth login`. See [Downloading Your License](../guides/private_drivers.md#downloading-your-license).

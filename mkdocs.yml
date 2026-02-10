@@ -14,7 +14,7 @@
 
 site_name: dbc
 site_author: columnar-tech
-site_description: dbc is a command line tool for installing and managing ADBC drivers
+site_description: dbc is the command line tool for installing and managing ADBC drivers
 site_url: https://docs.columnar.tech/dbc
 repo_url: https://github.com/columnar-tech/dbc
 repo_name: dbc
@@ -46,6 +46,7 @@ nav:
       - Using a Driver List: guides/driver_list.md
       - Driver Managers: guides/driver_manager.md
       - Python Notebooks: guides/python_notebooks.md
+      - Private Drivers: guides/private_drivers.md
   - Concepts:
       - concepts/index.md
       - Driver: concepts/driver.md
@@ -119,6 +120,8 @@ exclude_docs: |
 extra_javascript:
   - scripts/extra.js
 plugins:
+  - macros:
+      module_name: docs/macros
   - privacy
   - search
   - social:

@@ -47,3 +47,5 @@ cdn-dev
 
 .venv
 .claude
+
+__pycache__

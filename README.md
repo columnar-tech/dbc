@@ -22,7 +22,7 @@ limitations under the License.
 
 ## Overview
 
-**dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.**
+**dbc is the command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.**
 
 dbc can:
 
