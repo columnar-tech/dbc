@@ -67,7 +67,7 @@ $ dbc search [PATTERN]
 
 <h3>Options</h3>
 
-`--json`
+`--json` {{ since_version('v0.2.0') }}
 
 :   Print output as JSON instead of plaintext
 
@@ -79,7 +79,7 @@ $ dbc search [PATTERN]
 
 :   Enable verbose output
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -103,7 +103,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 <h3>Options</h3>
 
-`--json`
+`--json` {{ since_version('v0.2.0') }}
 
 :   Print output as JSON instead of plaintext
 
@@ -119,7 +119,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 :   Allow implicit installation of pre-release versions
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -141,7 +141,7 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 
 <h3>Options</h3>
 
-`--json`
+`--json` {{ since_version('v0.2.0') }}
 
 :   Print output as JSON instead of plaintext
 
@@ -149,7 +149,7 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 
 :   The configuration level to uninstall the driver from (`user`, or `system`). See [Config Level](config_level.md).
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -171,7 +171,7 @@ $ dbc init [PATH]
 
 <h3>Options</h3>
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -201,7 +201,7 @@ $ dbc add <DRIVER>
 
 :   Allow pre-release versions implicitly
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -227,7 +227,7 @@ $ dbc remove <DRIVER>
 
 :   Driver list to remove from [default: ./dbc.toml]
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -258,7 +258,7 @@ dbc sync --file dbc.toml
 
 :   Allow installation of drivers without a signature file
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
@@ -280,15 +280,17 @@ $ dbc info <DRIVER>
 
 <h3>Options</h3>
 
-`--json`
+`--json` {{ since_version('v0.2.0') }}
 
 :   Print output as JSON instead of plaintext
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
 ## docs
+
+{{ since_version('v0.2.0') }}
 
 Open driver documentation in a web browser. If no driver is specified, opens the general dbc documentation. If a driver name is provided, opens the documentation for that specific driver.
 
@@ -311,7 +313,7 @@ $ dbc docs <DRIVER>
 
 :   Print the documentation URL instead of opening it in a browser
 
-`--quiet`, `-q`
+`--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
 
