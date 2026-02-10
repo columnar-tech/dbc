@@ -317,7 +317,7 @@ homebrew_casks:
         license: "accept-backup"
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://columnar.tech/dbc"
-    description: "A CLI utility for managing ADBC drivers"
+    description: "The command line tool for installing and managing ADBC drivers"
     skip_upload: auto # auto skips prereleases    
     completions:
       bash: dbc.bash
