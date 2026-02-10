@@ -203,6 +203,26 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
     [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual environments before Conda environments.
 
+## From Local Archive
+
+dbc can install drivers from local archives as an alternative for users who can't or don't want to install from a [Driver Registry](../concepts/driver_registry.md). This is meant for advanced use cases and requires understanding the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) spec and loading process.
+
+To install from a local archive, pass the path to a local archive insted of a name and set the `--no-verify` flag to skip signature verification:
+
+```console
+$ dbc install --no-verify some_driver.tar.gz
+Installing from local package: some_driver.tar.gz
+
+[✓] installing
+[✓] verifying signature
+
+Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
+```
+
+!!! note
+
+    Make note of the name "some_driver" printed above as this will be the name to use when loading the driver with a [Driver Manager](../concepts/driver_manager.md). i.e., `dbapi.connect(driver="some_driver")`.
+
 ## Uninstalling Drivers
 
 You can uninstall a driver with the `dbc uninstall` subcommand.
