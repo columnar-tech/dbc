@@ -44,7 +44,7 @@ The short names in lowercase on the left of the output are the names you need to
 
 !!! note
 
-    The drivers listed above with the  `[private]` label require a license to use. See [./private_drivers.md](Private Drivers) to learn how to use these drivers.
+    The drivers listed above with the  `[private]` label require a license to use. See [Private Drivers](./private_drivers.md) to learn how to use these drivers.
 
 ## Installing a Driver
 
