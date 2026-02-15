@@ -13,6 +13,17 @@
 # limitations under the License.
 
 repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+  hooks:
+  - id: check-added-large-files
+  - id: check-case-conflict
+  - id: check-toml
+  - id: check-yaml
+  - id: detect-private-key
+  - id: mixed-line-ending
+  - id: trailing-whitespace
+
 - repo: https://github.com/crate-ci/typos
   rev: bb4666ad77b539a6b4ce4eda7ebb6de553704021 # v1.42.0
   hooks:
