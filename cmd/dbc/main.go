@@ -156,7 +156,7 @@ func formatErr(err error) string {
 		return errStyle.Render(err.Error())
 	case errors.Is(err, dbc.ErrUnauthorizedColumnar):
 		return errStyle.Render(err.Error()) + "\n" +
-			msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://cloud.columnar.tech/account and try this command again. Contact support if you believe this is an error.")
+			msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://console.columnar.tech/licenses and try this command again. Contact support@columnar.tech if you believe this is an error.")
 	default:
 		return errStyle.Render("Error: " + err.Error())
 	}

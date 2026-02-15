@@ -22,7 +22,7 @@ Most drivers available with dbc are hosted on Columnar's public [driver registry
 
 To install and use these drivers, you must:
 
-1. Log in to [Columnar Cloud](https://cloud.columnar.tech) with dbc
+1. Log in to [Columnar Console](https://console.columnar.tech) with dbc
 2. Start a trial license
 
 Continue reading to learn how to log in and start a trial.
@@ -39,13 +39,13 @@ Opening https://auth.columnar.tech/activate?user_code=XXXX-XXXX in your default 
 ⠏ Waiting for confirmation...
 ```
 
-In your browser, you will see a **Device Confirmation** prompt and, once you click **Confirm**, you will be redirected to log in with the provider of your choice. Once you log in, you will be redirected to [Columnar Cloud](https://cloud.columnar.tech/). Keep the tab open and continue on to the next step.
+In your browser, you will see a **Device Confirmation** prompt and, once you click **Confirm**, you will be redirected to log in with the provider of your choice. Once you log in, you will be redirected to [Columnar Console](https://console.columnar.tech/). Keep the tab open and continue on to the next step.
 
 ## Starting a Trial
 
 To install and use a private driver, you must start a trial and obtain a license. This is a separate step from logging in.
 
-Licenses can be obtained from your [Account](https://cloud.columnar.tech/account) page on Columnar Cloud by clicking **Start Free 14-Day Trial**. Follow any instructions in the dialog that opens up and click **Accept** to create your license.
+Licenses can be obtained from the [Licenses](https://console.columnar.tech/licenses) page in Columnar Console by clicking **Start free 14-day trial**. Follow any instructions in the dialog that opens up and click **Accept** to create your license.
 
 ### Downloading Your License
 
@@ -74,7 +74,7 @@ $ dbc auth logout --purge
 
 !!! note
 
-    Note that this command only removes the local copy of your license and does not cancel any active licenses you may have in your [Columnar Cloud](https://cloud.columnar.tech) account.
+    Note that this command only removes the local copy of your license and does not cancel any active licenses you may have in your [Columnar Console](https://console.columnar.tech) account.
 
 !!! warning
 
@@ -85,7 +85,7 @@ $ dbc auth logout --purge
 
 dbc also supports logging in to private driver registries via API key. This is primarily intended for use in [Continuous Integration](https://en.wikipedia.org/wiki/Continuous_integration) systems or any system where logging in with a web browser is not possible.
 
-To create an API key, open a web browser to your [API keys](https://cloud.columnar.tech/apikeys) page.
+To create an API key, open a web browser to your [API keys](https://console.columnar.tech/apikeys) page.
 
 !!! note inline end
 
