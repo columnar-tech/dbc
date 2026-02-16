@@ -122,6 +122,10 @@ You can also download the latest installer using the following URL:
 |--------------|---------------------------------------------------------|
 | `x64`        | <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>   |
 
+!!! note
+
+    Starting with dbc 0.2.0, the MSI installer only supports per-user installs. The 0.1.0 MSI installed system-wide.
+
 ## WinGet
 
 On Windows, you can install dbc using [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
@@ -129,6 +133,15 @@ On Windows, you can install dbc using [WinGet](https://learn.microsoft.com/en-us
 ```console
 $ winget install dbc
 ```
+
+!!! note
+
+    If you installed dbc 0.1.0 with WinGet, it was installed system-wide and `winget upgrade dbc` cannot upgrade it. Uninstall the system-level package first, then install again:
+
+    ```console
+    $ winget uninstall --id Columnar.dbc
+    $ winget install dbc
+    ```
 
 ## Docker
 
