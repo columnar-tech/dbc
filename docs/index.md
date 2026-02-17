@@ -46,6 +46,15 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
     $ winget install dbc
     ```
 
+    !!! note
+
+        If you installed dbc 0.1.0 with WinGet, uninstall the system-level package first and then reinstall 0.2.0:
+
+        ```console
+        $ winget uninstall --id Columnar.dbc
+        $ winget install dbc
+        ```
+
 === "uv"
 
     ```console
