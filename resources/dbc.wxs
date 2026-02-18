@@ -48,8 +48,8 @@ limitations under the License.
         <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
     </UI>
   </Fragment>
-           Manufacturer="Columnar Technologies Inc." Version="{{ .Version }}"
   <Product Id="*" Name="dbc" Language="1033"
+           Manufacturer="Columnar Technologies Inc." Version="{{ .Version }}"
            UpgradeCode="3BC2470F-54EE-47F0-973C-A789684BF95E">
 
     <Package InstallScope="perUser"
