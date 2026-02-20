@@ -48,12 +48,11 @@ limitations under the License.
         <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
     </UI>
   </Fragment>
-  <Product Id="5B742771-61E1-4DC1-9276-6E1287282B3F" Name="dbc"
+  <Product Id="*" Name="dbc" Language="1033"
            Manufacturer="Columnar Technologies Inc." Version="{{ .Version }}"
            UpgradeCode="3BC2470F-54EE-47F0-973C-A789684BF95E">
 
-    <Package Id="C72A9A3A-3BDE-43A3-BBDA-4AD8FFEDC819"
-        InstallScope="perUser"
+    <Package InstallScope="perUser"
         Keywords="Installer" Description="dbc Installer"
         Comments="ADBC is awesome" Manufacturer="Columnar Technologies Inc."
         InstallerVersion="200" Compressed="yes" SummaryCodepage='1252' />
