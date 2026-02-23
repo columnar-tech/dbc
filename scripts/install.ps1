@@ -26,7 +26,7 @@ It will then add that dir to PATH by editing your Environment.Path registry key
 The base URL where artifacts can be fetched from
 
 .PARAMETER Version
-The version to install. Accepts semantic versions (e.g., '0.2.0'), versions with 'v' prefix (e.g., 'v0.2.0'), or 'latest' for the most recent version. Defaults to $env:APP_VERSION if set, otherwise 'latest'.
+The version to install. Accepts semantic versions (e.g., '0.2.0'), versions with 'v' prefix (e.g., 'v0.2.0'), or 'latest' for the most recent version. Defaults to 'latest'.
 
 .PARAMETER Help
 Print help
@@ -37,22 +37,14 @@ param (
     [Parameter(HelpMessage = "The base URL where artifacts can be fetched from")]
     [string]$ArtifactDownloadUrl = 'https://dbc.columnar.tech',
     [Parameter(HelpMessage = "The version to install (e.g., '0.2.0', 'v0.2.0', or 'latest')")]
-    [string]$Version = $null,
+    [string]$Version = 'latest',
     [Parameter(HelpMessage = "Print Help")]
     [switch]$Help
 )
 
 $app_name = 'dbc'
-# Determine version: parameter > env var > 'latest'
-if ($Version) {
-    $app_version = $Version
-} elseif ($env:APP_VERSION) {
-    $app_version = $env:APP_VERSION
-} else {
-    $app_version = 'latest'
-}
-
 # Normalize version by stripping 'v' or 'V' prefix if present
+$app_version = $Version
 if ($app_version -match '^[vV](.+)$') {
     $app_version = $Matches[1]
 }
