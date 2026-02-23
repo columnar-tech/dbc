@@ -127,10 +127,10 @@ OPTIONS:
             Print help information
 
 EXAMPLES:
-    dbc-installer.sh                    # Install latest version
-    dbc-installer.sh --version 0.2.0    # Install version 0.2.0
-    dbc-installer.sh --version v0.2.0   # Install version 0.2.0 (v prefix stripped)
-    dbc-installer.sh --version latest   # Install latest version
+    installer.sh                    # Install latest version
+    installer.sh --version 0.2.0    # Install version 0.2.0
+    installer.sh --version v0.2.0   # Install version 0.2.0 (v prefix stripped)
+    installer.sh --version latest   # Install latest version
 EOF
 }
 
