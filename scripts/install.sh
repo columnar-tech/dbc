@@ -26,6 +26,7 @@ set -u
 
 APP_NAME="dbc"
 APP_VERSION="latest"
+REQUESTED_VERSION=""
 if [ -n "${DBC_INSTALLER_BASE_URL:-}" ]; then
     INSTALLER_BASE_URL="$DBC_INSTALLER_BASE_URL"
 else
@@ -111,6 +112,11 @@ USAGE:
     dbc-installer.sh [OPTIONS]
 
 OPTIONS:
+    --version <VERSION>
+            Install a specific version (e.g., --version 0.2.0 or --version v0.2.0)
+            Accepts semantic versions with or without 'v' prefix, or 'latest'
+            Defaults to 'latest' if not specified
+
     -v, --verbose
             Enable verbose output
 
@@ -119,6 +125,12 @@ OPTIONS:
 
     -h, --help
             Print help information
+
+EXAMPLES:
+    dbc-installer.sh                    # Install latest version
+    dbc-installer.sh --version 0.2.0    # Install version 0.2.0
+    dbc-installer.sh --version v0.2.0   # Install version 0.2.0 (v prefix stripped)
+    dbc-installer.sh --version latest   # Install latest version
 EOF
 }
 
@@ -134,47 +146,73 @@ download_binary_and_run_installer() {
     need_cmd grep
     need_cmd cat
 
-    for arg in "$@"; do
-        case "$arg" in
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
             --help)
                 usage
                 exit 0
                 ;;
             --quiet)
                 PRINT_QUIET=1
+                shift
                 ;;
             --verbose)
                 PRINT_VERBOSE=1
+                shift
                 ;;
-            *)
-                OPTIND=1
-                if [ "${arg%%--*}" = "" ]; then
-                    err "unknown option $arg"
+            --version)
+                if [ -n "${2:-}" ]; then
+                    REQUESTED_VERSION="$2"
+                    shift 2
+                else
+                    err "--version requires a value"
                 fi
-                while getopts :hvq sub_arg "$arg"; do
+                ;;
+            -*)
+                # Handle short options
+                OPTIND=1
+                while getopts :hvq sub_arg "$1"; do
                     case "$sub_arg" in
                         h)
                             usage
                             exit 0
                             ;;
                         v)
-                            # user wants to skip the prompt --
-                            # we don't need /dev/tty
                             PRINT_VERBOSE=1
                             ;;
                         q)
-                            # user wants to skip the prompt --
-                            # we don't need /dev/tty
                             PRINT_QUIET=1
                             ;;
                         *)
                             err "unknown option -$OPTARG"
                             ;;
-                        esac
+                    esac
                 done
+                shift
+                ;;
+            *)
+                err "unknown argument: $1"
                 ;;
         esac
     done
+
+    # Normalize version string: strip 'v' or 'V' prefix if present
+    if [ -n "$REQUESTED_VERSION" ]; then
+        case "$REQUESTED_VERSION" in
+            v*|V*)
+                REQUESTED_VERSION="${REQUESTED_VERSION#[vV]}"
+                ;;
+        esac
+        APP_VERSION="$REQUESTED_VERSION"
+    fi
+
+    # Update download URL if version was specified
+    if [ -n "$REQUESTED_VERSION" ]; then
+        if [ -z "${DBC_DOWNLOAD_URL:-}" ] && [ -z "${INSTALLER_DOWNLOAD_URL:-}" ]; then
+            ARTIFACT_DOWNLOAD_URL="${INSTALLER_BASE_URL}/${APP_VERSION}"
+        fi
+    fi
 
     get_architecture || return 1
     local _true_arch="$RETVAL"
