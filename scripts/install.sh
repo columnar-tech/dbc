@@ -162,16 +162,11 @@ download_binary_and_run_installer() {
                 shift
                 ;;
             --version)
-                if [ -n "${2:-}" ]; then
-                    # Check for empty string
-                    if [ -z "$2" ]; then
-                        err "--version cannot be empty"
-                    fi
-                    REQUESTED_VERSION="$2"
-                    shift 2
-                else
+                if [ -z "${2:-}" ]; then
                     err "--version requires a value"
                 fi
+                REQUESTED_VERSION="$2"
+                shift 2
                 ;;
             -*)
                 # Handle short options
