@@ -163,6 +163,10 @@ download_binary_and_run_installer() {
                 ;;
             --version)
                 if [ -n "${2:-}" ]; then
+                    # Check for empty string
+                    if [ -z "$2" ]; then
+                        err "--version cannot be empty"
+                    fi
                     REQUESTED_VERSION="$2"
                     shift 2
                 else
@@ -197,18 +201,37 @@ download_binary_and_run_installer() {
         esac
     done
 
-    # Normalize version string: strip 'v' or 'V' prefix if present
+    # Process and validate requested version
     if [ -n "$REQUESTED_VERSION" ]; then
+        # Normalize version string: strip 'v' or 'V' prefix if present
         case "$REQUESTED_VERSION" in
             v*|V*)
                 REQUESTED_VERSION="${REQUESTED_VERSION#[vV]}"
                 ;;
         esac
-        APP_VERSION="$REQUESTED_VERSION"
-    fi
 
-    # Update download URL if version was specified
-    if [ -n "$REQUESTED_VERSION" ]; then
+        # Validate version format
+        # Valid formats: 'latest' or semantic version (e.g., 0.2.0, 1.0.0-beta)
+        case "$REQUESTED_VERSION" in
+            latest)
+                # 'latest' is valid
+                ;;
+            [0-9]*.[0-9]*.[0-9]*)
+                # Semantic version format: digits.digits.digits with optional suffix
+                # This catches: 0.2.0, 1.0.0, 1.0.0-beta, 1.0.0-rc.1, etc.
+                ;;
+            *)
+                err "invalid version format: '$REQUESTED_VERSION'
+Valid formats:
+  - 'latest' for the latest version
+  - Semantic version like '0.2.0' or '1.0.0'
+  - Semantic version with suffix like '1.0.0-beta' or '1.0.0-rc.1'"
+                ;;
+        esac
+
+        APP_VERSION="$REQUESTED_VERSION"
+
+        # Update download URL if version was specified
         if [ -z "${DBC_DOWNLOAD_URL:-}" ] && [ -z "${INSTALLER_DOWNLOAD_URL:-}" ]; then
             ARTIFACT_DOWNLOAD_URL="${INSTALLER_BASE_URL}/${APP_VERSION}"
         fi
