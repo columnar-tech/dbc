@@ -53,6 +53,13 @@ The following commands will automatically install the latest version of dbc suit
     $ powershell -ExecutionPolicy ByPass -c "irm https://dbc.columnar.tech/install.ps1 | iex"
     ```
 
+    To install a specific version, download the script first:
+
+    ```console
+    $ Invoke-WebRequest -Uri https://dbc.columnar.tech/install.ps1 -OutFile install.ps1
+    $ .\install.ps1 -Version "v0.2.0"
+    ```
+
     Changing the [execution policy](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-7.4#powershell-execution-policies) allows running a script from the internet.
 
     Of course, you can also inspect the script before use:
