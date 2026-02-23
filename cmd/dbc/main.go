@@ -157,7 +157,7 @@ func formatErr(err error) string {
 			msgStyle.Render("Did you run `dbc auth login`?")
 	case errors.Is(err, dbc.ErrUnauthorizedColumnar):
 		return errStyle.Render(err.Error()) + "\n" +
-			msgStyle.Render("Do you have an active license for this driver? Contact support@columnar.tech for assistance.")
+			msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://console.columnar.tech/licenses and try this command again. Contact support@columnar.tech if you believe this is an error.")
 	default:
 		return errStyle.Render("Error: " + err.Error())
 	}
