@@ -203,7 +203,8 @@ function Download($download_url, $platforms) {
     } catch [System.Net.WebException] {
         $statusCode = [int]$_.Exception.Response.StatusCode
         if ($statusCode -eq 403) {
-            throw "Error: dbc is not available for your platform: ($arch). Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
+            throw "Error: $app_name ($app_version) is either not available or not available for your platform: ($arch)." `
+                + "Double-check the version you've requested. Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
         }
         throw "Error: Failed to download $url. HTTP Status Code: $statusCode"
     }    
