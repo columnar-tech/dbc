@@ -413,7 +413,7 @@ func checkbox(label string, checked bool) string {
 	return fmt.Sprintf("[ ] %s", label)
 }
 
-var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 
 func (m progressiveInstallModel) View() string {
 	if m.status != 0 || m.jsonOutput {
