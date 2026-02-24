@@ -153,7 +153,8 @@ func formatErr(err error) string {
 	case errors.Is(err, auth.ErrNoTrialLicense):
 		return errStyle.Render("Could not download license, trial not started")
 	case errors.Is(err, dbc.ErrUnauthorized):
-		return errStyle.Render(err.Error())
+		return errStyle.Render(err.Error()) + "\n" +
+			msgStyle.Render("Did you run `dbc auth login`?")
 	case errors.Is(err, dbc.ErrUnauthorizedColumnar):
 		return errStyle.Render(err.Error()) + "\n" +
 			msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://console.columnar.tech/licenses and try this command again. Contact support@columnar.tech if you believe this is an error.")

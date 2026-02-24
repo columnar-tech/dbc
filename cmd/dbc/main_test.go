@@ -17,12 +17,54 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/columnar-tech/dbc"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFormatErr(t *testing.T) {
+	tests := []struct {
+		name          string
+		err           error
+		wantSubstring []string
+	}{
+		{
+			name:          "ErrUnauthorized direct",
+			err:           dbc.ErrUnauthorized,
+			wantSubstring: []string{dbc.ErrUnauthorized.Error(), "Did you run `dbc auth login`?"},
+		},
+		{
+			name:          "ErrUnauthorized wrapped",
+			err:           fmt.Errorf("operation failed: %w", dbc.ErrUnauthorized),
+			wantSubstring: []string{dbc.ErrUnauthorized.Error(), "Did you run `dbc auth login`?"},
+		},
+		{
+			name:          "ErrUnauthorizedColumnar direct",
+			err:           dbc.ErrUnauthorizedColumnar,
+			wantSubstring: []string{dbc.ErrUnauthorizedColumnar.Error(), "active license", "support@columnar.tech"},
+		},
+		{
+			name:          "ErrUnauthorizedColumnar wrapped",
+			err:           fmt.Errorf("operation failed: %w", dbc.ErrUnauthorizedColumnar),
+			wantSubstring: []string{dbc.ErrUnauthorizedColumnar.Error(), "active license", "support@columnar.tech"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := formatErr(tt.err)
+			for _, want := range tt.wantSubstring {
+				require.True(t, strings.Contains(got, want),
+					"formatErr(%v) = %q, expected to contain %q", tt.err, got, want)
+			}
+		})
+	}
+}
 
 func TestCmdStatus(t *testing.T) {
 	tests := []struct {
