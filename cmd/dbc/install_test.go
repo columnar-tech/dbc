@@ -166,9 +166,11 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	suite.Empty(suite.getFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
+	// Note: The UI output (first parameter) serves as documentation but isn't verified
+	// by validateOutput due to tea.WithoutRenderer() mode. Manual verification needed.
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[-] verifying signature\r\n",
 		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
 
@@ -305,7 +307,7 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 	m = InstallCmd{Driver: packagePath, NoVerify: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
-		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"[✓] installing\r\n[-] verifying signature\r\n",
 		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
 

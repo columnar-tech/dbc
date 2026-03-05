@@ -415,6 +415,10 @@ func checkbox(label string, checked bool) string {
 
 var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 
+var (
+	skipMark = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).SetString("-")
+)
+
 func (m progressiveInstallModel) View() string {
 	if m.status != 0 || m.jsonOutput {
 		return ""
@@ -438,7 +442,11 @@ func (m progressiveInstallModel) View() string {
 				b.WriteString(" " + m.p.View())
 			}
 		} else {
-			b.WriteString(checkbox(s.String(), s < m.state))
+			if s == stVerifying && s < m.state && m.NoVerify {
+				fmt.Fprintf(&b, "[%s] %s", skipMark, s.String())
+			} else {
+				b.WriteString(checkbox(s.String(), s < m.state))
+			}
 		}
 		b.WriteByte('\n')
 	}

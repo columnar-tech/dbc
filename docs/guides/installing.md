@@ -260,7 +260,7 @@ $ dbc install --no-verify some_driver.tar.gz
 Installing from local package: some_driver.tar.gz
 
 [✓] installing
-[✓] verifying signature
+[-] verifying signature
 
 Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
