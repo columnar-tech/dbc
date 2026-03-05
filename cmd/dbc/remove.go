@@ -20,7 +20,7 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -116,4 +116,4 @@ func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m removeModel) View() string { return "" }
+func (m removeModel) View() tea.View { return tea.NewView("") }

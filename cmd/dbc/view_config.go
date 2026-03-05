@@ -15,9 +15,9 @@
 package main
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/tree"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/tree"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -48,7 +48,7 @@ func (m simpleViewConfigModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m simpleViewConfigModel) View() string { return "" }
+func (m simpleViewConfigModel) View() tea.View { return tea.NewView("") }
 
 func viewConfig(cfg config.Config) string {
 	if cfg.Level == config.ConfigUnknown {

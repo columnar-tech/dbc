@@ -21,8 +21,8 @@ import (
 	"path/filepath"
 
 	"github.com/Masterminds/semver/v3"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -214,4 +214,4 @@ func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m addModel) View() string { return "" }
+func (m addModel) View() tea.View { return tea.NewView("") }
