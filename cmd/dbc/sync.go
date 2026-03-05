@@ -64,6 +64,8 @@ func (c SyncCmd) GetModel() tea.Model {
 	}
 }
 
+func (syncModel) NeedsRenderer() {}
+
 type syncModel struct {
 	baseModel
 

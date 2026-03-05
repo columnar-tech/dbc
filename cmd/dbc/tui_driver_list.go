@@ -42,6 +42,8 @@ func (i item) Title() string       { return i.d.Title }
 func (i item) Description() string { return i.d.Desc }
 func (i item) FilterValue() string { return i.d.Title }
 
+func (model) NeedsRenderer() {}
+
 type model struct {
 	Prev tea.Model
 

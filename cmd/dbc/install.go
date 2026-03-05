@@ -148,6 +148,8 @@ func (s installState) String() string {
 	}
 }
 
+func (progressiveInstallModel) NeedsRenderer() {}
+
 type progressiveInstallModel struct {
 	baseModel
 

@@ -46,6 +46,8 @@ func getTuiModel() tea.Model {
 	return m
 }
 
+func (menu) NeedsRenderer() {}
+
 type menu struct {
 	options list.Model
 }

@@ -88,6 +88,8 @@ type authSuccessMsg struct {
 	cred auth.Credential
 }
 
+func (loginModel) NeedsRenderer() {}
+
 type loginModel struct {
 	baseModel
 

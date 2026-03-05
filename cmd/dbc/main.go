@@ -59,6 +59,13 @@ type HasStatus interface {
 	Err() error
 }
 
+// NeedsRenderer is implemented by models that render a live TUI (spinners,
+// progress bars, interactive lists). Models that only use tea.Println /
+// tea.Printf and return an empty View do not need the renderer.
+type NeedsRenderer interface {
+	NeedsRenderer()
+}
+
 // use this so we can override this in tests
 var getDriverRegistry = dbc.GetDriverList
 
@@ -218,7 +225,8 @@ func main() {
 	// }
 	// defer f.Close()
 
-	if !isatty.IsTerminal(os.Stdout.Fd()) {
+	_, needsRenderer := m.(NeedsRenderer)
+	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else if args.Quiet {
 		// Quiet still prints stderr as GNU standard is to suppress "usual" output
