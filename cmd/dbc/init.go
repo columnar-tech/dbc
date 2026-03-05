@@ -21,7 +21,7 @@ import (
 	"os"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 type InitCmd struct {
@@ -81,4 +81,4 @@ func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m initModel) View() string { return "" }
+func (m initModel) View() tea.View { return tea.NewView("") }

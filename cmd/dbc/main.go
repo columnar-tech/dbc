@@ -21,8 +21,8 @@ import (
 	"slices"
 
 	"github.com/alexflint/go-arg"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
@@ -57,6 +57,13 @@ type HasFinalOutput interface {
 type HasStatus interface {
 	Status() int
 	Err() error
+}
+
+// NeedsRenderer is implemented by models that render a live TUI (spinners,
+// progress bars, interactive lists). Models that only use tea.Println /
+// tea.Printf and return an empty View do not need the renderer.
+type NeedsRenderer interface {
+	NeedsRenderer()
 }
 
 // use this so we can override this in tests
@@ -106,16 +113,16 @@ type baseModel struct {
 }
 
 func (m baseModel) Init() tea.Cmd       { return nil }
-func (m baseModel) View() string        { return "" }
+func (m baseModel) View() tea.View      { return tea.NewView("") }
 func (m baseModel) Status() int         { return m.status }
 func (m baseModel) Err() error          { return m.err }
 func (m baseModel) FinalOutput() string { return "" }
 
 func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyCtrlD, tea.KeyEsc:
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "ctrl+d", "esc":
 			return m, tea.Quit
 		}
 	case error:
@@ -218,7 +225,8 @@ func main() {
 	// }
 	// defer f.Close()
 
-	if !isatty.IsTerminal(os.Stdout.Fd()) {
+	_, needsRenderer := m.(NeedsRenderer)
+	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else if args.Quiet {
 		// Quiet still prints stderr as GNU standard is to suppress "usual" output

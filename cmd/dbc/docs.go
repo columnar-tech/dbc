@@ -17,7 +17,7 @@ package main
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/cli/browser"
 	"github.com/columnar-tech/dbc"
 )
@@ -152,8 +152,8 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m docsModel) View() string {
-	return ""
+func (m docsModel) View() tea.View {
+	return tea.NewView("")
 }
 
 func (m docsModel) FinalOutput() string {
