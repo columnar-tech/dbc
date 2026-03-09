@@ -15,6 +15,8 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -410,4 +412,34 @@ func (suite *SubcommandTestSuite) TestInstallCompleteRegistryFailure() {
 
 	suite.Contains(out, "connection timeout")
 	suite.driverIsNotInstalled("test-driver-1")
+}
+
+func (suite *SubcommandTestSuite) TestInstallDriverWithSubdirectories() {
+	packageDir := suite.T().TempDir()
+	packagePath := filepath.Join(packageDir, "driver-with-subdir.tar.gz")
+
+	f, err := os.Create(packagePath)
+	suite.Require().NoError(err)
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+
+	// Just add the subdir as the only entry
+	err = tw.WriteHeader(&tar.Header{
+		Name:     "subdir/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(tw.Close())
+	suite.Require().NoError(gzw.Close())
+	suite.Require().NoError(f.Close())
+
+	// Should fail
+	m := InstallCmd{Driver: packagePath, NoVerify: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	// and return an error with this
+	suite.Contains(out, "driver archives shouldn't contain subdirectories")
 }

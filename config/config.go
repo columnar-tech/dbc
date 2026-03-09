@@ -267,6 +267,12 @@ func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 			return m, fmt.Errorf("error reading tarball: %w", err)
 		}
 
+		// Return a helpful error if an entry is a directory. dbc doesn't support
+		// installing driver tarballs that contain directories.
+		if hdr.Typeflag == tar.TypeDir {
+			return m, fmt.Errorf("found a directory entry when trying to extract %s which isn't supported. driver archives shouldn't contain subdirectories", f.Name())
+		}
+
 		if hdr.Name != "MANIFEST" {
 			next, err := os.Create(filepath.Join(outDir, hdr.Name))
 			if err != nil {
