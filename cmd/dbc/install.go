@@ -438,7 +438,11 @@ func (m progressiveInstallModel) View() string {
 				b.WriteString(" " + m.p.View())
 			}
 		} else {
-			b.WriteString(checkbox(s.String(), s < m.state))
+			if s == stVerifying && s < m.state && m.NoVerify {
+				fmt.Fprintf(&b, "[%s] %s", skipMark, s.String())
+			} else {
+				b.WriteString(checkbox(s.String(), s < m.state))
+			}
 		}
 		b.WriteByte('\n')
 	}
