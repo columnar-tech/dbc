@@ -25,7 +25,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/go-faster/yaml"
@@ -152,7 +153,7 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	err = m.(HasStatus).Err()
 	suite.Require().Error(err, "Expected an error from the subcommand")
 	out.WriteString("\n" + formatErr(err))
-	return out.String()
+	return ansi.Strip(out.String())
 }
 
 func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
@@ -176,7 +177,7 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	if fo, ok := m.(HasFinalOutput); ok {
 		extra = fo.FinalOutput()
 	}
-	return out.String() + extra
+	return ansi.Strip(out.String() + extra)
 }
 
 func (suite *SubcommandTestSuite) validateOutput(_ /* uiOutput */, finalOutput, actual string) {

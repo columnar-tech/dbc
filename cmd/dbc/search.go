@@ -20,11 +20,11 @@ import (
 	"regexp"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/list"
-	"github.com/charmbracelet/lipgloss/table"
-	"github.com/charmbracelet/lipgloss/tree"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/list"
+	"charm.land/lipgloss/v2/table"
+	"charm.land/lipgloss/v2/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -125,7 +125,7 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m searchModel) View() string { return "" }
+func (m searchModel) View() tea.View { return tea.NewView("") }
 
 func emptyEnumerator(_ list.Items, _ int) string {
 	return ""

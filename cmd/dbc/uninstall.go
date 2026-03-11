@@ -17,7 +17,7 @@ package main
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -92,8 +92,8 @@ func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Sequence(cmds...)
 }
 
-func (m uninstallModel) View() string {
-	return ""
+func (m uninstallModel) View() tea.View {
+	return tea.NewView("")
 }
 
 func (m uninstallModel) startUninstall() tea.Msg {

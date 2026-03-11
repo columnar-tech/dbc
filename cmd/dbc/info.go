@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 )
 
@@ -142,6 +142,6 @@ func (m infoModel) FinalOutput() string {
 	return formatDriverInfo(m.drv)
 }
 
-func (m infoModel) View() string {
-	return ""
+func (m infoModel) View() tea.View {
+	return tea.NewView("")
 }

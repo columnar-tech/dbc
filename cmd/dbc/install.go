@@ -24,10 +24,10 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -69,7 +69,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		cfg:        getConfig(c.Level),
 		baseModel:  baseModel,
 		p: dbc.NewFileProgress(
-			progress.WithDefaultGradient(),
+			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
 			progress.WithoutPercentage(),
 		),
@@ -147,6 +147,8 @@ func (s installState) String() string {
 		return "done"
 	}
 }
+
+func (progressiveInstallModel) NeedsRenderer() {}
 
 type progressiveInstallModel struct {
 	baseModel
@@ -345,8 +347,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.p.SetPercent(msg.written, msg.total)
 		return m, cmd
 	case progress.FrameMsg:
-		p, cmd := m.p.Update(msg)
-		m.p = p.(dbc.FileProgressModel)
+		var cmd tea.Cmd
+		m.p, cmd = m.p.Update(msg)
 		return m, cmd
 	case driversWithRegistryError:
 		m.registryErrors = msg.err
@@ -415,14 +417,14 @@ func checkbox(label string, checked bool) string {
 
 var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 
-func (m progressiveInstallModel) View() string {
+func (m progressiveInstallModel) View() tea.View {
 	if m.status != 0 || m.jsonOutput {
-		return ""
+		return tea.NewView("")
 	}
 
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return ""
+			return tea.NewView("")
 		}
 	}
 
@@ -447,5 +449,5 @@ func (m progressiveInstallModel) View() string {
 		b.WriteByte('\n')
 	}
 
-	return b.String()
+	return tea.NewView(b.String())
 }

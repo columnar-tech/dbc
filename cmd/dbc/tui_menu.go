@@ -19,8 +19,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -46,6 +46,8 @@ func getTuiModel() tea.Model {
 	return m
 }
 
+func (menu) NeedsRenderer() {}
+
 type menu struct {
 	options list.Model
 }
@@ -54,7 +56,7 @@ func (m menu) Init() tea.Cmd { return nil }
 
 func (m menu) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch keypress := msg.String(); keypress {
 		case "ctrl+c", "q", "esc":
 			return m, tea.Quit
@@ -73,8 +75,8 @@ func (m menu) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m menu) View() string {
-	return "\n" + m.options.View()
+func (m menu) View() tea.View {
+	return tea.NewView("\n" + m.options.View())
 }
 
 type menuOption struct {

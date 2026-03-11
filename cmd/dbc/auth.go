@@ -24,8 +24,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
 	"github.com/columnar-tech/dbc"
@@ -87,6 +87,8 @@ func (l LoginCmd) GetModel() tea.Model {
 type authSuccessMsg struct {
 	cred auth.Credential
 }
+
+func (loginModel) NeedsRenderer() {}
 
 type loginModel struct {
 	baseModel
@@ -228,7 +230,9 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m loginModel) View() string { return m.spinner.View() + " Waiting for confirmation..." }
+func (m loginModel) View() tea.View {
+	return tea.NewView(m.spinner.View() + " Waiting for confirmation...")
+}
 
 type LogoutCmd struct {
 	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from [default: https://dbc-cdn-private.columnar.tech]"`
@@ -301,4 +305,4 @@ func (m logoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m logoutModel) View() string { return "" }
+func (m logoutModel) View() tea.View { return tea.NewView("") }

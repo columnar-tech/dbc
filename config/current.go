@@ -17,16 +17,16 @@ package config
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 )
 
 var (
 	titleStyle      = lipgloss.NewStyle().MarginLeft(2)
-	paginationStyle = list.DefaultStyles().PaginationStyle.PaddingLeft(4)
-	helpStyle       = list.DefaultStyles().HelpStyle.PaddingLeft(4).PaddingBottom(1)
+	paginationStyle = list.DefaultStyles(true).PaginationStyle.PaddingLeft(4)
+	helpStyle       = list.DefaultStyles(true).HelpStyle.PaddingLeft(4).PaddingBottom(1)
 
 	modelStyle = lipgloss.NewStyle().
 			Width(60).
@@ -93,7 +93,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.list.SetWidth(msg.Width)
 		return m, nil
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -107,7 +107,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	var sb strings.Builder
 	sb.WriteString("DBC Driver Config\n\n")
 	// sb.WriteString(configStyle.Render("System Driver Directory:      "+systemDriversDir,
@@ -120,6 +120,6 @@ func (m Model) View() string {
 		bottomView = m.list.SelectedItem().(driverItem).View()
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Top, sb.String()+m.list.View(),
-		modelStyle.Render(bottomView))
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Top, sb.String()+m.list.View(),
+		modelStyle.Render(bottomView)))
 }
