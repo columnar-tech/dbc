@@ -33,10 +33,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-var (
-	checkMark = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
-)
-
 type SyncCmd struct {
 	Path     string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to sync from"`
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`

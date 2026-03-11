@@ -31,7 +31,9 @@ import (
 )
 
 var (
-	errStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
+	errStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
+	checkMark = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
+	skipMark  = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).SetString("-")
 )
 
 type TuiCmd struct{}
