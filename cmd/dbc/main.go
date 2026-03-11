@@ -243,14 +243,17 @@ func main() {
 	if !args.Quiet {
 		if fo, ok := m.(HasFinalOutput); ok {
 			if output := fo.FinalOutput(); output != "" {
-				fmt.Println(output)
+				// Use lipgloss.Println instead of fmt.Println so that
+				// ANSI codes are automatically stripped when stdout is
+				// not a terminal (e.g. piping to less or grep).
+				lipgloss.Println(output)
 			}
 		}
 	}
 
 	if h, ok := m.(HasStatus); ok {
 		if err := h.Err(); err != nil {
-			fmt.Println(formatErr(err))
+			lipgloss.Println(formatErr(err))
 		}
 		os.Exit(h.Status())
 	}
