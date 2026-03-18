@@ -20,9 +20,9 @@ import (
 	"os"
 	"slices"
 
-	"github.com/alexflint/go-arg"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/alexflint/go-arg"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
@@ -177,7 +177,7 @@ func main() {
 		args cmds
 	)
 
-	p, err := arg.NewParser(arg.Config{Program: "dbc", EnvPrefix: "DBC_"}, &args)
+	p, err := newParser(&args)
 	if err != nil {
 		fmt.Println("Error creating argument parser:", err)
 		os.Exit(1)
@@ -259,4 +259,8 @@ func main() {
 		}
 		os.Exit(h.Status())
 	}
+}
+
+func newParser(args *cmds) (*arg.Parser, error) {
+	return arg.NewParser(arg.Config{Program: "dbc", EnvPrefix: "DBC_"}, args)
 }

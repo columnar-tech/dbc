@@ -23,9 +23,28 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/alexflint/go-arg"
 	"github.com/columnar-tech/dbc"
 	"github.com/stretchr/testify/require"
 )
+
+func renderSubcommandHelp(t *testing.T, argv ...string) string {
+	t.Helper()
+
+	var args cmds
+	p, err := newParser(&args)
+	require.NoError(t, err)
+
+	err = p.Parse(argv)
+	require.ErrorIs(t, err, arg.ErrHelp)
+
+	var out bytes.Buffer
+	if d, ok := p.Subcommand().(arg.Described); ok {
+		fmt.Fprintln(&out, d.Description())
+	}
+	p.WriteHelpForSubcommand(&out, p.SubcommandNames()...)
+	return out.String()
+}
 
 func TestFormatErr(t *testing.T) {
 	tests := []struct {
@@ -105,4 +124,13 @@ func TestCmdStatus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInstallHelpMentionsVersionConstraints(t *testing.T) {
+	out := renderSubcommandHelp(t, "install", "-h")
+
+	require.Contains(t, out, "Driver to install, optionally with a version constraint")
+	require.Contains(t, out, `dbc install "mysql=0.1.0"`)
+	require.Contains(t, out, `dbc install "mysql>=1,<2"`)
+	require.Contains(t, out, "https://docs.columnar.tech/dbc/guides/installing/#version-constraints")
 }
