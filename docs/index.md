@@ -75,8 +75,6 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 
 <br/>2. Use dbc to install drivers:
 
-Need a specific version? See [Installing Drivers: Version Constraints](./guides/installing.md#version-constraints).
-
 === "BigQuery"
 
     ```console
