@@ -23,6 +23,7 @@ $ dbc search
 bigquery           An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
 databricks         An ADBC Driver for Databricks developed by the ADBC Driver Foundry
 duckdb             An ADBC driver for DuckDB developed by the DuckDB Foundation
+exasol             An ADBC driver for Exasol developed by Exasol Labs
 flightsql          An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 mssql              An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql              An ADBC Driver for MySQL developed by the ADBC Driver Foundry
@@ -80,7 +81,9 @@ $ dbc search --verbose
    License: Apache-2.0
    Available Versions:
     ├── 1.0.0
-    ╰── 1.10.0
+    ├── 1.10.0
+    ├── 1.11.0
+    ╰── 1.11.2
 • databricks
    Title: ADBC Driver Foundry Driver for Databricks
    Description: An ADBC Driver for Databricks developed by the ADBC Driver Foundry
@@ -95,7 +98,16 @@ $ dbc search --verbose
     ├── 1.4.0
     ├── 1.4.1
     ├── 1.4.2
-    ╰── 1.4.3
+    ├── 1.4.3
+    ├── 1.4.4
+    ╰── 1.5.0
+• exasol
+   Title: Exasol Driver
+   Description: An ADBC driver for Exasol developed by Exasol Labs
+   License: MIT
+   Available Versions:
+    ├── 0.6.3
+    ╰── 0.7.0
 • flightsql
    Title: ASF Apache Arrow Flight SQL Driver
    Description: An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -111,14 +123,18 @@ $ dbc search --verbose
    Available Versions:
     ├── 1.0.0
     ├── 1.1.0
-    ╰── 1.2.0
+    ├── 1.2.0
+    ├── 1.3.0
+    ╰── 1.3.1
 • mysql
    Title: ADBC Driver Foundry Driver for MySQL
    Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
    License: Apache-2.0
    Available Versions:
     ├── 0.1.0
-    ╰── 0.2.0
+    ├── 0.2.0
+    ├── 0.3.0
+    ╰── 0.3.1
 • postgresql
    Title: ASF PostgreSQL Driver
    Description: An ADBC driver for PostgreSQL developed under the Apache Software Foundation
@@ -133,7 +149,8 @@ $ dbc search --verbose
    License: LicenseRef-PBL
    Available Versions:
     ├── 1.0.0
-    ╰── 1.1.0
+    ├── 1.1.0
+    ╰── 1.2.1
 • snowflake
    Title: ASF Snowflake Driver
    Description: An ADBC driver for Snowflake developed under the Apache Software Foundation
@@ -142,7 +159,8 @@ $ dbc search --verbose
     ├── 1.8.0
     ├── 1.9.0
     ├── 1.10.0
-    ╰── 1.10.1
+    ├── 1.10.1
+    ╰── 1.10.3
 • sqlite
    Title: ASF SQLite Driver
    Description: An ADBC driver for SQLite developed under the Apache Software Foundation
@@ -158,13 +176,16 @@ $ dbc search --verbose
    License: Apache-2.0
    Available Versions:
     ├── 0.1.0
-    ╰── 0.2.0
+    ├── 0.2.0
+    ├── 0.3.0
+    ╰── 0.3.1
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
    License: LicenseRef-PBL
    Available Versions:
-    ╰── 0.4.4
+    ├── 0.4.4
+    ╰── 0.5.1
 • teradata [private]
    Title: Columnar ADBC Driver for Teradata
    Description: An ADBC driver for Teradata developed by Columnar
