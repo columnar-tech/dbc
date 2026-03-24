@@ -99,7 +99,9 @@ $ dbc install [OPTIONS] <DRIVER>
 
 `DRIVER`
 
-:   Name of the driver to install. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`. Can also be a path to a local driver archive, see [Installing Drivers: From Local Archive](../guides/installing.md#from-local-archive) for more information.
+:   Name of the driver to install. This can be a plain driver name like `bigquery`, a driver name with a version constraint like `bigquery=1.0.0` or `bigquery>=1,<2`, or a path to a local driver archive.
+
+    For the full version-constraint syntax and more examples, see [Installing Drivers: Version Constraints](../guides/installing.md#version-constraints). For local archives, see [Installing Drivers: From Local Archive](../guides/installing.md#from-local-archive).
 
 <h3>Options</h3>
 

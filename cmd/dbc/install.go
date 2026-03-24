@@ -23,11 +23,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -50,11 +50,17 @@ func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver   string             `arg:"positional,required" help:"Driver to install"`
+	Driver   string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 	Pre      bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
+}
+
+func (InstallCmd) Description() string {
+	return "Install a driver.\n\n" +
+		"`DRIVER` may include a version constraint, for example `dbc install mysql`, `dbc install \"mysql=0.1.0\"`, or `dbc install \"mysql>=1,<2\"`.\n" +
+		"See https://docs.columnar.tech/dbc/guides/installing/#version-constraints for more on version constraint syntax."
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
