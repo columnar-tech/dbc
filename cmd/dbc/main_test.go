@@ -134,3 +134,34 @@ func TestInstallHelpMentionsVersionConstraints(t *testing.T) {
 	require.Contains(t, out, `dbc install "mysql>=1,<2"`)
 	require.Contains(t, out, "https://docs.columnar.tech/dbc/guides/installing/#version-constraints")
 }
+
+func TestSubcommandSuggestions(t *testing.T) {
+	tests := []struct {
+		name            string
+		invalidCmd      string
+		wantSuggestion  string
+		hasSuggestion   bool
+	}{
+		{
+			name:           "list suggests search",
+			invalidCmd:     "list",
+			wantSuggestion: "search",
+			hasSuggestion:  true,
+		},
+		{
+			name:          "unknown command has no suggestion",
+			invalidCmd:    "foobar",
+			hasSuggestion: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			suggestion, ok := subcommandSuggestions[tt.invalidCmd]
+			require.Equal(t, tt.hasSuggestion, ok, "expected hasSuggestion=%v for command %q", tt.hasSuggestion, tt.invalidCmd)
+			if tt.hasSuggestion {
+				require.Equal(t, tt.wantSuggestion, suggestion, "wrong suggestion for command %q", tt.invalidCmd)
+			}
+		})
+	}
+}

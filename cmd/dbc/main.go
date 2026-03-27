@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -172,6 +173,37 @@ func formatErr(err error) string {
 	}
 }
 
+var subcommandSuggestions = map[string]string{
+	"list": "search",
+}
+
+func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
+	// Extract the invalid command from os.Args by scanning for the first non-flag
+	// arg
+	var invalidCmd string
+	if len(os.Args) > 1 {
+		for _, arg := range os.Args[1:] {
+			if !strings.HasPrefix(arg, "-") {
+				invalidCmd = arg
+				break
+			}
+		}
+	}
+
+	p.WriteUsageForSubcommand(os.Stdout, subcommand...)
+	fmt.Fprintf(os.Stdout, "error: %s", msg)
+
+	// Optionally add suggestion
+	if invalidCmd != "" {
+		if suggestion, ok := subcommandSuggestions[invalidCmd]; ok {
+			fmt.Fprintf(os.Stdout, ". Did you mean: dbc %s?", suggestion)
+		}
+	}
+
+	fmt.Fprintln(os.Stdout)
+	os.Exit(2)
+}
+
 func main() {
 	var (
 		args cmds
@@ -195,7 +227,7 @@ func main() {
 			fmt.Println(dbc.Version)
 			os.Exit(0)
 		default:
-			p.FailSubcommand(err.Error(), p.SubcommandNames()...)
+			failSubcommandAndSuggest(p, err.Error(), p.SubcommandNames()...)
 		}
 	}
 
