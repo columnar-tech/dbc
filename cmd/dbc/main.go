@@ -190,8 +190,8 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 		}
 	}
 
-	p.WriteUsageForSubcommand(os.Stderr, subcommand...)
-	fmt.Fprintf(os.Stderr, "error: %s", msg)
+	p.WriteUsageForSubcommand(os.Stdout, subcommand...)
+	fmt.Fprintf(os.Stdout, "error: %s", msg)
 
 	// Optionally add suggestion
 	if invalidCmd != "" {
@@ -231,7 +231,7 @@ func main() {
 	}
 
 	if p.Subcommand() == nil {
-		p.WriteHelp(os.Stderr)
+		p.WriteHelp(os.Stdout)
 		os.Exit(1)
 	}
 
@@ -239,10 +239,10 @@ func main() {
 
 	switch sub := p.Subcommand().(type) {
 	case *AuthCmd:
-		p.WriteHelpForSubcommand(os.Stderr, p.SubcommandNames()...)
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 		os.Exit(2)
 	case *completions.Cmd: // "dbc completions" without specifying the shell type
-		p.WriteHelpForSubcommand(os.Stderr, p.SubcommandNames()...)
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 		os.Exit(2)
 	case completions.ShellImpl:
 		fmt.Print(sub.GetScript())
