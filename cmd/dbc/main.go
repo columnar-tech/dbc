@@ -196,11 +196,10 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 	// Optionally add suggestion
 	if invalidCmd != "" {
 		if suggestion, ok := subcommandSuggestions[invalidCmd]; ok {
-			fmt.Fprintf(os.Stdout, ". Did you mean: dbc %s?", suggestion)
+			fmt.Fprintf(os.Stderr, ". Did you mean: dbc %s?\n", suggestion)
 		}
 	}
 
-	fmt.Fprintln(os.Stdout)
 	os.Exit(2)
 }
 
