@@ -461,12 +461,19 @@ func (d Driver) Versions(platformTuple string) semver.Collection {
 
 func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowPrerelease bool) (PkgInfo, error) {
 	pkglist := d.PkgInfo
+
+	// Filter out pre-releases and record whether any pre-releases were filtered
+	// out so we can produce a more helpful error message
 	if !allowPrerelease && (version == nil || version.Prerelease() != "") {
+		hadPackages := len(d.PkgInfo) > 0
 		pkglist = slices.Collect(filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
 			return p.Version.Prerelease() == ""
 		}))
 		if len(pkglist) == 0 {
-			return PkgInfo{}, fmt.Errorf("driver `%s` not found (but prerelease versions filtered out)", d.Path)
+			if hadPackages {
+				return PkgInfo{}, fmt.Errorf("driver `%s` not found (but prerelease versions filtered out); try: dbc install --pre %s", d.Path, d.Path)
+			}
+			return PkgInfo{}, fmt.Errorf("driver `%s` not found", d.Path)
 		}
 	}
 
