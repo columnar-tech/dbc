@@ -39,7 +39,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r ", "\nError: could not find driver: driver `foo` not found in driver registry index", suite.runCmdErr(m))
+	suite.validateOutput("\r ", "\nError: could not find driver: driver `foo` not found in driver registry index; try: `dbc search` to list available drivers", suite.runCmdErr(m))
 	suite.driverIsNotInstalled("test-driver-1")
 }
 

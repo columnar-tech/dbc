@@ -38,7 +38,7 @@ func (suite *SubcommandTestSuite) TestInfo_DriverNotFound() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 
-	suite.validateOutput("\r ", "\nError: driver `non-existent-driver` not found in driver registry index", out)
+	suite.validateOutput("\r ", "\nError: driver `non-existent-driver` not found in driver registry index; try: `dbc search` to list available drivers", out)
 }
 
 func (suite *SubcommandTestSuite) TestInfoPartialRegistryFailure() {

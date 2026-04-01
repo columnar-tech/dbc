@@ -78,7 +78,7 @@ func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	})
 
 	if idx == -1 {
-		return dbc.Driver{}, fmt.Errorf("driver `%s` not found in driver registry index", name)
+		return dbc.Driver{}, fmt.Errorf("driver `%s` not found in driver registry index; try: `dbc search` to list available drivers", name)
 	}
 	return drivers[idx], nil
 }
