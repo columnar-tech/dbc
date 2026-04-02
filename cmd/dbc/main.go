@@ -190,8 +190,8 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 		}
 	}
 
-	p.WriteUsageForSubcommand(os.Stdout, subcommand...)
-	fmt.Fprintf(os.Stdout, "error: %s", msg)
+	p.WriteUsageForSubcommand(os.Stderr, subcommand...)
+	fmt.Fprintf(os.Stderr, "error: %s", msg)
 
 	// Optionally add suggestion
 	if invalidCmd != "" {
