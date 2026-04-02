@@ -346,6 +346,8 @@ func (suite *SubcommandTestSuite) TestInstallWithoutPreOnlyPrereleaseDriver() {
 	out := suite.runCmdErr(m)
 
 	suite.Contains(out, "driver `test-driver-only-pre` not found")
+	suite.Contains(out, "but prerelease versions filtered out")
+	suite.Contains(out, "try: dbc install --pre test-driver-only-pre")
 	suite.driverIsNotInstalled("test-driver-only-pre")
 }
 

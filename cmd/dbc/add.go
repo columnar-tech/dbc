@@ -149,7 +149,14 @@ func (m addModel) Init() tea.Cmd {
 				}
 			} else {
 				if !m.Pre && !drv.HasNonPrerelease() {
-					err := fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
+					var err error
+					if len(drv.PkgInfo) > 0 {
+						// Has packages, but they're all prereleases
+						err = fmt.Errorf("driver `%s` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre %s", spec.Name, spec.Name)
+					} else {
+						// No packages. Very unlikely edge case.
+						err = fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
+					}
 					// If we have registry errors, enhance the error message
 					if registryErrors != nil {
 						return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())

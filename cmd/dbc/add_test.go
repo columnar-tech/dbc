@@ -274,7 +274,7 @@ func (suite *SubcommandTestSuite) TestAddWithoutPreOnlyPrereleaseDriver() {
 		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 	out := suite.runCmdErr(m)
-	suite.Contains(out, "driver `test-driver-only-pre` not found in driver registry index")
+	suite.Contains(out, "driver `test-driver-only-pre` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre test-driver-only-pre")
 }
 
 func (suite *SubcommandTestSuite) TestAddWithPreAndConstraint() {
