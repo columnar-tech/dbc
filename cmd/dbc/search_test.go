@@ -16,6 +16,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,4 +270,41 @@ func (suite *SubcommandTestSuite) TestSearchCmdPartialRegistryFailureJSON() {
 	// Should still have drivers
 	suite.Contains(out, `"drivers"`)
 	suite.Contains(out, "test-driver-1")
+}
+
+func (suite *SubcommandTestSuite) TestSearchCmdRegistryTagAlignment() {
+	privateRegistry := &dbc.Registry{
+		Name:    "private",
+		BaseURL: must(url.Parse("https://test-private-registry.example.com")),
+	}
+
+	registryWithTags := func() ([]dbc.Driver, error) {
+		drivers, err := getTestDriverRegistry()
+		if err != nil {
+			return nil, err
+		}
+		for i := range drivers {
+			if drivers[i].Path == "test-driver-1" || drivers[i].Path == "test-driver-2" {
+				drivers[i].Registry = privateRegistry
+			}
+		}
+		return drivers, nil
+	}
+
+	m := SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: registryWithTags, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "[private]")
+
+	lines := strings.Split(out, "\n")
+	var privateColumns []int
+	for _, line := range lines {
+		idx := strings.Index(line, "[private]")
+		if idx >= 0 {
+			privateColumns = append(privateColumns, idx)
+		}
+	}
+	suite.Require().Len(privateColumns, 2, "expected exactly 2 [private] tags")
+	suite.Equal(privateColumns[0], privateColumns[1], "[private] tags should be at the same column")
 }
