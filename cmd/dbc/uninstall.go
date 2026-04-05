@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package main
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -26,13 +26,15 @@ type driverDidUninstallMsg struct{}
 type UninstallCmd struct {
 	Driver string             `arg:"positional,required" help:"Driver to uninstall"`
 	Level  config.ConfigLevel `arg:"-l" help:"Config level to uninstall from (user, system)"`
+	Json   bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c UninstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return uninstallModel{
-		baseModel: baseModel,
-		Driver:    c.Driver,
-		cfg:       getConfig(c.Level),
+		baseModel:  baseModel,
+		Driver:     c.Driver,
+		cfg:        getConfig(c.Level),
+		jsonOutput: c.Json,
 	}
 }
 
@@ -42,20 +44,33 @@ func (c UninstallCmd) GetModel() tea.Model {
 			getDriverRegistry: getDriverRegistry,
 			downloadPkg:       downloadPkg,
 		},
-		Driver: c.Driver,
-		cfg:    getConfig(c.Level),
+		Driver:     c.Driver,
+		cfg:        getConfig(c.Level),
+		jsonOutput: c.Json,
 	}
 }
 
 type uninstallModel struct {
 	baseModel
 
-	Driver string
-	cfg    config.Config
+	Driver     string
+	cfg        config.Config
+	jsonOutput bool
 }
 
 func (m uninstallModel) Init() tea.Cmd {
 	return m.startUninstall
+}
+
+func (m uninstallModel) FinalOutput() string {
+	if m.status != 0 {
+		return ""
+	}
+
+	if m.jsonOutput {
+		return fmt.Sprintf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver)
+	}
+	return fmt.Sprintf("Driver `%s` uninstalled successfully!\n", m.Driver)
 }
 
 func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -64,19 +79,21 @@ func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case config.DriverInfo:
 		return m.performUninstall(msg)
 	case driverDidUninstallMsg:
-		return m, tea.Sequence(tea.Printf("Driver `%s` uninstalled successfully!\n", m.Driver), tea.Quit)
+		return m, tea.Quit
 	case error:
 		m.status = 1
-		return m, tea.Sequence(
-			tea.Println(errStyle.Render("Error: "+msg.Error())),
-			tea.Quit)
+		m.err = msg
+		if m.jsonOutput {
+			return m, tea.Sequence(tea.Printf("{\"status\": \"error\", \"error\": \"%s\"}\n", msg.Error()), tea.Quit)
+		}
+		return m, tea.Quit
 	}
 
 	return m, tea.Sequence(cmds...)
 }
 
-func (m uninstallModel) View() string {
-	return ""
+func (m uninstallModel) View() tea.View {
+	return tea.NewView("")
 }
 
 func (m uninstallModel) startUninstall() tea.Msg {

@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,10 +15,14 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -35,7 +39,7 @@ func (suite *SubcommandTestSuite) TestInstall() {
 func (suite *SubcommandTestSuite) TestInstallDriverNotFound() {
 	m := InstallCmd{Driver: "foo", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Error: could not find driver: driver `foo` not found in driver registry index\r\n\r ", "", suite.runCmdErr(m))
+	suite.validateOutput("\r ", "\nError: could not find driver: driver `foo` not found in driver registry index; try: `dbc search` to list available drivers", suite.runCmdErr(m))
 	suite.driverIsNotInstalled("test-driver-1")
 }
 
@@ -164,9 +168,11 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	suite.Empty(suite.getFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
+	// Note: The UI output (first parameter) serves as documentation but isn't verified
+	// by validateOutput due to tea.WithoutRenderer() mode. Manual verification needed.
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[-] verifying signature\r\n",
 		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir+"\n", suite.runCmd(m))
 }
 
@@ -261,4 +267,183 @@ func (suite *SubcommandTestSuite) TestInstallCreatesSymlinks() {
 	info, err := os.Lstat(manifestPath)
 	suite.NoError(err)
 	suite.Equal(os.ModeSymlink, info.Mode()&os.ModeSymlink, "Expected test-driver-1.toml to be a symlink")
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackage() {
+	packagePath := filepath.Join("testdata", "test-driver-1.tar.gz")
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageNotFound() {
+	packagePath := filepath.Join("testdata", "test-driver-2.tar.gz")
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	errmsg := "no such file or directory"
+	if runtime.GOOS == "windows" {
+		errmsg = "The system cannot find the file specified."
+	}
+	suite.validateOutput("Installing from local package: "+packagePath+
+		"\r\n\r\n\r ", "\nError: open "+packagePath+": "+errmsg, out)
+	suite.driverIsNotInstalled("test-driver-2")
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
+	packagePath := filepath.Join("testdata", "test-driver-no-sig.tar.gz")
+	m := InstallCmd{Driver: packagePath}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+
+	suite.Empty(suite.getFilesInTempDir())
+	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
+
+	m = InstallCmd{Driver: packagePath, NoVerify: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[-] verifying signature\r\n",
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir+"\n", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageFixUpName() {
+	origPackagePath, err := filepath.Abs(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	packagePath := filepath.Join(suite.tempdir, "test-driver-1_"+config.PlatformTuple()+"_v1.0.0.tgz")
+	suite.Require().NoError(os.Symlink(origPackagePath, packagePath))
+	m := InstallCmd{Driver: packagePath, Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("Installing from local package: "+packagePath+"\r\n\r\n\r"+
+		"[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-1", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallWithPreOnlyPrereleaseDriver() {
+	// Install test-driver-only-pre with --pre flag, should succeed
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: suite.configLevel, Pre: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-only-pre 0.9.0-alpha.1 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-only-pre", false)
+}
+
+func (suite *SubcommandTestSuite) TestInstallWithoutPreOnlyPrereleaseDriver() {
+	// Try to install test-driver-only-pre without --pre flag, should fail
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: suite.configLevel, Pre: false}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.Contains(out, "driver `test-driver-only-pre` not found")
+	suite.Contains(out, "but prerelease versions filtered out")
+	suite.Contains(out, "try: dbc install --pre test-driver-only-pre")
+	suite.driverIsNotInstalled("test-driver-only-pre")
+}
+
+func (suite *SubcommandTestSuite) TestInstallExplicitPrereleaseWithoutPreFlag() {
+	// Install explicit prerelease version WITHOUT --pre flag, should succeed per requirement
+	m := InstallCmd{Driver: "test-driver-only-pre=0.9.0-alpha.1", Level: suite.configLevel, Pre: false}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-only-pre 0.9.0-alpha.1 to "+suite.Dir()+"\n", out)
+	suite.driverIsInstalled("test-driver-only-pre", false)
+}
+
+func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailure() {
+	// Test that install command handles partial registry failure gracefully
+	// (one registry succeeds, another fails - returns both drivers and error)
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://secondary-registry.example.com: failed to fetch driver registry: network error")
+	}
+
+	// Should succeed if the requested driver is found in the available drivers
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	// Should install successfully without printing the registry error
+	suite.Contains(out, "Installed test-driver-1 1.1.0")
+	suite.driverIsInstalled("test-driver-1", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailureDriverNotFound() {
+	// Test that install command shows registry errors when the requested driver is not found
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://secondary-registry.example.com: failed to fetch driver registry: network error")
+	}
+
+	// Should fail with enhanced error message if the requested driver is not found
+	m := InstallCmd{Driver: "nonexistent-driver", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	// Should show the driver not found error AND the registry error
+	suite.Contains(out, "could not find driver")
+	suite.Contains(out, "nonexistent-driver")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "failed to fetch driver registry")
+	suite.Contains(out, "network error")
+}
+
+func (suite *SubcommandTestSuite) TestInstallCompleteRegistryFailure() {
+	// Test that install command handles complete registry failure (no drivers returned)
+	completeFailingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry https://primary-registry.example.com: connection timeout")
+	}
+
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	suite.Contains(out, "connection timeout")
+	suite.driverIsNotInstalled("test-driver-1")
+}
+
+func (suite *SubcommandTestSuite) TestInstallDriverWithSubdirectories() {
+	packageDir := suite.T().TempDir()
+	packagePath := filepath.Join(packageDir, "driver-with-subdir.tar.gz")
+
+	f, err := os.Create(packagePath)
+	suite.Require().NoError(err)
+	gzw := gzip.NewWriter(f)
+	tw := tar.NewWriter(gzw)
+
+	// Just add the subdir as the only entry
+	err = tw.WriteHeader(&tar.Header{
+		Name:     "subdir/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+	})
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(tw.Close())
+	suite.Require().NoError(gzw.Close())
+	suite.Require().NoError(f.Close())
+
+	// Should fail
+	m := InstallCmd{Driver: packagePath, NoVerify: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+
+	// and return an error with this
+	suite.Contains(out, "driver archives shouldn't contain subdirectories")
 }

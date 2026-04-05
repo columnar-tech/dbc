@@ -38,14 +38,18 @@ complete -f -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'info' -d 'Get detailed information about a specific driver'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'docs' -d 'Open driver documentation in a web browser'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'completion' -d 'Generate shell completions'
+complete -f -c dbc -n '__fish_dbc_needs_command' -a 'auth' -d 'Authenticate with a driver registry'
 
 # install subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -s h -d 'Show Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l help -d 'Show Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l no-verify -d 'Do not verify the driver after installation'
+complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l pre -d 'Allow implicit installation of pre-release versions'
 complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l level -s l -d 'Installation level' -xa 'user system'
 
 # uninstall subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand uninstall' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand uninstall' -l level -s l -d 'Installation level' -xa 'user system'
 
 # init subcommand
@@ -56,6 +60,7 @@ complete -c dbc -n '__fish_dbc_using_subcommand init' -F -a '*.toml' -d 'File to
 # add subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand add' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand add' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand add' -l pre -d 'Allow pre-release versions implicitly'
 complete -c dbc -n '__fish_dbc_using_subcommand add' -l path -s p -r -F -a '*.toml' -d 'Driver list to add to'
 
 # sync subcommand
@@ -69,6 +74,8 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l no-verify -d 'Do not
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
+complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l json -d 'Print output as JSON instead of plaintext'
+complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l pre -d 'Include pre-release drivers and versions (hidden by default)'
 
 # remove subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'
@@ -78,6 +85,7 @@ complete -c dbc -n '__fish_dbc_using_subcommand remove' -l path -s p -r -F -a '*
 # info subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand info' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand info' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand info' -l json -d 'Print output as JSON instead of plaintext'
 
 # docs subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand docs' -s h -d 'Help'
@@ -90,3 +98,41 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand completion' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand completion' -a 'bash' -d 'Generate autocompletion script for bash'
 complete -f -c dbc -n '__fish_dbc_using_subcommand completion' -a 'zsh' -d 'Generate autocompletion script for zsh'
 complete -f -c dbc -n '__fish_dbc_using_subcommand completion' -a 'fish' -d 'Generate autocompletion script for fish'
+
+# Helper function to check if we're using auth subcommand and need a nested subcommand
+function __fish_dbc_auth_needs_subcommand
+    set -l cmd (commandline -opc)
+    if test (count $cmd) -eq 2
+        if test $cmd[2] = "auth"
+            return 0
+        end
+    end
+    return 1
+end
+
+# Helper function to check if we're using a specific auth subcommand
+function __fish_dbc_auth_using_subcommand
+    set -l cmd (commandline -opc)
+    if test (count $cmd) -gt 2
+        if test $cmd[2] = "auth" -a $argv[1] = $cmd[3]
+            return 0
+        end
+    end
+    return 1
+end
+
+# auth subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand auth' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand auth' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_needs_subcommand' -a 'login' -d 'Authenticate with a driver registry'
+complete -f -c dbc -n '__fish_dbc_auth_needs_subcommand' -a 'logout' -d 'Log out from a driver registry'
+
+# auth login subcommand
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand login' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand login' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand login' -l api-key -d 'Authenticate using an API key instead of OAuth'
+
+# auth logout subcommand
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -l purge -d 'Remove all local auth credentials for dbc'

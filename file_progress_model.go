@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,8 @@ package dbc
 import (
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/progress"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/progress"
+	tea "charm.land/bubbletea/v2"
 )
 
 type FileProgressModel struct {
@@ -42,9 +42,9 @@ func (m *FileProgressModel) SetPercent(written, total int64) tea.Cmd {
 	return m.Model.SetPercent(float64(written) / float64(total))
 }
 
-func (m FileProgressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	out, cmd := m.Model.Update(msg)
-	m.Model = out.(progress.Model)
+func (m FileProgressModel) Update(msg tea.Msg) (FileProgressModel, tea.Cmd) {
+	var cmd tea.Cmd
+	m.Model, cmd = m.Model.Update(msg)
 	return m, cmd
 }
 
@@ -66,4 +66,11 @@ func formatSize(n int64) string {
 
 func (m FileProgressModel) View() string {
 	return fmt.Sprintf("%s %s / %s", m.Model.View(), formatSize(m.written), formatSize(m.totalBytes))
+}
+
+func (m FileProgressModel) Percent() int {
+	if m.totalBytes <= 0 {
+		return 0
+	}
+	return int(float64(m.written) / float64(m.totalBytes) * 100)
 }

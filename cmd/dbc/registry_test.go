@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sys/windows/registry"

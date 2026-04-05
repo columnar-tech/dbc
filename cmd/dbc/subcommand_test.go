@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/go-faster/yaml"
@@ -72,6 +73,8 @@ func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 		return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
 	case "test-driver-invalid-manifest":
 		return os.Open(filepath.Join("testdata", "test-driver-invalid-manifest.tar.gz"))
+	case "test-driver-only-pre":
+		return os.Open(filepath.Join("testdata", "test-driver-only-pre.tar.gz"))
 	default:
 		return nil, fmt.Errorf("unknown driver: %s", pkg.Driver.Path)
 	}
@@ -138,7 +141,7 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 
 	var out bytes.Buffer
 	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=linux")))
+		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() {
 		prog = nil
 	}()
@@ -147,7 +150,10 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	m, err = prog.Run()
 	suite.Require().NoError(err)
 	suite.Equal(1, m.(HasStatus).Status(), "The subcommand did not exit with a status of 1 as expected.")
-	return out.String()
+	err = m.(HasStatus).Err()
+	suite.Require().Error(err, "Expected an error from the subcommand")
+	out.WriteString("\n" + formatErr(err))
+	return ansi.Strip(out.String())
 }
 
 func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
@@ -156,7 +162,7 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 
 	var out bytes.Buffer
 	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithContext(ctx), tea.WithEnvironment(append(os.Environ(), "TERM=linux")))
+		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() {
 		prog = nil
 	}()
@@ -171,16 +177,13 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	if fo, ok := m.(HasFinalOutput); ok {
 		extra = fo.FinalOutput()
 	}
-	return out.String() + extra
+	return ansi.Strip(out.String() + extra)
 }
 
-func (suite *SubcommandTestSuite) validateOutput(expected, extra, actual string) {
-	const (
-		terminalPrefix = "\x1b[?25l\x1b[?2004h"
-		terminalSuffix = "\r\x1b[2K\r\x1b[?2004l\x1b[?25h\x1b[?1002l\x1b[?1003l\x1b[?1006l"
-	)
-
-	suite.Equal(terminalPrefix+expected+terminalSuffix+extra, actual)
+func (suite *SubcommandTestSuite) validateOutput(_ /* uiOutput */, finalOutput, actual string) {
+	// With tea.WithoutRenderer(), we don't get the UI rendering output (spinner/progress bars)
+	// Only the final output is present, so we ignore the first parameter (kept for API compatibility)
+	suite.Equal(finalOutput, actual)
 }
 
 // The SubcommandTestSuite is only run for ConfigEnv by default but is

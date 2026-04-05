@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,8 +20,9 @@ import (
 	"os"
 	"path/filepath"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"github.com/Masterminds/semver/v3"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -41,8 +42,9 @@ func driverListPath(path string) (string, error) {
 }
 
 type AddCmd struct {
-	Driver string `arg:"positional,required" help:"Driver to add"`
-	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
+	Driver []string `arg:"positional,required" help:"Driver to add"`
+	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
+	Pre    bool     `arg:"--pre" help:"Allow pre-release versions implicitly"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -50,6 +52,7 @@ func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		baseModel: baseModel,
 		Driver:    c.Driver,
 		Path:      c.Path,
+		Pre:       c.Pre,
 	}
 }
 
@@ -57,6 +60,7 @@ func (c AddCmd) GetModel() tea.Model {
 	return addModel{
 		Driver: c.Driver,
 		Path:   c.Path,
+		Pre:    c.Pre,
 		baseModel: baseModel{
 			getDriverRegistry: getDriverRegistry,
 			downloadPkg:       downloadPkg,
@@ -67,35 +71,37 @@ func (c AddCmd) GetModel() tea.Model {
 type addModel struct {
 	baseModel
 
-	Driver string
+	Driver []string
 	Path   string
-
-	list DriversList
+	Pre    bool
+	list   DriversList
 }
 
 func (m addModel) Init() tea.Cmd {
-	driverName, vers, err := parseDriverConstraint(m.Driver)
-	if err != nil {
-		return errCmd("invalid driver constraint: %w", err)
+	type driverInput struct {
+		Name string
+		Vers *semver.Constraints
+	}
+
+	var specs []driverInput
+	for _, d := range m.Driver {
+		driverName, vers, err := parseDriverConstraint(d)
+		if err != nil {
+			return errCmd("invalid driver constraint '%s': %w", d, err)
+		}
+
+		specs = append(specs, driverInput{Name: driverName, Vers: vers})
 	}
 
 	return func() tea.Msg {
-		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return fmt.Errorf("error getting driver list: %w", err)
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
 		}
-
-		drv, err := findDriver(driverName, drivers)
-		if err != nil {
-			return err
-		}
-
-		if vers != nil {
-			_, err = drv.GetWithConstraint(vers, config.PlatformTuple())
-			if err != nil {
-				return fmt.Errorf("error getting driver: %w", err)
-			}
-		}
+		// Store registry errors to use later if driver is not found
+		// We continue processing if we have some drivers
+		var registryErrors error = registryErr
 
 		p, err := driverListPath(m.Path)
 		if err != nil {
@@ -116,32 +122,79 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		var result string
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)
 		}
 
-		current, ok := m.list.Drivers[driverName]
-		m.list.Drivers[driverName] = driverSpec{Version: vers}
-		new := m.list.Drivers[driverName]
-		currentString := func() string {
-			if current.Version != nil {
-				return current.Version.String()
+		var result string
+		for i, spec := range specs {
+			if i != 0 {
+				result += "\n"
 			}
-			return "any"
-		}()
-		newStr := func() string {
-			if new.Version != nil {
-				return new.Version.String()
+
+			drv, err := findDriver(spec.Name, drivers)
+			if err != nil {
+				// If we have registry errors, enhance the error message
+				if registryErrors != nil {
+					return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())
+				}
+				return err
 			}
-			return "any"
-		}()
-		if ok {
-			result = msgStyle.Render(fmt.Sprintf("replacing existing driver %s (old constraint: %s; new constraint: %s)",
-				driverName, currentString, newStr)) + "\n"
+
+			if spec.Vers != nil {
+				spec.Vers.IncludePrerelease = m.Pre
+				_, err = drv.GetWithConstraint(spec.Vers, config.PlatformTuple())
+				if err != nil {
+					return fmt.Errorf("error getting driver: %w", err)
+				}
+			} else {
+				if !m.Pre && !drv.HasNonPrerelease() {
+					var err error
+					if len(drv.PkgInfo) > 0 {
+						// Has packages, but they're all prereleases
+						err = fmt.Errorf("driver `%s` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre %s", spec.Name, spec.Name)
+					} else {
+						// No packages. Very unlikely edge case.
+						err = fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
+					}
+					// If we have registry errors, enhance the error message
+					if registryErrors != nil {
+						return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())
+					}
+					return err
+				}
+			}
+
+			current, ok := m.list.Drivers[spec.Name]
+			m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers}
+			if m.Pre {
+				m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers, Prerelease: "allow"}
+			}
+
+			new := m.list.Drivers[spec.Name]
+			currentString := func() string {
+				if current.Version != nil {
+					return current.Version.String()
+				}
+				return "any"
+			}()
+			newStr := func() string {
+				if new.Version != nil {
+					return new.Version.String()
+				}
+				return "any"
+			}()
+			if ok {
+				result = msgStyle.Render(fmt.Sprintf("replacing existing driver %s (old constraint: %s; new constraint: %s)",
+					spec.Name, currentString, newStr)) + "\n"
+			}
+
+			result += nameStyle.Render("added", spec.Name, "to driver list")
+			if spec.Vers != nil {
+				result += nameStyle.Render(" with constraint", spec.Vers.String())
+			}
 		}
 
-		m.list.Drivers[driverName] = driverSpec{Version: vers}
 		f, err = os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
@@ -150,11 +203,6 @@ func (m addModel) Init() tea.Cmd {
 
 		if err := toml.NewEncoder(f).Encode(m.list); err != nil {
 			return err
-		}
-
-		result += nameStyle.Render("added", driverName, "to driver list")
-		if vers != nil {
-			result += nameStyle.Render(" with constraint", vers.String())
 		}
 		result += "\nuse `dbc sync` to install the drivers in the list"
 		return result
@@ -173,4 +221,4 @@ func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m addModel) View() string { return "" }
+func (m addModel) View() tea.View { return tea.NewView("") }

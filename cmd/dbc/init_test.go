@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -45,9 +45,9 @@ func TestAlreadyExists(t *testing.T) {
 	p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
 		tea.WithContext(ctx))
 
-	_, err := p.Run()
+	outmodel, err := p.Run()
 	require.NoError(t, err)
-	assert.Contains(t, out.String(), "dbc.toml already exists")
+	assert.ErrorContains(t, outmodel.(HasStatus).Err(), "dbc.toml already exists")
 }
 
 func TestInit(t *testing.T) {

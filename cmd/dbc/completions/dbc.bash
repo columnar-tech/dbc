@@ -4,7 +4,7 @@ _dbc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="install uninstall init add sync search info docs remove completion"
+    local subcommands="install uninstall init add sync search info docs remove completion auth"
     local global_opts="--help -h --version --quiet -q"
 
     # If we're completing the first argument (subcommand)
@@ -47,6 +47,9 @@ _dbc() {
         completion)
             _dbc_completion_completions
             ;;
+        auth)
+            _dbc_auth_completions
+            ;;
         *)
             COMPREPLY=()
             ;;
@@ -66,7 +69,7 @@ _dbc_install_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--no-verify --level -l" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json --no-verify --level -l --pre" -- "$cur"))
         return 0
     fi
 
@@ -87,7 +90,7 @@ _dbc_uninstall_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--level -l" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json --level -l" -- "$cur"))
         return 0
     fi
 
@@ -130,7 +133,7 @@ _dbc_add_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --path -p" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --path -p --pre" -- "$cur"))
         return 0
     fi
 
@@ -172,7 +175,7 @@ _dbc_search_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h -v" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h -v --json --pre" -- "$cur"))
         return 0
     fi
 
@@ -181,6 +184,16 @@ _dbc_search_completions() {
 }
 
 _dbc_info_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "--json" -- "$cur"))
+        return 0
+    fi
+
+    # Driver name completion (no specific completion available)
     COMPREPLY=()
 }
 
@@ -244,6 +257,73 @@ _dbc_completion_completions() {
         return 0
     fi
 
+    COMPREPLY=()
+}
+
+_dbc_auth_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # If we're at position 2 (right after "auth"), suggest subcommands
+    if [[ $COMP_CWORD -eq 2 ]]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "login logout" -- "$cur"))
+        fi
+        return 0
+    fi
+
+    # Get the auth subcommand (second argument)
+    local auth_subcommand="${COMP_WORDS[2]}"
+
+    case "$auth_subcommand" in
+        login)
+            _dbc_auth_login_completions
+            ;;
+        logout)
+            _dbc_auth_logout_completions
+            ;;
+        *)
+            COMPREPLY=()
+            ;;
+    esac
+}
+
+_dbc_auth_login_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    case "$prev" in
+        --api-key)
+            # API key should be provided by user, no completion
+            COMPREPLY=()
+            return 0
+            ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --api-key" -- "$cur"))
+        return 0
+    fi
+
+    # Registry URL completion (no specific completion available)
+    COMPREPLY=()
+}
+
+_dbc_auth_logout_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --purge" -- "$cur"))
+        return 0
+    fi
+
+    # Registry URL completion (no specific completion available)
     COMPREPLY=()
 }
 

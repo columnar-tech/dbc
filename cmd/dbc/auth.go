@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,15 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
 	"github.com/columnar-tech/dbc"
@@ -37,7 +38,7 @@ type AuthCmd struct {
 }
 
 type LoginCmd struct {
-	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with [default: https://dbc-cdn-private.columnar.tech]"`
 	ClientID    string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
 	ApiKey      string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
 }
@@ -54,12 +55,12 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	}
 
 	if l.RegistryURL == "" {
-		l.RegistryURL = auth.DefaultOauthURI
+		l.RegistryURL = auth.DefaultOauthURI()
 	}
 
-	if l.RegistryURL == auth.DefaultOauthURI {
+	if l.RegistryURL == auth.DefaultOauthURI() {
 		if l.ClientID == "" {
-			l.ClientID = auth.DefaultOauthClientID
+			l.ClientID = auth.DefaultOauthClientID()
 		}
 	}
 
@@ -82,6 +83,12 @@ func (l LoginCmd) GetModel() tea.Model {
 		},
 	)
 }
+
+type authSuccessMsg struct {
+	cred auth.Credential
+}
+
+func (loginModel) NeedsRenderer() {}
 
 type loginModel struct {
 	baseModel
@@ -190,13 +197,32 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			})
 	case auth.Credential:
-		return m, tea.Sequence(func() tea.Msg {
+		return m, func() tea.Msg {
 			if err := auth.AddCredential(msg, true); err != nil {
 				return err
 			}
-			return nil
-		}, tea.Println("Authentication successful!"),
-			tea.Quit)
+			return authSuccessMsg{cred: msg}
+		}
+	case authSuccessMsg:
+		return m, tea.Sequence(tea.Println("Authentication successful!"),
+			func() tea.Msg {
+				if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
+					if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
+						return err
+					}
+				}
+				return tea.Quit()
+			})
+	case error:
+		switch {
+		case errors.Is(msg, auth.ErrTrialExpired) ||
+			errors.Is(msg, auth.ErrNoTrialLicense):
+			// ignore these errors during auth login
+			// the user can still login but won't be able to download trial licenses
+			return m, tea.Quit
+		default:
+			// for other errors, let the baseModel update handle it.
+		}
 	}
 
 	base, cmd := m.baseModel.Update(msg)
@@ -204,20 +230,24 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m loginModel) View() string { return m.spinner.View() + " Waiting for confirmation..." }
+func (m loginModel) View() tea.View {
+	return tea.NewView(m.spinner.View() + " Waiting for confirmation...")
+}
 
 type LogoutCmd struct {
-	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from"`
+	RegistryURL string `arg:"positional" help:"URL of the driver registry to log out from [default: https://dbc-cdn-private.columnar.tech]"`
+	Purge       bool   `arg:"--purge" help:"Remove all local auth credentials for dbc"`
 }
 
 func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	if l.RegistryURL == "" {
-		l.RegistryURL = auth.DefaultOauthURI
+		l.RegistryURL = auth.DefaultOauthURI()
 	}
 
 	return logoutModel{
 		inputURI:  l.RegistryURL,
 		baseModel: baseModel,
+		purge:     l.Purge,
 	}
 }
 
@@ -234,6 +264,7 @@ type logoutModel struct {
 	baseModel
 
 	inputURI string
+	purge    bool
 }
 
 func (m logoutModel) Init() tea.Cmd {
@@ -255,8 +286,14 @@ func (m logoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case *url.URL:
 		return m, func() tea.Msg {
-			if err := auth.RemoveCredential(auth.Uri(*msg)); err != nil {
-				return fmt.Errorf("failed to log out: %w", err)
+			if m.purge {
+				if err := auth.PurgeCredentials(); err != nil {
+					return fmt.Errorf("failed to purge credentials: %w", err)
+				}
+			} else {
+				if err := auth.RemoveCredential(auth.Uri(*msg)); err != nil {
+					return fmt.Errorf("failed to log out: %w", err)
+				}
 			}
 
 			return tea.QuitMsg{}
@@ -268,4 +305,4 @@ func (m logoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m logoutModel) View() string { return "" }
+func (m logoutModel) View() tea.View { return tea.NewView("") }

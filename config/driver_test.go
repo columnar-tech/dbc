@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -124,4 +124,38 @@ version = '0.1.0'
 
 	_, err := loadDriverFromManifest(prefix, driverName)
 	require.ErrorContains(t, err, "manifest version 100 is unsupported, only 1 and lower are supported by this version of dbc")
+}
+
+func TestLoadDriverFromInvalidManifest(t *testing.T) {
+	tests := []struct {
+		name        string
+		manifest    string
+		errContains string
+	}{
+		{
+			name:        "missing name",
+			manifest:    `version = '1.0.0'`,
+			errContains: "name is required",
+		},
+		{
+			name:        "missing version",
+			manifest:    `name = 'Test Driver'`,
+			errContains: "version is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prefix := t.TempDir()
+			driverName := "test_driver"
+			manifestPath := filepath.Join(prefix, driverName+".toml")
+
+			require.NoError(t, os.WriteFile(manifestPath, []byte(tt.manifest), 0644))
+
+			_, err := loadDriverFromManifest(prefix, driverName)
+			require.ErrorIs(t, err, ErrInvalidManifest)
+			require.ErrorContains(t, err, tt.errContains)
+			require.ErrorContains(t, err, manifestPath)
+		})
+	}
 }

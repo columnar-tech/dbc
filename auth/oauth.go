@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,13 +19,27 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
 )
 
-const (
-	DefaultOauthURI      = "dbc-cdn-private.columnar.tech"
-	DefaultOauthClientID = "eSKuasirO0gUnGuNURPagErV3TSSFhEK"
+var (
+	defaultOauthURI      = "dbc-cdn-private.columnar.tech"
+	defaultOauthClientID = "eSKuasirO0gUnGuNURPagErV3TSSFhEK"
+	licenseURI           = "https://heimdall.columnar.tech/trial_license"
 )
+
+func init() {
+	if isStaging, _ := strconv.ParseBool(os.Getenv("DBC_USE_STAGING")); isStaging {
+		defaultOauthURI = "dbc-cdn-private-staging.columnar.tech"
+		defaultOauthClientID = "XZaxtg7XjYSTLNzgrLbYNrPOZzRiRpvW"
+		licenseURI = "https://dbc-cf-api-staging.columnar.workers.dev/trial_license"
+	}
+}
+
+func DefaultOauthURI() string      { return defaultOauthURI }
+func DefaultOauthClientID() string { return defaultOauthClientID }
 
 type OpenIDConfig struct {
 	Issuer                            Uri      `json:"issuer"`

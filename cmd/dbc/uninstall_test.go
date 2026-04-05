@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,8 +31,7 @@ func (suite *SubcommandTestSuite) TestUninstallNotFound() {
 	}
 
 	m := UninstallCmd{Driver: "notfound"}.GetModel()
-	suite.validateOutput("Error: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir+
-		"\r\n\r ", "", suite.runCmdErr(m))
+	suite.validateOutput("\r ", "\nError: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
@@ -41,6 +40,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
 	}
 
 	contents := `name = "Some Found Driver"
+version = "1.0.0"
 
 	# Doesn't matter what's in here
 
@@ -50,7 +50,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
 	os.WriteFile(path.Join(suite.tempdir, "found.toml"), []byte(contents), 0644)
 
 	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
-	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!\n", suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
@@ -61,6 +61,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
 	pkgdir := path.Join(suite.tempdir, "somepath")
 	os.Mkdir(pkgdir, 0o755)
 	contents := `name = "Found Driver"
+version = "1.0.0"
 
 	# Doesn't matter what's in here
 
@@ -71,7 +72,7 @@ func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
 	os.WriteFile(path.Join(pkgdir, "some.dll"), []byte("anything"), 0o644)
 
 	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
-	suite.validateOutput("Driver `found` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!\n", suite.runCmd(m))
 }
 
 // Test what happens when a user installs a driver in multiple locations
@@ -103,6 +104,30 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 
 	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 	suite.FileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
+}
+
+func (suite *SubcommandTestSuite) TestUninstallDriverTwice() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	// Install to Env first
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+
+	// Uninstall from Env level
+	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+
+	// Uninstall from Env level
+	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("\r ", "\nError: failed to find driver `test-driver-1` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
 // Test whether the use can override the default behavior and uninstall
@@ -159,7 +184,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	// Now uninstall and verify we clean up
 	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	suite.validateOutput("Driver `test-driver-manifest-only` uninstalled successfully!\r\n\r\n\r ", "", suite.runCmd(m))
+	suite.validateOutput("\r ", "Driver `test-driver-manifest-only` uninstalled successfully!\n", suite.runCmd(m))
 	suite.driverIsNotInstalled("test-driver-manifest-only")
 	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
 }
@@ -199,7 +224,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
 
-	suite.validateOutput("Driver `test-driver-invalid-manifest` uninstalled successfully!\r\n\r\n\r ", "", output)
+	suite.validateOutput("\r ", "Driver `test-driver-invalid-manifest` uninstalled successfully!\n", output)
 
 	// Ensure we don't nuke the installation directory which is the original (major) issue
 	suite.DirExists(suite.Dir())

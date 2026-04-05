@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,9 +19,9 @@ import (
 	"os"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -41,6 +41,8 @@ type item struct {
 func (i item) Title() string       { return i.d.Title }
 func (i item) Description() string { return i.d.Desc }
 func (i item) FilterValue() string { return i.d.Title }
+
+func (model) NeedsRenderer() {}
 
 type model struct {
 	Prev tea.Model
@@ -73,7 +75,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case []list.Item:
 		m.list.SetItems(msg)
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch keypress := msg.String(); keypress {
 		case "ctrl+c":
 			m.quitting = true
@@ -113,11 +115,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) View() string {
+func (m model) View() tea.View {
 	if len(m.chooseVersion.list.Items()) != 0 {
-		return "\n" + m.chooseVersion.list.View()
+		return tea.NewView("\n" + m.chooseVersion.list.View())
 	}
-	return "\n" + m.list.View()
+	return tea.NewView("\n" + m.list.View())
 }
 
 type versionOption semver.Version

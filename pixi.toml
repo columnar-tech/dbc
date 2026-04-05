@@ -1,4 +1,4 @@
-# Copyright 2025 Columnar Technologies Inc.
+# Copyright 2026 Columnar Technologies Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,9 @@ cdn-generate = "python scripts/cdn.py"
 cdn-serve = "python -m http.server -d cdn-dev"
 
 [feature.docs.pypi-dependencies]
+mkdocs-llmstxt = "*"
 mkdocs-material = { version = "*", extras = ["imaging"] }
+mkdocs-macros-plugin = "*"
 
 [feature.docs.dependencies]
 cairo = ">=1.18.4,<2"

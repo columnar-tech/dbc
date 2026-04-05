@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,12 +17,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestAdd(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModelCustom(
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModelCustom(
 			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -103,7 +104,7 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1"}.GetModelCustom(
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModelCustom(
 			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -127,7 +128,7 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 	}
 
 	{
-		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: "test-driver-1>=1.0.0"}.GetModelCustom(
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-1>=1.0.0"}}.GetModelCustom(
 			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
@@ -151,4 +152,260 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 version = '>=1.0.0'
 `, string(data))
 	}
+}
+
+func TestAddMultiple(t *testing.T) {
+	// Test what happens when we `add` without a constraint and then add with a
+	// constraint. This specifically tests the bubbletea output
+	defer func(fn func() ([]dbc.Driver, error)) {
+		getDriverRegistry = fn
+	}(getDriverRegistry)
+	getDriverRegistry = getTestDriverRegistry
+
+	dir := t.TempDir()
+	var err error
+	{
+		m := InitCmd{Path: filepath.Join(dir, "dbc.toml")}.GetModel()
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+
+		var out bytes.Buffer
+		p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
+			tea.WithContext(ctx))
+
+		m, err = p.Run()
+
+		require.NoError(t, err)
+		assert.Equal(t, 0, m.(HasStatus).Status())
+
+		assert.FileExists(t, filepath.Join(dir, "dbc.toml"))
+	}
+	{
+		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-2", "test-driver-1>=1.0.0"}}.
+			GetModelCustom(
+				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+
+		var out bytes.Buffer
+		p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
+			tea.WithContext(ctx))
+
+		var err error
+		m, err = p.Run()
+		require.NoError(t, err)
+		assert.Equal(t, 0, m.(HasStatus).Status())
+
+		data, err := os.ReadFile(filepath.Join(dir, "dbc.toml"))
+		require.NoError(t, err)
+		assert.Equal(t, `# dbc driver list
+[drivers]
+[drivers.test-driver-1]
+version = '>=1.0.0'
+
+[drivers.test-driver-2]
+`, string(data))
+	}
+}
+
+func (suite *SubcommandTestSuite) TestAddWithPre() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver with --pre flag
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-2"},
+		Pre:    true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-2]
+prerelease = 'allow'
+`, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestAddWithPreOnlyPrereleaseDriver() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver that only has prerelease versions with --pre flag
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-only-pre"},
+		Pre:    true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-only-pre]
+prerelease = 'allow'
+`, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestAddWithoutPreOnlyPrereleaseDriver() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Try to add driver that only has prerelease versions without --pre flag (should fail)
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-only-pre"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "driver `test-driver-only-pre` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre test-driver-only-pre")
+}
+
+func (suite *SubcommandTestSuite) TestAddWithPreAndConstraint() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver with --pre flag and a version constraint
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-2>=2.0.0"},
+		Pre:    true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-2]
+prerelease = 'allow'
+version = '>=2.0.0'
+`, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestAddExplicitPrereleaseWithoutPreFlag() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add explicit prerelease version WITHOUT --pre flag, should succeed per requirement
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-only-pre=0.9.0-alpha.1"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+
+	// Verify the file contents - should NOT include prerelease = 'allow' since --pre was not specified
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(`# dbc driver list
+[drivers]
+[drivers.test-driver-only-pre]
+version = '=0.9.0-alpha.1'
+`, string(data))
+}
+
+func (suite *SubcommandTestSuite) TestAddPartialRegistryFailure() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Test that add command handles partial registry failure gracefully
+	// (one registry succeeds, another fails - returns both drivers and error)
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://cdn-fallback.example.com: failed to fetch driver registry: DNS resolution failed")
+	}
+
+	// Should succeed if the requested driver is found in the available drivers
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+
+	suite.runCmd(m)
+	// Should succeed without printing the registry error
+
+	// Verify the file was updated correctly
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Contains(string(data), "[drivers.test-driver-1]")
+}
+
+func (suite *SubcommandTestSuite) TestAddPartialRegistryFailureDriverNotFound() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Test that add command shows registry errors when the requested driver is not found
+	partialFailingRegistry := func() ([]dbc.Driver, error) {
+		// Get drivers from the test registry (simulating one successful registry)
+		drivers, _ := getTestDriverRegistry()
+		// But also return an error (simulating another registry that failed)
+		return drivers, fmt.Errorf("registry https://cdn-fallback.example.com: failed to fetch driver registry: DNS resolution failed")
+	}
+
+	// Should fail with enhanced error message if the requested driver is not found
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"nonexistent-driver"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmdErr(m)
+	// Should show the driver not found error AND the registry error
+	suite.Contains(out, "driver `nonexistent-driver` not found")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "failed to fetch driver registry")
+	suite.Contains(out, "DNS resolution failed")
+}
+
+func (suite *SubcommandTestSuite) TestAddCompleteRegistryFailure() {
+	// Initialize driver list
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Test that add command handles complete registry failure (no drivers returned)
+	completeFailingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry https://primary-cdn.example.com: network unreachable")
+	}
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+		Pre:    false,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "error getting driver list")
+	suite.Contains(out, "network unreachable")
 }

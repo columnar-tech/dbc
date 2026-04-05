@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package dbc
 
 import (
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -34,9 +35,15 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
+)
+
+var (
+	ErrUnauthorized         = errors.New("not authorized")
+	ErrUnauthorizedColumnar = errors.New("not authorized to access")
 )
 
 type Registry struct {
@@ -56,7 +63,7 @@ func mustParseURL(u string) *url.URL {
 var (
 	registries = []Registry{
 		{BaseURL: mustParseURL("https://dbc-cdn.columnar.tech")},
-		{BaseURL: mustParseURL("https://dbc-cdn-private.columnar.tech")},
+		{BaseURL: mustParseURL("https://" + auth.DefaultOauthURI())},
 	}
 	Version = "unknown"
 	mid     string
@@ -80,7 +87,7 @@ func (u *uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 func init() {
 	info, ok := debug.ReadBuildInfo()
-	if ok {
+	if ok && Version == "unknown" {
 		Version = info.Main.Version
 	}
 
@@ -108,20 +115,14 @@ func init() {
 	mid, _ = machineid.ProtectedID()
 
 	// get user config dir
-	userdir, err := os.UserConfigDir()
+	userdir, err := internal.GetUserConfigPath()
 	if err != nil {
 		// if we can't get the dir for some reason, just generate a new UUID
 		uid = uuid.New()
 		return
 	}
 
-	// try to read the existing UUID file
-	dirname := "columnar"
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
-		dirname = "Columnar"
-	}
-
-	fp := filepath.Join(userdir, dirname, "dbc", "uid.uuid")
+	fp := filepath.Join(userdir, "uid.uuid")
 	data, err := os.ReadFile(fp)
 	if err == nil {
 		if err = uid.UnmarshalBinary(data); err == nil {
@@ -163,7 +164,18 @@ func makereq(u string) (resp *http.Response, err error) {
 		Header: http.Header{},
 	}
 
+	if uri.Path == "/index.yaml" {
+		req.Header.Set("Accept", "application/yaml")
+	}
+
 	if cred != nil {
+		if auth.IsColumnarPrivateRegistry(uri) {
+			// if we're accessing the private registry then attempt to
+			// fetch the trial license. This will be a no-op if they have
+			// a license saved already, and if they haven't started their
+			// trial or it is expired, then this will silently fail.
+			_ = auth.FetchColumnarLicense(cred)
+		}
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
 	}
 
@@ -182,6 +194,17 @@ func makereq(u string) (resp *http.Response, err error) {
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
 		resp, err = DefaultClient.Do(&req)
 	}
+
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusForbidden:
+		err = ErrUnauthorized
+		if auth.IsColumnarPrivateRegistry(uri) && cred != nil {
+			err = ErrUnauthorizedColumnar
+		}
+		resp.Body.Close()
+		return nil, fmt.Errorf("%s%s: %w", uri.Host, uri.Path, err)
+	}
+
 	return resp, err
 }
 
@@ -229,17 +252,19 @@ func getDriverListFromIndex(index *Registry) ([]Driver, error) {
 }
 
 var getDrivers = sync.OnceValues(func() ([]Driver, error) {
+	var totalErr error
 	allDrivers := make([]Driver, 0)
 	for i := range registries {
 		drivers, err := getDriverListFromIndex(&registries[i])
 		if err != nil {
-			return nil, err
+			totalErr = errors.Join(totalErr, fmt.Errorf("registry %s: %w", registries[i].BaseURL, err))
+			continue
 		}
 		registries[i].Drivers = drivers
 		allDrivers = append(allDrivers, drivers...)
 	}
 
-	return allDrivers, nil
+	return allDrivers, totalErr
 })
 
 //go:embed columnar.pubkey
@@ -382,6 +407,12 @@ type Driver struct {
 	PkgInfo []pkginfo `yaml:"pkginfo"`
 }
 
+func (d Driver) HasNonPrerelease() bool {
+	return slices.ContainsFunc(d.PkgInfo, func(p pkginfo) bool {
+		return p.Version.Prerelease() == ""
+	})
+}
+
 func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (PkgInfo, error) {
 	if len(d.PkgInfo) == 0 {
 		return PkgInfo{}, fmt.Errorf("no package info available for driver %s", d.Path)
@@ -428,21 +459,38 @@ func (d Driver) Versions(platformTuple string) semver.Collection {
 	return versions
 }
 
-func (d Driver) GetPackage(version *semver.Version, platformTuple string) (PkgInfo, error) {
+func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowPrerelease bool) (PkgInfo, error) {
+	pkglist := d.PkgInfo
+
+	// Filter out pre-releases and record whether any pre-releases were filtered
+	// out so we can produce a more helpful error message
+	if !allowPrerelease && (version == nil || version.Prerelease() != "") {
+		hadPackages := len(d.PkgInfo) > 0
+		pkglist = slices.Collect(filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
+			return p.Version.Prerelease() == ""
+		}))
+		if len(pkglist) == 0 {
+			if hadPackages {
+				return PkgInfo{}, fmt.Errorf("driver `%s` not found (but prerelease versions filtered out); try: dbc install --pre %s", d.Path, d.Path)
+			}
+			return PkgInfo{}, fmt.Errorf("driver `%s` not found", d.Path)
+		}
+	}
+
 	var pkg pkginfo
 	if version == nil {
-		pkg = slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
+		pkg = slices.MaxFunc(pkglist, func(a, b pkginfo) int {
 			return a.Version.Compare(b.Version)
 		})
 		version = pkg.Version
 	} else {
-		idx := slices.IndexFunc(d.PkgInfo, func(p pkginfo) bool {
+		idx := slices.IndexFunc(pkglist, func(p pkginfo) bool {
 			return p.Version.Equal(version)
 		})
 		if idx == -1 {
 			return PkgInfo{}, fmt.Errorf("version %s not found", version)
 		}
-		pkg = d.PkgInfo[idx]
+		pkg = pkglist[idx]
 	}
 
 	return pkg.GetPackage(d, platformTuple)

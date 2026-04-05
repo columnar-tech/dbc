@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,20 +15,24 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 )
 
 type InfoCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to get info about"`
+	Json   bool   `help:"Print output as JSON instead of plaintext"`
 }
 
 func (c InfoCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return infoModel{
-		baseModel: baseModel,
-		driver:    c.Driver,
+		baseModel:  baseModel,
+		jsonOutput: c.Json,
+		driver:     c.Driver,
 	}
 }
 
@@ -42,19 +46,26 @@ func (c InfoCmd) GetModel() tea.Model {
 type infoModel struct {
 	baseModel
 
-	driver string
-	drv    dbc.Driver
+	driver         string
+	jsonOutput     bool
+	drv            dbc.Driver
+	registryErrors error // Store registry errors for better error messages
 }
 
 func (m infoModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
 		}
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
+			// If we have registry errors, enhance the error message
+			if registryErr != nil {
+				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
+			}
 			return err
 		}
 
@@ -83,6 +94,35 @@ func formatDriverInfo(drv dbc.Driver) string {
 	return b.String()
 }
 
+func driverInfoJSON(drv dbc.Driver) string {
+	info := drv.MaxVersion()
+
+	var driverInfoOutput = struct {
+		Driver   string   `json:"driver"`
+		Version  string   `json:"version"`
+		Title    string   `json:"title"`
+		License  string   `json:"license"`
+		Desc     string   `json:"description"`
+		Packages []string `json:"packages"`
+	}{
+		Driver:  drv.Path,
+		Version: info.Version.String(),
+		Title:   drv.Title,
+		License: drv.License,
+		Desc:    drv.Desc,
+	}
+	for _, pkg := range info.Packages {
+		driverInfoOutput.Packages = append(driverInfoOutput.Packages, pkg.PlatformTuple)
+	}
+
+	jsonBytes, err := json.Marshal(driverInfoOutput)
+	if err != nil {
+		return err.Error()
+	}
+
+	return string(jsonBytes)
+}
+
 func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case dbc.Driver:
@@ -96,9 +136,12 @@ func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m infoModel) FinalOutput() string {
+	if m.jsonOutput {
+		return driverInfoJSON(m.drv)
+	}
 	return formatDriverInfo(m.drv)
 }
 
-func (m infoModel) View() string {
-	return ""
+func (m infoModel) View() tea.View {
+	return tea.NewView("")
 }

@@ -3,7 +3,7 @@ title: Documentation
 ---
 
 <!--
-Copyright 2025 Columnar Technologies Inc.
+Copyright 2026 Columnar Technologies Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ limitations under the License.
 
 # dbc
 
-dbc is a command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers. Get up and running with ADBC in just three steps:
+dbc is the command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers. Get up and running with ADBC in just three steps:
 
 <br/>1. Install dbc (see [Installation](./getting_started/installation.md) for more options):
 
@@ -46,6 +46,15 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
     $ winget install dbc
     ```
 
+    !!! note
+
+        If you installed dbc 0.1.0 with WinGet, uninstall the system-level package first and then reinstall 0.2.0:
+
+        ```console
+        $ winget uninstall --id Columnar.dbc
+        $ winget install dbc
+        ```
+
 === "uv"
 
     ```console
@@ -61,8 +70,7 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 === "Homebrew"
 
     ```console
-    $ brew tap columnar-tech/tap
-    $ brew install --cask dbc
+    $ brew install columnar-tech/tap/dbc
     ```
 
 <br/>2. Use dbc to install drivers:
@@ -123,6 +131,118 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         let mut driver = ManagedDriver::load_from_name("bigquery", ... )
         ```
 
+=== "ClickHouse"
+
+    ```console
+    $ dbc install --pre clickhouse
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "clickhouse", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "clickhouse", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "clickhouse");
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="clickhouse", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("clickhouse")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("clickhouse", ... )
+        ```
+
+=== "Databricks"
+
+    ```console
+    $ dbc install databricks
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "databricks", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "databricks", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "databricks");
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="databricks", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("databricks")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("databricks", ... )
+        ```
+
 === "DuckDB"
 
     ```console
@@ -177,6 +297,62 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
         use adbc_driver_manager::ManagedDriver;
 
         let mut driver = ManagedDriver::load_from_name("duckdb", ... )
+        ```
+
+=== "Exasol"
+
+    ```console
+    $ dbc install exasol
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "exasol", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "exasol", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "exasol");
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="exasol", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("exasol")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("exasol", ... )
         ```
 
 === "Flight SQL"
@@ -626,6 +802,116 @@ dbc is a command-line tool for installing and managing [ADBC](https://arrow.apac
 
         let mut driver = ManagedDriver::load_from_name("trino", ... )
         ```
+=== "Oracle"
+
+    ```console
+    $ dbc install oracle
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "oracle", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "oracle", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "oracle");
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="oracle", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("oracle")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("oracle", ... )
+
+
+=== "Teradata"
+
+    ```console
+    $ dbc install teradata
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "teradata", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "teradata", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "teradata");
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="teradata", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("teradata")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("teradata", ... )
 
 <br/>For a more detailed walkthrough on how to use dbc, check out our [First steps](./getting_started/first_steps.md) page or any of our [Guides](./guides/index.md).
 

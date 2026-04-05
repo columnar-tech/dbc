@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,8 +41,8 @@ func TestUnmarshalDriverList(t *testing.T) {
 		{"less", "[drivers]\nflightsql = {version = '<=1.8.0'}", []dbc.PkgInfo{
 			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
 		}, nil},
-		{"greater", "[drivers]\nflightsql = {version = '>=1.8.0, <1.10.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.9.0")},
+		{"greater", "[drivers]\nflightsql = {version = '>=1.8.0, <=1.10.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.10.0")},
 		}, nil},
 	}
 

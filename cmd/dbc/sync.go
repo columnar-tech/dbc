@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,17 +24,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
-)
-
-var (
-	checkMark = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
 )
 
 type SyncCmd struct {
@@ -64,6 +60,8 @@ func (c SyncCmd) GetModel() tea.Model {
 	}
 }
 
+func (syncModel) NeedsRenderer() {}
+
 type syncModel struct {
 	baseModel
 
@@ -88,7 +86,8 @@ type syncModel struct {
 	progress      progress.Model
 	width, height int
 
-	done bool
+	done           bool
+	registryErrors error // Store registry errors for better error messages
 }
 
 type driversListMsg struct {
@@ -166,6 +165,10 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// locate the driver info in the CDN driver registry index
 		drv, err := findDriver(name, s.driverIndex)
 		if err != nil {
+			// If we have registry errors, enhance the error message
+			if s.registryErrors != nil {
+				return nil, fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, s.registryErrors.Error())
+			}
 			return nil, err
 		}
 
@@ -175,13 +178,16 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// for that constraint, then we want to install the version in the lockfile
 		if info.Version != nil && (spec.Version == nil || spec.Version.Check(info.Version)) {
 			// install the locked version and verify checksum
-			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple())
+			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple(), spec.Prerelease == "allow")
 		} else {
 			// no locked version or driver list version doesn't match locked file
 			if spec.Version != nil {
+				if spec.Prerelease == "allow" {
+					spec.Version.IncludePrerelease = true
+				}
 				pkg, err = drv.GetWithConstraint(spec.Version, config.PlatformTuple())
 			} else {
-				pkg, err = drv.GetPackage(nil, config.PlatformTuple())
+				pkg, err = drv.GetPackage(nil, config.PlatformTuple(), spec.Prerelease == "allow")
 			}
 		}
 
@@ -317,10 +323,8 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.spinner, cmd = s.spinner.Update(msg)
 		return s, cmd
 	case progress.FrameMsg:
-		newModel, cmd := s.progress.Update(msg)
-		if newModel, ok := newModel.(progress.Model); ok {
-			s.progress = newModel
-		}
+		var cmd tea.Cmd
+		s.progress, cmd = s.progress.Update(msg)
 		return s, cmd
 	case driversListMsg:
 		s.Path = msg.path
@@ -328,12 +332,29 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.list = msg.list
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()
+			// Return both drivers and error - we'll decide how to handle based on whether
+			// all requested drivers can be found
+			return driversWithRegistryError{
+				drivers: drivers,
+				err:     err,
+			}
+		}
+	case driversWithRegistryError:
+		s.registryErrors = msg.err
+		// If we have no drivers and there's an error, fail immediately
+		if len(msg.drivers) == 0 && msg.err != nil {
+			return s, errCmd("error getting driver list: %w", msg.err)
+		}
+		s.driverIndex = msg.drivers
+		return s, func() tea.Msg {
+			items, err := s.createInstallList(s.list)
 			if err != nil {
 				return err
 			}
-			return drivers
+			return items
 		}
 	case []dbc.Driver:
+		// For backwards compatibility, still handle plain driver list
 		s.driverIndex = msg
 		return s, func() tea.Msg {
 			items, err := s.createInstallList(s.list)
@@ -345,7 +366,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case []installItem:
 		s.spinner = spinner.New()
 		s.progress = progress.New(
-			progress.WithDefaultGradient(),
+			progress.WithDefaultBlend(),
 			progress.WithWidth(40),
 			progress.WithoutPercentage(),
 		)
@@ -428,19 +449,19 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return s, cmd
 }
 
-func (s syncModel) View() string {
+func (s syncModel) View() tea.View {
 	if s.status != 0 {
-		return ""
+		return tea.NewView("")
 	}
 
 	n := len(s.installItems)
 	if n == 0 {
-		return "Determining drivers to install..."
+		return tea.NewView("Determining drivers to install...")
 	}
 	w := lipgloss.Width(fmt.Sprintf("%d", n))
 
 	if s.done {
-		return "Done!\n"
+		return tea.NewView("Done!\n")
 	}
 
 	driverCount := fmt.Sprintf(" %*d/%*d", w, s.index, w, n)
@@ -455,5 +476,5 @@ func (s syncModel) View() string {
 	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))
 	gap := strings.Repeat(" ", max(0, cellsRemaining))
 
-	return spin + info + gap + prog + driverCount
+	return tea.NewView(spin + info + gap + prog + driverCount)
 }

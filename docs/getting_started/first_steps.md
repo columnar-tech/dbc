@@ -1,5 +1,5 @@
 <!--
-Copyright 2025 Columnar Technologies Inc.
+Copyright 2026 Columnar Technologies Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -76,7 +76,9 @@ First, run `dbc search` to find the exact name of the driver:
 ```console
 $ dbc search
 • bigquery - An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+• databricks - An ADBC Driver for Databricks developed by the ADBC Driver Foundry
 • duckdb - An ADBC driver for DuckDB developed by the DuckDB Foundation
+• exasol - An ADBC driver for Exasol developed by Exasol Labs
 • flightsql - An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 • mssql - An ADBC driver for Microsoft SQL Server developed by Columnar
 • mysql - An ADBC Driver for MySQL developed by the ADBC Driver Foundry

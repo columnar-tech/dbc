@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package main
 import (
 	"fmt"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/cli/browser"
 	"github.com/columnar-tech/dbc"
 )
@@ -67,12 +67,13 @@ func (c DocsCmd) GetModel() tea.Model {
 type docsModel struct {
 	baseModel
 
-	driver       string
-	drv          *dbc.Driver
-	urlToOpen    string
-	noOpen       bool
-	fallbackUrls map[string]string
-	openBrowser  func(string) error
+	driver         string
+	drv            *dbc.Driver
+	urlToOpen      string
+	noOpen         bool
+	fallbackUrls   map[string]string
+	openBrowser    func(string) error
+	registryErrors error // Store registry errors for better error messages
 }
 
 func (m docsModel) Init() tea.Cmd {
@@ -81,13 +82,18 @@ func (m docsModel) Init() tea.Cmd {
 			return docsUrlFound(dbcDocsUrl)
 		}
 
-		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
 		}
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
+			// If we have registry errors, enhance the error message
+			if registryErr != nil {
+				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
+			}
 			return err
 		}
 
@@ -146,8 +152,8 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m docsModel) View() string {
-	return ""
+func (m docsModel) View() tea.View {
+	return tea.NewView("")
 }
 
 func (m docsModel) FinalOutput() string {

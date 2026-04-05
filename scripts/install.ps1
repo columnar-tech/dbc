@@ -25,6 +25,9 @@ It will then add that dir to PATH by editing your Environment.Path registry key
 .PARAMETER ArtifactDownloadUrl
 The base URL where artifacts can be fetched from
 
+.PARAMETER Version
+The version to install. Accepts semantic versions (e.g., '0.2.0'), versions with 'v' prefix (e.g., 'v0.2.0'), or 'latest' for the most recent version. Defaults to 'latest'.
+
 .PARAMETER Help
 Print help
 
@@ -33,12 +36,18 @@ Print help
 param (
     [Parameter(HelpMessage = "The base URL where artifacts can be fetched from")]
     [string]$ArtifactDownloadUrl = 'https://dbc.columnar.tech',
+    [Parameter(HelpMessage = "The version to install (e.g., '0.2.0', 'v0.2.0', or 'latest')")]
+    [string]$Version = 'latest',
     [Parameter(HelpMessage = "Print Help")]
     [switch]$Help
 )
 
 $app_name = 'dbc'
-$app_version = 'latest'
+# Normalize version by stripping 'v' or 'V' prefix if present
+$app_version = $Version
+if ($app_version -match '^[vV](.+)$') {
+    $app_version = $Matches[1]
+}
 if ($env:DBC_INSTALLER_BASE_URL) {
     $installer_base_url = $env:DBC_INSTALLER_BASE_URL
 } else {
@@ -189,7 +198,16 @@ function Download($download_url, $platforms) {
     if ($auth_token) {
         $wc.Headers["Authorization"] = "Bearer $auth_token"
     }
-    $wc.downloadFile($url, $dir_path)
+    try {
+        $wc.DownloadFile($url, $dir_path)
+    } catch [System.Net.WebException] {
+        $statusCode = [int]$_.Exception.Response.StatusCode
+        if ($statusCode -eq 403) {
+            throw "Error: $app_name ($app_version) is either not available or not available for your platform: ($arch)." `
+                + "Double-check the version you've requested. Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
+        }
+        throw "Error: Failed to download $url. HTTP Status Code: $statusCode"
+    }    
 
     Write-Verbose "Unpacking to $tmp"
 

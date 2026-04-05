@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -22,11 +23,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charm.land/bubbles/v2/progress"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -49,22 +50,32 @@ func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver   string             `arg:"positional,required" help:"Driver to install"`
+	Driver   string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Pre      bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
+}
+
+func (InstallCmd) Description() string {
+	return "Install a driver.\n\n" +
+		"`DRIVER` may include a version constraint, for example `dbc install mysql`, `dbc install \"mysql=0.1.0\"`, or `dbc install \"mysql>=1,<2\"`.\n" +
+		"See https://docs.columnar.tech/dbc/guides/installing/#version-constraints for more on version constraint syntax."
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
 	return progressiveInstallModel{
-		Driver:    c.Driver,
-		NoVerify:  c.NoVerify,
-		spinner:   s,
-		cfg:       getConfig(c.Level),
-		baseModel: baseModel,
+		Driver:     c.Driver,
+		NoVerify:   c.NoVerify,
+		jsonOutput: c.Json,
+		Pre:        c.Pre,
+		spinner:    s,
+		cfg:        getConfig(c.Level),
+		baseModel:  baseModel,
 		p: dbc.NewFileProgress(
-			progress.WithDefaultGradient(),
+			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
 			progress.WithoutPercentage(),
 		),
@@ -79,7 +90,7 @@ func (c InstallCmd) GetModel() tea.Model {
 }
 
 func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || (noVerify && m.Files.Signature == "") {
+	if m.Files.Driver == "" || noVerify {
 		return nil
 	}
 
@@ -116,6 +127,8 @@ type writeDriverManifestMsg struct {
 	DriverInfo config.DriverInfo
 }
 
+type localInstallMsg struct{}
+
 type installState int
 
 const (
@@ -141,12 +154,16 @@ func (s installState) String() string {
 	}
 }
 
+func (progressiveInstallModel) NeedsRenderer() {}
+
 type progressiveInstallModel struct {
 	baseModel
 
 	Driver       string
 	VersionInput *semver.Version
 	NoVerify     bool
+	jsonOutput   bool
+	Pre          bool
 	cfg          config.Config
 
 	DriverPackage      dbc.PkgInfo
@@ -158,21 +175,41 @@ type progressiveInstallModel struct {
 	p       dbc.FileProgressModel
 
 	width, height int
+	isLocal       bool
+
+	registryErrors error // Store registry errors for better error messages
+}
+
+type driversWithRegistryError struct {
+	drivers []dbc.Driver
+	err     error
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
+	if strings.HasSuffix(m.Driver, ".tar.gz") || strings.HasSuffix(m.Driver, ".tgz") {
+		return tea.Batch(m.spinner.Tick, func() tea.Msg {
+			return localInstallMsg{}
+		})
+	}
+
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		// Return both drivers and error - we'll decide how to handle based on whether
+		// the requested driver is found
+		return driversWithRegistryError{
+			drivers: drivers,
+			err:     err,
 		}
-		return drivers
 	})
 }
 
 func (m progressiveInstallModel) FinalOutput() string {
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
+			if m.jsonOutput {
+				return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
+					m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			}
 			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
 				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 		}
@@ -180,16 +217,44 @@ func (m progressiveInstallModel) FinalOutput() string {
 
 	var b strings.Builder
 	if m.state == stDone {
-		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-			b.WriteString(fmt.Sprintf("\nRemoved conflicting driver: %s (version: %s)",
-				m.conflictingInfo.ID, m.conflictingInfo.Version))
+		var output struct {
+			Status   string `json:"status"`
+			Driver   string `json:"driver"`
+			Version  string `json:"version"`
+			Location string `json:"location"`
+			Message  string `json:"message,omitempty"`
+			Conflict string `json:"conflict,omitempty"`
 		}
 
-		b.WriteString(fmt.Sprintf("\nInstalled %s %s to %s\n",
-			m.Driver, m.DriverPackage.Version, filepath.SplitList(m.cfg.Location)[0]))
+		output.Status = "installed"
+		output.Driver = m.Driver
+		output.Version = m.DriverPackage.Version.String()
+		output.Location = filepath.SplitList(m.cfg.Location)[0]
+		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+			output.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
+		}
 
 		if m.postInstallMessage != "" {
-			b.WriteString("\n" + postMsgStyle.Render(m.postInstallMessage) + "\n")
+			output.Message = m.postInstallMessage
+		}
+
+		if m.jsonOutput {
+			jsonOutput, err := json.Marshal(output)
+			if err != nil {
+				return fmt.Sprintf(`{"status":"error","error":"%s"}`, err.Error())
+			}
+			return string(jsonOutput)
+		}
+
+		if output.Conflict != "" {
+			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", output.Conflict)
+		}
+
+		fmt.Fprintf(&b, "\nInstalled %s %s to %s\n",
+			output.Driver, output.Version, output.Location)
+
+		if output.Message != "" {
+			b.WriteString("\n" + postMsgStyle.Render(output.Message) + "\n")
 		}
 	}
 	return b.String()
@@ -204,11 +269,16 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	m.Driver = driverName
 	d, err := findDriver(m.Driver, list)
 	if err != nil {
+		// If we have registry errors, enhance the error message
+		if m.registryErrors != nil {
+			return m, errCmd("could not find driver: %w\n\nNote: Some driver registries were unavailable:\n%s", err, m.registryErrors.Error())
+		}
 		return m, errCmd("could not find driver: %w", err)
 	}
 
 	return m, func() tea.Msg {
 		if vers != nil {
+			vers.IncludePrerelease = m.Pre
 			pkg, err := d.GetWithConstraint(vers, config.PlatformTuple())
 			if err != nil {
 				return err
@@ -216,7 +286,7 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 			return pkg
 		}
 
-		pkg, err := d.GetPackage(nil, config.PlatformTuple())
+		pkg, err := d.GetPackage(nil, config.PlatformTuple(), m.Pre)
 		if err != nil {
 			return err
 		}
@@ -245,6 +315,17 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 
 func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model, tea.Cmd) {
 	m.state = stInstalling
+	if m.isLocal {
+		driverName := strings.TrimSuffix(
+			strings.TrimSuffix(filepath.Base(m.Driver), ".tar.gz"), ".tgz")
+		parts := strings.Split(driverName, "_"+config.PlatformTuple()+"_")
+		if len(parts) < 2 {
+			m.Driver = driverName
+		} else {
+			m.Driver = parts[0] // drivername_platform_arch_version grab drivername
+		}
+	}
+
 	return m, func() tea.Msg {
 		if m.conflictingInfo.ID != "" {
 			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
@@ -272,11 +353,26 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.p.SetPercent(msg.written, msg.total)
 		return m, cmd
 	case progress.FrameMsg:
-		p, cmd := m.p.Update(msg)
-		m.p = p.(dbc.FileProgressModel)
+		var cmd tea.Cmd
+		m.p, cmd = m.p.Update(msg)
 		return m, cmd
+	case driversWithRegistryError:
+		m.registryErrors = msg.err
+		return m.searchForDriver(msg.drivers)
 	case []dbc.Driver:
+		// For backwards compatibility, still handle plain driver list
 		return m.searchForDriver(msg)
+	case localInstallMsg:
+		m.isLocal = true
+		return m, tea.Sequence(
+			tea.Printf("Installing from local package: %s\n", m.Driver),
+			func() tea.Msg {
+				localDrv, err := os.Open(m.Driver)
+				if err != nil {
+					return err
+				}
+				return localDrv
+			})
 	case dbc.PkgInfo:
 		m.DriverPackage = msg
 		di, err := config.GetDriver(m.cfg, m.Driver)
@@ -288,6 +384,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case *os.File:
 		return m.startInstalling(msg)
 	case config.Manifest:
+		if m.DriverPackage.Version == nil {
+			m.DriverPackage = msg.ToPackageInfo()
+		}
+
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		return m, func() tea.Msg {
@@ -303,6 +403,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Sequence(func() tea.Msg {
 			return config.CreateManifest(m.cfg, msg.DriverInfo)
 		}, tea.Quit)
+	case error:
+		if m.jsonOutput {
+			return m, tea.Sequence(tea.Println(fmt.Sprintf(`{"status":"error","error":"%s"}`, msg.Error())), tea.Quit)
+		}
 	}
 
 	base, cmd := m.baseModel.Update(msg)
@@ -317,31 +421,39 @@ func checkbox(label string, checked bool) string {
 	return fmt.Sprintf("[ ] %s", label)
 }
 
-var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+var postMsgStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 
-func (m progressiveInstallModel) View() string {
-	if m.status != 0 {
-		return ""
+func (m progressiveInstallModel) View() tea.View {
+	if m.status != 0 || m.jsonOutput {
+		return tea.NewView("")
 	}
 
 	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
 		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return ""
+			return tea.NewView("")
 		}
 	}
 
 	var b strings.Builder
 	for s := range stDone {
+		if m.isLocal && (s == stSearching || s == stDownloading) {
+			continue
+		}
+
 		if s == m.state {
-			b.WriteString(fmt.Sprintf("[%s] %s...", m.spinner.View(), s.String()))
+			fmt.Fprintf(&b, "[%s] %s...", m.spinner.View(), s.String())
 			if s == stDownloading {
 				b.WriteString(" " + m.p.View())
 			}
 		} else {
-			b.WriteString(checkbox(s.String(), s < m.state))
+			if s == stVerifying && s < m.state && m.NoVerify {
+				fmt.Fprintf(&b, "[%s] %s", skipMark, s.String())
+			} else {
+				b.WriteString(checkbox(s.String(), s < m.state))
+			}
 		}
 		b.WriteByte('\n')
 	}
 
-	return b.String()
+	return tea.NewView(b.String())
 }

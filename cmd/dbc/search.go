@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,15 +15,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/charmbracelet/lipgloss/list"
-	"github.com/charmbracelet/lipgloss/table"
-	"github.com/charmbracelet/lipgloss/tree"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/list"
+	"charm.land/lipgloss/v2/table"
+	"charm.land/lipgloss/v2/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -37,44 +38,53 @@ var (
 
 type SearchCmd struct {
 	Verbose bool           `arg:"-v" help:"Enable verbose output"`
+	Json    bool           `help:"Print output as JSON instead of plaintext"`
 	Pattern *regexp.Regexp `arg:"positional" help:"Pattern to search for"`
+	Pre     bool           `arg:"--pre" help:"Include pre-release drivers and versions (hidden by default)"`
 }
 
 func (s SearchCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return searchModel{
-		verbose:   s.Verbose,
-		pattern:   s.Pattern,
-		baseModel: baseModel,
+		verbose:    s.Verbose,
+		outputJson: s.Json,
+		pattern:    s.Pattern,
+		pre:        s.Pre,
+		baseModel:  baseModel,
 	}
 }
 
 func (s SearchCmd) GetModel() tea.Model {
-	return searchModel{
-		verbose: s.Verbose,
-		pattern: s.Pattern,
-		baseModel: baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	}
+	return s.GetModelCustom(baseModel{
+		getDriverRegistry: getDriverRegistry,
+		downloadPkg:       downloadPkg,
+	})
 }
 
 type searchModel struct {
 	baseModel
 
-	verbose      bool
-	pattern      *regexp.Regexp
-	finalDrivers []dbc.Driver
+	verbose        bool
+	outputJson     bool
+	pre            bool
+	pattern        *regexp.Regexp
+	finalDrivers   []dbc.Driver
+	registryErrors error // Store registry errors to display as warnings
+}
+
+type driversWithErrorMsg struct {
+	drivers []dbc.Driver
+	err     error
 }
 
 func (m searchModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		drivers, err := m.getDriverRegistry()
-		if err != nil {
-			return err
+		// Don't fail completely if we have some drivers - return them with the error
+		// This allows graceful degradation when some registries fail
+		return driversWithErrorMsg{
+			drivers: m.filterDrivers(drivers),
+			err:     err,
 		}
-
-		return m.filterDrivers(drivers)
 	}
 }
 
@@ -94,7 +104,17 @@ func (m searchModel) filterDrivers(drivers []dbc.Driver) []dbc.Driver {
 
 func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case driversWithErrorMsg:
+		m.finalDrivers = msg.drivers
+		m.registryErrors = msg.err
+		// If we have no drivers and there's an error, fail the command
+		if len(msg.drivers) == 0 && msg.err != nil {
+			m.err = msg.err
+			m.status = 1
+		}
+		return m, tea.Sequence(tea.Quit)
 	case []dbc.Driver:
+		// For backwards compatibility, still handle plain driver list
 		m.finalDrivers = msg
 		return m, tea.Sequence(tea.Quit)
 	default:
@@ -105,13 +125,17 @@ func (m searchModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m searchModel) View() string { return "" }
+func (m searchModel) View() tea.View { return tea.NewView("") }
 
 func emptyEnumerator(_ list.Items, _ int) string {
 	return ""
 }
 
-func viewDrivers(d []dbc.Driver, verbose bool) string {
+func viewDrivers(d []dbc.Driver, verbose bool, allowPre bool) string {
+	if len(d) == 0 {
+		return ""
+	}
+
 	current := config.Get()
 	installedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
@@ -119,20 +143,13 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 	t := table.New().Border(lipgloss.HiddenBorder()).
 		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
 	for _, driver := range d {
-		var installed []string
-		installedVerbose := make(map[string][]string)
-
-		for k, v := range current {
-			if drv, ok := v.Drivers[driver.Path]; ok {
-				installed = append(installed, fmt.Sprintf("%s=>%s", k, drv.Version))
-				existing := installedVerbose[drv.Version.String()]
-				installedVerbose[drv.Version.String()] = append(existing, fmt.Sprintf("%s => %s", k, drv.FilePath))
-			}
-		}
+		installed, installedVerbose := getInstalled(driver, current)
 
 		var suffix string
 		if len(installed) > 0 {
 			suffix = installedStyle.Render(" [installed: " + strings.Join(installed, ", ") + "]")
+		} else if !allowPre && !driver.HasNonPrerelease() {
+			continue
 		}
 
 		var regTag string
@@ -163,6 +180,10 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 		versionTree := tree.Root(bold.Render("Available Versions:")).
 			Enumerator(tree.RoundedEnumerator)
 		for _, v := range driver.Versions(config.PlatformTuple()) {
+			if v.Prerelease() != "" && !allowPre {
+				continue
+			}
+
 			versionTree.Child(v)
 		}
 
@@ -175,11 +196,134 @@ func viewDrivers(d []dbc.Driver, verbose bool) string {
 	}
 
 	if !verbose {
-		return t.String() + "\n"
+		return t.String()
 	}
-	return l.String() + "\n"
+	return l.String()
+}
+
+func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors error) string {
+	current := config.Get()
+
+	if !verbose {
+		type output struct {
+			Driver      string   `json:"driver"`
+			Description string   `json:"description"`
+			Installed   []string `json:"installed,omitempty"`
+			Registry    string   `json:"registry,omitempty"`
+		}
+
+		var driverList []output
+		for _, driver := range d {
+			installed, _ := getInstalled(driver, current)
+			if !allowPre && !driver.HasNonPrerelease() && len(installed) == 0 {
+				continue
+			}
+
+			driverList = append(driverList, output{
+				Driver:      driver.Path,
+				Description: driver.Desc,
+				Installed:   installed,
+				Registry:    driver.Registry.Name,
+			})
+		}
+
+		type result struct {
+			Drivers []output `json:"drivers"`
+			Warning string   `json:"warning,omitempty"`
+		}
+
+		res := result{Drivers: driverList}
+		if registryErrors != nil && len(d) > 0 {
+			res.Warning = registryErrors.Error()
+		}
+
+		jsonBytes, err := json.Marshal(res)
+		if err != nil {
+			return fmt.Sprintf("error marshaling JSON: %v", err)
+		}
+		return string(jsonBytes)
+	}
+
+	type output struct {
+		Driver            string              `json:"driver"`
+		Description       string              `json:"description"`
+		License           string              `json:"license"`
+		Registry          string              `json:"registry,omitempty"`
+		InstalledVersions map[string][]string `json:"installed_versions,omitempty"`
+		AvailableVersions []string            `json:"available_versions,omitempty"`
+	}
+
+	var driverList []output
+	for _, driver := range d {
+		_, installedVerbose := getInstalled(driver, current)
+
+		var availableVersions []string
+		for _, v := range driver.Versions(config.PlatformTuple()) {
+			if v.Prerelease() != "" && !allowPre {
+				continue
+			}
+
+			availableVersions = append(availableVersions, v.String())
+		}
+
+		driverList = append(driverList, output{
+			Driver:            driver.Path,
+			Description:       driver.Desc,
+			License:           driver.License,
+			Registry:          driver.Registry.Name,
+			InstalledVersions: installedVerbose,
+			AvailableVersions: availableVersions,
+		})
+	}
+
+	type result struct {
+		Drivers []output `json:"drivers"`
+		Warning string   `json:"warning,omitempty"`
+	}
+
+	res := result{Drivers: driverList}
+	if registryErrors != nil && len(d) > 0 {
+		res.Warning = registryErrors.Error()
+	}
+
+	jsonBytes, err := json.Marshal(res)
+	if err != nil {
+		return fmt.Sprintf("error marshaling JSON: %v", err)
+	}
+	return string(jsonBytes)
+}
+
+func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) ([]string, map[string][]string) {
+	var installed []string
+	installedVerbose := make(map[string][]string)
+
+	for k, v := range cfg {
+		if drv, ok := v.Drivers[driver.Path]; ok {
+			installed = append(installed, fmt.Sprintf("%s=>%s", k, drv.Version))
+			existing := installedVerbose[drv.Version.String()]
+			installedVerbose[drv.Version.String()] = append(existing, fmt.Sprintf("%s => %s", k, drv.FilePath))
+		}
+	}
+	return installed, installedVerbose
 }
 
 func (m searchModel) FinalOutput() string {
-	return viewDrivers(m.finalDrivers, m.verbose)
+	var output string
+
+	// Display driver list first
+	if m.outputJson {
+		output = viewDriversJSON(m.finalDrivers, m.verbose, m.pre, m.registryErrors)
+	} else {
+		output = viewDrivers(m.finalDrivers, m.verbose, m.pre)
+	}
+
+	// Display warning about registry errors after the driver list (only if we have some drivers to show)
+	// If we have no drivers, the error is returned via the error mechanism
+	if !m.outputJson && m.registryErrors != nil && len(m.finalDrivers) > 0 {
+		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
+		output += "\n" + warningStyle.Render("Warning: ") + "Some driver registries were unavailable:\n"
+		output += m.registryErrors.Error() + "\n"
+	}
+
+	return output
 }

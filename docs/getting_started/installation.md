@@ -1,5 +1,5 @@
 <!--
-Copyright 2025 Columnar Technologies Inc.
+Copyright 2026 Columnar Technologies Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -122,6 +122,10 @@ You can also download the latest installer using the following URL:
 |--------------|---------------------------------------------------------|
 | `x64`        | <https://dbc.columnar.tech/latest/dbc-latest-x64.msi>   |
 
+!!! note
+
+    Starting with dbc 0.2.0, the MSI installer only supports per-user installs. The 0.1.0 MSI installed system-wide.
+
 ## WinGet
 
 On Windows, you can install dbc using [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
@@ -129,6 +133,15 @@ On Windows, you can install dbc using [WinGet](https://learn.microsoft.com/en-us
 ```console
 $ winget install dbc
 ```
+
+!!! note
+
+    If you installed dbc 0.1.0 with WinGet, it was installed system-wide and `winget upgrade dbc` cannot upgrade it. Uninstall the system-level package first, then install again:
+
+    ```console
+    $ winget uninstall --id Columnar.dbc
+    $ winget install dbc
+    ```
 
 ## Docker
 
@@ -151,17 +164,17 @@ The following distroless images are available for Linux-based `amd64` and `arm64
 
 ## Homebrew
 
-`dbc` is available via the Columnar Homebrew tap. The tap will first need
-to be added to your environment:
+You can install dbc from our Homebrew tap by running:
+
+```console
+$ brew install columnar-tech/tap/dbc
+```
+
+This will automatically configure our tap and install dbc from it. If you'd rather do this as two separate commands, you can run:
 
 ```console
 $ brew tap columnar-tech/tap
-```
-
-Once you've done this you can install the `dbc` cask:
-
-```console
-$ brew install --cask dbc
+$ brew install dbc
 ```
 
 ## Shell Completions

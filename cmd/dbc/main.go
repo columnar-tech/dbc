@@ -1,4 +1,4 @@
-// Copyright 2025 Columnar Technologies Inc.
+// Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,21 +15,26 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/alexflint/go-arg"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/mattn/go-isatty"
 )
 
 var (
-	errStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
+	errStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("1"))
+	checkMark = lipgloss.NewStyle().Foreground(lipgloss.Color("42")).SetString("✓")
+	skipMark  = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).SetString("-")
 )
 
 type TuiCmd struct{}
@@ -54,6 +59,14 @@ type HasFinalOutput interface {
 
 type HasStatus interface {
 	Status() int
+	Err() error
+}
+
+// NeedsRenderer is implemented by models that render a live TUI (spinners,
+// progress bars, interactive lists). Models that only use tea.Println /
+// tea.Printf and return an empty View do not need the renderer.
+type NeedsRenderer interface {
+	NeedsRenderer()
 }
 
 // use this so we can override this in tests
@@ -65,7 +78,7 @@ func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	})
 
 	if idx == -1 {
-		return dbc.Driver{}, fmt.Errorf("driver `%s` not found in driver registry index", name)
+		return dbc.Driver{}, fmt.Errorf("driver `%s` not found in driver registry index; try: `dbc search` to list available drivers", name)
 	}
 	return drivers[idx], nil
 }
@@ -99,27 +112,25 @@ type baseModel struct {
 	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
 
 	status int
+	err    error
 }
 
-func (m baseModel) Init() tea.Cmd { return nil }
-func (m baseModel) View() string  { return "" }
-
-func (m baseModel) Status() int {
-	return m.status
-}
-
+func (m baseModel) Init() tea.Cmd       { return nil }
+func (m baseModel) View() tea.View      { return tea.NewView("") }
+func (m baseModel) Status() int         { return m.status }
+func (m baseModel) Err() error          { return m.err }
 func (m baseModel) FinalOutput() string { return "" }
 
 func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyCtrlD, tea.KeyEsc:
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "ctrl+c", "ctrl+d", "esc":
 			return m, tea.Quit
 		}
 	case error:
-		m.status = 1
-		return m, tea.Sequence(tea.Println("Error: ", msg.Error()), tea.Quit)
+		m.status, m.err = 1, msg
+		return m, tea.Quit
 	}
 	return m, nil
 }
@@ -145,12 +156,59 @@ func (cmds) Version() string {
 
 var prog *tea.Program
 
+func formatErr(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrTrialExpired):
+		return errStyle.Render("Could not download license, trial has expired")
+	case errors.Is(err, auth.ErrNoTrialLicense):
+		return errStyle.Render("Could not download license, trial not started")
+	case errors.Is(err, dbc.ErrUnauthorized):
+		return errStyle.Render(err.Error()) + "\n" +
+			msgStyle.Render("Did you run `dbc auth login`?")
+	case errors.Is(err, dbc.ErrUnauthorizedColumnar):
+		return errStyle.Render(err.Error()) + "\n" +
+			msgStyle.Render("Installing this driver requires a license. Verify you have an active license at https://console.columnar.tech/licenses and try this command again. Contact support@columnar.tech if you believe this is an error.")
+	default:
+		return errStyle.Render("Error: " + err.Error())
+	}
+}
+
+var subcommandSuggestions = map[string]string{
+	"list": "search",
+}
+
+func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
+	// Extract the invalid command from os.Args by scanning for the first non-flag
+	// arg
+	var invalidCmd string
+	if len(os.Args) > 1 {
+		for _, arg := range os.Args[1:] {
+			if !strings.HasPrefix(arg, "-") {
+				invalidCmd = arg
+				break
+			}
+		}
+	}
+
+	p.WriteUsageForSubcommand(os.Stderr, subcommand...)
+	fmt.Fprintf(os.Stderr, "error: %s", msg)
+
+	// Optionally add suggestion
+	if invalidCmd != "" {
+		if suggestion, ok := subcommandSuggestions[invalidCmd]; ok {
+			fmt.Fprintf(os.Stderr, ". Did you mean: dbc %s?\n", suggestion)
+		}
+	}
+
+	os.Exit(2)
+}
+
 func main() {
 	var (
 		args cmds
 	)
 
-	p, err := arg.NewParser(arg.Config{Program: "dbc", EnvPrefix: "DBC_"}, &args)
+	p, err := newParser(&args)
 	if err != nil {
 		fmt.Println("Error creating argument parser:", err)
 		os.Exit(1)
@@ -168,7 +226,7 @@ func main() {
 			fmt.Println(dbc.Version)
 			os.Exit(0)
 		default:
-			p.FailSubcommand(err.Error(), p.SubcommandNames()...)
+			failSubcommandAndSuggest(p, err.Error(), p.SubcommandNames()...)
 		}
 	}
 
@@ -200,7 +258,8 @@ func main() {
 	// }
 	// defer f.Close()
 
-	if !isatty.IsTerminal(os.Stdout.Fd()) {
+	_, needsRenderer := m.(NeedsRenderer)
+	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else if args.Quiet {
 		// Quiet still prints stderr as GNU standard is to suppress "usual" output
@@ -216,11 +275,23 @@ func main() {
 
 	if !args.Quiet {
 		if fo, ok := m.(HasFinalOutput); ok {
-			fmt.Print(fo.FinalOutput())
+			if output := fo.FinalOutput(); output != "" {
+				// Use lipgloss.Println instead of fmt.Println so that
+				// ANSI codes are automatically stripped when stdout is
+				// not a terminal (e.g. piping to less or grep).
+				lipgloss.Println(output)
+			}
 		}
 	}
 
 	if h, ok := m.(HasStatus); ok {
+		if err := h.Err(); err != nil {
+			lipgloss.Println(formatErr(err))
+		}
 		os.Exit(h.Status())
 	}
+}
+
+func newParser(args *cmds) (*arg.Parser, error) {
+	return arg.NewParser(arg.Config{Program: "dbc", EnvPrefix: "DBC_"}, args)
 }

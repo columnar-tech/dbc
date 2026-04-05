@@ -26,6 +26,7 @@ set -u
 
 APP_NAME="dbc"
 APP_VERSION="latest"
+REQUESTED_VERSION=""
 if [ -n "${DBC_INSTALLER_BASE_URL:-}" ]; then
     INSTALLER_BASE_URL="$DBC_INSTALLER_BASE_URL"
 else
@@ -111,6 +112,11 @@ USAGE:
     dbc-installer.sh [OPTIONS]
 
 OPTIONS:
+    --version <VERSION>
+            Install a specific version (e.g., --version 0.2.0 or --version v0.2.0)
+            Accepts semantic versions with or without 'v' prefix, or 'latest'
+            Defaults to 'latest' if not specified
+
     -v, --verbose
             Enable verbose output
 
@@ -119,6 +125,12 @@ OPTIONS:
 
     -h, --help
             Print help information
+
+EXAMPLES:
+    install.sh                    # Install latest version
+    install.sh --version 0.2.0    # Install version 0.2.0
+    install.sh --version v0.2.0   # Install version 0.2.0 (v prefix stripped)
+    install.sh --version latest   # Install latest version
 EOF
 }
 
@@ -134,47 +146,91 @@ download_binary_and_run_installer() {
     need_cmd grep
     need_cmd cat
 
-    for arg in "$@"; do
-        case "$arg" in
+    # Parse arguments
+    while [ $# -gt 0 ]; do
+        case "$1" in
             --help)
                 usage
                 exit 0
                 ;;
             --quiet)
                 PRINT_QUIET=1
+                shift
                 ;;
             --verbose)
                 PRINT_VERBOSE=1
+                shift
                 ;;
-            *)
-                OPTIND=1
-                if [ "${arg%%--*}" = "" ]; then
-                    err "unknown option $arg"
+            --version)
+                if [ -z "${2:-}" ]; then
+                    err "--version requires a value"
                 fi
-                while getopts :hvq sub_arg "$arg"; do
+                REQUESTED_VERSION="$2"
+                shift 2
+                ;;
+            -*)
+                # Handle short options
+                OPTIND=1
+                while getopts :hvq sub_arg "$1"; do
                     case "$sub_arg" in
                         h)
                             usage
                             exit 0
                             ;;
                         v)
-                            # user wants to skip the prompt --
-                            # we don't need /dev/tty
                             PRINT_VERBOSE=1
                             ;;
                         q)
-                            # user wants to skip the prompt --
-                            # we don't need /dev/tty
                             PRINT_QUIET=1
                             ;;
                         *)
                             err "unknown option -$OPTARG"
                             ;;
-                        esac
+                    esac
                 done
+                shift
+                ;;
+            *)
+                err "unknown argument: $1"
                 ;;
         esac
     done
+
+    # Process and validate requested version
+    if [ -n "$REQUESTED_VERSION" ]; then
+        # Normalize version string: strip 'v' or 'V' prefix if present
+        case "$REQUESTED_VERSION" in
+            v*|V*)
+                REQUESTED_VERSION="${REQUESTED_VERSION#[vV]}"
+                ;;
+        esac
+
+        # Validate version format
+        # Valid formats: 'latest' or semantic version (e.g., 0.2.0, 1.0.0-beta)
+        case "$REQUESTED_VERSION" in
+            latest)
+                # 'latest' is valid
+                ;;
+            [0-9]*.[0-9]*.[0-9]*)
+                # Semantic version format: digits.digits.digits with optional suffix
+                # This catches: 0.2.0, 1.0.0, 1.0.0-beta, 1.0.0-rc.1, etc.
+                ;;
+            *)
+                err "invalid version format: '$REQUESTED_VERSION'
+Valid formats:
+  - 'latest' for the latest version
+  - Semantic version like '0.2.0' or '1.0.0'
+  - Semantic version with suffix like '1.0.0-beta' or '1.0.0-rc.1'"
+                ;;
+        esac
+
+        APP_VERSION="$REQUESTED_VERSION"
+
+        # Update download URL if version was specified
+        if [ -z "${DBC_DOWNLOAD_URL:-}" ] && [ -z "${INSTALLER_DOWNLOAD_URL:-}" ]; then
+            ARTIFACT_DOWNLOAD_URL="${INSTALLER_BASE_URL}/${APP_VERSION}"
+        fi
+    fi
 
     get_architecture || return 1
     local _true_arch="$RETVAL"
@@ -1374,21 +1430,33 @@ downloader() {
     else _dld='curl or wget' # to be used in error message of need_cmd
     fi
 
+    SUCCESS=0
+    HTTP_STATUS=0
     if [ "$1" = --check ]
     then need_cmd "$_dld"
     elif [ "$_dld" = curl ]; then
         if [ -n "${AUTH_TOKEN:-}" ]; then
-            curl -sSfL --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -o "$2"
+            HTTP_STATUS=$(curl -sSfL --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -o "$2" -w "%{http_code}" 2> /dev/null)
+            SUCCESS=$?
         else
-            curl -sSfL "$1" -o "$2"
+            HTTP_STATUS=$(curl -sSfL "$1" -o "$2" -w "%{http_code}" 2> /dev/null)
+            SUCCESS=$?
         fi
     elif [ "$_dld" = wget ]; then
         if [ -n "${AUTH_TOKEN:-}" ]; then
-            wget --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -O "$2"
+            HTTP_STATUS=$(wget -NS --header "Authorization: Bearer ${AUTH_TOKEN}" "$1" -O "$2" 2>&1 | grep "HTTP/" | awk '{print $2}')
+            SUCCESS=$?
         else
-            wget "$1" -O "$2"
+            HTTP_STATUS=$(wget -NS "$1" -O "$2" 2>&1 | grep "HTTP/" | awk '{print $2}')
+            SUCCESS=$?
         fi
     else err "Unknown downloader"   # should not reach here
+    fi
+
+    if [ "$SUCCESS" -ne 0 ] || [ "$HTTP_STATUS" -eq 403 ]; then
+        say "Error: $APP_NAME ($APP_VERSION) is either not available or not available for your platform."
+        say "Double-check the version you've requested. Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
+        exit 1
     fi
 }
 
