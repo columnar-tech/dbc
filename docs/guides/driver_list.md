@@ -62,6 +62,32 @@ When run, the `add` command automatically checks that a driver matching the patt
 
 If you look closely at the above output, you'll notice that it's telling you to run `dbc sync` to install the driver(s) in the list. This is because `dbc add` only modifies the driver list and you need to use `dbc sync` to actually install the driver you just added.
 
+### Adding Multiple Drivers
+
+{{ since_version('v0.2.0') }}
+
+You can add multiple drivers in a single command:
+
+```console
+$ dbc add mysql snowflake
+added mysql to driver list
+added snowflake to driver list
+use `dbc sync` to install the drivers in the list
+$ cat dbc.toml
+[drivers]
+[drivers.mysql]
+[drivers.snowflake]
+```
+
+Version constraints can be specified for each driver individually:
+
+```console
+$ dbc add "mysql=0.1.0" "snowflake>=1.0.0"
+added mysql to driver list with constraint =0.1.0
+added snowflake to driver list with constraint >=1.0.0
+use `dbc sync` to install the drivers in the list
+```
+
 ## Synchronizing
 
 Use `dbc sync` to ensure that all the drivers in a driver list are installed:
