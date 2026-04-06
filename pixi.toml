@@ -44,4 +44,4 @@ cairo = ">=1.18.4,<2"
 
 [feature.docs.tasks]
 docs-build = "mkdocs build"
-docs-serve = "mkdocs serve"
+docs-serve = "mkdocs serve --livereload"
