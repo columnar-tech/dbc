@@ -54,7 +54,8 @@ type removeModel struct {
 	Driver string
 	Path   string
 
-	list DriversList
+	list   DriversList
+	result string
 }
 
 func (m removeModel) Init() tea.Cmd {
@@ -107,13 +108,21 @@ func (m removeModel) Init() tea.Cmd {
 func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case string:
-		return m, tea.Sequence(tea.Println(msg), tea.Quit)
+		m.result = msg
+		return m, tea.Quit
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
 
 		return m, cmd
 	}
+}
+
+func (m removeModel) FinalOutput() string {
+	if m.status != 0 {
+		return ""
+	}
+	return m.result
 }
 
 func (m removeModel) View() tea.View { return tea.NewView("") }
