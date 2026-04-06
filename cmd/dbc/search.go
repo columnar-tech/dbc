@@ -139,6 +139,14 @@ func viewDrivers(d []dbc.Driver, verbose bool, allowPre bool) string {
 	current := config.Get()
 	installedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
+	hasRegistryTags := false
+	for _, driver := range d {
+		if driver.Registry.Name != "" {
+			hasRegistryTags = true
+			break
+		}
+	}
+
 	l := list.New()
 	t := table.New().Border(lipgloss.HiddenBorder()).
 		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false)
@@ -154,12 +162,17 @@ func viewDrivers(d []dbc.Driver, verbose bool, allowPre bool) string {
 
 		var regTag string
 		if driver.Registry.Name != "" {
-			regTag = registryStyle.Render(" [" + driver.Registry.Name + "]")
+			regTag = registryStyle.Render("[" + driver.Registry.Name + "]")
 		}
 
 		if !verbose {
-			t.Row(nameStyle.Render(driver.Path)+regTag,
-				descStyle.Render(driver.Desc), suffix)
+			if hasRegistryTags {
+				t.Row(nameStyle.Render(driver.Path), regTag,
+					descStyle.Render(driver.Desc), suffix)
+			} else {
+				t.Row(nameStyle.Render(driver.Path),
+					descStyle.Render(driver.Desc), suffix)
+			}
 			continue
 		}
 
@@ -187,7 +200,11 @@ func viewDrivers(d []dbc.Driver, verbose bool, allowPre bool) string {
 			versionTree.Child(v)
 		}
 
-		l.Item(nameStyle.Render(driver.Path) + regTag).Item(
+		nameLabel := nameStyle.Render(driver.Path)
+		if regTag != "" {
+			nameLabel += " " + regTag
+		}
+		l.Item(nameLabel).Item(
 			list.New(bold.Render("Title: ")+descStyle.Render(driver.Title), bold.Render("Description: ")+descStyle.Render(driver.Desc),
 				bold.Render("License: ")+driver.License,
 				installedVersionTree,

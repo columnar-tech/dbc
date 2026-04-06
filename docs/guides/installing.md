@@ -37,8 +37,8 @@ redshift           An ADBC driver for Amazon Redshift developed by Columnar
 snowflake          An ADBC driver for Snowflake developed under the Apache Software Foundation
 sqlite             An ADBC driver for SQLite developed under the Apache Software Foundation
 trino              An ADBC Driver for Trino developed by the ADBC Driver Foundry
-oracle [private]   An ADBC driver for Oracle Database developed by Columnar
-teradata [private] An ADBC driver for Teradata developed by Columnar
+oracle     [private] An ADBC driver for Oracle Database developed by Columnar
+teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 
 The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.
