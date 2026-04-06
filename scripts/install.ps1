@@ -207,7 +207,7 @@ function Download($download_url, $platforms) {
                 + "Double-check the version you've requested. Please create an issue at https://github.com/columnar-tech/dbc/issues or contact support@columnar.tech for assistance."
         }
         throw "Error: Failed to download $url. HTTP Status Code: $statusCode"
-    }    
+    }
 
     Write-Verbose "Unpacking to $tmp"
 

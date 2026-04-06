@@ -31,7 +31,7 @@ metadata:
     - "Columnar <hello@columnar.tech>"
 
 git:
-  tag_sort: smartsemver  
+  tag_sort: smartsemver
 
 builds:
   - main: ./cmd/dbc
@@ -321,7 +321,7 @@ homebrew_casks:
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://columnar.tech/dbc"
     description: "The command line tool for installing and managing ADBC drivers"
-    skip_upload: auto # auto skips prereleases    
+    skip_upload: auto # auto skips prereleases
     completions:
       bash: dbc.bash
       zsh: dbc.zsh

@@ -254,7 +254,7 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
 dbc can install drivers from local archives as an alternative for users who can't or don't want to install from a [Driver Registry](../concepts/driver_registry.md). This is meant for advanced use cases and requires understanding the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) spec and loading process.
 
-To install from a local archive, pass the path to a local archive insted of a name and set the `--no-verify` flag to skip signature verification:
+To install from a local archive, pass the path to a local archive instead of a name and set the `--no-verify` flag to skip signature verification:
 
 ```console
 $ dbc install --no-verify some_driver.tar.gz
