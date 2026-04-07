@@ -30,7 +30,7 @@ func (suite *SubcommandTestSuite) TestInfo() {
 		"License: MIT\nDescription: This is a test driver\n"+
 		"Available Packages:\n"+
 		"   - linux_amd64\n   - macos_amd64\n"+
-		"   - macos_arm64\n   - windows_amd64\n", out)
+		"   - macos_arm64\n   - windows_amd64", out)
 }
 
 func (suite *SubcommandTestSuite) TestInfo_DriverNotFound() {
