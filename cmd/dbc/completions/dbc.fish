@@ -31,7 +31,7 @@ complete -c dbc -n '__fish_dbc_needs_command' -l quiet -s q -d 'Suppress all out
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'install' -d 'Install a driver'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'uninstall' -d 'Uninstall a driver'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'init' -d 'Create new driver list'
-complete -f -c dbc -n '__fish_dbc_needs_command' -a 'add' -d 'Add a driver to the driver list'
+complete -f -c dbc -n '__fish_dbc_needs_command' -a 'add' -d 'Add one or more drivers to the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'sync' -d 'Install all drivers in the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'search' -d 'Search for drivers'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver from the driver list'

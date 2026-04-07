@@ -16,7 +16,7 @@ function _dbc {
                 'install[Install a driver]' \
                 'uninstall[Uninstall a driver]' \
                 'init[Create new driver list]' \
-                'add[Add a driver to the driver list]' \
+                'add[Add one or more drivers to the driver list]' \
                 'sync[Install all drivers in the driver list]' \
                 'search[Search for drivers]' \
                 'info[Get detailed information about a specific driver]' \
