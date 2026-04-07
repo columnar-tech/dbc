@@ -20,9 +20,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Masterminds/semver/v3"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -42,7 +42,7 @@ func driverListPath(path string) (string, error) {
 }
 
 type AddCmd struct {
-	Driver []string `arg:"positional,required" help:"Driver to add"`
+	Driver []string `arg:"positional,required" help:"One or more drivers to add, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
 	Pre    bool     `arg:"--pre" help:"Allow pre-release versions implicitly"`
 }
