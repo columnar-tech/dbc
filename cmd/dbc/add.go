@@ -75,6 +75,7 @@ type addModel struct {
 	Path   string
 	Pre    bool
 	list   DriversList
+	result string
 }
 
 func (m addModel) Init() tea.Cmd {
@@ -212,13 +213,21 @@ func (m addModel) Init() tea.Cmd {
 func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case string:
-		return m, tea.Sequence(tea.Println(msg), tea.Quit)
+		m.result = msg
+		return m, tea.Quit
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
 
 		return m, cmd
 	}
+}
+
+func (m addModel) FinalOutput() string {
+	if m.status != 0 {
+		return ""
+	}
+	return m.result
 }
 
 func (m addModel) View() tea.View { return tea.NewView("") }

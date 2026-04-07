@@ -142,7 +142,9 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 		m, err = p.Run()
 		require.NoError(t, err)
 		assert.Equal(t, 0, m.(HasStatus).Status())
-		assert.Contains(t, out.String(), "old constraint: any; new constraint: >=1.0.0")
+		if fo, ok := m.(HasFinalOutput); ok {
+			assert.Contains(t, fo.FinalOutput(), "old constraint: any; new constraint: >=1.0.0")
+		}
 
 		data, err := os.ReadFile(filepath.Join(dir, "dbc.toml"))
 		require.NoError(t, err)
@@ -408,4 +410,61 @@ func (suite *SubcommandTestSuite) TestAddCompleteRegistryFailure() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "error getting driver list")
 	suite.Contains(out, "network unreachable")
+}
+
+func (suite *SubcommandTestSuite) TestAddOutput() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "added test-driver-1 to driver list")
+	suite.Contains(out, "use `dbc sync` to install the drivers in the list")
+}
+
+func (suite *SubcommandTestSuite) TestAddMultipleOutput() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1", "test-driver-2"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "added test-driver-1 to driver list")
+	suite.Contains(out, "added test-driver-2 to driver list")
+	suite.Contains(out, "use `dbc sync` to install the drivers in the list")
+}
+
+func (suite *SubcommandTestSuite) TestAddReplacingDriverOutput() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add driver without constraint
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	// Add same driver with constraint and verify replacement message
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1>=1.0.0"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "replacing existing driver test-driver-1")
+	suite.Contains(out, "old constraint: any; new constraint: >=1.0.0")
+	suite.Contains(out, "added test-driver-1 to driver list")
+	suite.Contains(out, "with constraint >=1.0.0")
 }
