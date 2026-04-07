@@ -179,7 +179,7 @@ $ dbc init [PATH]
 
 ## add
 
-Add a driver to a current [driver list](../concepts/driver_list.md).
+Add one or more drivers to the current [driver list](../concepts/driver_list.md).
 
 <h3>Usage</h3>
 
@@ -191,7 +191,7 @@ $ dbc add <DRIVER>
 
 `DRIVER`
 
-:   Name of the driver to add. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`.
+:   Name of one or more drivers to add. Can be a short driver name or a driver name with version requirement. Examples: `bigquery`, `bigquery=1.0.0`, `bigquery>1`.
 
 <h3>Options</h3>
 
