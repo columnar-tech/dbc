@@ -288,6 +288,13 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 
 		pkg, err := d.GetPackage(nil, config.PlatformTuple(), m.Pre)
 		if err != nil {
+			if !m.Pre && !d.HasNonPrerelease() {
+				for _, cfg := range config.Get() {
+					if di, ok := cfg.Drivers[driverName]; ok && di.Version != nil && di.Version.Prerelease() != "" {
+						return fmt.Errorf("driver `%s` is already installed (version %s); only pre-release versions are available for this driver; to update, use: dbc install --pre %s", driverName, di.Version, driverName)
+					}
+				}
+			}
 			return err
 		}
 
