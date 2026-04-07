@@ -98,7 +98,7 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := s.run(m)
-	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath+"\n", out)
+	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
 
 	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
 	s.Require().NoError(err)
@@ -119,7 +119,7 @@ func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := s.run(m)
-	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath+"\n", out)
+	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
 
 	s.clearRegistry()
 
@@ -127,7 +127,7 @@ func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	m = InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out = s.run(m)
-	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath+"\n", out)
+	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
 }
 
 func TestRegistryKeyHandling(t *testing.T) {

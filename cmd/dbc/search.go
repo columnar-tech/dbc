@@ -339,7 +339,7 @@ func (m searchModel) FinalOutput() string {
 	if !m.outputJson && m.registryErrors != nil && len(m.finalDrivers) > 0 {
 		warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 		output += "\n" + warningStyle.Render("Warning: ") + "Some driver registries were unavailable:\n"
-		output += m.registryErrors.Error() + "\n"
+		output += m.registryErrors.Error()
 	}
 
 	return output

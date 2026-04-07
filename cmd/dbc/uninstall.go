@@ -70,7 +70,7 @@ func (m uninstallModel) FinalOutput() string {
 	if m.jsonOutput {
 		return fmt.Sprintf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver)
 	}
-	return fmt.Sprintf("Driver `%s` uninstalled successfully!\n", m.Driver)
+	return fmt.Sprintf("Driver `%s` uninstalled successfully!", m.Driver)
 }
 
 func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

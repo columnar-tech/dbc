@@ -164,7 +164,7 @@ func (m docsModel) FinalOutput() string {
 		} else {
 			docName = m.driver + " driver"
 		}
-		return fmt.Sprintf("%s docs are available at the following URL:\n%s\n", docName, m.urlToOpen)
+		return fmt.Sprintf("%s docs are available at the following URL:\n%s", docName, m.urlToOpen)
 	}
 	return ""
 }

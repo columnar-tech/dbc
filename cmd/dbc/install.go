@@ -210,7 +210,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 				return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
 					m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 			}
-			return fmt.Sprintf("\nDriver %s %s already installed at %s\n",
+			return fmt.Sprintf("\nDriver %s %s already installed at %s",
 				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 		}
 	}
@@ -250,11 +250,11 @@ func (m progressiveInstallModel) FinalOutput() string {
 			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", output.Conflict)
 		}
 
-		fmt.Fprintf(&b, "\nInstalled %s %s to %s\n",
+		fmt.Fprintf(&b, "\nInstalled %s %s to %s",
 			output.Driver, output.Version, output.Location)
 
 		if output.Message != "" {
-			b.WriteString("\n" + postMsgStyle.Render(output.Message) + "\n")
+			b.WriteString("\n\n" + postMsgStyle.Render(output.Message))
 		}
 	}
 	return b.String()

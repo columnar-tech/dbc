@@ -91,7 +91,7 @@ func formatDriverInfo(drv dbc.Driver) string {
 		b.WriteString("   - " + descStyle.Render(pkg.PlatformTuple) + "\n")
 	}
 
-	return b.String()
+	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func driverInfoJSON(drv dbc.Driver) string {
