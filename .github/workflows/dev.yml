@@ -12,29 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: Dev PR
+name: Dev
 
 on:
-  pull_request_target:
-    types: [opened, edited, synchronize, ready_for_review, review_requested]
+  pull_request: {}
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
-  check-pr-title:
-    name: Check PR Title
+  pre-commit-hooks:
+    name: Run pre-commit hooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          node-version: '18'
-      - name: Install commitlint
-        run: |
-          npm install @commitlint/cli @commitlint/config-conventional
-      - name: Check PR title follows conventional commits spec
-        run: |
-          echo "${{ github.event.pull_request.title }}" | npx commitlint --extends @commitlint/config-conventional
+          python-version: '3.x'
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Cache pre-commit
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit
+        run: pre-commit run --all-files --color=always --show-diff-on-failure --verbose
