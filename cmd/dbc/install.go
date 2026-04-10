@@ -213,7 +213,7 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 
 func (m progressiveInstallModel) Preamble() string {
 	if m.isLocal {
-		return "Installing from local package: " + m.localPackagePath + "\n"
+		return "Installing from local package: " + m.localPackagePath + "\n\n"
 	}
 	return ""
 }

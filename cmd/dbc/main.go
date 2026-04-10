@@ -268,6 +268,8 @@ func main() {
 	// defer f.Close()
 
 	_, needsRenderer := m.(NeedsRenderer)
+	// Work around https://github.com/columnar-tech/dbc/issues/351
+	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else if args.Quiet {
@@ -275,6 +277,7 @@ func main() {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr))
 	} else {
 		prog = tea.NewProgram(m)
+		usedRenderer = true
 	}
 
 	if !args.Quiet {
@@ -288,6 +291,11 @@ func main() {
 	if m, err = prog.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error running program:", err)
 		os.Exit(1)
+	}
+
+	// Work around https://github.com/columnar-tech/dbc/issues/351
+	if usedRenderer {
+		suppressTerminalProbeResponses()
 	}
 
 	if !args.Quiet {
