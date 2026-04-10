@@ -372,7 +372,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case localInstallMsg:
 		m.isLocal = true
 		return m, tea.Sequence(
-			tea.Printf("Installing from local package: %s\n", m.Driver),
+			// tea.Printf("Installing from local package: %s\n", m.Driver),
 			func() tea.Msg {
 				localDrv, err := os.Open(m.Driver)
 				if err != nil {
