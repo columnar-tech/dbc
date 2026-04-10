@@ -66,14 +66,21 @@ func (InstallCmd) Description() string {
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
+	isLocal := strings.HasSuffix(c.Driver, ".tar.gz") || strings.HasSuffix(c.Driver, ".tgz")
+	localPackagePath := ""
+	if isLocal {
+		localPackagePath = c.Driver
+	}
 	return progressiveInstallModel{
-		Driver:     c.Driver,
-		NoVerify:   c.NoVerify,
-		jsonOutput: c.Json,
-		Pre:        c.Pre,
-		spinner:    s,
-		cfg:        getConfig(c.Level),
-		baseModel:  baseModel,
+		Driver:           c.Driver,
+		NoVerify:         c.NoVerify,
+		jsonOutput:       c.Json,
+		Pre:              c.Pre,
+		spinner:          s,
+		cfg:              getConfig(c.Level),
+		baseModel:        baseModel,
+		isLocal:          isLocal,
+		localPackagePath: localPackagePath,
 		p: dbc.NewFileProgress(
 			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
@@ -174,8 +181,9 @@ type progressiveInstallModel struct {
 	spinner spinner.Model
 	p       dbc.FileProgressModel
 
-	width, height int
-	isLocal       bool
+	width, height    int
+	isLocal          bool
+	localPackagePath string // original path for display; only set when isLocal=true
 
 	registryErrors error // Store registry errors for better error messages
 }
@@ -201,6 +209,13 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 			err:     err,
 		}
 	})
+}
+
+func (m progressiveInstallModel) Preamble() string {
+	if m.isLocal {
+		return "Installing from local package: " + m.localPackagePath + "\n"
+	}
+	return ""
 }
 
 func (m progressiveInstallModel) FinalOutput() string {
@@ -371,15 +386,16 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.searchForDriver(msg)
 	case localInstallMsg:
 		m.isLocal = true
-		return m, tea.Sequence(
-			// tea.Printf("Installing from local package: %s\n", m.Driver),
-			func() tea.Msg {
-				localDrv, err := os.Open(m.Driver)
-				if err != nil {
-					return err
-				}
-				return localDrv
-			})
+		if m.localPackagePath == "" {
+			m.localPackagePath = m.Driver
+		}
+		return m, func() tea.Msg {
+			localDrv, err := os.Open(m.Driver)
+			if err != nil {
+				return err
+			}
+			return localDrv
+		}
 	case dbc.PkgInfo:
 		m.DriverPackage = msg
 		di, err := config.GetDriver(m.cfg, m.Driver)
