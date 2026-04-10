@@ -126,6 +126,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand auth' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand auth' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_auth_needs_subcommand' -a 'login' -d 'Authenticate with a driver registry'
 complete -f -c dbc -n '__fish_dbc_auth_needs_subcommand' -a 'logout' -d 'Log out from a driver registry'
+complete -f -c dbc -n '__fish_dbc_auth_needs_subcommand' -a 'license' -d 'Manage license files'
 
 # auth login subcommand
 complete -f -c dbc -n '__fish_dbc_auth_using_subcommand login' -s h -d 'Help'
@@ -136,3 +137,36 @@ complete -f -c dbc -n '__fish_dbc_auth_using_subcommand login' -l api-key -d 'Au
 complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -l purge -d 'Remove all local auth credentials for dbc'
+
+# Helper function to check if we need a license subcommand
+function __fish_dbc_auth_license_needs_subcommand
+    set -l cmd (commandline -opc)
+    if test (count $cmd) -eq 3
+        if test $cmd[2] = "auth" -a $cmd[3] = "license"
+            return 0
+        end
+    end
+    return 1
+end
+
+# Helper function to check if we're using a specific auth license subcommand
+function __fish_dbc_auth_license_using_subcommand
+    set -l cmd (commandline -opc)
+    if test (count $cmd) -gt 3
+        if test $cmd[2] = "auth" -a $cmd[3] = "license" -a $argv[1] = $cmd[4]
+            return 0
+        end
+    end
+    return 1
+end
+
+# auth license subcommand
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand license' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_using_subcommand license' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_license_needs_subcommand' -a 'install' -d 'Install a license file'
+
+# auth license install subcommand
+complete -f -c dbc -n '__fish_dbc_auth_license_using_subcommand install' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_license_using_subcommand install' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_auth_license_using_subcommand install' -l force -d 'Overwrite existing license and skip filename check'
+complete -c dbc -n '__fish_dbc_auth_license_using_subcommand install' -F -a '*.lic' -d 'License file to install'

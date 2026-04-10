@@ -262,9 +262,53 @@ func IsColumnarPrivateRegistry(u *url.URL) bool {
 }
 
 var (
-	ErrNoTrialLicense = errors.New("no trial license found")
-	ErrTrialExpired   = errors.New("trial license has expired")
+	ErrNoTrialLicense       = errors.New("no trial license found")
+	ErrTrialExpired         = errors.New("trial license has expired")
+	ErrLicenseWrongFilename = errors.New("source file is not named columnar.lic (use --force to override)")
+	ErrLicenseAlreadyExists = errors.New("license already exists (use --force to overwrite)")
 )
+
+func LicensePath() string {
+	return filepath.Join(filepath.Dir(credPath), "columnar.lic")
+}
+
+func InstallLicenseFromFile(srcPath string, force bool) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read license file: %w", err)
+	}
+	defer src.Close()
+
+	if !force && filepath.Base(srcPath) != "columnar.lic" {
+		return ErrLicenseWrongFilename
+	}
+
+	destPath := LicensePath()
+
+	if !force {
+		if _, err := os.Stat(destPath); err == nil {
+			return ErrLicenseAlreadyExists
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
+		return fmt.Errorf("failed to create credentials directory: %w", err)
+	}
+
+	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
+	if err != nil {
+		return fmt.Errorf("failed to write license file: %w", err)
+	}
+	defer dst.Close()
+
+	if _, err := dst.ReadFrom(src); err != nil {
+		dst.Close()
+		os.Remove(destPath)
+		return fmt.Errorf("failed to write license file: %w", err)
+	}
+
+	return nil
+}
 
 func FetchColumnarLicense(cred *Credential) error {
 	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
