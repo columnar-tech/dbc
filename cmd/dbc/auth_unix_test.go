@@ -21,9 +21,14 @@ import (
 	"path/filepath"
 
 	"github.com/columnar-tech/dbc/auth"
+	"github.com/columnar-tech/dbc/config"
 )
 
 func (suite *SubcommandTestSuite) TestLicenseInstallUnreadableSource() {
+	if suite.configLevel == config.ConfigSystem {
+		suite.T().Skip("file permission tests are not effective when running as root")
+	}
+
 	tmpDir := suite.T().TempDir()
 	credPath := filepath.Join(tmpDir, "credentials.toml")
 	restore := auth.SetCredPathForTesting(credPath)
@@ -44,6 +49,10 @@ func (suite *SubcommandTestSuite) TestLicenseInstallUnreadableSource() {
 }
 
 func (suite *SubcommandTestSuite) TestLicenseInstallUnwritableTarget() {
+	if suite.configLevel == config.ConfigSystem {
+		suite.T().Skip("file permission tests are not effective when running as root")
+	}
+
 	tmpDir := suite.T().TempDir()
 	// Point credPath into an unwritable directory
 	unwritableDir := filepath.Join(tmpDir, "readonly")
