@@ -25,3 +25,4 @@ Check out the following pages for conceptual information on ADBC fundamentals:
 There's also a concept page for dbc's driver list functionality:
 
 - [Driver List](./driver_list.md)
+- [Driver Registry](./driver_registry.md)

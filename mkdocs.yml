@@ -47,6 +47,8 @@ nav:
       - Driver Managers: guides/driver_manager.md
       - Python Notebooks: guides/python_notebooks.md
       - Private Drivers: guides/private_drivers.md
+      - Continuous Integration: guides/continuous_integration.md
+      - Version Control: guides/version_control.md
   - Concepts:
       - concepts/index.md
       - Driver: concepts/driver.md
@@ -147,6 +149,9 @@ plugins:
           - guides/driver_list.md: Using driver lists for reproducible setups
           - guides/driver_manager.md: Working with driver managers
           - guides/python_notebooks.md: Using dbc in Python notebooks
+          - guides/private_drivers.md: Using private drivers
+          - guides/continuous_integration.md: Using dbc in CI/CD pipelines
+          - guides/version_control.md: Using dbc with version control
         Concepts:
           - concepts/driver.md: What is an ADBC driver
           - concepts/driver_manager.md: Understanding driver managers
