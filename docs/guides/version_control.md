@@ -18,9 +18,9 @@ limitations under the License.
 
 When using dbc in projects where version control software such as [git](https://git-scm.com) is being used, we recommend the following:
 
-- Use a [driver list](../concepts/driver_list.md) to record drivers and their version constraints instead of installing drivers manually with `dbc install`
-- Track `dbc.toml` with version control and use always use `dbc sync` to install drivers after checkout
-- To maximize reproducibility, also track `dbc.lock`
+- Use a [driver list](../concepts/driver_list.md) to record drivers and their version constraints instead of installing drivers manually with [`dbc install`](./installing.md)
+- Track `dbc.toml` with version control and always use `dbc sync` to install drivers after checkout
+- To maximize reproducibility, also track [`dbc.lock`](./driver_list.md#lockfile)
 - Don't track installed driver directories with version control, use `dbc.toml` instead
 
 ## Example Workflow

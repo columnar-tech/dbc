@@ -272,7 +272,7 @@ Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Driv
 
 ## GitHub Actions
 
-To use dbc with [GitHub Actions](https://docs.github.com/en/actions), we recommend the official [`columnar-tech/setup-dbc`](https://github.com/columnar-tech/setup-dbc) action.
+To use dbc with [GitHub Actions](https://docs.github.com/en/actions), we recommend the official [`columnar-tech/setup-dbc`](https://github.com/columnar-tech/setup-dbc) action. See the [Continuous Integration](./continuous_integration.md) guide for more detail and examples.
 
 ## Uninstalling Drivers
 
