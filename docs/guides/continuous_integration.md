@@ -20,7 +20,7 @@ dbc works well in non-interactive environments such as on continuous integration
 
 ## GitHub Actions
 
-We recommend using the [columnar-tech/setup-dbc](https://github.com/columanr-tech/setup-dbc) action if you're using [GitHub Actions](https://docs.github.com/en/actions) for CI.
+We recommend using the [columnar-tech/setup-dbc](https://github.com/columnar-tech/setup-dbc) action if you're using [GitHub Actions](https://docs.github.com/en/actions) for CI.
 
 As an example, here's a workflow that automatically installs all drivers listed in your [driver list](../concepts/driver_list.md) before running your tests:
 
@@ -41,13 +41,13 @@ jobs:
         run: pytest ...
 ```
 
-See the [columnar-tech/setup-dbc README](https://github.com/columanr-tech/setup-dbc) for usage information and more examples.
+See the [columnar-tech/setup-dbc README](https://github.com/columnar-tech/setup-dbc) for usage information and more examples.
 
 ## Other CI Systems
 
 To use dbc with other CI systems, we recommend using our command line installers because they will always install the latest version of dbc for whatever platform you run them on.
 
-As an example for you to adapt to your system, here's an GitHub Actions workflow that installs and makes dbc available without using [columnar-tech/setup-dbc](https://github.com/columnar-tech/dbc):
+As an example for you to adapt to your system, here's a GitHub Actions workflow that installs and makes dbc available without using [columnar-tech/setup-dbc](https://github.com/columnar-tech/setup-dbc):
 
 {% raw %}
 ```yaml
