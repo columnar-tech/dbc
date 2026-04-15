@@ -273,12 +273,6 @@ func LicensePath() string {
 }
 
 func InstallLicenseFromFile(srcPath string, force bool) error {
-	src, err := os.Open(srcPath)
-	if err != nil {
-		return fmt.Errorf("failed to read license file: %w", err)
-	}
-	defer src.Close()
-
 	if !force && filepath.Base(srcPath) != "columnar.lic" {
 		return ErrLicenseWrongFilename
 	}
@@ -291,19 +285,16 @@ func InstallLicenseFromFile(srcPath string, force bool) error {
 		}
 	}
 
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to read license file: %w", err)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
 		return fmt.Errorf("failed to create credentials directory: %w", err)
 	}
 
-	dst, err := os.OpenFile(destPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
-	if err != nil {
-		return fmt.Errorf("failed to write license file: %w", err)
-	}
-	defer dst.Close()
-
-	if _, err := dst.ReadFrom(src); err != nil {
-		dst.Close()
-		os.Remove(destPath)
+	if err := os.WriteFile(destPath, data, 0o600); err != nil {
 		return fmt.Errorf("failed to write license file: %w", err)
 	}
 
