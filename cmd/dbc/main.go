@@ -250,6 +250,9 @@ func main() {
 	case *AuthCmd:
 		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 		os.Exit(2)
+	case *LicenseCmd:
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(2)
 	case *completions.Cmd: // "dbc completions" without specifying the shell type
 		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 		os.Exit(2)

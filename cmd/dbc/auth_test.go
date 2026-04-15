@@ -328,3 +328,135 @@ func (suite *SubcommandTestSuite) TestLogoutCmdInvalidURL() {
 	// The error will occur when trying to remove credentials
 	suite.Contains(out, "Error:")
 }
+
+func (suite *SubcommandTestSuite) TestLicenseInstallFileNotFound() {
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+
+	cmd := LicenseInstallCmd{LicensePath: "/nonexistent/columnar.lic"}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "failed to read license file")
+}
+
+func (suite *SubcommandTestSuite) TestLicenseInstallWrongFilename() {
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "creds", "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+
+	// Create a source file with wrong name
+	srcFile := filepath.Join(tmpDir, "my-license.lic")
+	suite.Require().NoError(os.WriteFile(srcFile, []byte("license-data"), 0o600))
+
+	cmd := LicenseInstallCmd{LicensePath: srcFile}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "--force")
+}
+
+func (suite *SubcommandTestSuite) TestLicenseInstallWrongFilenameWithForce() {
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "creds", "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+
+	srcFile := filepath.Join(tmpDir, "my-license.lic")
+	suite.Require().NoError(os.WriteFile(srcFile, []byte("license-data"), 0o600))
+
+	cmd := LicenseInstallCmd{LicensePath: srcFile, Force: true}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "License installed")
+
+	installed, err := os.ReadFile(auth.LicensePath())
+	suite.Require().NoError(err)
+	suite.Equal("license-data", string(installed))
+}
+
+func (suite *SubcommandTestSuite) TestLicenseInstallAlreadyExists() {
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+
+	// Create existing license at destination
+	suite.Require().NoError(os.WriteFile(filepath.Join(tmpDir, "columnar.lic"), []byte("old"), 0o600))
+
+	// Create source file
+	srcFile := filepath.Join(suite.T().TempDir(), "columnar.lic")
+	suite.Require().NoError(os.WriteFile(srcFile, []byte("new"), 0o600))
+
+	cmd := LicenseInstallCmd{LicensePath: srcFile}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "--force")
+}
+
+func (suite *SubcommandTestSuite) TestLicenseInstallAlreadyExistsWithForce() {
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+
+	// Create existing license at destination
+	suite.Require().NoError(os.WriteFile(filepath.Join(tmpDir, "columnar.lic"), []byte("old"), 0o600))
+
+	// Create source file
+	srcFile := filepath.Join(suite.T().TempDir(), "columnar.lic")
+	suite.Require().NoError(os.WriteFile(srcFile, []byte("new"), 0o600))
+
+	cmd := LicenseInstallCmd{LicensePath: srcFile, Force: true}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "License installed")
+
+	installed, err := os.ReadFile(auth.LicensePath())
+	suite.Require().NoError(err)
+	suite.Equal("new", string(installed))
+}
+
+func (suite *SubcommandTestSuite) TestLicenseInstallHappyPath() {
+	tmpDir := suite.T().TempDir()
+	credPath := filepath.Join(tmpDir, "credentials.toml")
+	restore := auth.SetCredPathForTesting(credPath)
+	defer restore()
+
+	srcFile := filepath.Join(suite.T().TempDir(), "columnar.lic")
+	suite.Require().NoError(os.WriteFile(srcFile, []byte("license-data"), 0o600))
+
+	cmd := LicenseInstallCmd{LicensePath: srcFile}
+	m := cmd.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg:       downloadTestPkg,
+	})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "License installed")
+
+	installed, err := os.ReadFile(auth.LicensePath())
+	suite.Require().NoError(err)
+	suite.Equal("license-data", string(installed))
+}

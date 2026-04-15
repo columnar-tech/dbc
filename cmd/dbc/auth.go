@@ -33,8 +33,18 @@ import (
 )
 
 type AuthCmd struct {
-	Login  *LoginCmd  `arg:"subcommand" help:"Authenticate with a driver registry"`
-	Logout *LogoutCmd `arg:"subcommand" help:"Log out from a driver registry"`
+	Login   *LoginCmd   `arg:"subcommand" help:"Authenticate with a driver registry"`
+	Logout  *LogoutCmd  `arg:"subcommand" help:"Log out from a driver registry"`
+	License *LicenseCmd `arg:"subcommand" help:"Manage license files"`
+}
+
+type LicenseCmd struct {
+	Install *LicenseInstallCmd `arg:"subcommand" help:"Install a license file"`
+}
+
+type LicenseInstallCmd struct {
+	LicensePath string `arg:"positional,required" help:"Path to the license file to install"`
+	Force       bool   `arg:"--force" help:"Overwrite existing license and skip filename check"`
 }
 
 type LoginCmd struct {
@@ -306,3 +316,60 @@ func (m logoutModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m logoutModel) View() tea.View { return tea.NewView("") }
+
+func (l LicenseInstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return licenseInstallModel{
+		baseModel:   baseModel,
+		licensePath: l.LicensePath,
+		force:       l.Force,
+	}
+}
+
+func (l LicenseInstallCmd) GetModel() tea.Model {
+	return l.GetModelCustom(
+		baseModel{
+			getDriverRegistry: getDriverRegistry,
+			downloadPkg:       downloadPkg,
+		},
+	)
+}
+
+type licenseInstalledMsg struct{}
+
+type licenseInstallModel struct {
+	baseModel
+
+	licensePath string
+	force       bool
+	installed   bool
+}
+
+func (m licenseInstallModel) Init() tea.Cmd {
+	return func() tea.Msg {
+		if err := auth.InstallLicenseFromFile(m.licensePath, m.force); err != nil {
+			return err
+		}
+		return licenseInstalledMsg{}
+	}
+}
+
+func (m licenseInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case licenseInstalledMsg:
+		m.installed = true
+		return m, tea.Quit
+	}
+
+	base, cmd := m.baseModel.Update(msg)
+	m.baseModel = base.(baseModel)
+	return m, cmd
+}
+
+func (m licenseInstallModel) FinalOutput() string {
+	if !m.installed {
+		return ""
+	}
+	return "License installed to " + auth.LicensePath()
+}
+
+func (m licenseInstallModel) View() tea.View { return tea.NewView("") }

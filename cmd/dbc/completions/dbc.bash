@@ -270,7 +270,7 @@ _dbc_auth_completions() {
         if [[ "$cur" == -* ]]; then
             COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
         else
-            COMPREPLY=($(compgen -W "login logout" -- "$cur"))
+            COMPREPLY=($(compgen -W "login logout license" -- "$cur"))
         fi
         return 0
     fi
@@ -284,6 +284,9 @@ _dbc_auth_completions() {
             ;;
         logout)
             _dbc_auth_logout_completions
+            ;;
+        license)
+            _dbc_auth_license_completions
             ;;
         *)
             COMPREPLY=()
@@ -325,6 +328,50 @@ _dbc_auth_logout_completions() {
 
     # Registry URL completion (no specific completion available)
     COMPREPLY=()
+}
+
+_dbc_auth_license_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # If we're at position 3 (right after "license"), suggest subcommands
+    if [[ $COMP_CWORD -eq 3 ]]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "-h --help" -- "$cur"))
+        else
+            COMPREPLY=($(compgen -W "install" -- "$cur"))
+        fi
+        return 0
+    fi
+
+    local license_subcommand="${COMP_WORDS[3]}"
+
+    case "$license_subcommand" in
+        install)
+            _dbc_auth_license_install_completions
+            ;;
+        *)
+            COMPREPLY=()
+            ;;
+    esac
+}
+
+_dbc_auth_license_install_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --help --force" -- "$cur"))
+        return 0
+    fi
+
+    # Complete .lic files
+    COMPREPLY=($(compgen -f -X '!*.lic' -- "$cur"))
+    if [[ -d "$cur" ]]; then
+        COMPREPLY+=($(compgen -d -- "$cur"))
+    fi
 }
 
 # Register the completion function

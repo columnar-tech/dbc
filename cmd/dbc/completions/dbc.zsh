@@ -173,7 +173,8 @@ function _dbc_auth_completions {
         auth_subcommand)
             _values "auth subcommand" \
                 'login[Authenticate with a driver registry]' \
-                'logout[Log out from a driver registry]'
+                'logout[Log out from a driver registry]' \
+                'license[Manage license files]'
         ;;
         auth_args)
             case $line[1] in
@@ -182,6 +183,9 @@ function _dbc_auth_completions {
                 ;;
                 logout)
                     _dbc_auth_logout_completions
+                ;;
+                license)
+                    _dbc_auth_license_completions
                 ;;
             esac
         ;;
@@ -202,6 +206,38 @@ function _dbc_auth_logout_completions {
         '(-h)--help[Help]' \
         '--purge[Remove all local auth credentials for dbc]' \
         ':registry URL: '
+}
+
+function _dbc_auth_license_completions {
+    local line state
+
+    _arguments -C \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        "1: :->license_subcommand" \
+        "*::arg:->license_args"
+
+    case $state in
+        license_subcommand)
+            _values "license subcommand" \
+                'install[Install a license file]'
+        ;;
+        license_args)
+            case $line[1] in
+                install)
+                    _dbc_auth_license_install_completions
+                ;;
+            esac
+        ;;
+    esac
+}
+
+function _dbc_auth_license_install_completions {
+    _arguments \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        '--force[Overwrite existing license and skip filename check]' \
+        ':license file:_files -g \*.lic'
 }
 
 # don't run the completion function when being source-d or eval-d
