@@ -210,6 +210,43 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPre() {
 			"test-driver-docs-url         This is manifest-only with its docs_url key set                                                                                   ", suite.runCmd(m))
 }
 
+func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalledPre() {
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	// Verbose search WITHOUT --pre: installed pre-release driver should still appear
+	m = SearchCmd{Verbose: true}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "test-driver-only-pre")
+	suite.Contains(out, "Test Driver Only Prerelease")
+	suite.Contains(out, "Installed Versions:")
+	suite.Contains(out, "0.9.0-alpha.1")
+	suite.Contains(out, "test-driver-1")
+	suite.Contains(out, "test-driver-2")
+}
+
+func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPreJSON() {
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	// JSON search WITHOUT --pre: installed pre-release driver should still appear
+	m = SearchCmd{Json: true}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.Contains(out, `"test-driver-only-pre"`)
+	suite.Contains(out, `"installed"`)
+	suite.Contains(out, `0.9.0-alpha.1`)
+	suite.Contains(out, `"test-driver-1"`)
+	suite.Contains(out, `"test-driver-2"`)
+}
+
 func (suite *SubcommandTestSuite) TestSearchCmdPartialRegistryFailure() {
 	// Test that search command handles partial registry failure gracefully
 	// (one registry succeeds, another fails - returns both drivers and error)

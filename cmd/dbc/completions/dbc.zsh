@@ -124,7 +124,7 @@ function _dbc_search_completions {
         '(-h)--help[Help]' \
         '-v[verbose]' \
         '--json[Print output as JSON instead of plaintext]' \
-        '--pre[Include pre-release drivers and versions (hidden by default)]' \
+        '--pre[Include pre-release drivers and versions (hidden by default unless already installed)]' \
         ':search term: '
 }
 

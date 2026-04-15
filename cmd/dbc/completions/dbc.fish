@@ -75,7 +75,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s v -d 'Verbose'
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l json -d 'Print output as JSON instead of plaintext'
-complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l pre -d 'Include pre-release drivers and versions (hidden by default)'
+complete -f -c dbc -n '__fish_dbc_using_subcommand search' -l pre -d 'Include pre-release drivers and versions (hidden by default unless already installed)'
 
 # remove subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand remove' -s h -d 'Help'
