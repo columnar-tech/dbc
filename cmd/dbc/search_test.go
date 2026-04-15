@@ -211,40 +211,50 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPre() {
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalledPre() {
+	searchModel := SearchCmd{Verbose: true}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: downloadTestPkg})
+	before := suite.runCmd(searchModel)
+	suite.NotContains(before, "test-driver-only-pre")
+
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
-	// Verbose search WITHOUT --pre: installed pre-release driver should still appear
-	m = SearchCmd{Verbose: true}.GetModelCustom(
+	searchModel = SearchCmd{Verbose: true}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	out := suite.runCmd(m)
+	after := suite.runCmd(searchModel)
 
-	suite.Contains(out, "test-driver-only-pre")
-	suite.Contains(out, "Test Driver Only Prerelease")
-	suite.Contains(out, "Installed Versions:")
-	suite.Contains(out, "0.9.0-alpha.1")
-	suite.Contains(out, "test-driver-1")
-	suite.Contains(out, "test-driver-2")
+	suite.Contains(after, "test-driver-only-pre")
+	suite.Contains(after, "Test Driver Only Prerelease")
+	suite.Contains(after, "Installed Versions:")
+	suite.Contains(after, "0.9.0-alpha.1")
+	suite.Contains(after, "test-driver-1")
+	suite.Contains(after, "test-driver-2")
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPreJSON() {
+	searchModel := SearchCmd{Json: true}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: downloadTestPkg})
+	before := suite.runCmd(searchModel)
+	suite.NotContains(before, `"test-driver-only-pre"`)
+
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
-	// JSON search WITHOUT --pre: installed pre-release driver should still appear
-	m = SearchCmd{Json: true}.GetModelCustom(
+	searchModel = SearchCmd{Json: true}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
 			downloadPkg: downloadTestPkg})
-	out := suite.runCmd(m)
+	after := suite.runCmd(searchModel)
 
-	suite.Contains(out, `"test-driver-only-pre"`)
-	suite.Contains(out, `"installed"`)
-	suite.Contains(out, `0.9.0-alpha.1`)
-	suite.Contains(out, `"test-driver-1"`)
-	suite.Contains(out, `"test-driver-2"`)
+	suite.Contains(after, `"test-driver-only-pre"`)
+	suite.Contains(after, `"installed"`)
+	suite.Contains(after, `0.9.0-alpha.1`)
+	suite.Contains(after, `"test-driver-1"`)
+	suite.Contains(after, `"test-driver-2"`)
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdPartialRegistryFailure() {
