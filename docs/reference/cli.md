@@ -328,7 +328,6 @@ $ dbc docs <DRIVER>
 ```console
 $ dbc auth login
 $ dbc auth logout
-$ dbc auth license install
 ```
 
 <h3>Subcommands</h3>
@@ -368,23 +367,3 @@ $ dbc auth license install
     !!! warning
 
         ADBC drivers that require a license (i.e., private drivers) will stop working after you run this command. You can re-download your license with `dbc auth login`. See [Downloading Your License](../guides/private_drivers.md#downloading-your-license).
-
-### license
-
-<h3>Subcommands</h3>
-
-#### install
-
-Install a license file to the dbc credentials directory.
-
-<h3>Arguments</h3>
-
-`LICENSEPATH`
-
-:   Path to the license file to install.
-
-<h3>Options</h3>
-
-`--force`
-
-:   Overwrite an existing license and skip the filename check.
