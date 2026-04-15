@@ -57,6 +57,15 @@ type HasFinalOutput interface {
 	FinalOutput() string
 }
 
+// HasPreamble is implemented by models that want to print text to stdout before
+// the TUI renderer starts. This is a workaround for a regression in bubbletea
+// v2 where tea.Println calls inside a model's Update() destroys scrollback. It
+// might be this issue: https://github.com/charmbracelet/bubbletea/issues/1571
+// or https://github.com/charmbracelet/bubbletea/issues/1613.
+type HasPreamble interface {
+	Preamble() string
+}
+
 type HasStatus interface {
 	Status() int
 	Err() error
@@ -259,6 +268,8 @@ func main() {
 	// defer f.Close()
 
 	_, needsRenderer := m.(NeedsRenderer)
+	// Work around https://github.com/columnar-tech/dbc/issues/351
+	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
 	} else if args.Quiet {
@@ -266,11 +277,25 @@ func main() {
 		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr))
 	} else {
 		prog = tea.NewProgram(m)
+		usedRenderer = true
+	}
+
+	if !args.Quiet {
+		if hp, ok := m.(HasPreamble); ok {
+			if preamble := hp.Preamble(); preamble != "" {
+				lipgloss.Print(preamble)
+			}
+		}
 	}
 
 	if m, err = prog.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error running program:", err)
 		os.Exit(1)
+	}
+
+	// Work around https://github.com/columnar-tech/dbc/issues/351
+	if usedRenderer {
+		suppressTerminalProbeResponses()
 	}
 
 	if !args.Quiet {
