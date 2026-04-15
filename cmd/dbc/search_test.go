@@ -234,6 +234,28 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalledPre() {
 	suite.Contains(after, "test-driver-2")
 }
 
+func (suite *SubcommandTestSuite) TestSearchCmdNonVerboseWithInstalledPre() {
+	searchModel := SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: downloadTestPkg})
+	before := suite.runCmd(searchModel)
+	suite.NotContains(before, "test-driver-only-pre")
+
+	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	searchModel = SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: downloadTestPkg})
+	after := suite.runCmd(searchModel)
+
+	suite.Contains(after, "test-driver-only-pre")
+	suite.Contains(after, "[installed: env=>0.9.0-alpha.1]")
+	suite.Contains(after, "test-driver-1")
+	suite.Contains(after, "test-driver-2")
+}
+
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPreJSON() {
 	searchModel := SearchCmd{Json: true}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry,
