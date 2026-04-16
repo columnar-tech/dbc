@@ -135,6 +135,7 @@ func (c *Client) getDriverListFromIndex(index *Registry) ([]Driver, error) {
 	return result, nil
 }
 
+// Search searches for drivers matching the given pattern across all registries.
 func (c *Client) Search(pattern string) ([]Driver, error) {
 	var (
 		allDrivers []Driver
@@ -203,6 +204,7 @@ func (c *Client) downloadPackage(pkg PkgInfo) (*os.File, error) {
 	return output, nil
 }
 
+// Install installs a driver with the given name to the specified configuration.
 func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest, error) {
 	drivers, err := c.Search(driverName)
 	if err != nil {
@@ -244,6 +246,7 @@ func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest
 	return &manifest, nil
 }
 
+// Uninstall uninstalls a driver with the given name from the specified configuration.
 func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 	di, err := config.GetDriver(cfg, driverName)
 	if err != nil {

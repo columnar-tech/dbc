@@ -36,7 +36,6 @@ import (
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
-	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
 )
@@ -61,10 +60,6 @@ func mustParseURL(u string) *url.URL {
 }
 
 var (
-	registries = []Registry{
-		{BaseURL: mustParseURL("https://dbc-cdn.columnar.tech")},
-		{BaseURL: mustParseURL("https://" + auth.DefaultOauthURI())},
-	}
 	Version = "unknown"
 	mid     string
 	uid     uuid.UUID
@@ -98,12 +93,6 @@ func init() {
 
 func ensureSetup() {
 	setupOnce.Do(func() {
-		if val := os.Getenv("DBC_BASE_URL"); val != "" {
-			registries = []Registry{
-				{BaseURL: mustParseURL(val)},
-			}
-		}
-
 		userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
 			Version, runtime.GOOS, runtime.GOARCH)
 
@@ -218,65 +207,6 @@ func makereq(u string) (resp *http.Response, err error) {
 
 	return resp, err
 }
-
-func getDriverListFromIndex(index *Registry) ([]Driver, error) {
-	resp, err := makereq(index.BaseURL.JoinPath("/index.yaml").String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		// ignore registries we aren't authorized to access
-		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("failed to fetch drivers: %s", resp.Status)
-	}
-
-	defer resp.Body.Close()
-	drivers := struct {
-		Name    string   `yaml:"name"`
-		Drivers []Driver `yaml:"drivers"`
-	}{}
-
-	err = yaml.NewDecoder(resp.Body).Decode(&drivers)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse driver registry index: %s", err)
-	}
-
-	if drivers.Name != "" {
-		index.Name = drivers.Name
-	}
-
-	// Set registry reference
-	for i := range drivers.Drivers {
-		drivers.Drivers[i].Registry = index
-	}
-
-	result := drivers.Drivers
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Path < result[j].Path
-	})
-
-	return result, nil
-}
-
-var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	var totalErr error
-	allDrivers := make([]Driver, 0)
-	for i := range registries {
-		drivers, err := getDriverListFromIndex(&registries[i])
-		if err != nil {
-			totalErr = errors.Join(totalErr, fmt.Errorf("registry %s: %w", registries[i].BaseURL, err))
-			continue
-		}
-		registries[i].Drivers = drivers
-		allDrivers = append(allDrivers, drivers...)
-	}
-
-	return allDrivers, totalErr
-})
 
 //go:embed columnar.pubkey
 var armoredPubKey string
@@ -517,7 +447,11 @@ func (d Driver) MaxVersion() pkginfo {
 //
 // Deprecated: Use NewClient and Client.Search instead.
 func GetDriverList() ([]Driver, error) {
-	c, err := NewClient(WithHTTPClient(getHTTPClient()))
+	opts := []Option{}
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		opts = append(opts, WithBaseURL(val))
+	}
+	c, err := NewClient(append(opts, WithHTTPClient(getHTTPClient()))...)
 	if err != nil {
 		return nil, err
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 )
 
+// WithCredential sets a specific credential to use for all requests.
 func WithCredential(cred *auth.Credential) Option {
 	return func(cfg *clientConfig) {
 		cfg.credentialResolver = func(_ *url.URL) (*auth.Credential, error) {
@@ -28,6 +29,7 @@ func WithCredential(cred *auth.Credential) Option {
 	}
 }
 
+// WithAuthFromFilesystem configures the client to read credentials from the filesystem.
 func WithAuthFromFilesystem() Option {
 	return func(cfg *clientConfig) {
 		cfg.credentialResolver = auth.GetCredentials
@@ -41,10 +43,12 @@ func (c *Client) getCredential(u *url.URL) (*auth.Credential, error) {
 	return c.credentialResolver(u)
 }
 
+// Login saves a credential for the given registry.
 func (c *Client) Login(cred *auth.Credential) error {
 	return auth.AddCredential(*cred, true)
 }
 
+// Logout removes the credential for the given registry URL.
 func (c *Client) Logout(registryURL *url.URL) error {
 	return auth.RemoveCredential(auth.Uri(*registryURL))
 }

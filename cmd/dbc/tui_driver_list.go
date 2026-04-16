@@ -121,7 +121,7 @@ func (m model) View() tea.View {
 type versionOption semver.Version
 
 func (v versionOption) FilterValue() string { return v.String() }
-func (v versionOption) String() string      { return v.String() }
+func (v versionOption) String() string      { return semver.Version(v).String() }
 
 type versionModel struct {
 	list   list.Model

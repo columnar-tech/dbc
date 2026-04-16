@@ -39,6 +39,7 @@ type clientConfig struct {
 
 type Option func(*clientConfig)
 
+// Client is a driver registry client for searching and managing ADBC drivers.
 type Client struct {
 	httpClient         *http.Client
 	registries         []Registry
@@ -49,6 +50,7 @@ type Client struct {
 	credentialResolver func(*url.URL) (*auth.Credential, error)
 }
 
+// NewClient creates a new driver registry client with the given options.
 func NewClient(opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
 		registries: []Registry{
@@ -117,21 +119,29 @@ func (c *Client) setup() {
 }
 
 func (c *Client) HTTPClient() *http.Client { return c.httpClient }
-func (c *Client) Registries() []Registry   { return c.registries }
-func (c *Client) UserAgent() string        { return c.userAgent }
 
+// Registries returns the list of driver registries configured for this client.
+func (c *Client) Registries() []Registry { return c.registries }
+
+// UserAgent returns the user agent string used by this client.
+func (c *Client) UserAgent() string { return c.userAgent }
+
+// WithHTTPClient sets the HTTP client to use for requests.
 func WithHTTPClient(hc *http.Client) Option {
 	return func(cfg *clientConfig) { cfg.httpClient = hc }
 }
 
+// WithRegistries sets the driver registries to use.
 func WithRegistries(r []Registry) Option {
 	return func(cfg *clientConfig) { cfg.registries = r }
 }
 
+// WithBaseURL sets the base URL for the driver registry.
 func WithBaseURL(u string) Option {
 	return func(cfg *clientConfig) { cfg.baseURL = u }
 }
 
+// WithUserAgent sets the user agent string for requests.
 func WithUserAgent(ua string) Option {
 	return func(cfg *clientConfig) { cfg.userAgent = ua }
 }

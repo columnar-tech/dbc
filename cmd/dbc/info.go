@@ -46,10 +46,9 @@ func (c InfoCmd) GetModel() tea.Model {
 type infoModel struct {
 	baseModel
 
-	driver         string
-	jsonOutput     bool
-	drv            dbc.Driver
-	registryErrors error // Store registry errors for better error messages
+	driver     string
+	jsonOutput bool
+	drv        dbc.Driver
 }
 
 func (m infoModel) Init() tea.Cmd {

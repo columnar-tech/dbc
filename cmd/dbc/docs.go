@@ -67,13 +67,12 @@ func (c DocsCmd) GetModel() tea.Model {
 type docsModel struct {
 	baseModel
 
-	driver         string
-	drv            *dbc.Driver
-	urlToOpen      string
-	noOpen         bool
-	fallbackUrls   map[string]string
-	openBrowser    func(string) error
-	registryErrors error // Store registry errors for better error messages
+	driver       string
+	drv          *dbc.Driver
+	urlToOpen    string
+	noOpen       bool
+	fallbackUrls map[string]string
+	openBrowser  func(string) error
 }
 
 func (m docsModel) Init() tea.Cmd {

@@ -16,18 +16,22 @@ package dbc
 
 import "github.com/columnar-tech/dbc/config"
 
+// GetConfig returns the configuration at the specified level.
 func (c *Client) GetConfig(level config.ConfigLevel) config.Config {
 	return config.Get()[level]
 }
 
+// ListInstalled returns a list of installed drivers at the specified configuration level.
 func (c *Client) ListInstalled(level config.ConfigLevel) ([]config.DriverInfo, error) {
 	return config.FindDriverConfigs(level), nil
 }
 
+// GetDriver retrieves driver information from the given configuration.
 func (c *Client) GetDriver(cfg config.Config, name string) (config.DriverInfo, error) {
 	return config.GetDriver(cfg, name)
 }
 
+// CreateManifest creates a manifest file for the given driver configuration.
 func (c *Client) CreateManifest(cfg config.Config, di config.DriverInfo) error {
 	return config.CreateManifest(cfg, di)
 }
