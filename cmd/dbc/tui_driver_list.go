@@ -18,21 +18,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Masterminds/semver/v3"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
 
 const defaultWidth = 40
 
-var (
-	docStyle          = lipgloss.NewStyle().Margin(1, 2)
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
-)
+var docStyle = lipgloss.NewStyle().Margin(1, 2)
 
 type item struct {
 	d dbc.Driver
@@ -91,7 +87,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.chooseVersion = versionModel{
-					list:   list.New(versions, dbc.SimpleItemDelegate{Prompt: ">"}, 40, 15),
+					list:   list.New(versions, SimpleItemDelegate{Prompt: ">"}, 40, 15),
 					choice: "",
 				}
 				m.chooseVersion.list.Title = fmt.Sprintf("Versions for %s", i.d.Title)

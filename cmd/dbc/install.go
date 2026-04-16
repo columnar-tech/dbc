@@ -81,7 +81,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		baseModel:        baseModel,
 		isLocal:          isLocal,
 		localPackagePath: localPackagePath,
-		p: dbc.NewFileProgress(
+		p: NewFileProgress(
 			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
 			progress.WithoutPercentage(),
@@ -179,7 +179,7 @@ type progressiveInstallModel struct {
 
 	state   installState
 	spinner spinner.Model
-	p       dbc.FileProgressModel
+	p       FileProgressModel
 
 	width, height    int
 	isLocal          bool

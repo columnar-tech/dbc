@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package config
+package main
 
 import (
 	"strings"
@@ -20,7 +20,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 )
 
 var (
@@ -35,10 +35,10 @@ var (
 			BorderStyle(lipgloss.HiddenBorder())
 )
 
-type Model struct {
+type configViewModel struct {
 	Prev tea.Model
 
-	Drivers []DriverInfo
+	Drivers []config.DriverInfo
 	list    list.Model
 }
 
@@ -46,7 +46,7 @@ var (
 	configStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
 )
 
-type driverItem DriverInfo
+type driverItem config.DriverInfo
 
 func (d driverItem) FilterValue() string { return d.ID }
 func (d driverItem) String() string {
@@ -65,7 +65,7 @@ func (d driverItem) View() string {
 	return configStyle.Render(sb.String())
 }
 
-func toListItems(drivers []DriverInfo) []list.Item {
+func toListItems(drivers []config.DriverInfo) []list.Item {
 	items := make([]list.Item, len(drivers))
 	for i, d := range drivers {
 		items[i] = driverItem(d)
@@ -73,17 +73,17 @@ func toListItems(drivers []DriverInfo) []list.Item {
 	return items
 }
 
-func (m Model) Init() tea.Cmd {
+func (m configViewModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		return append(FindDriverConfigs(ConfigUser),
-			FindDriverConfigs(ConfigSystem)...)
+		return append(config.FindDriverConfigs(config.ConfigUser),
+			config.FindDriverConfigs(config.ConfigSystem)...)
 	}
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m configViewModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case []DriverInfo:
-		m.list = list.New(toListItems(msg), dbc.SimpleItemDelegate{Prompt: ">"}, 20, 14)
+	case []config.DriverInfo:
+		m.list = list.New(toListItems(msg), SimpleItemDelegate{Prompt: ">"}, 20, 14)
 		m.list.Title = "Available Drivers"
 		m.list.SetShowStatusBar(false)
 		m.list.SetFilteringEnabled(false)
@@ -107,7 +107,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) View() tea.View {
+func (m configViewModel) View() tea.View {
 	var sb strings.Builder
 	sb.WriteString("DBC Driver Config\n\n")
 	// sb.WriteString(configStyle.Render("System Driver Directory:      "+systemDriversDir,
