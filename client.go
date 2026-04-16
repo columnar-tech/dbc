@@ -17,6 +17,7 @@ package dbc
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,21 +30,23 @@ import (
 )
 
 type clientConfig struct {
-	httpClient *http.Client
-	registries []Registry
-	userAgent  string
-	baseURL    string
+	httpClient         *http.Client
+	registries         []Registry
+	userAgent          string
+	baseURL            string
+	credentialResolver func(*url.URL) (*auth.Credential, error)
 }
 
 type Option func(*clientConfig)
 
 type Client struct {
-	httpClient *http.Client
-	registries []Registry
-	userAgent  string
-	mid        string
-	uid        uuid.UUID
-	setupOnce  sync.Once
+	httpClient         *http.Client
+	registries         []Registry
+	userAgent          string
+	mid                string
+	uid                uuid.UUID
+	setupOnce          sync.Once
+	credentialResolver func(*url.URL) (*auth.Credential, error)
 }
 
 func NewClient(opts ...Option) (*Client, error) {
@@ -73,10 +76,16 @@ func NewClient(opts ...Option) (*Client, error) {
 		cfg.registries = []Registry{{BaseURL: mustParseURL(cfg.baseURL)}}
 	}
 
+	credResolver := cfg.credentialResolver
+	if credResolver == nil {
+		credResolver = auth.GetCredentials
+	}
+
 	return &Client{
-		httpClient: httpClient,
-		registries: cfg.registries,
-		userAgent:  cfg.userAgent,
+		httpClient:         httpClient,
+		registries:         cfg.registries,
+		userAgent:          cfg.userAgent,
+		credentialResolver: credResolver,
 	}, nil
 }
 

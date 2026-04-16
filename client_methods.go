@@ -39,7 +39,7 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
 
-	cred, err := auth.GetCredentials(uri)
+	cred, err := c.getCredential(uri)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to read credentials: %w", err)
 	}
