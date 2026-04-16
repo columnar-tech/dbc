@@ -78,8 +78,15 @@ type NeedsRenderer interface {
 	NeedsRenderer()
 }
 
+var dbcClient *dbc.Client
+
 // use this so we can override this in tests
-var getDriverRegistry = dbc.GetDriverList
+var getDriverRegistry = func() ([]dbc.Driver, error) {
+	if dbcClient == nil {
+		return dbc.GetDriverList()
+	}
+	return dbcClient.Search("")
+}
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -216,6 +223,8 @@ func main() {
 	var (
 		args cmds
 	)
+
+	dbcClient, _ = dbc.NewClient()
 
 	p, err := newParser(&args)
 	if err != nil {
