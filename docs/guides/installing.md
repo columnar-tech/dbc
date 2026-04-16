@@ -270,6 +270,10 @@ Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Driv
 
     Make note of the name "some_driver" printed above as this will be the name to use when loading the driver with a [Driver Manager](../concepts/driver_manager.md). i.e., `dbapi.connect(driver="some_driver")`.
 
+## GitHub Actions
+
+To use dbc with [GitHub Actions](https://docs.github.com/en/actions), we recommend the official [`columnar-tech/setup-dbc`](https://github.com/columnar-tech/setup-dbc) action. See the [Continuous Integration](./continuous_integration.md) guide for more detail and examples.
+
 ## Uninstalling Drivers
 
 You can uninstall a driver with the `dbc uninstall` subcommand.

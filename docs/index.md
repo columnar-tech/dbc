@@ -923,7 +923,7 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 - Create reproducible environments with [driver list](concepts/driver_list.md) files
 - Cross-platform: Runs on macOS, Linux, and Windows
 - Installable with pip, Docker, and more (See [Installation](./getting_started/installation.md))
-- Works great in CI/CD environments
+- Works great in CI/CD environments (See [Continuous Integration](./guides/continuous_integration.md))
 
 ## Help
 
