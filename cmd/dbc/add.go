@@ -23,6 +23,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -95,6 +96,28 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
+		p, err := driverListPath(m.Path)
+		if err != nil {
+			return err
+		}
+		if preF, preErr := os.Open(p); preErr == nil {
+			var preList DriversList
+			if toml.NewDecoder(preF).Decode(&preList) == nil {
+				if len(preList.Registries) > 0 || preList.ReplaceDefaults {
+					var replace *bool
+					if preList.ReplaceDefaults {
+						t := true
+						replace = &t
+					}
+					if regErr := dbc.SetProjectRegistries(preList.Registries, replace); regErr != nil {
+						preF.Close()
+						return fmt.Errorf("error configuring project registries: %w", regErr)
+					}
+				}
+			}
+			preF.Close()
+		}
+
 		drivers, registryErr := m.getDriverRegistry()
 		// If we have no drivers and there's an error, fail immediately
 		if len(drivers) == 0 && registryErr != nil {
@@ -103,11 +126,6 @@ func (m addModel) Init() tea.Cmd {
 		// Store registry errors to use later if driver is not found
 		// We continue processing if we have some drivers
 		var registryErrors error = registryErr
-
-		p, err := driverListPath(m.Path)
-		if err != nil {
-			return err
-		}
 
 		f, err := os.Open(p)
 		if err != nil {

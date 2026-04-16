@@ -35,6 +35,14 @@ type GlobalConfig struct {
 	ReplaceDefaults bool            `toml:"replace_defaults"`
 }
 
+// defaultRegistries holds the built-in defaults, snapshotted by ConfigureRegistries
+// before any config-based merges. Used by SetProjectRegistries for proper re-merge.
+var defaultRegistries []Registry
+
+// globalConfig holds the loaded global config.toml (nil if not loaded).
+// Used by SetProjectRegistries to include global registries in the merge.
+var globalConfig *GlobalConfig
+
 func loadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	configPath := filepath.Join(configDir, "config.toml")
 	f, err := os.Open(configPath)
@@ -124,13 +132,13 @@ func mergeRegistries(
 	return result
 }
 
-// ConfigureRegistries loads the global registry config and merges it into the
-// active registry list. It is a no-op when DBC_BASE_URL is set (env var takes priority).
-// Errors from config loading are returned but don't prevent the program from running —
-// callers should warn and continue.
 func ConfigureRegistries(globalConfigDir string) error {
 	if os.Getenv("DBC_BASE_URL") != "" {
 		return nil
+	}
+	if defaultRegistries == nil {
+		defaultRegistries = make([]Registry, len(registries))
+		copy(defaultRegistries, registries)
 	}
 	cfg, err := loadGlobalConfig(globalConfigDir)
 	if err != nil {
@@ -139,6 +147,33 @@ func ConfigureRegistries(globalConfigDir string) error {
 	if cfg == nil {
 		return nil
 	}
-	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, registries)
+	globalConfig = cfg
+	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, defaultRegistries)
+	return nil
+}
+
+func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error {
+	if os.Getenv("DBC_BASE_URL") != "" {
+		return nil
+	}
+	for _, e := range entries {
+		if e.URL == "" {
+			return fmt.Errorf("registry entry has empty url")
+		}
+		if _, err := url.Parse(e.URL); err != nil {
+			return fmt.Errorf("invalid registry URL %q: %w", e.URL, err)
+		}
+	}
+	var globalRegs []RegistryEntry
+	var globalReplaceDefaults bool
+	if globalConfig != nil {
+		globalRegs = globalConfig.Registries
+		globalReplaceDefaults = globalConfig.ReplaceDefaults
+	}
+	base := defaultRegistries
+	if base == nil {
+		base = registries
+	}
+	registries = mergeRegistries(entries, replaceDefaults, globalRegs, globalReplaceDefaults, base)
 	return nil
 }

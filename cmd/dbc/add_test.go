@@ -443,6 +443,74 @@ func (suite *SubcommandTestSuite) TestAddMultipleOutput() {
 	suite.Contains(out, "use `dbc sync` to install the drivers in the list")
 }
 
+func (suite *SubcommandTestSuite) TestAddWithProjectRegistries() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	err := os.WriteFile(filepath.Join(suite.tempdir, "dbc.toml"), []byte(`# dbc driver list
+[[registries]]
+url = 'https://custom-registry.example.com'
+name = 'custom'
+
+[drivers]
+`), 0644)
+	suite.Require().NoError(err)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "added test-driver-1 to driver list")
+
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Contains(string(data), "[drivers.test-driver-1]")
+}
+
+func (suite *SubcommandTestSuite) TestAddWithProjectRegistriesBackwardCompat() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+	suite.Contains(out, "added test-driver-1 to driver list")
+
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Contains(string(data), "[drivers.test-driver-1]")
+}
+
+func (suite *SubcommandTestSuite) TestAddWithInvalidProjectRegistryURL() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	err := os.WriteFile(filepath.Join(suite.tempdir, "dbc.toml"), []byte(`# dbc driver list
+[[registries]]
+url = ''
+
+[drivers]
+[drivers.test-driver-1]
+`), 0644)
+	suite.Require().NoError(err)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "registry entry has empty url")
+}
+
 func (suite *SubcommandTestSuite) TestAddReplacingDriverOutput() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
