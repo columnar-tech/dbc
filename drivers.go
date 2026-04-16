@@ -69,9 +69,10 @@ var (
 	mid     string
 	uid     uuid.UUID
 
-	// use this default client for all requests,
-	// it will add the dbc user-agent to all requests
 	DefaultClient = http.DefaultClient
+
+	setupOnce      sync.Once
+	internalClient *http.Client
 )
 
 type uaRoundTripper struct {
@@ -90,59 +91,67 @@ func init() {
 	if ok && Version == "unknown" {
 		Version = info.Main.Version
 	}
+}
 
-	if val := os.Getenv("DBC_BASE_URL"); val != "" {
-		registries = []Registry{
-			{BaseURL: mustParseURL(val)},
+func ensureSetup() {
+	setupOnce.Do(func() {
+		if val := os.Getenv("DBC_BASE_URL"); val != "" {
+			registries = []Registry{
+				{BaseURL: mustParseURL(val)},
+			}
 		}
-	}
 
-	userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
-		Version, runtime.GOOS, runtime.GOARCH)
+		userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
+			Version, runtime.GOOS, runtime.GOARCH)
 
-	// many CI systems set CI=true in the env so let's check for that
-	if ci := os.Getenv("CI"); ci != "" {
-		if val, _ := strconv.ParseBool(ci); val {
-			userAgent += " CI"
+		if ci := os.Getenv("CI"); ci != "" {
+			if val, _ := strconv.ParseBool(ci); val {
+				userAgent += " CI"
+			}
 		}
-	}
 
-	DefaultClient.Transport = &uaRoundTripper{
-		RoundTripper: http.DefaultTransport,
-		userAgent:    userAgent,
-	}
+		internalClient = &http.Client{
+			Transport: &uaRoundTripper{
+				RoundTripper: http.DefaultTransport,
+				userAgent:    userAgent,
+			},
+		}
 
-	mid, _ = machineid.ProtectedID()
+		mid, _ = machineid.ProtectedID()
 
-	// get user config dir
-	userdir, err := internal.GetUserConfigPath()
-	if err != nil {
-		// if we can't get the dir for some reason, just generate a new UUID
-		uid = uuid.New()
-		return
-	}
-
-	fp := filepath.Join(userdir, "uid.uuid")
-	data, err := os.ReadFile(fp)
-	if err == nil {
-		if err = uid.UnmarshalBinary(data); err == nil {
+		userdir, err := internal.GetUserConfigPath()
+		if err != nil {
+			uid = uuid.New()
 			return
 		}
-	}
 
-	// if the file didn't exist or we couldn't parse it, generate a new uuid
-	// and then write a new file
-	uid = uuid.New()
-	// if we fail to create the dir or write the file, just ignore the error
-	// and use the fresh UUID
-	if err = os.MkdirAll(filepath.Dir(fp), 0o700); err == nil {
-		if data, err = uid.MarshalBinary(); err == nil {
-			os.WriteFile(fp, data, 0o600)
+		fp := filepath.Join(userdir, "uid.uuid")
+		data, err := os.ReadFile(fp)
+		if err == nil {
+			if err = uid.UnmarshalBinary(data); err == nil {
+				return
+			}
 		}
+
+		uid = uuid.New()
+		if err = os.MkdirAll(filepath.Dir(fp), 0o700); err == nil {
+			if data, err = uid.MarshalBinary(); err == nil {
+				os.WriteFile(fp, data, 0o600)
+			}
+		}
+	})
+}
+
+func getHTTPClient() *http.Client {
+	if DefaultClient != http.DefaultClient {
+		return DefaultClient
 	}
+	return internalClient
 }
 
 func makereq(u string) (resp *http.Response, err error) {
+	ensureSetup()
+
 	uri, err := url.Parse(u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
@@ -179,20 +188,19 @@ func makereq(u string) (resp *http.Response, err error) {
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
 	}
 
-	resp, err = DefaultClient.Do(&req)
+	resp, err = getHTTPClient().Do(&req)
 	if err != nil {
 		return
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		// Try refreshing the token
 		if !cred.Refresh() {
 			return nil, fmt.Errorf("failed to refresh auth token")
 		}
 
 		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
-		resp, err = DefaultClient.Do(&req)
+		resp, err = getHTTPClient().Do(&req)
 	}
 
 	switch resp.StatusCode {
@@ -503,6 +511,7 @@ func (d Driver) MaxVersion() pkginfo {
 }
 
 func GetDriverList() ([]Driver, error) {
+	ensureSetup()
 	return getDrivers()
 }
 
