@@ -123,3 +123,22 @@ func mergeRegistries(
 
 	return result
 }
+
+// ConfigureRegistries loads the global registry config and merges it into the
+// active registry list. It is a no-op when DBC_BASE_URL is set (env var takes priority).
+// Errors from config loading are returned but don't prevent the program from running —
+// callers should warn and continue.
+func ConfigureRegistries(globalConfigDir string) error {
+	if os.Getenv("DBC_BASE_URL") != "" {
+		return nil
+	}
+	cfg, err := loadGlobalConfig(globalConfigDir)
+	if err != nil {
+		return err
+	}
+	if cfg == nil {
+		return nil
+	}
+	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, registries)
+	return nil
+}

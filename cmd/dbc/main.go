@@ -28,6 +28,7 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/mattn/go-isatty"
 )
 
@@ -242,6 +243,12 @@ func main() {
 	if p.Subcommand() == nil {
 		p.WriteHelp(os.Stdout)
 		os.Exit(1)
+	}
+
+	if configDir, err := internal.GetUserConfigPath(); err == nil {
+		if err := dbc.ConfigureRegistries(configDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to load registry config: %v\n", err)
+		}
 	}
 
 	var m tea.Model

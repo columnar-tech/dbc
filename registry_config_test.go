@@ -17,6 +17,7 @@ package dbc
 import (
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -296,5 +297,85 @@ func TestMergeRegistries(t *testing.T) {
 		)
 		require.Len(t, result, 1)
 		assert.Equal(t, "good", result[0].Name)
+	})
+}
+
+func TestConfigureRegistries(t *testing.T) {
+	t.Run("valid config updates registries additively", func(t *testing.T) {
+		orig := registries
+		defer func() { registries = orig }()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
+[[registries]]
+url = "https://custom.example.com"
+name = "custom"
+`), 0600))
+
+		err := ConfigureRegistries(dir)
+		require.NoError(t, err)
+
+		assert.Greater(t, len(registries), len(orig))
+		assert.Equal(t, "https://custom.example.com", registries[0].BaseURL.String())
+	})
+
+	t.Run("missing config leaves defaults unchanged", func(t *testing.T) {
+		orig := registries
+		defer func() { registries = orig }()
+
+		dir := t.TempDir()
+		err := ConfigureRegistries(dir)
+		require.NoError(t, err)
+		assert.Equal(t, orig, registries)
+	})
+
+	t.Run("DBC_BASE_URL set makes ConfigureRegistries a no-op", func(t *testing.T) {
+		orig := registries
+		defer func() { registries = orig }()
+		t.Setenv("DBC_BASE_URL", "https://override.example.com")
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
+[[registries]]
+url = "https://custom.example.com"
+`), 0600))
+
+		err := ConfigureRegistries(dir)
+		require.NoError(t, err)
+		assert.Equal(t, orig, registries)
+	})
+
+	t.Run("invalid URL in config returns error", func(t *testing.T) {
+		orig := registries
+		defer func() { registries = orig }()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
+[[registries]]
+url = "http://bad url with spaces"
+`), 0600))
+
+		err := ConfigureRegistries(dir)
+		assert.Error(t, err)
+		assert.Equal(t, orig, registries)
+	})
+
+	t.Run("replace_defaults true omits defaults", func(t *testing.T) {
+		orig := registries
+		defer func() { registries = orig }()
+
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
+replace_defaults = true
+
+[[registries]]
+url = "https://custom.example.com"
+name = "custom"
+`), 0600))
+
+		err := ConfigureRegistries(dir)
+		require.NoError(t, err)
+		assert.Len(t, registries, 1)
+		assert.Equal(t, "https://custom.example.com", registries[0].BaseURL.String())
 	})
 }
