@@ -43,6 +43,14 @@ var defaultRegistries []Registry
 // Used by SetProjectRegistries to include global registries in the merge.
 var globalConfig *GlobalConfig
 
+func init() {
+	// Snapshot the built-in defaults at package initialization time so that
+	// SetProjectRegistries always has a stable base to merge against, even when
+	// ConfigureRegistries has not been called (e.g. in tests or non-CLI usage).
+	defaultRegistries = make([]Registry, len(registries))
+	copy(defaultRegistries, registries)
+}
+
 func loadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	configPath := filepath.Join(configDir, "config.toml")
 	f, err := os.Open(configPath)
@@ -146,10 +154,6 @@ func ConfigureRegistries(globalConfigDir string) error {
 	if os.Getenv("DBC_BASE_URL") != "" {
 		return nil
 	}
-	if defaultRegistries == nil {
-		defaultRegistries = make([]Registry, len(registries))
-		copy(defaultRegistries, registries)
-	}
 	cfg, err := loadGlobalConfig(globalConfigDir)
 	if err != nil {
 		return err
@@ -188,9 +192,6 @@ func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error 
 		globalReplaceDefaults = globalConfig.ReplaceDefaults
 	}
 	base := defaultRegistries
-	if base == nil {
-		base = registries
-	}
 	registries = mergeRegistries(entries, replaceDefaults, globalRegs, globalReplaceDefaults, base)
 	return nil
 }
