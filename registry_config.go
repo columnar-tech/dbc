@@ -63,8 +63,12 @@ func loadGlobalConfig(configDir string) (*GlobalConfig, error) {
 		if entry.URL == "" {
 			return nil, fmt.Errorf("registry entry in %s has empty url", configPath)
 		}
-		if _, err := url.Parse(entry.URL); err != nil {
+		u, err := url.Parse(entry.URL)
+		if err != nil {
 			return nil, fmt.Errorf("invalid registry URL %q in %s: %w", entry.URL, configPath, err)
+		}
+		if u.Host == "" {
+			return nil, fmt.Errorf("invalid registry URL %q in %s: missing host", entry.URL, configPath)
 		}
 	}
 
@@ -160,8 +164,12 @@ func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error 
 		if e.URL == "" {
 			return fmt.Errorf("registry entry has empty url")
 		}
-		if _, err := url.Parse(e.URL); err != nil {
+		u, err := url.Parse(e.URL)
+		if err != nil {
 			return fmt.Errorf("invalid registry URL %q: %w", e.URL, err)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("invalid registry URL %q: missing host", e.URL)
 		}
 	}
 	var globalRegs []RegistryEntry

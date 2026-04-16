@@ -101,6 +101,7 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 		if preF, preErr := os.Open(p); preErr == nil {
+			defer preF.Close()
 			var preList DriversList
 			if toml.NewDecoder(preF).Decode(&preList) == nil {
 				if len(preList.Registries) > 0 || preList.ReplaceDefaults {
@@ -110,12 +111,10 @@ func (m addModel) Init() tea.Cmd {
 						replace = &t
 					}
 					if regErr := dbc.SetProjectRegistries(preList.Registries, replace); regErr != nil {
-						preF.Close()
 						return fmt.Errorf("error configuring project registries: %w", regErr)
 					}
 				}
 			}
-			preF.Close()
 		}
 
 		drivers, registryErr := m.getDriverRegistry()

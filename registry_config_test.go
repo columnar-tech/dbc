@@ -303,7 +303,13 @@ func TestMergeRegistries(t *testing.T) {
 func TestConfigureRegistries(t *testing.T) {
 	t.Run("valid config updates registries additively", func(t *testing.T) {
 		orig := registries
-		defer func() { registries = orig }()
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		defer func() {
+			registries = orig
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		}()
 
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
@@ -321,7 +327,13 @@ name = "custom"
 
 	t.Run("missing config leaves defaults unchanged", func(t *testing.T) {
 		orig := registries
-		defer func() { registries = orig }()
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		defer func() {
+			registries = orig
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		}()
 
 		dir := t.TempDir()
 		err := ConfigureRegistries(dir)
@@ -331,7 +343,13 @@ name = "custom"
 
 	t.Run("DBC_BASE_URL set makes ConfigureRegistries a no-op", func(t *testing.T) {
 		orig := registries
-		defer func() { registries = orig }()
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		defer func() {
+			registries = orig
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		}()
 		t.Setenv("DBC_BASE_URL", "https://override.example.com")
 
 		dir := t.TempDir()
@@ -347,7 +365,13 @@ url = "https://custom.example.com"
 
 	t.Run("invalid URL in config returns error", func(t *testing.T) {
 		orig := registries
-		defer func() { registries = orig }()
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		defer func() {
+			registries = orig
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		}()
 
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
@@ -362,7 +386,13 @@ url = "http://bad url with spaces"
 
 	t.Run("replace_defaults true omits defaults", func(t *testing.T) {
 		orig := registries
-		defer func() { registries = orig }()
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		defer func() {
+			registries = orig
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		}()
 
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
@@ -377,5 +407,86 @@ name = "custom"
 		require.NoError(t, err)
 		assert.Len(t, registries, 1)
 		assert.Equal(t, "https://custom.example.com", registries[0].BaseURL.String())
+	})
+}
+
+func TestSetProjectRegistries(t *testing.T) {
+	saveAndRestore := func(t *testing.T) {
+		t.Helper()
+		origReg := registries
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		t.Cleanup(func() {
+			registries = origReg
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		})
+	}
+
+	t.Run("project registries prepended before defaults", func(t *testing.T) {
+		saveAndRestore(t)
+		defaultRegistries = []Registry{
+			{BaseURL: mustParseURL("https://default1.example.com")},
+		}
+		globalConfig = nil
+
+		err := SetProjectRegistries([]RegistryEntry{{URL: "https://project.example.com", Name: "project"}}, nil)
+		require.NoError(t, err)
+		require.Len(t, registries, 2)
+		assert.Equal(t, "https://project.example.com", registries[0].BaseURL.String())
+		assert.Equal(t, "https://default1.example.com", registries[1].BaseURL.String())
+	})
+
+	t.Run("project with global config merges correctly", func(t *testing.T) {
+		saveAndRestore(t)
+		defaultRegistries = []Registry{
+			{BaseURL: mustParseURL("https://default.example.com")},
+		}
+		globalConfig = &GlobalConfig{
+			Registries: []RegistryEntry{{URL: "https://global.example.com", Name: "global"}},
+		}
+
+		err := SetProjectRegistries([]RegistryEntry{{URL: "https://project.example.com", Name: "project"}}, nil)
+		require.NoError(t, err)
+		require.Len(t, registries, 3)
+		assert.Equal(t, "https://project.example.com", registries[0].BaseURL.String())
+		assert.Equal(t, "https://global.example.com", registries[1].BaseURL.String())
+		assert.Equal(t, "https://default.example.com", registries[2].BaseURL.String())
+	})
+
+	t.Run("replace_defaults true omits defaults", func(t *testing.T) {
+		saveAndRestore(t)
+		defaultRegistries = []Registry{
+			{BaseURL: mustParseURL("https://default.example.com")},
+		}
+		globalConfig = nil
+		replaceTrue := true
+		err := SetProjectRegistries([]RegistryEntry{{URL: "https://project.example.com"}}, &replaceTrue)
+		require.NoError(t, err)
+		require.Len(t, registries, 1)
+		assert.Equal(t, "https://project.example.com", registries[0].BaseURL.String())
+	})
+
+	t.Run("DBC_BASE_URL set makes SetProjectRegistries a no-op", func(t *testing.T) {
+		saveAndRestore(t)
+		t.Setenv("DBC_BASE_URL", "https://override.example.com")
+		orig := registries
+
+		err := SetProjectRegistries([]RegistryEntry{{URL: "https://project.example.com"}}, nil)
+		require.NoError(t, err)
+		assert.Equal(t, orig, registries)
+	})
+
+	t.Run("hostless URL returns error", func(t *testing.T) {
+		saveAndRestore(t)
+		err := SetProjectRegistries([]RegistryEntry{{URL: "my-registry"}}, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "missing host")
+	})
+
+	t.Run("empty URL returns error", func(t *testing.T) {
+		saveAndRestore(t)
+		err := SetProjectRegistries([]RegistryEntry{{URL: ""}}, nil)
+		assert.Error(t, err)
 	})
 }
