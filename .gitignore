@@ -49,3 +49,6 @@ cdn-dev
 .claude
 
 __pycache__
+
+# Sisyphus workflow artifacts (plans, evidence, notepads)
+.sisyphus/
