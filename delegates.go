@@ -29,6 +29,9 @@ var (
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
 )
 
+// SimpleItemDelegate implements list.ItemDelegate for use in bubbletea list components.
+//
+// Deprecated: This type has moved to cmd/dbc and will be removed from the public API in a future version.
 type SimpleItemDelegate struct {
 	Prompt string
 }

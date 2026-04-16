@@ -69,6 +69,9 @@ var (
 	mid     string
 	uid     uuid.UUID
 
+	// DefaultClient is the HTTP client used for all requests.
+	//
+	// Deprecated: Use NewClient with WithHTTPClient instead.
 	DefaultClient = http.DefaultClient
 
 	setupOnce      sync.Once
@@ -510,9 +513,15 @@ func (d Driver) MaxVersion() pkginfo {
 	})
 }
 
+// GetDriverList returns a list of all available drivers from all configured registries.
+//
+// Deprecated: Use NewClient and Client.Search instead.
 func GetDriverList() ([]Driver, error) {
-	ensureSetup()
-	return getDrivers()
+	c, err := NewClient(WithHTTPClient(getHTTPClient()))
+	if err != nil {
+		return nil, err
+	}
+	return c.Search("")
 }
 
 // SignedByColumnar returns nil if the library was signed by

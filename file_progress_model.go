@@ -21,6 +21,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// FileProgressModel tracks progress for file download operations.
+//
+// Deprecated: This type has moved to cmd/dbc and will be removed from the public API in a future version.
 type FileProgressModel struct {
 	progress.Model
 
@@ -28,6 +31,9 @@ type FileProgressModel struct {
 	written    int64
 }
 
+// NewFileProgress creates a new FileProgressModel with progress bar options.
+//
+// Deprecated: Use cmd/dbc internal instead.
 func NewFileProgress(opts ...progress.Option) FileProgressModel {
 	return FileProgressModel{Model: progress.New(opts...)}
 }
