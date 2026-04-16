@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/columnar-tech/dbc"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -41,17 +40,6 @@ type Manifest struct {
 	PostInstall struct {
 		Messages []string `toml:"messages,inline,omitempty"`
 	} `toml:"PostInstall,omitempty"`
-}
-
-func (m Manifest) ToPackageInfo() dbc.PkgInfo {
-	return dbc.PkgInfo{
-		Driver: dbc.Driver{
-			Title:   m.Name,
-			Path:    m.ID,
-			License: m.License,
-		},
-		Version: m.Version,
-	}
 }
 
 type DriverInfo struct {

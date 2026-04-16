@@ -32,6 +32,17 @@ import (
 	"github.com/columnar-tech/dbc/config"
 )
 
+func manifestToPackageInfo(m config.Manifest) dbc.PkgInfo {
+	return dbc.PkgInfo{
+		Driver: dbc.Driver{
+			Title:   m.Name,
+			Path:    m.ID,
+			License: m.License,
+		},
+		Version: m.Version,
+	}
+}
+
 func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 	driver = strings.TrimSpace(driver)
 	splitIdx := strings.IndexAny(driver, " ~^<>=!")
@@ -408,7 +419,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.startInstalling(msg)
 	case config.Manifest:
 		if m.DriverPackage.Version == nil {
-			m.DriverPackage = msg.ToPackageInfo()
+			m.DriverPackage = manifestToPackageInfo(msg)
 		}
 
 		m.state = stVerifying
