@@ -208,7 +208,7 @@ $ dbc search --pre
 
 Without `--pre`, `dbc search` will:
 
-- Hide drivers that have exclusively pre-release versions (no stable versions)
+- Hide drivers that have exclusively pre-release versions (no stable versions), unless the driver is already installed
 - Exclude pre-release versions from the available versions list
 
 With `--pre`, `dbc search` will:

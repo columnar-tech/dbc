@@ -73,7 +73,7 @@ $ dbc search [PATTERN]
 
 `--pre` {{ since_version('v0.2.0') }}
 
-:   Include pre-release drivers and versions (hidden by default)
+:   Include pre-release drivers and versions (hidden by default unless already installed)
 
 `--verbose`, `-v`
 
