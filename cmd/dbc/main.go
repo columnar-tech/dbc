@@ -80,11 +80,12 @@ type NeedsRenderer interface {
 
 var dbcClient *dbc.Client
 
+func init() {
+	dbcClient, _ = dbc.NewClient()
+}
+
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
-	if dbcClient == nil {
-		return dbc.GetDriverList()
-	}
 	return dbcClient.Search("")
 }
 

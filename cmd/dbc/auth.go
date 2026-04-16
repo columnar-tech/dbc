@@ -28,7 +28,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
-	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 )
 
@@ -139,7 +138,7 @@ func (m loginModel) authConfig() tea.Cmd {
 
 func (m loginModel) requestDeviceCode(cfg auth.OpenIDConfig) tea.Cmd {
 	return func() tea.Msg {
-		rsp, err := device.RequestCode(dbc.DefaultClient, cfg.DeviceAuthorizationEndpoint.String(),
+		rsp, err := device.RequestCode(dbcClient.HTTPClient(), cfg.DeviceAuthorizationEndpoint.String(),
 			m.oauthClientID, []string{"openid", "offline_access"})
 		if err != nil {
 			return fmt.Errorf("failed to request device code: %w", err)
@@ -188,7 +187,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tea.Println("Opening ", msg.VerificationURIComplete, " in your default web browser..."),
 			func() tea.Msg {
 				browser.OpenURL(msg.VerificationURIComplete)
-				accessToken, err := device.Wait(context.TODO(), dbc.DefaultClient, m.tokenURI.String(), device.WaitOptions{
+				accessToken, err := device.Wait(context.TODO(), dbcClient.HTTPClient(), m.tokenURI.String(), device.WaitOptions{
 					ClientID:   m.oauthClientID,
 					DeviceCode: msg,
 				})

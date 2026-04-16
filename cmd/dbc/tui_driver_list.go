@@ -49,7 +49,7 @@ type model struct {
 }
 
 func getDrivers() tea.Msg {
-	drivers, err := dbc.GetDriverList()
+	drivers, err := getDriverRegistry()
 	if err != nil {
 		fmt.Println("Error getting drivers:", err)
 		os.Exit(1)
