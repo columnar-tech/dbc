@@ -100,20 +100,28 @@ func (m addModel) Init() tea.Cmd {
 		if err != nil {
 			return err
 		}
-		if preF, preErr := os.Open(p); preErr == nil {
-			defer preF.Close()
-			var preList DriversList
-			if toml.NewDecoder(preF).Decode(&preList) == nil {
-				if len(preList.Registries) > 0 || preList.ReplaceDefaults {
-					var replace *bool
-					if preList.ReplaceDefaults {
-						t := true
-						replace = &t
-					}
-					if regErr := dbc.SetProjectRegistries(preList.Registries, replace); regErr != nil {
-						return fmt.Errorf("error configuring project registries: %w", regErr)
-					}
-				}
+
+		f, err := os.Open(p)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+			}
+			return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
+		}
+		defer f.Close()
+
+		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
+			return err
+		}
+
+		if len(m.list.Registries) > 0 || m.list.ReplaceDefaults {
+			var replace *bool
+			if m.list.ReplaceDefaults {
+				t := true
+				replace = &t
+			}
+			if regErr := dbc.SetProjectRegistries(m.list.Registries, replace); regErr != nil {
+				return fmt.Errorf("error configuring project registries: %w", regErr)
 			}
 		}
 
@@ -125,20 +133,6 @@ func (m addModel) Init() tea.Cmd {
 		// Store registry errors to use later if driver is not found
 		// We continue processing if we have some drivers
 		var registryErrors error = registryErr
-
-		f, err := os.Open(p)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
-			} else {
-				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
-			}
-		}
-		defer f.Close()
-
-		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
-			return err
-		}
 
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)

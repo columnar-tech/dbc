@@ -245,10 +245,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	if configDir, err := internal.GetUserConfigPath(); err == nil {
-		if err := dbc.ConfigureRegistries(configDir); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to load registry config: %v\n", err)
-		}
+	if configDir, err := internal.GetUserConfigPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", err)
+	} else if err := dbc.ConfigureRegistries(configDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load registry config: %v\n", err)
 	}
 
 	var m tea.Model

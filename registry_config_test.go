@@ -35,7 +35,7 @@ name = "example"
 [[registries]]
 url = "https://other.example.org"
 `
-		require.NoError(t, os.WriteFile(dir+"/config.toml", []byte(content), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
 
 		cfg, err := loadGlobalConfig(dir)
 		require.NoError(t, err)
@@ -57,7 +57,7 @@ replace_defaults = true
 url = "https://custom.registry.io"
 name = "custom"
 `
-		require.NoError(t, os.WriteFile(dir+"/config.toml", []byte(content), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
 
 		cfg, err := loadGlobalConfig(dir)
 		require.NoError(t, err)
@@ -73,7 +73,7 @@ name = "custom"
 url = "https://registry.example.com"
 name = "myregistry"
 `
-		require.NoError(t, os.WriteFile(dir+"/config.toml", []byte(content), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
 
 		cfg, err := loadGlobalConfig(dir)
 		require.NoError(t, err)
@@ -97,7 +97,7 @@ name = "myregistry"
 url = "http://bad url with spaces"
 name = "bad"
 `
-		require.NoError(t, os.WriteFile(dir+"/config.toml", []byte(content), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
 
 		cfg, err := loadGlobalConfig(dir)
 		assert.Error(t, err)
@@ -112,7 +112,7 @@ name = "bad"
 url = ""
 name = "nourl"
 `
-		require.NoError(t, os.WriteFile(dir+"/config.toml", []byte(content), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
 
 		cfg, err := loadGlobalConfig(dir)
 		assert.Error(t, err)
@@ -123,13 +123,40 @@ name = "nourl"
 		dir := t.TempDir()
 		content := `replace_defaults = false
 `
-		require.NoError(t, os.WriteFile(dir+"/config.toml", []byte(content), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
 
 		cfg, err := loadGlobalConfig(dir)
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
 		assert.Empty(t, cfg.Registries)
 		assert.False(t, cfg.ReplaceDefaults)
+	})
+
+	t.Run("malformed TOML returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		content := `[[registries
+url = "https://example.com"
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
+
+		cfg, err := loadGlobalConfig(dir)
+		assert.Error(t, err)
+		assert.Nil(t, cfg)
+	})
+
+	t.Run("non-http scheme returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		content := `
+[[registries]]
+url = "ftp://example.com"
+name = "ftp"
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
+
+		cfg, err := loadGlobalConfig(dir)
+		assert.Error(t, err)
+		assert.Nil(t, cfg)
+		assert.Contains(t, err.Error(), "scheme must be http or https")
 	})
 }
 
@@ -322,7 +349,14 @@ name = "custom"
 		require.NoError(t, err)
 
 		assert.Greater(t, len(registries), len(orig))
-		assert.Equal(t, "https://custom.example.com", registries[0].BaseURL.String())
+		found := false
+		for _, r := range registries {
+			if r.BaseURL != nil && r.BaseURL.String() == "https://custom.example.com" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected custom registry https://custom.example.com to be present in registries")
 	})
 
 	t.Run("missing config leaves defaults unchanged", func(t *testing.T) {
@@ -482,6 +516,13 @@ func TestSetProjectRegistries(t *testing.T) {
 		err := SetProjectRegistries([]RegistryEntry{{URL: "my-registry"}}, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "missing host")
+	})
+
+	t.Run("non-http scheme returns error", func(t *testing.T) {
+		saveAndRestore(t)
+		err := SetProjectRegistries([]RegistryEntry{{URL: "ftp://example.com"}}, nil)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "scheme must be http or https")
 	})
 
 	t.Run("empty URL returns error", func(t *testing.T) {

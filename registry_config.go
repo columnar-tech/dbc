@@ -70,6 +70,9 @@ func loadGlobalConfig(configDir string) (*GlobalConfig, error) {
 		if u.Host == "" {
 			return nil, fmt.Errorf("invalid registry URL %q in %s: missing host", entry.URL, configPath)
 		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return nil, fmt.Errorf("invalid registry URL %q in %s: scheme must be http or https", entry.URL, configPath)
+		}
 	}
 
 	return &cfg, nil
@@ -92,12 +95,15 @@ func mergeRegistries(
 
 	urlKey := func(u *url.URL) string {
 		path := strings.TrimRight(u.Path, "/")
-		return u.Host + path
+		return u.Scheme + "://" + u.Host + path
 	}
 
 	toRegistry := func(entry RegistryEntry) (Registry, bool) {
 		u, err := url.Parse(entry.URL)
 		if err != nil || u.Host == "" {
+			return Registry{}, false
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
 			return Registry{}, false
 		}
 		return Registry{Name: entry.Name, BaseURL: u}, true
@@ -170,6 +176,9 @@ func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error 
 		}
 		if u.Host == "" {
 			return fmt.Errorf("invalid registry URL %q: missing host", e.URL)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("invalid registry URL %q: scheme must be http or https", e.URL)
 		}
 	}
 	var globalRegs []RegistryEntry
