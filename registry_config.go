@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -60,4 +61,65 @@ func loadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	}
 
 	return &cfg, nil
+}
+
+func mergeRegistries(
+	projectRegs []RegistryEntry,
+	projectReplaceDefaults *bool,
+	globalRegs []RegistryEntry,
+	globalReplaceDefaults bool,
+	defaults []Registry,
+) []Registry {
+	replaceDefaults := globalReplaceDefaults
+	if projectReplaceDefaults != nil {
+		replaceDefaults = *projectReplaceDefaults
+	}
+
+	seen := make(map[string]bool)
+	var result []Registry
+
+	urlKey := func(u *url.URL) string {
+		path := strings.TrimRight(u.Path, "/")
+		return u.Host + path
+	}
+
+	toRegistry := func(entry RegistryEntry) (Registry, bool) {
+		u, err := url.Parse(entry.URL)
+		if err != nil || u.Host == "" {
+			return Registry{}, false
+		}
+		return Registry{Name: entry.Name, BaseURL: u}, true
+	}
+
+	addEntries := func(entries []RegistryEntry) {
+		for _, e := range entries {
+			r, ok := toRegistry(e)
+			if !ok {
+				continue
+			}
+			key := urlKey(r.BaseURL)
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, r)
+			}
+		}
+	}
+
+	addEntries(projectRegs)
+	addEntries(globalRegs)
+
+	if !replaceDefaults {
+		for _, r := range defaults {
+			if r.BaseURL == nil {
+				continue
+			}
+			key := urlKey(r.BaseURL)
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, r)
+			}
+		}
+	}
+
+	return result
 }

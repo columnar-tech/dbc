@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"net/url"
 	"os"
 	"testing"
 
@@ -128,5 +129,172 @@ name = "nourl"
 		require.NotNil(t, cfg)
 		assert.Empty(t, cfg.Registries)
 		assert.False(t, cfg.ReplaceDefaults)
+	})
+}
+
+func TestMergeRegistries(t *testing.T) {
+	makeReg := func(t *testing.T, rawURL string, name ...string) Registry {
+		t.Helper()
+		u, err := url.Parse(rawURL)
+		require.NoError(t, err)
+		n := ""
+		if len(name) > 0 {
+			n = name[0]
+		}
+		return Registry{Name: n, BaseURL: u}
+	}
+
+	entry := func(rawURL, name string) RegistryEntry {
+		return RegistryEntry{URL: rawURL, Name: name}
+	}
+
+	boolPtr := func(b bool) *bool { return &b }
+
+	d1 := makeReg(t, "https://default1.example.com", "default1")
+	d2 := makeReg(t, "https://default2.example.com", "default2")
+	defaults := []Registry{d1, d2}
+
+	t.Run("1: full merge project+global+defaults", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{entry("https://project.example.com", "project")},
+			nil,
+			[]RegistryEntry{entry("https://global.example.com", "global")},
+			false,
+			defaults,
+		)
+		require.Len(t, result, 4)
+		assert.Equal(t, "https://project.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://global.example.com", result[1].BaseURL.String())
+		assert.Equal(t, "https://default1.example.com", result[2].BaseURL.String())
+		assert.Equal(t, "https://default2.example.com", result[3].BaseURL.String())
+	})
+
+	t.Run("2: empty project uses global+defaults", func(t *testing.T) {
+		result := mergeRegistries(
+			nil,
+			nil,
+			[]RegistryEntry{entry("https://global.example.com", "global")},
+			false,
+			defaults,
+		)
+		require.Len(t, result, 3)
+		assert.Equal(t, "https://global.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://default1.example.com", result[1].BaseURL.String())
+		assert.Equal(t, "https://default2.example.com", result[2].BaseURL.String())
+	})
+
+	t.Run("3: empty global uses project+defaults", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{entry("https://project.example.com", "project")},
+			nil,
+			nil,
+			false,
+			defaults,
+		)
+		require.Len(t, result, 3)
+		assert.Equal(t, "https://project.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://default1.example.com", result[1].BaseURL.String())
+		assert.Equal(t, "https://default2.example.com", result[2].BaseURL.String())
+	})
+
+	t.Run("4: both project and global empty returns only defaults", func(t *testing.T) {
+		result := mergeRegistries(nil, nil, nil, false, defaults)
+		require.Len(t, result, 2)
+		assert.Equal(t, "https://default1.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://default2.example.com", result[1].BaseURL.String())
+	})
+
+	t.Run("5: project replace_defaults=true omits defaults", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{entry("https://project.example.com", "project")},
+			boolPtr(true),
+			[]RegistryEntry{entry("https://global.example.com", "global")},
+			false,
+			defaults,
+		)
+		require.Len(t, result, 2)
+		assert.Equal(t, "https://project.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://global.example.com", result[1].BaseURL.String())
+	})
+
+	t.Run("6: global replace_defaults=true (no project setting) omits defaults", func(t *testing.T) {
+		result := mergeRegistries(
+			nil,
+			nil,
+			[]RegistryEntry{entry("https://global.example.com", "global")},
+			true,
+			defaults,
+		)
+		require.Len(t, result, 1)
+		assert.Equal(t, "https://global.example.com", result[0].BaseURL.String())
+	})
+
+	t.Run("7: project replace_defaults=false overrides global replace_defaults=true", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{entry("https://project.example.com", "project")},
+			boolPtr(false),
+			[]RegistryEntry{entry("https://global.example.com", "global")},
+			true,
+			defaults,
+		)
+		require.Len(t, result, 4)
+		assert.Equal(t, "https://project.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://global.example.com", result[1].BaseURL.String())
+		assert.Equal(t, "https://default1.example.com", result[2].BaseURL.String())
+		assert.Equal(t, "https://default2.example.com", result[3].BaseURL.String())
+	})
+
+	t.Run("8: dedup same URL in project and global keeps project entry", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{entry("https://shared.example.com", "from-project")},
+			nil,
+			[]RegistryEntry{entry("https://shared.example.com", "from-global")},
+			false,
+			defaults,
+		)
+		require.Len(t, result, 3)
+		assert.Equal(t, "from-project", result[0].Name)
+		assert.Equal(t, "https://shared.example.com", result[0].BaseURL.String())
+	})
+
+	t.Run("9: URL normalization trailing slash dedup", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{entry("https://shared.example.com/path/", "from-project")},
+			nil,
+			[]RegistryEntry{entry("https://shared.example.com/path", "from-global")},
+			false,
+			[]Registry{},
+		)
+		require.Len(t, result, 1)
+		assert.Equal(t, "from-project", result[0].Name)
+	})
+
+	t.Run("10: dedup between global and defaults", func(t *testing.T) {
+		result := mergeRegistries(
+			nil,
+			nil,
+			[]RegistryEntry{entry("https://default1.example.com", "global-override")},
+			false,
+			defaults,
+		)
+		require.Len(t, result, 2)
+		assert.Equal(t, "global-override", result[0].Name)
+		assert.Equal(t, "https://default1.example.com", result[0].BaseURL.String())
+		assert.Equal(t, "https://default2.example.com", result[1].BaseURL.String())
+	})
+
+	t.Run("11: invalid URL entry is skipped", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{
+				{URL: "http://bad url with spaces", Name: "bad"},
+				{URL: "https://good.example.com", Name: "good"},
+			},
+			nil,
+			nil,
+			false,
+			[]Registry{},
+		)
+		require.Len(t, result, 1)
+		assert.Equal(t, "good", result[0].Name)
 	})
 }
