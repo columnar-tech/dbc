@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -49,24 +50,26 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 	q.Add("uid", c.uid.String())
 	uri.RawQuery = q.Encode()
 
-	req := http.Request{
-		Method: http.MethodGet,
-		URL:    uri,
-		Header: http.Header{},
+	buildReq := func(token string) *http.Request {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, uri.String(), nil)
+		if uri.Path == "/index.yaml" {
+			req.Header.Set("Accept", "application/yaml")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		return req
 	}
 
-	if uri.Path == "/index.yaml" {
-		req.Header.Set("Accept", "application/yaml")
-	}
-
+	token := ""
 	if cred != nil {
 		if auth.IsColumnarPrivateRegistry(uri) {
 			_ = auth.FetchColumnarLicense(cred)
 		}
-		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
+		token = cred.GetAuthToken()
 	}
 
-	resp, err := c.httpClient.Do(&req)
+	resp, err := c.httpClient.Do(buildReq(token))
 	if err != nil {
 		return nil, err
 	}
@@ -76,8 +79,7 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 		if !cred.Refresh() {
 			return nil, fmt.Errorf("failed to refresh auth token")
 		}
-		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
-		resp, err = c.httpClient.Do(&req)
+		resp, err = c.httpClient.Do(buildReq(cred.GetAuthToken()))
 		if err != nil {
 			return nil, err
 		}

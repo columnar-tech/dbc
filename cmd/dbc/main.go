@@ -20,7 +20,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -79,10 +78,7 @@ type NeedsRenderer interface {
 	NeedsRenderer()
 }
 
-var (
-	dbcClient     *dbc.Client
-	dbcClientOnce sync.Once
-)
+var dbcClient *dbc.Client
 
 func newDefaultClient() (*dbc.Client, error) {
 	var opts []dbc.Option
@@ -94,14 +90,12 @@ func newDefaultClient() (*dbc.Client, error) {
 
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
-	var initErr error
-	dbcClientOnce.Do(func() {
-		if dbcClient == nil {
-			dbcClient, initErr = newDefaultClient()
+	if dbcClient == nil {
+		c, err := newDefaultClient()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize client: %w", err)
 		}
-	})
-	if initErr != nil {
-		return nil, fmt.Errorf("failed to initialize client: %w", initErr)
+		dbcClient = c
 	}
 	return dbcClient.Search("")
 }
@@ -245,13 +239,13 @@ func main() {
 	var clientErr error
 	dbcClient, clientErr = newDefaultClient()
 	if clientErr != nil {
-		fmt.Println("Error initializing client:", clientErr)
+		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", clientErr)
 		os.Exit(1)
 	}
 
 	p, err := newParser(&args)
 	if err != nil {
-		fmt.Println("Error creating argument parser:", err)
+		fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", err)
 		os.Exit(1)
 	}
 
