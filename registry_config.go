@@ -35,8 +35,11 @@ type GlobalConfig struct {
 	ReplaceDefaults bool            `toml:"replace_defaults"`
 }
 
-// defaultRegistries holds the built-in defaults, snapshotted by ConfigureRegistries
-// before any config-based merges. Used by SetProjectRegistries for proper re-merge.
+// defaultRegistries holds the built-in defaults, snapshotted at package init time
+// (after drivers.go's init() runs). If DBC_BASE_URL is set at process start,
+// this snapshot reflects that override rather than the compiled-in defaults.
+// SetProjectRegistries and ConfigureRegistries both short-circuit when DBC_BASE_URL
+// is set, so this value is only used when DBC_BASE_URL is absent.
 var defaultRegistries []Registry
 
 // globalConfig holds the loaded global config.toml (nil if not loaded).
@@ -44,9 +47,13 @@ var defaultRegistries []Registry
 var globalConfig *GlobalConfig
 
 func init() {
-	// Snapshot the built-in defaults at package initialization time so that
-	// SetProjectRegistries always has a stable base to merge against, even when
-	// ConfigureRegistries has not been called (e.g. in tests or non-CLI usage).
+	// Snapshot registries at package init time (after drivers.go init() has run,
+	// which may have replaced registries with a DBC_BASE_URL-derived singleton).
+	// This gives SetProjectRegistries a stable base even when ConfigureRegistries
+	// is never called. Note: if DBC_BASE_URL is set, this snapshot holds the
+	// override value — but both ConfigureRegistries and SetProjectRegistries
+	// short-circuit on DBC_BASE_URL, so defaultRegistries is never consulted
+	// in that case.
 	defaultRegistries = make([]Registry, len(registries))
 	copy(defaultRegistries, registries)
 }
@@ -169,6 +176,9 @@ func ConfigureRegistries(globalConfigDir string) error {
 func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error {
 	if os.Getenv("DBC_BASE_URL") != "" {
 		return nil
+	}
+	if replaceDefaults != nil && *replaceDefaults && len(entries) == 0 {
+		return fmt.Errorf("replace_defaults = true requires at least one [[registries]] entry; omit replace_defaults or add a registry entry")
 	}
 	for _, e := range entries {
 		if e.URL == "" {
