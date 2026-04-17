@@ -19,10 +19,12 @@ package main
 import (
 	"os"
 
+	dbc "github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
 
 func (suite *SubcommandTestSuite) TearDownTest() {
+	_ = dbc.SetProjectRegistries(nil, nil)
 	// Clean up filesystem after each test
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")

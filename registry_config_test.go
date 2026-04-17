@@ -325,6 +325,21 @@ func TestMergeRegistries(t *testing.T) {
 		require.Len(t, result, 1)
 		assert.Equal(t, "good", result[0].Name)
 	})
+
+	t.Run("12: non-http scheme entry is silently dropped by toRegistry", func(t *testing.T) {
+		result := mergeRegistries(
+			[]RegistryEntry{
+				{URL: "ftp://example.com", Name: "ftp"},
+				{URL: "https://good.example.com", Name: "good"},
+			},
+			nil,
+			nil,
+			false,
+			[]Registry{},
+		)
+		require.Len(t, result, 1)
+		assert.Equal(t, "good", result[0].Name)
+	})
 }
 
 func TestConfigureRegistries(t *testing.T) {
