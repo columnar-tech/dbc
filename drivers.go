@@ -147,7 +147,7 @@ func makereq(u string) (resp *http.Response, err error) {
 
 	uri, err := url.Parse(u)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
+		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
 
 	cred, err := auth.GetCredentials(uri)
@@ -265,11 +265,12 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver: %w", err)
 	}
-	defer rsp.Body.Close()
 
 	if rsp.StatusCode != http.StatusOK {
+		rsp.Body.Close()
 		return nil, fmt.Errorf("failed to download driver %s: %s", location, rsp.Status)
 	}
+	defer rsp.Body.Close()
 
 	fname := path.Base(location)
 	tmpdir, err := os.MkdirTemp(os.TempDir(), "adbc-drivers-*")
