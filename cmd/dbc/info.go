@@ -77,7 +77,10 @@ func formatDriverInfo(drv dbc.Driver) string {
 		return ""
 	}
 
-	info, _ := drv.MaxVersion()
+	info, ok := drv.MaxVersion()
+	if !ok {
+		return ""
+	}
 	var b strings.Builder
 
 	b.WriteString(bold.Render("Driver: ") + nameStyle.Render(drv.Path) + "\n")
