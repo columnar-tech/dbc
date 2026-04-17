@@ -160,9 +160,10 @@ func makereq(u string) (resp *http.Response, err error) {
 	uri.RawQuery = q.Encode()
 
 	buildLegacyReq := func(token string) *http.Request {
+		urlCopy := *uri
 		r := http.Request{
 			Method: http.MethodGet,
-			URL:    uri,
+			URL:    &urlCopy,
 			Header: http.Header{},
 		}
 		if uri.Path == "/index.yaml" {
