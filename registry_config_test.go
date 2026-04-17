@@ -571,10 +571,11 @@ func TestSetProjectRegistries(t *testing.T) {
 }
 
 func TestConfigureRegistriesThenSetProjectRegistries(t *testing.T) {
+	origReg := registries
 	origDefault := defaultRegistries
 	origGlobal := globalConfig
 	t.Cleanup(func() {
-		registries = origDefault
+		registries = origReg
 		defaultRegistries = origDefault
 		globalConfig = origGlobal
 	})
