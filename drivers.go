@@ -67,6 +67,8 @@ var (
 	// DefaultClient is the HTTP client used for all requests.
 	//
 	// Deprecated: Use NewClient with WithHTTPClient instead.
+	// DefaultClient must be set during program initialization,
+	// before any concurrent calls to GetDriverList or makereq.
 	DefaultClient = http.DefaultClient
 
 	setupOnce      sync.Once
@@ -136,6 +138,7 @@ func ensureSetup() {
 }
 
 func getHTTPClient() *http.Client {
+	ensureSetup()
 	if DefaultClient != http.DefaultClient {
 		return DefaultClient
 	}
@@ -309,6 +312,9 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 		return PkgInfo{}, fmt.Errorf("no packages available for version %s", p.Version)
 	}
 
+	if d.Registry == nil {
+		return PkgInfo{}, fmt.Errorf("cannot resolve package URL for %s: driver has no registry", d.Title)
+	}
 	base := d.Registry.BaseURL
 	for _, pkg := range p.Packages {
 		if pkg.PlatformTuple == platformTuple {
@@ -354,7 +360,7 @@ type Driver struct {
 	License string    `yaml:"license"`
 	Path    string    `yaml:"path"`
 	URLs    []string  `yaml:"urls"`
-	DocsUrl string    `yaml:"docs_url"`
+	DocsURL string    `yaml:"docs_url"`
 	PkgInfo []pkginfo `yaml:"pkginfo"`
 }
 
@@ -385,7 +391,8 @@ func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (
 	var result *pkginfo
 	for pkg := range itr {
 		if result == nil || pkg.Version.GreaterThan(result.Version) {
-			result = &pkg
+			found := pkg
+			result = &found
 		}
 	}
 

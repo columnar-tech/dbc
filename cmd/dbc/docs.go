@@ -110,8 +110,8 @@ func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 }
 
 func (m docsModel) getDocsUrlFor(driver *dbc.Driver) string {
-	if driver.DocsUrl != "" {
-		return driver.DocsUrl
+	if driver.DocsURL != "" {
+		return driver.DocsURL
 	}
 	fallbackUrl, keyExists := m.fallbackUrls[driver.Path]
 	if keyExists && fallbackUrl != "" {
