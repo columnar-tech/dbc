@@ -80,6 +80,7 @@ type uaRoundTripper struct {
 
 // custom RoundTripper that sets the User-Agent header on any requests
 func (u *uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
 	req.Header.Set("User-Agent", u.userAgent)
 	return u.RoundTripper.RoundTrip(req)
 }
@@ -264,11 +265,11 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver: %w", err)
 	}
+	defer rsp.Body.Close()
 
 	if rsp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("failed to download driver %s: %s", location, rsp.Status)
 	}
-	defer rsp.Body.Close()
 
 	fname := path.Base(location)
 	tmpdir, err := os.MkdirTemp(os.TempDir(), "adbc-drivers-*")
