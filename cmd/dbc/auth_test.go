@@ -383,7 +383,9 @@ func (suite *SubcommandTestSuite) TestLicenseInstallWrongFilenameWithForce() {
 	out := suite.runCmd(m)
 	suite.Contains(out, "License installed")
 
-	installed, err := os.ReadFile(auth.LicensePath())
+	lp, err := auth.LicensePath()
+	suite.Require().NoError(err)
+	installed, err := os.ReadFile(lp)
 	suite.Require().NoError(err)
 	suite.Equal("license-data", string(installed))
 }
@@ -433,7 +435,9 @@ func (suite *SubcommandTestSuite) TestLicenseInstallAlreadyExistsWithForce() {
 	out := suite.runCmd(m)
 	suite.Contains(out, "License installed")
 
-	installed, err := os.ReadFile(auth.LicensePath())
+	lp, err := auth.LicensePath()
+	suite.Require().NoError(err)
+	installed, err := os.ReadFile(lp)
 	suite.Require().NoError(err)
 	suite.Equal("new", string(installed))
 }
@@ -456,7 +460,9 @@ func (suite *SubcommandTestSuite) TestLicenseInstallHappyPath() {
 	out := suite.runCmd(m)
 	suite.Contains(out, "License installed")
 
-	installed, err := os.ReadFile(auth.LicensePath())
+	lp, err := auth.LicensePath()
+	suite.Require().NoError(err)
+	installed, err := os.ReadFile(lp)
 	suite.Require().NoError(err)
 	suite.Equal("license-data", string(installed))
 }

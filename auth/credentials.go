@@ -190,7 +190,10 @@ func GetCredentials(u *url.URL) (*Credential, error) {
 
 func LoadCredentials() error {
 	loaded.Do(func() {
-		loadedCredentials, credentialErr = loadCreds()
+		creds, err := loadCreds()
+		credMu.Lock()
+		loadedCredentials, credentialErr = creds, err
+		credMu.Unlock()
 	})
 	return credentialErr
 }
@@ -238,6 +241,8 @@ func RemoveCredential(host Uri) error {
 	return writeCreds()
 }
 
+// writeCreds persists loadedCredentials to disk.
+// Caller must hold credMu.
 func writeCreds() error {
 	cp, err := getCredPath()
 	if err != nil {
@@ -305,9 +310,12 @@ var (
 	ErrLicenseAlreadyExists = errors.New("license already exists (use --force to overwrite)")
 )
 
-func LicensePath() string {
-	cp, _ := getCredPath()
-	return filepath.Join(filepath.Dir(cp), "columnar.lic")
+func LicensePath() (string, error) {
+	cp, err := getCredPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(cp), "columnar.lic"), nil
 }
 
 func InstallLicenseFromFile(srcPath string, force bool) error {
@@ -315,7 +323,10 @@ func InstallLicenseFromFile(srcPath string, force bool) error {
 		return ErrLicenseWrongFilename
 	}
 
-	destPath := LicensePath()
+	destPath, err := LicensePath()
+	if err != nil {
+		return fmt.Errorf("failed to determine license path: %w", err)
+	}
 
 	if !force {
 		if _, err := os.Stat(destPath); err == nil {

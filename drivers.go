@@ -283,6 +283,7 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 
 	output, err := os.Create(path.Join(tmpdir, fname))
 	if err != nil {
+		os.RemoveAll(tmpdir)
 		return nil, fmt.Errorf("failed to create temp file to download to: %w", err)
 	}
 

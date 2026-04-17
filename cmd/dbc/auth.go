@@ -368,7 +368,11 @@ func (m licenseInstallModel) FinalOutput() string {
 	if !m.installed {
 		return ""
 	}
-	return "License installed to " + auth.LicensePath()
+	p, err := auth.LicensePath()
+	if err != nil {
+		return "License installed (could not determine path)"
+	}
+	return "License installed to " + p
 }
 
 func (m licenseInstallModel) View() tea.View { return tea.NewView("") }
