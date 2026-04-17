@@ -332,8 +332,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.list = msg.list
 		var replace *bool
 		if msg.list.ReplaceDefaults {
-			t := true
-			replace = &t
+			replace = boolPtr(true)
 		}
 		if err := dbc.SetProjectRegistries(msg.list.Registries, replace); err != nil {
 			return s, errCmd("error configuring project registries: %w", err)

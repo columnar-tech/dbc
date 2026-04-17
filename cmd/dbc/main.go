@@ -104,6 +104,8 @@ func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
 	})
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func getConfig(c config.ConfigLevel) config.Config {
 	switch c {
 	case config.ConfigSystem, config.ConfigUser:

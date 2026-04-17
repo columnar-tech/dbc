@@ -407,6 +407,9 @@ url = "https://custom.example.com"
 			globalConfig = origGlobal
 		}()
 
+		sentinel := Registry{BaseURL: mustParseURL("https://sentinel.example.com")}
+		registries = append([]Registry{sentinel}, defaultRegistries...)
+
 		dir := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
 [[registries]]
@@ -415,7 +418,8 @@ url = "http://bad url with spaces"
 
 		err := ConfigureRegistries(dir)
 		assert.Error(t, err)
-		assert.Equal(t, orig, registries)
+		require.Len(t, registries, len(defaultRegistries)+1)
+		assert.Equal(t, "https://sentinel.example.com", registries[0].BaseURL.String())
 	})
 
 	t.Run("replace_defaults true omits defaults", func(t *testing.T) {

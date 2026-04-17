@@ -116,8 +116,7 @@ func (m addModel) Init() tea.Cmd {
 
 		var replace *bool
 		if m.list.ReplaceDefaults {
-			t := true
-			replace = &t
+			replace = boolPtr(true)
 		}
 		if regErr := dbc.SetProjectRegistries(m.list.Registries, replace); regErr != nil {
 			return fmt.Errorf("error configuring project registries: %w", regErr)
