@@ -87,10 +87,13 @@ func (t *Credential) Refresh() bool {
 		req.Header.Set("Authorization", "Bearer "+t.ApiKey)
 
 		rsp, err := http.DefaultClient.Do(req)
-		if err != nil || rsp.StatusCode != http.StatusOK {
+		if err != nil {
 			return false
 		}
 		defer rsp.Body.Close()
+		if rsp.StatusCode != http.StatusOK {
+			return false
+		}
 
 		var tokenResp struct {
 			Token string `json:"access_token"`
@@ -386,7 +389,7 @@ func FetchColumnarLicense(cred *Credential) error {
 		return fmt.Errorf("unsupported credential type: %s", cred.Type)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, licenseURI, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, licenseURI, nil)
 	if err != nil {
 		return err
 	}

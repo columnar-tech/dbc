@@ -15,6 +15,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -99,7 +100,7 @@ func refreshOauth(cred *Credential) error {
 	}
 
 	payload := values.Encode()
-	req, err := http.NewRequest(http.MethodPost, cfg.TokenEndpoint.String(),
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, cfg.TokenEndpoint.String(),
 		strings.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("failed to build token request: %w", err)
