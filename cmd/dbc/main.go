@@ -80,10 +80,18 @@ type NeedsRenderer interface {
 
 var dbcClient *dbc.Client
 
+func newDefaultClient() (*dbc.Client, error) {
+	var opts []dbc.Option
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		opts = append(opts, dbc.WithBaseURL(val))
+	}
+	return dbc.NewClient(opts...)
+}
+
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
 	if dbcClient == nil {
-		c, err := dbc.NewClient()
+		c, err := newDefaultClient()
 		if err != nil {
 			return nil, err
 		}
@@ -228,12 +236,8 @@ func main() {
 		args cmds
 	)
 
-	var clientOpts []dbc.Option
-	if val := os.Getenv("DBC_BASE_URL"); val != "" {
-		clientOpts = append(clientOpts, dbc.WithBaseURL(val))
-	}
 	var clientErr error
-	dbcClient, clientErr = dbc.NewClient(clientOpts...)
+	dbcClient, clientErr = newDefaultClient()
 	if clientErr != nil {
 		fmt.Println("Error initializing client:", clientErr)
 		os.Exit(1)
