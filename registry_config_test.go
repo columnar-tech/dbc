@@ -531,3 +531,40 @@ func TestSetProjectRegistries(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+func TestConfigureRegistriesThenSetProjectRegistries(t *testing.T) {
+	origReg := registries
+	origDefault := defaultRegistries
+	origGlobal := globalConfig
+	t.Cleanup(func() {
+		registries = origReg
+		defaultRegistries = origDefault
+		globalConfig = origGlobal
+	})
+
+	// Set up a global config with one registry
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
+[[registries]]
+url = "https://global.example.com"
+name = "global"
+`), 0600))
+
+	require.NoError(t, ConfigureRegistries(dir))
+
+	// Now set project registries on top
+	err := SetProjectRegistries([]RegistryEntry{{URL: "https://project.example.com", Name: "project"}}, nil)
+	require.NoError(t, err)
+
+	// Expected order: project → global → defaults
+	require.GreaterOrEqual(t, len(registries), 2)
+	assert.Equal(t, "https://project.example.com", registries[0].BaseURL.String())
+	found := false
+	for _, r := range registries {
+		if r.BaseURL != nil && r.BaseURL.String() == "https://global.example.com" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected global registry to be present after SetProjectRegistries")
+}

@@ -32,7 +32,7 @@ type RegistryEntry struct {
 
 type GlobalConfig struct {
 	Registries      []RegistryEntry `toml:"registries"`
-	ReplaceDefaults bool            `toml:"replace_defaults"`
+	ReplaceDefaults bool            `toml:"replace_defaults,omitempty"`
 }
 
 // defaultRegistries holds the built-in defaults, snapshotted at package init time
@@ -170,6 +170,9 @@ func ConfigureRegistries(globalConfigDir string) error {
 	globalConfig = cfg // always reset, even to nil, so stale state from prior calls doesn't persist
 	if cfg == nil {
 		return nil
+	}
+	if cfg.ReplaceDefaults && len(cfg.Registries) == 0 {
+		return fmt.Errorf("replace_defaults = true in global config.toml requires at least one [[registries]] entry")
 	}
 	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, defaultRegistries)
 	return nil

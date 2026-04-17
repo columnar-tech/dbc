@@ -114,15 +114,13 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		if len(m.list.Registries) > 0 || m.list.ReplaceDefaults {
-			var replace *bool
-			if m.list.ReplaceDefaults {
-				t := true
-				replace = &t
-			}
-			if regErr := dbc.SetProjectRegistries(m.list.Registries, replace); regErr != nil {
-				return fmt.Errorf("error configuring project registries: %w", regErr)
-			}
+		var replace *bool
+		if m.list.ReplaceDefaults {
+			t := true
+			replace = &t
+		}
+		if regErr := dbc.SetProjectRegistries(m.list.Registries, replace); regErr != nil {
+			return fmt.Errorf("error configuring project registries: %w", regErr)
 		}
 
 		drivers, registryErr := m.getDriverRegistry()

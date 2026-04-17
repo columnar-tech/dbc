@@ -330,15 +330,13 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.Path = msg.path
 		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
 		s.list = msg.list
-		if len(msg.list.Registries) > 0 || msg.list.ReplaceDefaults {
-			var replace *bool
-			if msg.list.ReplaceDefaults {
-				t := true
-				replace = &t
-			}
-			if err := dbc.SetProjectRegistries(msg.list.Registries, replace); err != nil {
-				return s, errCmd("error configuring project registries: %w", err)
-			}
+		var replace *bool
+		if msg.list.ReplaceDefaults {
+			t := true
+			replace = &t
+		}
+		if err := dbc.SetProjectRegistries(msg.list.Registries, replace); err != nil {
+			return s, errCmd("error configuring project registries: %w", err)
 		}
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()
