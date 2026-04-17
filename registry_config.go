@@ -206,3 +206,9 @@ func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error 
 	registries = mergeRegistries(entries, replaceDefaults, globalRegs, globalReplaceDefaults, base)
 	return nil
 }
+
+// GetRegistries returns the current active registry list.
+// Intended for testing and diagnostic use.
+func GetRegistries() []Registry {
+	return registries
+}

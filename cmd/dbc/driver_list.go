@@ -25,9 +25,9 @@ import (
 )
 
 type DriversList struct {
-	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 	Registries      []dbc.RegistryEntry   `toml:"registries,omitempty"`
 	ReplaceDefaults bool                  `toml:"replace_defaults,omitempty"`
+	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
 type driverSpec struct {

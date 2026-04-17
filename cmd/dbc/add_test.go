@@ -468,6 +468,16 @@ name = 'custom'
 	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
 	suite.Require().NoError(err)
 	suite.Contains(string(data), "[drivers.test-driver-1]")
+
+	regs := dbc.GetRegistries()
+	found := false
+	for _, r := range regs {
+		if r.BaseURL != nil && r.BaseURL.String() == "https://custom-registry.example.com" {
+			found = true
+			break
+		}
+	}
+	suite.True(found, "expected custom registry to be in active registries after add with [[registries]] in dbc.toml")
 }
 
 func (suite *SubcommandTestSuite) TestAddWithProjectRegistriesBackwardCompat() {

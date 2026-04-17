@@ -572,17 +572,16 @@ func TestSetProjectRegistries(t *testing.T) {
 }
 
 func TestConfigureRegistriesThenSetProjectRegistries(t *testing.T) {
-	origReg := registries
 	origDefault := defaultRegistries
 	origGlobal := globalConfig
+	registries = defaultRegistries
+	globalConfig = nil
+	origReg := registries
 	t.Cleanup(func() {
 		registries = origReg
 		defaultRegistries = origDefault
 		globalConfig = origGlobal
 	})
-
-	registries = defaultRegistries
-	globalConfig = nil
 
 	// Set up a global config with one registry
 	dir := t.TempDir()

@@ -242,6 +242,16 @@ name = 'custom'
 		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+
+	regs := dbc.GetRegistries()
+	found := false
+	for _, r := range regs {
+		if r.BaseURL != nil && r.BaseURL.String() == "https://custom-registry.example.com" {
+			found = true
+			break
+		}
+	}
+	suite.True(found, "expected custom registry to be in active registries after sync with [[registries]] in dbc.toml")
 }
 
 func (suite *SubcommandTestSuite) TestSyncWithProjectRegistriesBackwardCompat() {
