@@ -81,6 +81,7 @@ type NeedsRenderer interface {
 
 var (
 	dbcClient     *dbc.Client
+	dbcClientErr  error
 	dbcClientOnce sync.Once
 )
 
@@ -93,11 +94,10 @@ func newDefaultClient() (*dbc.Client, error) {
 }
 
 func initDBCClient() error {
-	var initErr error
 	dbcClientOnce.Do(func() {
-		dbcClient, initErr = newDefaultClient()
+		dbcClient, dbcClientErr = newDefaultClient()
 	})
-	return initErr
+	return dbcClientErr
 }
 
 // use this so we can override this in tests
