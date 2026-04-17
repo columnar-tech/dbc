@@ -20,6 +20,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -78,7 +79,10 @@ type NeedsRenderer interface {
 	NeedsRenderer()
 }
 
-var dbcClient *dbc.Client
+var (
+	dbcClient     *dbc.Client
+	dbcClientOnce sync.Once
+)
 
 func newDefaultClient() (*dbc.Client, error) {
 	var opts []dbc.Option
@@ -90,13 +94,11 @@ func newDefaultClient() (*dbc.Client, error) {
 
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
-	if dbcClient == nil {
-		c, err := newDefaultClient()
-		if err != nil {
-			return nil, err
+	dbcClientOnce.Do(func() {
+		if dbcClient == nil {
+			dbcClient, _ = newDefaultClient()
 		}
-		dbcClient = c
-	}
+	})
 	return dbcClient.Search("")
 }
 

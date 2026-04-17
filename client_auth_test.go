@@ -123,6 +123,12 @@ func TestClientLogin(t *testing.T) {
 	}
 	err = c.Login(cred2)
 	require.NoError(t, err)
+
+	auth.ResetCredentialsForTesting()
+	updated, err := auth.GetCredentials(u)
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	assert.Equal(t, "updated-key", updated.ApiKey)
 }
 
 func TestClientLogout(t *testing.T) {

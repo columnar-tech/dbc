@@ -189,13 +189,21 @@ func (c *Client) downloadPackage(pkg PkgInfo) (*os.File, error) {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 
-	output, err := os.Create(path.Join(tmpdir, fname))
+	var output *os.File
+	defer func() {
+		if output == nil {
+			os.RemoveAll(tmpdir)
+		}
+	}()
+
+	output, err = os.Create(path.Join(tmpdir, fname))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file to download to: %w", err)
 	}
 
 	if _, err = io.Copy(output, rsp.Body); err != nil {
 		output.Close()
+		output = nil
 		return nil, fmt.Errorf("failed to write driver file: %w", err)
 	}
 
