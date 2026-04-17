@@ -66,9 +66,10 @@ func newInstallTestServer(t *testing.T) *httptest.Server {
 }
 
 func TestClientSearch(t *testing.T) {
+	srv := newInstallTestServer(t)
 	c, err := dbc.NewClient(
-		dbc.WithHTTPClient(&http.Client{Transport: &testTransport{}}),
-		dbc.WithBaseURL(testServer.URL),
+		dbc.WithHTTPClient(&http.Client{}),
+		dbc.WithBaseURL(srv.URL),
 	)
 	require.NoError(t, err)
 
