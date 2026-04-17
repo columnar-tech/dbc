@@ -324,7 +324,11 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 			var uri *url.URL
 
 			if pkg.URL != "" {
-				uri, _ = url.Parse(pkg.URL)
+				var err error
+				uri, err = url.Parse(pkg.URL)
+				if err != nil {
+					return PkgInfo{}, fmt.Errorf("invalid package URL %q: %w", pkg.URL, err)
+				}
 				if !uri.IsAbs() {
 					uri = base.JoinPath(pkg.URL)
 				}

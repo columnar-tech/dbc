@@ -110,11 +110,14 @@ func TestCmdStatus(t *testing.T) {
 
 			var m tea.Model
 			var err error
-			go func() { m, err = p.Run() }()
+			done := make(chan struct{})
+			go func() {
+				m, err = p.Run()
+				close(done)
+			}()
 
-			<-time.After(time.Second * 1)
+			<-done
 
-			p.Wait()
 			require.NoError(t, err, out.String())
 
 			if h, ok := m.(HasStatus); ok {
