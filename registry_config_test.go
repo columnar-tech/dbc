@@ -450,6 +450,8 @@ url = "http://bad url with spaces"
 
 		err := ConfigureRegistries(dir)
 		assert.Error(t, err)
+		// ConfigureRegistries returns the loadGlobalConfig error before touching
+		// registries, so the sentinel prepended above must still be present.
 		require.Len(t, registries, len(defaultRegistries)+1)
 		assert.Equal(t, "https://sentinel.example.com", registries[0].BaseURL.String())
 	})
