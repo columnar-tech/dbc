@@ -207,8 +207,8 @@ func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error 
 	return nil
 }
 
-// GetRegistries returns the current active registry list.
+// GetRegistries returns a copy of the current active registry list.
 // Intended for testing and diagnostic use.
 func GetRegistries() []Registry {
-	return registries
+	return append([]Registry(nil), registries...)
 }
