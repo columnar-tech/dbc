@@ -77,7 +77,7 @@ func formatDriverInfo(drv dbc.Driver) string {
 		return ""
 	}
 
-	info := drv.MaxVersion()
+	info, _ := drv.MaxVersion()
 	var b strings.Builder
 
 	b.WriteString(bold.Render("Driver: ") + nameStyle.Render(drv.Path) + "\n")
@@ -94,7 +94,10 @@ func formatDriverInfo(drv dbc.Driver) string {
 }
 
 func driverInfoJSON(drv dbc.Driver) string {
-	info := drv.MaxVersion()
+	info, ok := drv.MaxVersion()
+	if !ok {
+		return "{}"
+	}
 
 	var driverInfoOutput = struct {
 		Driver   string   `json:"driver"`

@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -163,12 +164,11 @@ func makereq(u string) (resp *http.Response, err error) {
 	q.Add("uid", uid.String())
 	uri.RawQuery = q.Encode()
 
-	buildLegacyReq := func(token string) *http.Request {
+	buildLegacyReq := func(token string) (*http.Request, error) {
 		urlCopy := *uri
-		r := http.Request{
-			Method: http.MethodGet,
-			URL:    &urlCopy,
-			Header: http.Header{},
+		r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, urlCopy.String(), nil)
+		if err != nil {
+			return nil, err
 		}
 		if uri.Path == "/index.yaml" {
 			r.Header.Set("Accept", "application/yaml")
@@ -176,7 +176,7 @@ func makereq(u string) (resp *http.Response, err error) {
 		if token != "" {
 			r.Header.Set("Authorization", "Bearer "+token)
 		}
-		return &r
+		return r, nil
 	}
 
 	token := ""
@@ -191,7 +191,11 @@ func makereq(u string) (resp *http.Response, err error) {
 		token = cred.GetAuthToken()
 	}
 
-	resp, err = getHTTPClient().Do(buildLegacyReq(token))
+	req, err := buildLegacyReq(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+	resp, err = getHTTPClient().Do(req)
 	if err != nil {
 		return
 	}
@@ -201,7 +205,11 @@ func makereq(u string) (resp *http.Response, err error) {
 		if !cred.Refresh() {
 			return nil, fmt.Errorf("failed to refresh auth token")
 		}
-		resp, err = getHTTPClient().Do(buildLegacyReq(cred.GetAuthToken()))
+		retryReq, retryErr := buildLegacyReq(cred.GetAuthToken())
+		if retryErr != nil {
+			return nil, fmt.Errorf("failed to build retry request: %w", retryErr)
+		}
+		resp, err = getHTTPClient().Do(retryReq)
 		if err != nil {
 			return
 		}
@@ -453,6 +461,9 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 			return p.Version.Equal(version)
 		})
 		if idx == -1 {
+			if !allowPrerelease && version.Prerelease() != "" {
+				return PkgInfo{}, fmt.Errorf("version %s is a prerelease; use --pre to allow it", version)
+			}
 			return PkgInfo{}, fmt.Errorf("version %s not found", version)
 		}
 		pkg = pkglist[idx]
@@ -461,10 +472,13 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 	return pkg.GetPackage(d, platformTuple)
 }
 
-func (d Driver) MaxVersion() pkginfo {
+func (d Driver) MaxVersion() (pkginfo, bool) {
+	if len(d.PkgInfo) == 0 {
+		return pkginfo{}, false
+	}
 	return slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
 		return a.Version.Compare(b.Version)
-	})
+	}), true
 }
 
 // PackageInfo holds the platform and raw URL string for a single package entry.

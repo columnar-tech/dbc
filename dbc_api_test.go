@@ -226,13 +226,15 @@ func TestDriverMaxVersion(t *testing.T) {
 
 	t.Run("returns_highest_version", func(t *testing.T) {
 		d := findDriver(t, drivers, "test-driver-1")
-		max := d.MaxVersion()
+		max, ok := d.MaxVersion()
+		require.True(t, ok)
 		assert.Equal(t, "1.1.0", max.Version.String())
 	})
 
 	t.Run("prerelease_can_be_max", func(t *testing.T) {
 		d := findDriver(t, drivers, "test-driver-only-pre")
-		max := d.MaxVersion()
+		max, ok := d.MaxVersion()
+		require.True(t, ok)
 		assert.Equal(t, "0.9.0-alpha.1", max.Version.String())
 	})
 }
