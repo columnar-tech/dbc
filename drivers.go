@@ -159,16 +159,22 @@ func makereq(u string) (resp *http.Response, err error) {
 	q.Add("uid", uid.String())
 	uri.RawQuery = q.Encode()
 
-	req := http.Request{
-		Method: http.MethodGet,
-		URL:    uri,
-		Header: http.Header{},
+	buildLegacyReq := func(token string) *http.Request {
+		r := http.Request{
+			Method: http.MethodGet,
+			URL:    uri,
+			Header: http.Header{},
+		}
+		if uri.Path == "/index.yaml" {
+			r.Header.Set("Accept", "application/yaml")
+		}
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		return &r
 	}
 
-	if uri.Path == "/index.yaml" {
-		req.Header.Set("Accept", "application/yaml")
-	}
-
+	token := ""
 	if cred != nil {
 		if auth.IsColumnarPrivateRegistry(uri) {
 			// if we're accessing the private registry then attempt to
@@ -177,10 +183,10 @@ func makereq(u string) (resp *http.Response, err error) {
 			// trial or it is expired, then this will silently fail.
 			_ = auth.FetchColumnarLicense(cred)
 		}
-		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
+		token = cred.GetAuthToken()
 	}
 
-	resp, err = getHTTPClient().Do(&req)
+	resp, err = getHTTPClient().Do(buildLegacyReq(token))
 	if err != nil {
 		return
 	}
@@ -190,9 +196,10 @@ func makereq(u string) (resp *http.Response, err error) {
 		if !cred.Refresh() {
 			return nil, fmt.Errorf("failed to refresh auth token")
 		}
-
-		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
-		resp, err = getHTTPClient().Do(&req)
+		resp, err = getHTTPClient().Do(buildLegacyReq(cred.GetAuthToken()))
+		if err != nil {
+			return
+		}
 	}
 
 	switch resp.StatusCode {
