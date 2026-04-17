@@ -141,7 +141,9 @@ func WithBaseURL(u string) Option {
 	return func(cfg *clientConfig) { cfg.baseURL = u }
 }
 
-// WithUserAgent sets the user agent string for requests.
+// WithUserAgent sets the user agent string for requests. This only takes
+// effect when no custom HTTP client is provided via WithHTTPClient; if a
+// custom client is supplied its transport is used as-is.
 func WithUserAgent(ua string) Option {
 	return func(cfg *clientConfig) { cfg.userAgent = ua }
 }
