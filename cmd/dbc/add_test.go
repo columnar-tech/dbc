@@ -52,7 +52,7 @@ func TestAdd(t *testing.T) {
 
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModelCustom(
-			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+			testBaseModel())
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -105,7 +105,7 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModelCustom(
-			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+			testBaseModel())
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -129,7 +129,7 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-1>=1.0.0"}}.GetModelCustom(
-			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+			testBaseModel())
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -186,7 +186,7 @@ func TestAddMultiple(t *testing.T) {
 	{
 		m := AddCmd{Path: filepath.Join(dir, "dbc.toml"), Driver: []string{"test-driver-2", "test-driver-1>=1.0.0"}}.
 			GetModelCustom(
-				baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+				testBaseModel())
 
 		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
@@ -223,7 +223,7 @@ func (suite *SubcommandTestSuite) TestAddWithPre() {
 		Driver: []string{"test-driver-2"},
 		Pre:    true,
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	suite.runCmd(m)
 
@@ -248,7 +248,7 @@ func (suite *SubcommandTestSuite) TestAddWithPreOnlyPrereleaseDriver() {
 		Driver: []string{"test-driver-only-pre"},
 		Pre:    true,
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	suite.runCmd(m)
 
@@ -273,7 +273,7 @@ func (suite *SubcommandTestSuite) TestAddWithoutPreOnlyPrereleaseDriver() {
 		Driver: []string{"test-driver-only-pre"},
 		Pre:    false,
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "driver `test-driver-only-pre` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre test-driver-only-pre")
@@ -290,7 +290,7 @@ func (suite *SubcommandTestSuite) TestAddWithPreAndConstraint() {
 		Driver: []string{"test-driver-2>=2.0.0"},
 		Pre:    true,
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	suite.runCmd(m)
 
@@ -316,7 +316,7 @@ func (suite *SubcommandTestSuite) TestAddExplicitPrereleaseWithoutPreFlag() {
 		Driver: []string{"test-driver-only-pre=0.9.0-alpha.1"},
 		Pre:    false,
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	suite.runCmd(m)
 
@@ -420,7 +420,7 @@ func (suite *SubcommandTestSuite) TestAddOutput() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: []string{"test-driver-1"},
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmd(m)
 	suite.Contains(out, "added test-driver-1 to driver list")
@@ -435,7 +435,7 @@ func (suite *SubcommandTestSuite) TestAddMultipleOutput() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: []string{"test-driver-1", "test-driver-2"},
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmd(m)
 	suite.Contains(out, "added test-driver-1 to driver list")
@@ -452,7 +452,7 @@ func (suite *SubcommandTestSuite) TestAddReplacingDriverOutput() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: []string{"test-driver-1"},
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.runCmd(m)
 
 	// Add same driver with constraint and verify replacement message
@@ -460,7 +460,7 @@ func (suite *SubcommandTestSuite) TestAddReplacingDriverOutput() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: []string{"test-driver-1>=1.0.0"},
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmd(m)
 	suite.Contains(out, "replacing existing driver test-driver-1")

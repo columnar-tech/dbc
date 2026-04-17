@@ -14,11 +14,12 @@
 
 package auth
 
-import "sync"
+import (
+	"path/filepath"
+	"sync"
+	"testing"
+)
 
-// Test helpers to manipulate internal state for testing
-
-// SetCredPathForTesting sets the credential path for testing purposes
 func SetCredPathForTesting(path string) (restore func()) {
 	orig := credPath
 	credPath = path
@@ -27,14 +28,33 @@ func SetCredPathForTesting(path string) (restore func()) {
 	}
 }
 
-// ResetCredentialsForTesting resets the loaded credentials state for testing
 func ResetCredentialsForTesting() {
 	loaded = sync.Once{}
 	loadedCredentials = nil
 	credentialErr = nil
 }
 
-// GetCredPathForTesting returns the current credential path
 func GetCredPathForTesting() string {
+	return credPath
+}
+
+func resetCredState(t *testing.T) {
+	origCredPath := credPath
+	origLoadedCredentials := loadedCredentials
+	t.Cleanup(func() {
+		credPath = origCredPath
+		loadedCredentials = origLoadedCredentials
+		loaded = sync.Once{}
+		credentialErr = nil
+	})
+	loaded = sync.Once{}
+	loadedCredentials = nil
+	credentialErr = nil
+}
+
+func withTempCredPath(t *testing.T) string {
+	orig := credPath
+	t.Cleanup(func() { credPath = orig })
+	credPath = filepath.Join(t.TempDir(), "credentials.toml")
 	return credPath
 }

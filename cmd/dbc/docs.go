@@ -58,10 +58,7 @@ func (c DocsCmd) GetModelCustom(baseModel baseModel, noOpen bool, openBrowserFun
 }
 
 func (c DocsCmd) GetModel() tea.Model {
-	return c.GetModelCustom(baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
-	}, c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
+	return c.GetModelCustom(defaultBaseModel(), c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
 }
 
 type docsModel struct {
@@ -89,11 +86,7 @@ func (m docsModel) Init() tea.Cmd {
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
-			// If we have registry errors, enhance the error message
-			if registryErr != nil {
-				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
-			}
-			return err
+			return wrapWithRegistryContext(err, registryErr)
 		}
 
 		return drv

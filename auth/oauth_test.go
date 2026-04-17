@@ -307,8 +307,8 @@ func TestCredential_Refresh_OAuth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		success := cred.Refresh()
-		assert.True(t, success)
+		err := cred.Refresh()
+		assert.NoError(t, err)
 		assert.Equal(t, "refreshed-token", cred.Token)
 	})
 
@@ -321,8 +321,8 @@ func TestCredential_Refresh_OAuth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		success := cred.Refresh()
-		assert.False(t, success)
+		err := cred.Refresh()
+		assert.Error(t, err)
 	})
 }
 

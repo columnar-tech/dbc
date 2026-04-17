@@ -22,7 +22,7 @@ import (
 
 func (suite *SubcommandTestSuite) TestInfo() {
 	m := InfoCmd{Driver: "test-driver-1"}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 
 	suite.validateOutput("\r ", "Driver: test-driver-1\n"+
@@ -35,7 +35,7 @@ func (suite *SubcommandTestSuite) TestInfo() {
 
 func (suite *SubcommandTestSuite) TestInfo_DriverNotFound() {
 	m := InfoCmd{Driver: "non-existent-driver"}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	out := suite.runCmdErr(m)
 
 	suite.validateOutput("\r ", "\nError: driver `non-existent-driver` not found in driver registry index; try: `dbc search` to list available drivers", out)

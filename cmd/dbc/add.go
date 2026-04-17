@@ -58,13 +58,10 @@ func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c AddCmd) GetModel() tea.Model {
 	return addModel{
-		Driver: c.Driver,
-		Path:   c.Path,
-		Pre:    c.Pre,
-		baseModel: baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
+		Driver:    c.Driver,
+		Path:      c.Path,
+		Pre:       c.Pre,
+		baseModel: defaultBaseModel(),
 	}
 }
 
@@ -135,11 +132,7 @@ func (m addModel) Init() tea.Cmd {
 
 			drv, err := findDriver(spec.Name, drivers)
 			if err != nil {
-				// If we have registry errors, enhance the error message
-				if registryErrors != nil {
-					return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())
-				}
-				return err
+				return wrapWithRegistryContext(err, registryErrors)
 			}
 
 			if spec.Vers != nil {
@@ -158,11 +151,11 @@ func (m addModel) Init() tea.Cmd {
 						// No packages. Very unlikely edge case.
 						err = fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
 					}
-					// If we have registry errors, enhance the error message
-					if registryErrors != nil {
-						return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErrors.Error())
-					}
-					return err
+				// If we have registry errors, enhance the error message
+				if registryErrors != nil {
+					return wrapWithRegistryContext(err, registryErrors)
+				}
+				return err
 				}
 			}
 

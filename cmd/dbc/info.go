@@ -37,10 +37,7 @@ func (c InfoCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (c InfoCmd) GetModel() tea.Model {
-	return c.GetModelCustom(baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
-	})
+	return c.GetModelCustom(defaultBaseModel())
 }
 
 type infoModel struct {
@@ -61,11 +58,7 @@ func (m infoModel) Init() tea.Cmd {
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
-			// If we have registry errors, enhance the error message
-			if registryErr != nil {
-				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
-			}
-			return err
+			return wrapWithRegistryContext(err, registryErr)
 		}
 
 		return drv
@@ -90,7 +83,7 @@ func formatDriverInfo(drv dbc.Driver) string {
 	b.WriteString(bold.Render("Description: ") + drv.Desc + "\n")
 	b.WriteString(bold.Render("Available Packages:") + "\n")
 	for _, pkg := range info.Packages {
-		b.WriteString("   - " + descStyle.Render(pkg.PlatformTuple) + "\n")
+		b.WriteString("   - " + descStyle.Render(pkg.Platform) + "\n")
 	}
 
 	return strings.TrimSuffix(b.String(), "\n")
@@ -117,7 +110,7 @@ func driverInfoJSON(drv dbc.Driver) string {
 		Desc:    drv.Desc,
 	}
 	for _, pkg := range info.Packages {
-		driverInfoOutput.Packages = append(driverInfoOutput.Packages, pkg.PlatformTuple)
+		driverInfoOutput.Packages = append(driverInfoOutput.Packages, pkg.Platform)
 	}
 
 	jsonBytes, err := json.Marshal(driverInfoOutput)

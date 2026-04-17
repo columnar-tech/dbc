@@ -101,10 +101,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (c InstallCmd) GetModel() tea.Model {
-	return c.GetModelCustom(baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
-	})
+	return c.GetModelCustom(defaultBaseModel())
 }
 
 func verifySignature(m config.Manifest, noVerify bool) error {
@@ -229,16 +226,23 @@ func (m progressiveInstallModel) Preamble() string {
 	return ""
 }
 
+func (m progressiveInstallModel) hasConflict() bool {
+	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil
+}
+
+func (m progressiveInstallModel) isAlreadyInstalled() bool {
+	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil &&
+		m.conflictingInfo.Version.Equal(m.DriverPackage.Version)
+}
+
 func (m progressiveInstallModel) FinalOutput() string {
-	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			if m.jsonOutput {
-				return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
-					m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
-			}
-			return fmt.Sprintf("\nDriver %s %s already installed at %s",
+	if m.isAlreadyInstalled() {
+		if m.jsonOutput {
+			return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
 				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 		}
+		return fmt.Sprintf("\nDriver %s %s already installed at %s",
+			m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
 	}
 
 	var b strings.Builder
@@ -256,7 +260,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 		output.Driver = m.Driver
 		output.Version = m.DriverPackage.Version.String()
 		output.Location = filepath.SplitList(m.cfg.Location)[0]
-		if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
+		if m.hasConflict() {
 			output.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
 		}
 
@@ -330,11 +334,9 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 
 func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	m.state = stDownloading
-	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			m.state = stDone
-			return m, tea.Quit
-		}
+	if m.isAlreadyInstalled() {
+		m.state = stDone
+		return m, tea.Quit
 	}
 
 	return m, func() tea.Msg {
@@ -462,10 +464,8 @@ func (m progressiveInstallModel) View() tea.View {
 		return tea.NewView("")
 	}
 
-	if m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil {
-		if m.conflictingInfo.Version.Equal(m.DriverPackage.Version) {
-			return tea.NewView("")
-		}
+	if m.isAlreadyInstalled() {
+		return tea.NewView("")
 	}
 
 	var b strings.Builder

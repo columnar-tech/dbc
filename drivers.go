@@ -202,8 +202,8 @@ func makereq(u string) (resp *http.Response, err error) {
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		if !cred.Refresh() {
-			return nil, fmt.Errorf("failed to refresh auth token")
+		if err := cred.Refresh(); err != nil {
+			return nil, fmt.Errorf("failed to refresh auth token: %w", err)
 		}
 		retryReq, retryErr := buildLegacyReq(cred.GetAuthToken())
 		if retryErr != nil {
@@ -474,13 +474,21 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 	return pkg.GetPackage(d, platformTuple)
 }
 
-func (d Driver) MaxVersion() (pkginfo, bool) {
+func (d Driver) MaxVersion() (VersionInfo, bool) {
 	if len(d.PkgInfo) == 0 {
-		return pkginfo{}, false
+		return VersionInfo{}, false
 	}
-	return slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
+	p := slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
 		return a.Version.Compare(b.Version)
-	}), true
+	})
+	pkgs := make([]PackageInfo, 0, len(p.Packages))
+	for _, pkg := range p.Packages {
+		pkgs = append(pkgs, PackageInfo{
+			Platform: pkg.PlatformTuple,
+			URL:      pkg.URL,
+		})
+	}
+	return VersionInfo{Version: p.Version, Packages: pkgs}, true
 }
 
 // PackageInfo holds the platform and raw URL string for a single package entry.

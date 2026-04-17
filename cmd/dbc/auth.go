@@ -31,6 +31,13 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 )
 
+func ensureHTTPS(uri string) string {
+	if !strings.HasPrefix(uri, "https://") {
+		return "https://" + uri
+	}
+	return uri
+}
+
 type AuthCmd struct {
 	Login   *LoginCmd   `arg:"subcommand" help:"Authenticate with a driver registry"`
 	Logout  *LogoutCmd  `arg:"subcommand" help:"Log out from a driver registry"`
@@ -86,12 +93,7 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (l LoginCmd) GetModel() tea.Model {
-	return l.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	)
+	return l.GetModelCustom(defaultBaseModel())
 }
 
 type authSuccessMsg struct {
@@ -113,9 +115,7 @@ type loginModel struct {
 }
 
 func (m loginModel) Init() tea.Cmd {
-	if !strings.HasPrefix(m.inputURI, "https://") {
-		m.inputURI = "https://" + m.inputURI
-	}
+	m.inputURI = ensureHTTPS(m.inputURI)
 
 	u, err := url.Parse(m.inputURI)
 	if err != nil {
@@ -159,7 +159,7 @@ func (m loginModel) apiKeyToToken() tea.Cmd {
 			ApiKey:      m.apiKey,
 		}
 
-		if !cred.Refresh() {
+		if err := cred.Refresh(); err != nil {
 			return fmt.Errorf("failed to obtain access token using provided API key")
 		}
 
@@ -262,12 +262,7 @@ func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (l LogoutCmd) GetModel() tea.Model {
-	return l.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	)
+	return l.GetModelCustom(defaultBaseModel())
 }
 
 type logoutModel struct {
@@ -278,9 +273,7 @@ type logoutModel struct {
 }
 
 func (m logoutModel) Init() tea.Cmd {
-	if !strings.HasPrefix(m.inputURI, "https://") {
-		m.inputURI = "https://" + m.inputURI
-	}
+	m.inputURI = ensureHTTPS(m.inputURI)
 
 	u, err := url.Parse(m.inputURI)
 	if err != nil {
@@ -326,12 +319,7 @@ func (l LicenseInstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (l LicenseInstallCmd) GetModel() tea.Model {
-	return l.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	)
+	return l.GetModelCustom(defaultBaseModel())
 }
 
 type licenseInstalledMsg struct{}

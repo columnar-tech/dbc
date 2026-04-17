@@ -50,13 +50,10 @@ func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path:     c.Path,
-		cfg:      getConfig(c.Level),
-		NoVerify: c.NoVerify,
-		baseModel: baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
+		Path:      c.Path,
+		cfg:       getConfig(c.Level),
+		NoVerify:  c.NoVerify,
+		baseModel: defaultBaseModel(),
 	}
 }
 
@@ -165,11 +162,7 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// locate the driver info in the CDN driver registry index
 		drv, err := findDriver(name, s.driverIndex)
 		if err != nil {
-			// If we have registry errors, enhance the error message
-			if s.registryErrors != nil {
-				return nil, fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, s.registryErrors.Error())
-			}
-			return nil, err
+			return nil, wrapWithRegistryContext(err, s.registryErrors)
 		}
 
 		var pkg dbc.PkgInfo

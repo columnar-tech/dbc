@@ -166,8 +166,8 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "test-api-key",
 		}
 
-		success := cred.Refresh()
-		assert.True(t, success)
+		err := cred.Refresh()
+		assert.NoError(t, err)
 		assert.Equal(t, "new-token", cred.Token)
 	})
 
@@ -184,8 +184,8 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "invalid-key",
 		}
 
-		success := cred.Refresh()
-		assert.False(t, success)
+		err := cred.Refresh()
+		assert.Error(t, err)
 	})
 
 	t.Run("failed refresh with apikey - invalid json", func(t *testing.T) {
@@ -202,8 +202,8 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "test-api-key",
 		}
 
-		success := cred.Refresh()
-		assert.False(t, success)
+		err := cred.Refresh()
+		assert.Error(t, err)
 	})
 }
 

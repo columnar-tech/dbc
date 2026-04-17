@@ -39,12 +39,9 @@ func (c RemoveCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c RemoveCmd) GetModel() tea.Model {
 	return removeModel{
-		Driver: c.Driver,
-		Path:   c.Path,
-		baseModel: baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
+		Driver:    c.Driver,
+		Path:      c.Path,
+		baseModel: defaultBaseModel(),
 	}
 }
 

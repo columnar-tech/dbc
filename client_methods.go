@@ -83,8 +83,8 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		if !cred.Refresh() {
-			return nil, fmt.Errorf("failed to refresh auth token")
+		if err := cred.Refresh(); err != nil {
+			return nil, fmt.Errorf("failed to refresh auth token: %w", err)
 		}
 		req, err = buildReq(cred.GetAuthToken())
 		if err != nil {

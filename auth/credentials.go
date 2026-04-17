@@ -76,42 +76,42 @@ type Credential struct {
 	Audience     string `toml:"audience,omitempty"`
 }
 
-func (t *Credential) Refresh() bool {
+func (t *Credential) Refresh() error {
 	switch t.Type {
 	case TypeApiKey:
 		req, err := http.NewRequestWithContext(context.Background(),
 			http.MethodGet, (*url.URL)(&t.AuthURI).String(), nil)
 		if err != nil {
-			return false
+			return fmt.Errorf("apikey refresh: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+t.ApiKey)
 
 		rsp, err := http.DefaultClient.Do(req)
 		if err != nil {
-			return false
+			return fmt.Errorf("apikey refresh: %w", err)
 		}
 		defer rsp.Body.Close()
 		if rsp.StatusCode != http.StatusOK {
-			return false
+			return fmt.Errorf("apikey refresh: status %s", rsp.Status)
 		}
 
 		var tokenResp struct {
 			Token string `json:"access_token"`
 		}
 		if err := json.NewDecoder(rsp.Body).Decode(&tokenResp); err != nil {
-			return false
+			return err
 		}
 
 		t.Token = tokenResp.Token
-		return true
+		return nil
 	case TypeToken:
 		if err := refreshOauth(t); err != nil {
-			return false
+			return fmt.Errorf("oauth refresh: %w", err)
 		}
-		return true
+		return nil
 	}
 
-	return false
+	return fmt.Errorf("unsupported credential type: %s", t.Type)
 }
 
 // GetAuthToken returns the current token, refreshing if needed.
@@ -121,7 +121,7 @@ func (t *Credential) GetAuthToken() string {
 		return t.Token
 	}
 
-	if t.Refresh() {
+	if err := t.Refresh(); err == nil {
 		_ = UpdateCreds()
 		return t.Token
 	}
