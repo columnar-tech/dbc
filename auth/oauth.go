@@ -99,8 +99,11 @@ func refreshOauth(cred *Credential) error {
 	}
 
 	payload := values.Encode()
-	req, _ := http.NewRequest(http.MethodPost, cfg.TokenEndpoint.String(),
+	req, err := http.NewRequest(http.MethodPost, cfg.TokenEndpoint.String(),
 		strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to build token request: %w", err)
+	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

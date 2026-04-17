@@ -15,6 +15,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,13 +79,14 @@ type Credential struct {
 func (t *Credential) Refresh() bool {
 	switch t.Type {
 	case TypeApiKey:
-		rsp, err := http.DefaultClient.Do(&http.Request{
-			Method: http.MethodGet,
-			URL:    (*url.URL)(&t.AuthURI),
-			Header: http.Header{
-				"authorization": []string{"Bearer " + t.ApiKey},
-			},
-		})
+		req, err := http.NewRequestWithContext(context.Background(),
+			http.MethodGet, (*url.URL)(&t.AuthURI).String(), nil)
+		if err != nil {
+			return false
+		}
+		req.Header.Set("Authorization", "Bearer "+t.ApiKey)
+
+		rsp, err := http.DefaultClient.Do(req)
 		if err != nil || rsp.StatusCode != http.StatusOK {
 			return false
 		}
@@ -127,18 +129,30 @@ var (
 	credentialErr     error
 	loaded            sync.Once
 	credPath          string
+	credPathMu        sync.Mutex
+	credMu            sync.RWMutex
 )
 
-func init() {
-	var err error
-	credPath, err = internal.GetCredentialPath()
-	if err != nil {
-		panic(fmt.Sprintf("failed to get credential path: %s", err))
+func getCredPath() (string, error) {
+	credPathMu.Lock()
+	defer credPathMu.Unlock()
+	if credPath == "" {
+		var err error
+		credPath, err = internal.GetCredentialPath()
+		if err != nil {
+			return "", fmt.Errorf("failed to get credential path: %w", err)
+		}
 	}
+	return credPath, nil
 }
 
 func loadCreds() ([]Credential, error) {
-	credFile, err := os.Open(credPath)
+	cp, err := getCredPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get credential path: %w", err)
+	}
+
+	credFile, err := os.Open(cp)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return []Credential{}, nil
@@ -163,6 +177,8 @@ func GetCredentials(u *url.URL) (*Credential, error) {
 		return nil, err
 	}
 
+	credMu.RLock()
+	defer credMu.RUnlock()
 	for i, cred := range loadedCredentials {
 		if cred.RegistryURL.Host == u.Host {
 			return &loadedCredentials[i], nil
@@ -184,6 +200,9 @@ func AddCredential(cred Credential, allowOverwrite bool) error {
 		return err
 	}
 
+	credMu.Lock()
+	defer credMu.Unlock()
+
 	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
 		return c.RegistryURL.Host == cred.RegistryURL.Host
 	})
@@ -196,13 +215,16 @@ func AddCredential(cred Credential, allowOverwrite bool) error {
 	} else {
 		loadedCredentials = append(loadedCredentials, cred)
 	}
-	return UpdateCreds()
+	return writeCreds()
 }
 
 func RemoveCredential(host Uri) error {
 	if err := LoadCredentials(); err != nil {
 		return err
 	}
+
+	credMu.Lock()
+	defer credMu.Unlock()
 
 	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
 		return c.RegistryURL.Host == host.Host
@@ -213,20 +235,20 @@ func RemoveCredential(host Uri) error {
 	}
 
 	loadedCredentials = append(loadedCredentials[:idx], loadedCredentials[idx+1:]...)
-	return UpdateCreds()
+	return writeCreds()
 }
 
-func UpdateCreds() error {
-	if err := LoadCredentials(); err != nil {
-		return err
-	}
-
-	err := os.MkdirAll(filepath.Dir(credPath), 0o700)
+func writeCreds() error {
+	cp, err := getCredPath()
 	if err != nil {
+		return fmt.Errorf("failed to get credential path: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(cp), 0o700); err != nil {
 		return err
 	}
 
-	f, err := os.OpenFile(credPath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(cp, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
 	if err != nil {
 		return err
 	}
@@ -239,13 +261,28 @@ func UpdateCreds() error {
 	})
 }
 
+func UpdateCreds() error {
+	if err := LoadCredentials(); err != nil {
+		return err
+	}
+
+	credMu.Lock()
+	defer credMu.Unlock()
+	return writeCreds()
+}
+
 func PurgeCredentials() error {
+	cp, err := getCredPath()
+	if err != nil {
+		return fmt.Errorf("failed to get credential path: %w", err)
+	}
+
 	var fileList = []string{
 		"credentials.toml",
 		"columnar.lic",
 	}
 
-	prefix := filepath.Dir(credPath)
+	prefix := filepath.Dir(cp)
 
 	for _, file := range fileList {
 		fullPath := filepath.Join(prefix, file)
@@ -269,7 +306,8 @@ var (
 )
 
 func LicensePath() string {
-	return filepath.Join(filepath.Dir(credPath), "columnar.lic")
+	cp, _ := getCredPath()
+	return filepath.Join(filepath.Dir(cp), "columnar.lic")
 }
 
 func InstallLicenseFromFile(srcPath string, force bool) error {
@@ -302,8 +340,13 @@ func InstallLicenseFromFile(srcPath string, force bool) error {
 }
 
 func FetchColumnarLicense(cred *Credential) error {
-	licensePath := filepath.Join(filepath.Dir(credPath), "columnar.lic")
-	_, err := os.Stat(licensePath)
+	cp, err := getCredPath()
+	if err != nil {
+		return fmt.Errorf("failed to get credential path: %w", err)
+	}
+
+	licensePath := filepath.Join(filepath.Dir(cp), "columnar.lic")
+	_, err = os.Stat(licensePath)
 	if err == nil { // license exists already
 		return nil
 	}
@@ -361,7 +404,6 @@ func FetchColumnarLicense(cred *Credential) error {
 	}
 	defer licenseFile.Close()
 	if _, err = licenseFile.ReadFrom(resp.Body); err != nil {
-		licenseFile.Close()
 		os.Remove(licensePath)
 	}
 	return err

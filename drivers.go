@@ -295,6 +295,8 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	_, err = io.Copy(pw, rsp.Body)
 	if err != nil {
 		output.Close()
+		output = nil
+		os.RemoveAll(tmpdir)
 	}
 	return output, err
 }
