@@ -223,6 +223,25 @@ func (c *Client) downloadPackage(pkg PkgInfo) (*os.File, error) {
 	return output, nil
 }
 
+// Download fetches the tarball for pkg and returns its contents as an
+// io.ReadCloser. The caller is responsible for closing the returned body.
+// Auth credentials are resolved and injected automatically, including token
+// refresh on 401.
+func (c *Client) Download(pkg PkgInfo) (io.ReadCloser, error) {
+	if pkg.Path == nil {
+		return nil, fmt.Errorf("cannot download package for %s: no url set", pkg.Driver.Title)
+	}
+	rsp, err := c.makeRequest(pkg.Path.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to download %s: %w", pkg.Path, err)
+	}
+	if rsp.StatusCode != http.StatusOK {
+		rsp.Body.Close()
+		return nil, fmt.Errorf("failed to download %s: %s", pkg.Path, rsp.Status)
+	}
+	return rsp.Body, nil
+}
+
 // Install installs a driver with the given name to the specified configuration.
 func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest, error) {
 	drivers, err := c.Search(driverName)
