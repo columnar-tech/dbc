@@ -57,7 +57,8 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		reader := bufio.NewReader(os.Stdin)
 		apiKey, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
-			panic(fmt.Errorf("failed to read API key from stdin: %w", err))
+			fmt.Fprintf(os.Stderr, "failed to read API key from stdin: %s\n", err)
+			os.Exit(1)
 		}
 
 		l.ApiKey = strings.TrimSpace(apiKey)

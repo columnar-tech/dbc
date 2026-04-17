@@ -435,8 +435,10 @@ func (d Driver) Versions(platformTuple string) semver.Collection {
 func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowPrerelease bool) (PkgInfo, error) {
 	pkglist := d.PkgInfo
 
-	// Filter out pre-releases and record whether any pre-releases were filtered
-	// out so we can produce a more helpful error message
+	// Filter prereleases when no specific stable version is requested.
+	// When version is a specific stable release (Prerelease() == ""),
+	// filtering is unnecessary — the exact-match search below will
+	// only match the requested stable version.
 	if !allowPrerelease && (version == nil || version.Prerelease() != "") {
 		hadPackages := len(d.PkgInfo) > 0
 		pkglist = slices.Collect(filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
