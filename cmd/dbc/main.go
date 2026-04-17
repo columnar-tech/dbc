@@ -80,12 +80,15 @@ type NeedsRenderer interface {
 
 var dbcClient *dbc.Client
 
-func init() {
-	dbcClient, _ = dbc.NewClient()
-}
-
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
+	if dbcClient == nil {
+		c, err := dbc.NewClient()
+		if err != nil {
+			return nil, err
+		}
+		dbcClient = c
+	}
 	return dbcClient.Search("")
 }
 
@@ -225,7 +228,7 @@ func main() {
 		args cmds
 	)
 
-	clientOpts := []dbc.Option{}
+	var clientOpts []dbc.Option
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		clientOpts = append(clientOpts, dbc.WithBaseURL(val))
 	}

@@ -232,10 +232,7 @@ func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver %s: %w", driverName, err)
 	}
-	defer func() {
-		f.Close()
-		os.RemoveAll(filepath.Dir(f.Name()))
-	}()
+	defer os.RemoveAll(filepath.Dir(f.Name()))
 
 	manifest, err := config.InstallDriver(cfg, driverName, f)
 	if err != nil {
