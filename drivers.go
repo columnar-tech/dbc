@@ -453,6 +453,41 @@ func (d Driver) MaxVersion() pkginfo {
 	})
 }
 
+// PackageInfo holds the platform and raw URL string for a single package entry.
+// The URL may be relative (joined against the registry base URL) or absolute.
+type PackageInfo struct {
+	Platform string
+	URL      string
+}
+
+// VersionInfo holds the version and its associated packages for a driver.
+type VersionInfo struct {
+	Version  *semver.Version
+	Packages []PackageInfo
+}
+
+// AllVersions returns all version/package entries for the driver as exported
+// VersionInfo values. This allows callers outside the dbc package to iterate
+// over every version and platform without needing access to the unexported
+// pkginfo type.
+func (d Driver) AllVersions() []VersionInfo {
+	result := make([]VersionInfo, 0, len(d.PkgInfo))
+	for _, pi := range d.PkgInfo {
+		pkgs := make([]PackageInfo, 0, len(pi.Packages))
+		for _, p := range pi.Packages {
+			pkgs = append(pkgs, PackageInfo{
+				Platform: p.PlatformTuple,
+				URL:      p.URL,
+			})
+		}
+		result = append(result, VersionInfo{
+			Version:  pi.Version,
+			Packages: pkgs,
+		})
+	}
+	return result
+}
+
 // GetDriverList returns a list of all available drivers from all configured registries.
 //
 // Deprecated: Use NewClient and Client.Search instead.
