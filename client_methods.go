@@ -236,7 +236,11 @@ func (c *Client) Download(pkg PkgInfo) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("failed to download %s: %w", pkg.Path, err)
 	}
 	if rsp.StatusCode != http.StatusOK {
-		rsp.Body.Close()
+		defer rsp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(rsp.Body, 1024))
+		if len(body) > 0 {
+			return nil, fmt.Errorf("failed to download %s: %s: %s", pkg.Path, rsp.Status, body)
+		}
 		return nil, fmt.Errorf("failed to download %s: %s", pkg.Path, rsp.Status)
 	}
 	return rsp.Body, nil

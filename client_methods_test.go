@@ -16,8 +16,10 @@ package dbc_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,5 +167,58 @@ func TestClientUninstall(t *testing.T) {
 		err := c.Uninstall(cfg, "not-installed-driver")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not-installed-driver")
+	})
+}
+
+func TestClientDownload(t *testing.T) {
+	srv := newInstallTestServer(t)
+	c := newTestClientForServer(t, srv.URL)
+
+	t.Run("successful download returns readable body", func(t *testing.T) {
+		pkgURL, err := url.Parse(srv.URL + "/test-driver-1.tar.gz")
+		require.NoError(t, err)
+
+		pkg := dbc.PkgInfo{
+			Driver: dbc.Driver{Title: "test-driver-1"},
+			Path:   pkgURL,
+		}
+		body, err := c.Download(pkg)
+		require.NoError(t, err)
+		defer body.Close()
+
+		data, err := io.ReadAll(body)
+		require.NoError(t, err)
+		assert.NotEmpty(t, data, "download body should not be empty")
+	})
+
+	t.Run("nil path returns error", func(t *testing.T) {
+		pkg := dbc.PkgInfo{
+			Driver: dbc.Driver{Title: "nil-path-driver"},
+		}
+		_, err := c.Download(pkg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no url set")
+		assert.Contains(t, err.Error(), "nil-path-driver")
+	})
+
+	t.Run("non-200 status returns error with body", func(t *testing.T) {
+		errSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "package not found in storage backend")
+		}))
+		t.Cleanup(errSrv.Close)
+
+		errClient := newTestClientForServer(t, errSrv.URL)
+		pkgURL, err := url.Parse(errSrv.URL + "/some-driver.tar.gz")
+		require.NoError(t, err)
+
+		pkg := dbc.PkgInfo{
+			Driver: dbc.Driver{Title: "error-driver"},
+			Path:   pkgURL,
+		}
+		_, err = errClient.Download(pkg)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "500")
+		assert.Contains(t, err.Error(), "package not found in storage backend")
 	})
 }
