@@ -20,6 +20,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -78,7 +79,10 @@ type NeedsRenderer interface {
 	NeedsRenderer()
 }
 
-var dbcClient *dbc.Client
+var (
+	dbcClient     *dbc.Client
+	dbcClientOnce sync.Once
+)
 
 func newDefaultClient() (*dbc.Client, error) {
 	var opts []dbc.Option
@@ -88,14 +92,18 @@ func newDefaultClient() (*dbc.Client, error) {
 	return dbc.NewClient(opts...)
 }
 
+func initDBCClient() error {
+	var initErr error
+	dbcClientOnce.Do(func() {
+		dbcClient, initErr = newDefaultClient()
+	})
+	return initErr
+}
+
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
-	if dbcClient == nil {
-		c, err := newDefaultClient()
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize client: %w", err)
-		}
-		dbcClient = c
+	if err := initDBCClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
 	return dbcClient.Search("")
 }
@@ -236,10 +244,8 @@ func main() {
 		args cmds
 	)
 
-	var clientErr error
-	dbcClient, clientErr = newDefaultClient()
-	if clientErr != nil {
-		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", clientErr)
+	if err := initDBCClient(); err != nil {
+		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", err)
 		os.Exit(1)
 	}
 

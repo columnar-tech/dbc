@@ -50,15 +50,18 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 	q.Add("uid", c.uid.String())
 	uri.RawQuery = q.Encode()
 
-	buildReq := func(token string) *http.Request {
-		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, uri.String(), nil)
+	buildReq := func(token string) (*http.Request, error) {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, uri.String(), nil)
+		if err != nil {
+			return nil, err
+		}
 		if uri.Path == "/index.yaml" {
 			req.Header.Set("Accept", "application/yaml")
 		}
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
-		return req
+		return req, nil
 	}
 
 	token := ""
@@ -69,7 +72,11 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 		token = cred.GetAuthToken()
 	}
 
-	resp, err := c.httpClient.Do(buildReq(token))
+	req, err := buildReq(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +86,11 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 		if !cred.Refresh() {
 			return nil, fmt.Errorf("failed to refresh auth token")
 		}
-		resp, err = c.httpClient.Do(buildReq(cred.GetAuthToken()))
+		req, err = buildReq(cred.GetAuthToken())
+		if err != nil {
+			return nil, fmt.Errorf("failed to build retry request: %w", err)
+		}
+		resp, err = c.httpClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
