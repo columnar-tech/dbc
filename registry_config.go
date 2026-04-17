@@ -114,6 +114,8 @@ func mergeRegistries(
 	}
 
 	toRegistry := func(entry RegistryEntry) (Registry, bool) {
+		// Callers (loadGlobalConfig, SetProjectRegistries) pre-validate entries,
+		// so this silent-drop path is a safety net for direct callers of mergeRegistries.
 		u, err := url.Parse(entry.URL)
 		if err != nil || u.Host == "" {
 			return Registry{}, false
@@ -165,10 +167,10 @@ func ConfigureRegistries(globalConfigDir string) error {
 	if err != nil {
 		return err
 	}
+	globalConfig = cfg // always reset, even to nil, so stale state from prior calls doesn't persist
 	if cfg == nil {
 		return nil
 	}
-	globalConfig = cfg
 	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, defaultRegistries)
 	return nil
 }
