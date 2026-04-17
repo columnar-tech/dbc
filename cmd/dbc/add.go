@@ -96,6 +96,7 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
+		// SetProjectRegistries mutates global state; safe because dbc is single-command-per-process.
 		p, err := driverListPath(m.Path)
 		if err != nil {
 			return err

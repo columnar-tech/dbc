@@ -334,6 +334,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.list.ReplaceDefaults {
 			replace = boolPtr(true)
 		}
+		// SetProjectRegistries mutates global state; safe because dbc is single-command-per-process.
 		if err := dbc.SetProjectRegistries(msg.list.Registries, replace); err != nil {
 			return s, errCmd("error configuring project registries: %w", err)
 		}

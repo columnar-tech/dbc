@@ -574,7 +574,7 @@ func TestSetProjectRegistries(t *testing.T) {
 func TestConfigureRegistriesThenSetProjectRegistries(t *testing.T) {
 	origDefault := defaultRegistries
 	origGlobal := globalConfig
-	registries = defaultRegistries
+	registries = append([]Registry(nil), defaultRegistries...)
 	globalConfig = nil
 	origReg := append([]Registry(nil), registries...)
 	t.Cleanup(func() {
