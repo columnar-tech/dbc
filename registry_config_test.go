@@ -391,10 +391,11 @@ name = "custom"
 	})
 
 	t.Run("missing config resets registries to defaults even if previously dirtied", func(t *testing.T) {
+		origReg := registries
 		origDefault := defaultRegistries
 		origGlobal := globalConfig
 		defer func() {
-			registries = origDefault
+			registries = origReg
 			defaultRegistries = origDefault
 			globalConfig = origGlobal
 		}()
