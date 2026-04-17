@@ -225,7 +225,16 @@ func main() {
 		args cmds
 	)
 
-	dbcClient, _ = dbc.NewClient()
+	clientOpts := []dbc.Option{}
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		clientOpts = append(clientOpts, dbc.WithBaseURL(val))
+	}
+	var clientErr error
+	dbcClient, clientErr = dbc.NewClient(clientOpts...)
+	if clientErr != nil {
+		fmt.Println("Error initializing client:", clientErr)
+		os.Exit(1)
+	}
 
 	p, err := newParser(&args)
 	if err != nil {

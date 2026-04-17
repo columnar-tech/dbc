@@ -103,9 +103,7 @@ func (c *Client) getDriverListFromIndex(index *Registry) ([]Driver, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, nil
-		}
+		resp.Body.Close()
 		return nil, fmt.Errorf("failed to fetch drivers: %s", resp.Status)
 	}
 
@@ -207,7 +205,9 @@ func (c *Client) downloadPackage(pkg PkgInfo) (*os.File, error) {
 // Install installs a driver with the given name to the specified configuration.
 func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest, error) {
 	drivers, err := c.Search(driverName)
-	if err != nil {
+	// Only fail if the driver wasn't found in any registry; partial registry errors
+	// are acceptable as long as we can still locate the target driver.
+	if err != nil && len(drivers) == 0 {
 		return nil, fmt.Errorf("failed to search for driver %s: %w", driverName, err)
 	}
 
@@ -232,7 +232,10 @@ func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver %s: %w", driverName, err)
 	}
-	defer os.RemoveAll(filepath.Dir(f.Name()))
+	defer func() {
+		f.Close()
+		os.RemoveAll(filepath.Dir(f.Name()))
+	}()
 
 	manifest, err := config.InstallDriver(cfg, driverName, f)
 	if err != nil {

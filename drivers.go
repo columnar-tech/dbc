@@ -447,7 +447,8 @@ func (d Driver) MaxVersion() pkginfo {
 //
 // Deprecated: Use NewClient and Client.Search instead.
 func GetDriverList() ([]Driver, error) {
-	opts := []Option{}
+	ensureSetup()
+	var opts []Option
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, WithBaseURL(val))
 	}

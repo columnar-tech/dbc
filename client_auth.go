@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"fmt"
 	"net/url"
 
 	"github.com/columnar-tech/dbc/auth"
@@ -22,9 +23,10 @@ import (
 
 // WithCredential sets a specific credential to use for all requests.
 func WithCredential(cred *auth.Credential) Option {
+	credCopy := *cred
 	return func(cfg *clientConfig) {
 		cfg.credentialResolver = func(_ *url.URL) (*auth.Credential, error) {
-			return cred, nil
+			return &credCopy, nil
 		}
 	}
 }
@@ -45,6 +47,9 @@ func (c *Client) getCredential(u *url.URL) (*auth.Credential, error) {
 
 // Login saves a credential for the given registry.
 func (c *Client) Login(cred *auth.Credential) error {
+	if cred == nil {
+		return fmt.Errorf("credential must not be nil")
+	}
 	return auth.AddCredential(*cred, true)
 }
 

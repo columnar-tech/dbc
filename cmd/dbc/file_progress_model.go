@@ -39,6 +39,9 @@ func (m FileProgressModel) Init() tea.Cmd {
 func (m *FileProgressModel) SetPercent(written, total int64) tea.Cmd {
 	m.written = written
 	m.totalBytes = total
+	if total <= 0 {
+		return m.Model.SetPercent(0)
+	}
 	return m.Model.SetPercent(float64(written) / float64(total))
 }
 

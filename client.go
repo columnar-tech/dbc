@@ -133,7 +133,7 @@ func WithHTTPClient(hc *http.Client) Option {
 
 // WithRegistries sets the driver registries to use.
 func WithRegistries(r []Registry) Option {
-	return func(cfg *clientConfig) { cfg.registries = r }
+	return func(cfg *clientConfig) { cfg.registries = append([]Registry(nil), r...) }
 }
 
 // WithBaseURL sets the base URL for the driver registry.

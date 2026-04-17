@@ -109,8 +109,7 @@ func TestClientListInstalled(t *testing.T) {
 		))
 
 		c := newTestClient(t)
-		drivers, err := c.ListInstalled(config.ConfigEnv)
-		require.NoError(t, err)
+		drivers := c.ListInstalled(config.ConfigEnv)
 		require.Len(t, drivers, 2)
 
 		ids := make([]string, len(drivers))
@@ -126,8 +125,7 @@ func TestClientListInstalled(t *testing.T) {
 		t.Setenv("CONDA_PREFIX", "")
 
 		c := newTestClient(t)
-		drivers, err := c.ListInstalled(config.ConfigEnv)
-		require.NoError(t, err)
+		drivers := c.ListInstalled(config.ConfigEnv)
 		assert.Empty(t, drivers)
 	})
 }

@@ -97,7 +97,8 @@ func TestClientLogin(t *testing.T) {
 	c, err := dbc.NewClient()
 	require.NoError(t, err)
 
-	u, _ := url.Parse("https://login-test.example.com")
+	u, err := url.Parse("https://login-test.example.com")
+	require.NoError(t, err)
 	cred := &auth.Credential{
 		Type:        auth.TypeApiKey,
 		ApiKey:      "my-api-key",
@@ -134,7 +135,8 @@ func TestClientLogout(t *testing.T) {
 	c, err := dbc.NewClient()
 	require.NoError(t, err)
 
-	u, _ := url.Parse("https://logout-test.example.com")
+	u, err := url.Parse("https://logout-test.example.com")
+	require.NoError(t, err)
 	cred := &auth.Credential{
 		Type:        auth.TypeApiKey,
 		ApiKey:      "my-api-key",
@@ -152,7 +154,8 @@ func TestClientLogout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, found)
 
-	u2, _ := url.Parse("https://not-registered.example.com")
+	u2, err := url.Parse("https://not-registered.example.com")
+	require.NoError(t, err)
 	err = c.Logout(u2)
 	assert.Error(t, err)
 }

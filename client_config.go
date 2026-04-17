@@ -22,8 +22,8 @@ func (c *Client) GetConfig(level config.ConfigLevel) config.Config {
 }
 
 // ListInstalled returns a list of installed drivers at the specified configuration level.
-func (c *Client) ListInstalled(level config.ConfigLevel) ([]config.DriverInfo, error) {
-	return config.FindDriverConfigs(level), nil
+func (c *Client) ListInstalled(level config.ConfigLevel) []config.DriverInfo {
+	return config.FindDriverConfigs(level)
 }
 
 // GetDriver retrieves driver information from the given configuration.

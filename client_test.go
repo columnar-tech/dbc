@@ -40,7 +40,8 @@ func TestNewClientWithHTTPClient(t *testing.T) {
 }
 
 func TestNewClientWithRegistries(t *testing.T) {
-	u, _ := url.Parse("https://example.com")
+	u, err := url.Parse("https://example.com")
+	require.NoError(t, err)
 	regs := []dbc.Registry{{BaseURL: u}}
 	c, err := dbc.NewClient(dbc.WithRegistries(regs))
 	require.NoError(t, err)
