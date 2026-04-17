@@ -202,7 +202,7 @@ func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error 
 		globalRegs = globalConfig.Registries
 		globalReplaceDefaults = globalConfig.ReplaceDefaults
 	}
-	base := defaultRegistries
+	base := append([]Registry(nil), defaultRegistries...)
 	registries = mergeRegistries(entries, replaceDefaults, globalRegs, globalReplaceDefaults, base)
 	return nil
 }
