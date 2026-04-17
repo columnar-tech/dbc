@@ -486,7 +486,7 @@ name = "custom"
 func TestSetProjectRegistries(t *testing.T) {
 	saveAndRestore := func(t *testing.T) {
 		t.Helper()
-		origReg := registries
+		origReg := append([]Registry(nil), registries...)
 		origDefault := defaultRegistries
 		origGlobal := globalConfig
 		t.Cleanup(func() {
