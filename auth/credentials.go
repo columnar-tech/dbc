@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -414,13 +415,19 @@ func FetchColumnarLicense(cred *Credential) error {
 		}
 	}
 
-	licenseFile, err := os.OpenFile(licensePath, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
+	tmp, err := os.CreateTemp(filepath.Dir(licensePath), ".lic.*")
 	if err != nil {
 		return err
 	}
-	defer licenseFile.Close()
-	if _, err = licenseFile.ReadFrom(resp.Body); err != nil {
-		os.Remove(licensePath)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write license: %w", err)
 	}
-	return err
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close license temp file: %w", err)
+	}
+	return os.Rename(tmpName, licensePath)
 }

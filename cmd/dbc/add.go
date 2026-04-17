@@ -15,7 +15,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -106,20 +105,10 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		f, err := os.Open(p)
+		m.list, err = openAndDecodeDriverList(m.Path)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
-			} else {
-				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
-			}
-		}
-		defer f.Close()
-
-		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
-
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)
 		}
@@ -189,7 +178,7 @@ func (m addModel) Init() tea.Cmd {
 			}
 		}
 
-		f, err = os.Create(p)
+		f, err := os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}

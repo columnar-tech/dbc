@@ -266,6 +266,7 @@ type PkgInfo struct {
 	Path *url.URL
 }
 
+// Deprecated: Use Client.Download instead.
 func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	if p.Path == nil {
 		return nil, fmt.Errorf("cannot download package for %s: no url set", p.Driver.Title)
@@ -542,6 +543,7 @@ func GetDriverList() ([]Driver, error) {
 	return c.Search("")
 }
 
+// Deprecated: Use NewClient with Client.Install instead.
 // SignedByColumnar returns nil if the library was signed by
 // the columnar public key (embedded in the CLI) or an error
 // otherwise.

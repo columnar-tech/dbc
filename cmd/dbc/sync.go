@@ -115,23 +115,10 @@ func (s syncModel) Init() tea.Cmd {
 }
 
 func loadDriverList(path string) (DriversList, error) {
-	f, err := os.Open(path)
+	list, err := openAndDecodeDriverList(path)
 	if err != nil {
-		var outError error
-		if errors.Is(err, os.ErrNotExist) {
-			outError = fmt.Errorf("error opening driver list: %s doesn't exist\ndid you run `dbc init`?", path)
-		} else {
-			outError = fmt.Errorf("error opening driver list at %s: %w", path, err)
-		}
-		return DriversList{}, outError
-	}
-	defer f.Close()
-
-	var list DriversList
-	if err := toml.NewDecoder(f).Decode(&list); err != nil {
 		return DriversList{}, err
 	}
-
 	if len(list.Drivers) == 0 {
 		return DriversList{}, fmt.Errorf("no drivers found in driver list `%s`", path)
 	}
