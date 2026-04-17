@@ -542,6 +542,9 @@ func TestConfigureRegistriesThenSetProjectRegistries(t *testing.T) {
 		globalConfig = origGlobal
 	})
 
+	registries = defaultRegistries
+	globalConfig = nil
+
 	// Set up a global config with one registry
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`
@@ -557,7 +560,7 @@ name = "global"
 	require.NoError(t, err)
 
 	// Expected order: project → global → defaults
-	require.GreaterOrEqual(t, len(registries), 2)
+	require.Equal(t, len(defaultRegistries)+2, len(registries))
 	assert.Equal(t, "https://project.example.com", registries[0].BaseURL.String())
 	found := false
 	for _, r := range registries {

@@ -171,9 +171,6 @@ func ConfigureRegistries(globalConfigDir string) error {
 	if cfg == nil {
 		return nil
 	}
-	if cfg.ReplaceDefaults && len(cfg.Registries) == 0 {
-		return fmt.Errorf("replace_defaults = true in global config.toml requires at least one [[registries]] entry")
-	}
 	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, defaultRegistries)
 	return nil
 }
