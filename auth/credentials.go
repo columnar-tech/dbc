@@ -114,6 +114,8 @@ func (t *Credential) Refresh() bool {
 	return false
 }
 
+// GetAuthToken returns the current token, refreshing if needed.
+// Must not be called while credMu is held (Refresh may acquire it via UpdateCreds).
 func (t *Credential) GetAuthToken() string {
 	if t.Token != "" {
 		return t.Token

@@ -65,12 +65,12 @@ func fetch[T any](u *url.URL, dest *T) error {
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to fetch %s: %s", u.String(), resp.Status)
 	}
 
-	defer resp.Body.Close()
 	return json.NewDecoder(resp.Body).Decode(dest)
 }
 

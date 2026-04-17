@@ -293,6 +293,9 @@ func main() {
 		os.Exit(0)
 	case modelCmd:
 		m = sub.GetModel()
+	default:
+		fmt.Fprintf(os.Stderr, "internal error: unrecognized subcommand %T\n", p.Subcommand())
+		os.Exit(1)
 	}
 
 	// f, err := tea.LogToFile("debug.log", "debug")

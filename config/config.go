@@ -183,6 +183,7 @@ func loadConfig(lvl ConfigLevel) Config {
 			maps.Copy(finalDrivers, drivers)
 		}
 		cfg.Exists, cfg.Drivers = len(finalDrivers) > 0, finalDrivers
+		return cfg
 	}
 
 	drivers, err := loadDir(cfg.Location)
