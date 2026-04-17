@@ -572,7 +572,7 @@ func TestSetProjectRegistries(t *testing.T) {
 }
 
 func TestConfigureRegistriesThenSetProjectRegistries(t *testing.T) {
-	origDefault := defaultRegistries
+	origDefault := append([]Registry(nil), defaultRegistries...)
 	origGlobal := globalConfig
 	registries = append([]Registry(nil), defaultRegistries...)
 	globalConfig = nil

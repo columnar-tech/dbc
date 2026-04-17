@@ -166,8 +166,8 @@ func ConfigureRegistries(globalConfigDir string) error {
 		return err
 	}
 	globalConfig = cfg // always reset, even to nil, so stale state from prior calls doesn't persist
-	registries = append([]Registry(nil), defaultRegistries...)
 	if cfg == nil {
+		registries = append([]Registry(nil), defaultRegistries...)
 		return nil
 	}
 	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, defaultRegistries)
