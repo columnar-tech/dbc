@@ -94,11 +94,15 @@ func newDefaultClient() (*dbc.Client, error) {
 
 // use this so we can override this in tests
 var getDriverRegistry = func() ([]dbc.Driver, error) {
+	var initErr error
 	dbcClientOnce.Do(func() {
 		if dbcClient == nil {
-			dbcClient, _ = newDefaultClient()
+			dbcClient, initErr = newDefaultClient()
 		}
 	})
+	if initErr != nil {
+		return nil, fmt.Errorf("failed to initialize client: %w", initErr)
+	}
 	return dbcClient.Search("")
 }
 
