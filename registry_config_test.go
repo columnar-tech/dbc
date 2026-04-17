@@ -375,6 +375,23 @@ name = "custom"
 		assert.Equal(t, orig, registries)
 	})
 
+	t.Run("missing config resets registries to defaults even if previously dirtied", func(t *testing.T) {
+		origDefault := defaultRegistries
+		origGlobal := globalConfig
+		defer func() {
+			registries = origDefault
+			defaultRegistries = origDefault
+			globalConfig = origGlobal
+		}()
+
+		registries = append([]Registry{{BaseURL: mustParseURL("https://dirty.example.com")}}, defaultRegistries...)
+
+		dir := t.TempDir()
+		err := ConfigureRegistries(dir)
+		require.NoError(t, err)
+		assert.Equal(t, defaultRegistries, registries)
+	})
+
 	t.Run("DBC_BASE_URL set makes ConfigureRegistries a no-op", func(t *testing.T) {
 		orig := registries
 		origDefault := defaultRegistries

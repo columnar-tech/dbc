@@ -118,6 +118,9 @@ func mergeRegistries(
 		if err != nil || u.Host == "" {
 			return Registry{}, false
 		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return Registry{}, false
+		}
 		return Registry{Name: entry.Name, BaseURL: u}, true
 	}
 
