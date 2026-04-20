@@ -140,11 +140,10 @@ func (m addModel) Init() tea.Cmd {
 						// No packages. Very unlikely edge case.
 						err = fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
 					}
-				// If we have registry errors, enhance the error message
-				if registryErrors != nil {
-					return wrapWithRegistryContext(err, registryErrors)
-				}
-				return err
+					if registryErrors != nil {
+						return wrapWithRegistryContext(err, registryErrors)
+					}
+					return err
 				}
 			}
 

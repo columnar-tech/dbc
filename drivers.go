@@ -543,7 +543,7 @@ func GetDriverList() ([]Driver, error) {
 	return c.Search("")
 }
 
-// Deprecated: Use NewClient with Client.Install instead.
+// Deprecated: Signature verification is now handled internally by Client.Install.
 // SignedByColumnar returns nil if the library was signed by
 // the columnar public key (embedded in the CLI) or an error
 // otherwise.

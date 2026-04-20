@@ -160,7 +160,7 @@ func (m loginModel) apiKeyToToken() tea.Cmd {
 		}
 
 		if err := cred.Refresh(); err != nil {
-			return fmt.Errorf("failed to obtain access token using provided API key")
+			return fmt.Errorf("failed to obtain access token using provided API key: %w", err)
 		}
 
 		return cred
