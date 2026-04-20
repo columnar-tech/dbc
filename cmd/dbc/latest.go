@@ -17,18 +17,26 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 )
 
 func notifyLatest() {
-	latestVer, err := dbc.GetLatestDbcVersion()
-	if dbc.Version != "(devel)" && err == nil {
-		if semver.MustParse(dbc.Version).LessThan(latestVer) {
-			fmt.Printf(descStyle.Render("dbc version %s is available! You are using version %s. Please upgrade.\n\n"),
-				latestVer, dbc.Version)
+	// skip notifying if $dbc_config_home/.no-update exists
+	_, err := os.Stat(filepath.Join(config.ConfigUser.ConfigLocation(), ".no-update"))
+	if errors.Is(err, os.ErrNotExist) {
+		latestVer, err := dbc.GetLatestDbcVersion()
+		if dbc.Version != "(devel)" && err == nil {
+			if semver.MustParse(dbc.Version).LessThan(latestVer) {
+				fmt.Printf(descStyle.Render("Update available: A new version of dbc is available. You're running %s and %s is available. Please upgrade.\nChangelog: %s. Docs: %s\n\n"),
+					dbc.Version, latestVer, "https://github.com/columnar-tech/dbc/releases/tag/"+latestVer.String(), "https://docs.columnar.tech/dbc/getting_started/installation/")
+			}
 		}
 	}
 }
