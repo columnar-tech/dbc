@@ -213,6 +213,8 @@ dbc can generate shell completions for a number of common shells.
 
 ## Updating
 
+{{ since_version('v0.2.0') }}
+
 If you installed dbc using the [Standalone Installer](#standalone-installer) or manually through [GitHub Releases](#github-releases), dbc will automatically notify you if your version is out of date and will provide instructions for updating.
 
 For other installation methods, dbc won't automatically notify of updates and you should upgrade dbc in whatever way is standard for your installation method.
