@@ -68,7 +68,7 @@ func GetDbcConfigPath() (string, error) {
 		return "", errors.New("path in $XDG_DATA_HOME is relative")
 	}
 
-	return dir, nil
+	return filepath.Join(dir, "dbc"), nil
 }
 
 // Directory for dbc credentials. This dir is distinct from GetUserConfigPath
@@ -79,5 +79,5 @@ func GetCredentialPath() (string, error) {
 		return "", fmt.Errorf("failed to get dbc config path: %w", err)
 	}
 
-	return filepath.Join(dir, "dbc", "credentials", "credentials.toml"), nil
+	return filepath.Join(dir, "credentials", "credentials.toml"), nil
 }
