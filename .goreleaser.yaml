@@ -71,7 +71,7 @@ archives:
   # Used for GitHub releases, blobs, and signs.
   - &archive-defaults
     id: archives
-    builds:
+    ids:
       - yes-notify-build
     formats: [tar.gz]
     # this name template makes the OS and Arch compatible with the results of `uname`.
@@ -97,7 +97,7 @@ archives:
   # Wheels are redistributable packages and should not notify for updates.
   - <<: *archive-defaults
     id: no-notify-archives
-    builds:
+    ids:
       - no-notify-build
     hooks:
       after:
@@ -233,7 +233,7 @@ docker_manifests:
 
 nfpms:
   - id: pkgs
-    builds: [no-notify-build]
+    ids: [no-notify-build]
     package_name: dbc
     file_name_template: "{{ .ConventionalFileName }}"
     if: '{{ eq .Os "linux" }}'
@@ -262,7 +262,7 @@ nfpms:
 
 snapcrafts:
   - id: snaps
-    builds: [no-notify-build]
+    ids: [no-notify-build]
     name: dbc
     summary: The command line tool for installing and managing ADBC drivers
     description: The command line tool for installing and managing ADBC drivers
