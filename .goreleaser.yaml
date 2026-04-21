@@ -33,7 +33,7 @@ metadata:
 git:
   tag_sort: smartsemver
 
-builds:  
+builds:
   - main: ./cmd/dbc
     binary: dbc
     ldflags:
@@ -55,10 +55,10 @@ builds:
       post:
         - if: '{{ and (eq .Os "windows") (isEnvSet "SM_API_KEY") }}'
           cmd: >-
-            smctl sign --keypair-alias "{{ .Env.SM_KEYPAIR_ALIAS }}" --input "{{ .Path }}" --config-file "{{ .Env.PKCS11_CONFIG }}"  
+            smctl sign --keypair-alias "{{ .Env.SM_KEYPAIR_ALIAS }}" --input "{{ .Path }}" --config-file "{{ .Env.PKCS11_CONFIG }}"
 
-archives:  
-  - id: archives    
+archives:
+  - id: archives
     formats: [tar.gz]
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
@@ -130,7 +130,7 @@ changelog:
 dockers:
   - image_templates:
     - "columnar/dbc:{{ .Version }}-amd64"
-    use: buildx    
+    use: buildx
     dockerfile: Dockerfile
     skip_push: false
     build_flag_templates:
@@ -147,7 +147,7 @@ dockers:
       - "--platform=linux/amd64"
   - image_templates:
     - "columnar/dbc:{{ .Version }}-arm64v8"
-    use: buildx    
+    use: buildx
     goarch: arm64
     dockerfile: Dockerfile
     skip_push: false
@@ -158,7 +158,7 @@ dockers:
     - "columnar/dbc:v{{ .Major }}-arm64v8"
     - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
     - "columnar/dbc:latest-arm64v8"
-    use: buildx    
+    use: buildx
     goarch: arm64
     dockerfile: Dockerfile
     skip_push: auto
@@ -207,7 +207,7 @@ docker_manifests:
 #         path: ./resources/README.dockerhub.md
 
 nfpms:
-  - id: pkgs    
+  - id: pkgs
     package_name: dbc
     file_name_template: "{{ .ConventionalFileName }}"
     if: '{{ eq .Os "linux" }}'
@@ -235,7 +235,7 @@ nfpms:
 
 
 snapcrafts:
-  - id: snaps    
+  - id: snaps
     name: dbc
     summary: The command line tool for installing and managing ADBC drivers
     description: The command line tool for installing and managing ADBC drivers
@@ -259,7 +259,7 @@ snapcrafts:
           - $HOME/.config/adbc
 
 msi:
-  - id: msi    
+  - id: msi
     name: "dbc-{{ .Version }}-{{ .MsiArch }}"
     wxs: ./resources/dbc.wxs
     extensions:
