@@ -56,7 +56,7 @@ func GetDbcConfigPath() (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("failed to get user config directory: %w", err)
 			}
-			return filepath.Join(userdir, "credentials", "credentials.toml"), nil
+			return userdir, nil
 		default: // unix
 			home, err := os.UserHomeDir()
 			if err != nil {
