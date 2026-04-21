@@ -17,20 +17,42 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
+	"github.com/cli/safeexec"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal"
 )
+
+func isUnderHomebrew(bin string) bool {
+	brewExe, err := safeexec.LookPath("brew")
+	if err != nil {
+		return false
+	}
+
+	brewPrefixBytes, err := exec.Command(brewExe, "--prefix").Output()
+	if err != nil {
+		return false
+	}
+
+	brewBinPrefix := filepath.Join(strings.TrimSpace(
+		string(brewPrefixBytes)), "bin") + string(filepath.Separator)
+	return strings.HasPrefix(bin, brewBinPrefix)
+}
 
 func isPkgMgrInstall() bool {
 	exe, err := os.Executable()
 	if err != nil {
 		return false
+	}
+
+	if isUnderHomebrew(exe) {
+		return true
 	}
 
 	exe, err = filepath.EvalSymlinks(exe)
@@ -39,12 +61,8 @@ func isPkgMgrInstall() bool {
 	}
 
 	switch filepath.Dir(exe) {
-	case "/opt/homebrew/bin", "/home/linuxbrew/.linuxbrew/bin":
-		// homebrew
-		return true
 	case "/usr/local/bin":
-		// homebrew on intel mac
-		// also pip installs here on linux
+		// pip installs here on linux
 		return true
 	case "/usr/bin":
 		// likely a system package manager, but could be other things too
