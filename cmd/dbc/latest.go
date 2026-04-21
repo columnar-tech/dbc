@@ -18,24 +18,30 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 
+	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
-	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 )
 
 func notifyLatest() {
+	configDir, err := internal.GetDbcConfigPath()
+	if err != nil {
+		return
+	}
+
 	// skip notifying if $dbc_config_home/.no-update exists
-	_, err := os.Stat(filepath.Join(config.ConfigUser.ConfigLocation(), ".no-update"))
+	_, err = os.Stat(filepath.Join(configDir, ".no-update"))
 	if errors.Is(err, os.ErrNotExist) {
 		latestVer, err := dbc.GetLatestDbcVersion()
 		if dbc.Version != "(devel)" && err == nil {
 			if semver.MustParse(dbc.Version).LessThan(latestVer) {
-				fmt.Printf(descStyle.Render("Update available: A new version of dbc is available. You're running %s and %s is available. Please upgrade.\nChangelog: %s. Docs: %s\n\n"),
+				lipgloss.Printf(descStyle.Render("Update available: A new version of dbc is available. You're running %s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
 					dbc.Version, latestVer, "https://github.com/columnar-tech/dbc/releases/tag/"+latestVer.String(), "https://docs.columnar.tech/dbc/getting_started/installation/")
+				lipgloss.Println()
 			}
 		}
 	}
