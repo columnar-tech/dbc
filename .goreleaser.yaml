@@ -33,11 +33,8 @@ metadata:
 git:
   tag_sort: smartsemver
 
-builds:
-  # Set up separate builds for no_notify_latest/!no_notify-latest
-  - &build-defaults
-    id: yes-notify-build
-    main: ./cmd/dbc
+builds:  
+  - main: ./cmd/dbc
     binary: dbc
     ldflags:
       - -s -w
@@ -58,21 +55,10 @@ builds:
       post:
         - if: '{{ and (eq .Os "windows") (isEnvSet "SM_API_KEY") }}'
           cmd: >-
-            smctl sign --keypair-alias "{{ .Env.SM_KEYPAIR_ALIAS }}" --input "{{ .Path }}" --config-file "{{ .Env.PKCS11_CONFIG }}"
+            smctl sign --keypair-alias "{{ .Env.SM_KEYPAIR_ALIAS }}" --input "{{ .Path }}" --config-file "{{ .Env.PKCS11_CONFIG }}"  
 
-  - <<: *build-defaults
-    id: no-notify-build
-    flags:
-      - -tags=no_notify_latest
-
-archives:
-  # Homebrew uses archives not builds so we set up separate archives too
-  # &archive-defaults anchored on the simpler entry (no hooks).
-  # Used for GitHub releases, blobs, and signs.
-  - &archive-defaults
-    id: archives
-    ids:
-      - yes-notify-build
+archives:  
+  - id: archives    
     formats: [tar.gz]
     # this name template makes the OS and Arch compatible with the results of `uname`.
     name_template: >-
@@ -92,13 +78,6 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
-
-  # Silent archives (no-notify build) — used for Homebrew casks and Python wheels.
-  # Wheels are redistributable packages and should not notify for updates.
-  - <<: *archive-defaults
-    id: no-notify-archives
-    ids:
-      - no-notify-build
     hooks:
       after:
         # build wheels for each platform we built for
@@ -151,8 +130,7 @@ changelog:
 dockers:
   - image_templates:
     - "columnar/dbc:{{ .Version }}-amd64"
-    use: buildx
-    ids: [no-notify-build]
+    use: buildx    
     dockerfile: Dockerfile
     skip_push: false
     build_flag_templates:
@@ -163,15 +141,13 @@ dockers:
     - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-amd64"
     - "columnar/dbc:latest-amd64"
     use: buildx
-    ids: [no-notify-build]
     dockerfile: Dockerfile
     skip_push: auto
     build_flag_templates:
       - "--platform=linux/amd64"
   - image_templates:
     - "columnar/dbc:{{ .Version }}-arm64v8"
-    use: buildx
-    ids: [no-notify-build]
+    use: buildx    
     goarch: arm64
     dockerfile: Dockerfile
     skip_push: false
@@ -182,8 +158,7 @@ dockers:
     - "columnar/dbc:v{{ .Major }}-arm64v8"
     - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
     - "columnar/dbc:latest-arm64v8"
-    use: buildx
-    ids: [no-notify-build]
+    use: buildx    
     goarch: arm64
     dockerfile: Dockerfile
     skip_push: auto
@@ -232,8 +207,7 @@ docker_manifests:
 #         path: ./resources/README.dockerhub.md
 
 nfpms:
-  - id: pkgs
-    ids: [no-notify-build]
+  - id: pkgs    
     package_name: dbc
     file_name_template: "{{ .ConventionalFileName }}"
     if: '{{ eq .Os "linux" }}'
@@ -261,8 +235,7 @@ nfpms:
 
 
 snapcrafts:
-  - id: snaps
-    ids: [no-notify-build]
+  - id: snaps    
     name: dbc
     summary: The command line tool for installing and managing ADBC drivers
     description: The command line tool for installing and managing ADBC drivers
@@ -286,8 +259,7 @@ snapcrafts:
           - $HOME/.config/adbc
 
 msi:
-  - id: msi
-    ids: [no-notify-build]
+  - id: msi    
     name: "dbc-{{ .Version }}-{{ .MsiArch }}"
     wxs: ./resources/dbc.wxs
     extensions:
@@ -340,7 +312,7 @@ homebrew_casks:
       - dbc@{{ .Version }}
       - dbc@{{ .Major }}.{{ .Minor }}
     ids:
-      - no-notify-archives
+      - archives
     url:
       template: "https://github.com/columnar-tech/dbc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
       verified: "github.com/columnar-tech/dbc/"

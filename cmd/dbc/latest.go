@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !no_notify_latest
-
 package main
 
 import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
@@ -27,7 +27,54 @@ import (
 	"github.com/columnar-tech/dbc/internal"
 )
 
+func isPkgMgrInstall() bool {
+	exe, err := os.Executable()
+	if err != nil {
+		return false
+	}
+
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		return false
+	}
+
+	switch filepath.Dir(exe) {
+	case "/opt/homebrew/bin", "/home/linuxbrew/.linuxbrew/bin":
+		// homebrew
+		return true
+	case "/usr/local/bin":
+		// homebrew on intel mac
+		// also pip installs here on linux
+		return true
+	case "/usr/bin":
+		// likely a system package manager, but could be other things too
+		return true
+	default:
+		// likely a local user install via script
+		// or via msi on windows etc.
+		// this is the case where we want to notify about updates
+	}
+
+	if runtime.GOOS == "windows" && strings.HasSuffix(filepath.Dir(exe), "\\Scripts") {
+		// likely a pip install on windows
+		return true
+	}
+
+	if strings.Contains(exe, "conda") || strings.Contains(exe, "venv") {
+		// likely a conda or virtual environment install
+		return true
+	}
+
+	return false
+}
+
 func notifyLatest() {
+	if isPkgMgrInstall() {
+		// skip notifying if installed via package manager,
+		// since they likely have their own update mechanism
+		return
+	}
+
 	configDir, err := internal.GetDbcConfigPath()
 	if err != nil {
 		return
