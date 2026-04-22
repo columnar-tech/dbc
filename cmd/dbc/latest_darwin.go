@@ -14,30 +14,11 @@
 
 package main
 
-import (
-	"os/exec"
-	"path/filepath"
-)
+import "path/filepath"
 
 func isManaged(exe string) bool {
-	// check if we're a deb install
-	dpkgExe, err := exec.LookPath("dpkg")
-	if err == nil {
-		if err = exec.Command(dpkgExe, "-S", exe).Run(); err == nil {
-			return true
-		}
-	}
-
-	// check if we're an rpm install
-	rpmExe, err := exec.LookPath("rpm")
-	if err == nil {
-		if err = exec.Command(rpmExe, "-qf", exe).Run(); err == nil {
-			return true
-		}
-	}
-
 	if filepath.Dir(exe) == "/usr/local/bin" {
-		// pip installs here on linux
+		// system-wide pip install
 		return true
 	}
 
