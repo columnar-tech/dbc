@@ -30,6 +30,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -37,27 +38,57 @@ type SyncCmd struct {
 	Path     string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to sync from"`
 	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Json     bool               `arg:"--json" help:"Output NDJSON progress events instead of TUI"`
 }
 
 func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return syncModel{
-		baseModel: baseModel,
-		Path:      c.Path,
-		cfg:       getConfig(c.Level),
-		NoVerify:  c.NoVerify,
+		baseModel:  baseModel,
+		Path:       c.Path,
+		cfg:        getConfig(c.Level),
+		NoVerify:   c.NoVerify,
+		jsonOutput: c.Json,
 	}
 }
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path:      c.Path,
-		cfg:       getConfig(c.Level),
-		NoVerify:  c.NoVerify,
-		baseModel: defaultBaseModel(),
+		Path:       c.Path,
+		cfg:        getConfig(c.Level),
+		NoVerify:   c.NoVerify,
+		jsonOutput: c.Json,
+		baseModel:  defaultBaseModel(),
 	}
 }
 
 func (syncModel) NeedsRenderer() {}
+
+func (s syncModel) IsJSONMode() bool { return s.jsonOutput }
+
+func (s syncModel) emitJSON(kind string, payload any) {
+	fmt.Fprintln(os.Stdout, marshalEnvelope(kind, payload))
+}
+
+func (s syncModel) FinalOutput() string {
+	if s.status != 0 {
+		return ""
+	}
+	if !s.jsonOutput {
+		return ""
+	}
+	installed := make([]jsonschema.SyncedDriver, 0, len(s.locked.Drivers))
+	for _, d := range s.locked.Drivers {
+		installed = append(installed, jsonschema.SyncedDriver{
+			Name:    d.Name,
+			Version: d.Version.String(),
+		})
+	}
+	return marshalEnvelope("sync.status", jsonschema.SyncStatus{
+		Installed: installed,
+		Skipped:   []jsonschema.SyncedDriver{},
+		Errors:    []jsonschema.SyncError{},
+	})
+}
 
 type syncModel struct {
 	baseModel
@@ -69,6 +100,8 @@ type syncModel struct {
 	// information to write the new lockfile
 	locked LockFile
 	cfg    config.Config
+
+	jsonOutput bool
 
 	// the list of drivers in the driver list
 	list DriversList
@@ -352,6 +385,15 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		s.installItems = msg
 
+		if s.jsonOutput {
+			for _, item := range msg {
+				s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
+					Phase:  "resolving",
+					Driver: item.Driver.Path,
+				})
+			}
+		}
+
 		return s, tea.Batch(s.installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
 	case alreadyInstalledDrvMsg:
 		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
@@ -361,8 +403,21 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Checksum: msg.item.Checksum,
 		})
 
+		if s.jsonOutput {
+			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
+				Phase:   "installed",
+				Driver:  msg.info.ID,
+				Version: msg.info.Version.String(),
+			})
+		}
+
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
+			if s.jsonOutput {
+				return s, tea.Sequence(
+					func() tea.Msg { return s.writeLockFile() },
+					tea.Quit)
+			}
 			return s, tea.Sequence(
 				tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
 				func() tea.Msg { return s.writeLockFile() },
@@ -371,6 +426,12 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		s.index++
 		progressCmd := s.progress.SetPercent(float64(s.index) / float64(len(s.installItems)))
+		if s.jsonOutput {
+			return s, tea.Batch(
+				progressCmd,
+				s.installDriver(s.cfg, s.installItems[s.index]),
+			)
+		}
 		return s, tea.Batch(
 			progressCmd,
 			tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
@@ -389,25 +450,41 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Checksum: chksum,
 		})
 
-		printCmd := tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
-		if msg.removed != nil {
-			printCmd = tea.Sequence(
-				printCmd,
-				tea.Printf("%s   removed %s-%s", checkMark, msg.removed.ID, msg.removed.Version),
-			)
+		if s.jsonOutput {
+			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
+				Phase:   "installed",
+				Driver:  msg.info.ID,
+				Version: msg.info.Version.String(),
+			})
 		}
 
-		if len(msg.postInstall) > 0 {
-			for _, m := range msg.postInstall {
+		var printCmd tea.Cmd
+		if !s.jsonOutput {
+			printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
+			if msg.removed != nil {
 				printCmd = tea.Sequence(
 					printCmd,
-					tea.Printf("%s   post-install: %s", checkMark, m),
+					tea.Printf("%s   removed %s-%s", checkMark, msg.removed.ID, msg.removed.Version),
 				)
+			}
+
+			if len(msg.postInstall) > 0 {
+				for _, m := range msg.postInstall {
+					printCmd = tea.Sequence(
+						printCmd,
+						tea.Printf("%s   post-install: %s", checkMark, m),
+					)
+				}
 			}
 		}
 
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
+			if s.jsonOutput {
+				return s, tea.Sequence(
+					func() tea.Msg { return s.writeLockFile() },
+					tea.Quit)
+			}
 			return s, tea.Sequence(
 				printCmd,
 				func() tea.Msg { return s.writeLockFile() },
@@ -416,6 +493,12 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		s.index++
 		progressCmd := s.progress.SetPercent(float64(s.index) / float64(len(s.installItems)))
+		if s.jsonOutput {
+			return s, tea.Batch(
+				progressCmd,
+				s.installDriver(s.cfg, s.installItems[s.index]),
+			)
+		}
 		return s, tea.Batch(
 			progressCmd,
 			printCmd,

@@ -306,6 +306,9 @@ func main() {
 	// defer f.Close()
 
 	_, needsRenderer := m.(NeedsRenderer)
+	if jm, ok := m.(interface{ IsJSONMode() bool }); ok && jm.IsJSONMode() {
+		needsRenderer = false
+	}
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
