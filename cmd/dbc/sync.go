@@ -442,6 +442,14 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 
+		if s.jsonOutput {
+			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
+				Phase:   "installed",
+				Driver:  msg.info.ID,
+				Version: msg.info.Version.String(),
+			})
+		}
+
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
 			if s.jsonOutput {
