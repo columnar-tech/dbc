@@ -30,6 +30,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func manifestToPackageInfo(m config.Manifest) dbc.PkgInfo {
@@ -238,8 +239,20 @@ func (m progressiveInstallModel) isAlreadyInstalled() bool {
 func (m progressiveInstallModel) FinalOutput() string {
 	if m.isAlreadyInstalled() {
 		if m.jsonOutput {
-			return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
-				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			payload := jsonschema.InstallStatus{
+				Status:   "already installed",
+				Driver:   m.conflictingInfo.ID,
+				Version:  m.conflictingInfo.Version.String(),
+				Location: filepath.SplitList(m.cfg.Location)[0],
+			}
+			payloadBytes, _ := json.Marshal(payload)
+			env := jsonschema.Envelope{
+				SchemaVersion: jsonschema.SchemaVersion,
+				Kind:          "install.status",
+				Payload:       json.RawMessage(payloadBytes),
+			}
+			jsonOutput, _ := json.Marshal(env)
+			return string(jsonOutput)
 		}
 		return fmt.Sprintf("\nDriver %s %s already installed at %s",
 			m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
@@ -247,44 +260,46 @@ func (m progressiveInstallModel) FinalOutput() string {
 
 	var b strings.Builder
 	if m.state == stDone {
-		var output struct {
-			Status   string `json:"status"`
-			Driver   string `json:"driver"`
-			Version  string `json:"version"`
-			Location string `json:"location"`
-			Message  string `json:"message,omitempty"`
-			Conflict string `json:"conflict,omitempty"`
+		installStatus := jsonschema.InstallStatus{
+			Status:   "installed",
+			Driver:   m.Driver,
+			Version:  m.DriverPackage.Version.String(),
+			Location: filepath.SplitList(m.cfg.Location)[0],
 		}
-
-		output.Status = "installed"
-		output.Driver = m.Driver
-		output.Version = m.DriverPackage.Version.String()
-		output.Location = filepath.SplitList(m.cfg.Location)[0]
 		if m.hasConflict() {
-			output.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
+			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
 		}
 
 		if m.postInstallMessage != "" {
-			output.Message = m.postInstallMessage
+			installStatus.Message = m.postInstallMessage
 		}
 
 		if m.jsonOutput {
-			jsonOutput, err := json.Marshal(output)
+			payloadBytes, err := json.Marshal(installStatus)
 			if err != nil {
-				return fmt.Sprintf(`{"status":"error","error":"%s"}`, err.Error())
+				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+			}
+			env := jsonschema.Envelope{
+				SchemaVersion: jsonschema.SchemaVersion,
+				Kind:          "install.status",
+				Payload:       json.RawMessage(payloadBytes),
+			}
+			jsonOutput, err := json.Marshal(env)
+			if err != nil {
+				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
 			}
 			return string(jsonOutput)
 		}
 
-		if output.Conflict != "" {
-			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", output.Conflict)
+		if installStatus.Conflict != "" {
+			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", installStatus.Conflict)
 		}
 
 		fmt.Fprintf(&b, "\nInstalled %s %s to %s",
-			output.Driver, output.Version, output.Location)
+			installStatus.Driver, installStatus.Version, installStatus.Location)
 
-		if output.Message != "" {
-			b.WriteString("\n\n" + postMsgStyle.Render(output.Message))
+		if installStatus.Message != "" {
+			b.WriteString("\n\n" + postMsgStyle.Render(installStatus.Message))
 		}
 	}
 	return b.String()

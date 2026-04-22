@@ -17,6 +17,7 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func (suite *SubcommandTestSuite) TestInstall() {
@@ -461,4 +463,24 @@ func (suite *SubcommandTestSuite) TestInstallDriverWithSubdirectories() {
 
 	// and return an error with this
 	suite.Contains(out, "driver archives shouldn't contain subdirectories")
+}
+
+func (suite *SubcommandTestSuite) TestInstallJSON() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("install.status", env.Kind)
+
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+
+	suite.Equal("installed", status.Status)
+	suite.Equal("test-driver-1", status.Driver)
+	suite.NotEmpty(status.Version)
+	suite.NotEmpty(status.Location)
 }
