@@ -20,38 +20,49 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
 
 type RemoveCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to remove"`
 	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to remove from"`
+	Json   bool   `arg:"--json" help:"Output JSON instead of plaintext"`
 }
 
 func (c RemoveCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return removeModel{
-		baseModel: baseModel,
-		Driver:    c.Driver,
-		Path:      c.Path,
+		baseModel:  baseModel,
+		Driver:     c.Driver,
+		Path:       c.Path,
+		jsonOutput: c.Json,
 	}
 }
 
 func (c RemoveCmd) GetModel() tea.Model {
 	return removeModel{
-		Driver:    c.Driver,
-		Path:      c.Path,
-		baseModel: defaultBaseModel(),
+		Driver:     c.Driver,
+		Path:       c.Path,
+		jsonOutput: c.Json,
+		baseModel:  defaultBaseModel(),
 	}
+}
+
+type removeDoneMsg struct {
+	result      string
+	resolvedPath string
 }
 
 type removeModel struct {
 	baseModel
 
-	Driver string
-	Path   string
+	Driver     string
+	Path       string
+	jsonOutput bool
 
-	list   DriversList
-	result string
+	list        DriversList
+	result      string
+	resolvedPath string
 }
 
 func (m removeModel) Init() tea.Cmd {
@@ -88,12 +99,16 @@ func (m removeModel) Init() tea.Cmd {
 			return err
 		}
 
-		return fmt.Sprintf("removed '%s' from driver list", m.Driver)
+		return removeDoneMsg{result: fmt.Sprintf("removed '%s' from driver list", m.Driver), resolvedPath: p}
 	}
 }
 
 func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case removeDoneMsg:
+		m.result = msg.result
+		m.resolvedPath = msg.resolvedPath
+		return m, tea.Quit
 	case string:
 		m.result = msg
 		return m, tea.Quit
@@ -108,6 +123,12 @@ func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m removeModel) FinalOutput() string {
 	if m.status != 0 {
 		return ""
+	}
+	if m.jsonOutput {
+		return marshalEnvelope("remove.response", jsonschema.RemoveResponse{
+			DriverListPath: m.resolvedPath,
+			Driver:         jsonschema.RemoveResponseDriver{Name: strings.TrimSpace(m.Driver)},
+		})
 	}
 	return m.result
 }

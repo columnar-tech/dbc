@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -425,6 +427,30 @@ func (suite *SubcommandTestSuite) TestAddOutput() {
 	out := suite.runCmd(m)
 	suite.Contains(out, "added test-driver-1 to driver list")
 	suite.Contains(out, "use `dbc sync` to install the drivers in the list")
+}
+
+func (suite *SubcommandTestSuite) TestAdd_JSON() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+		Json:   true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("add.response", env.Kind)
+
+	var resp jsonschema.AddResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
+	suite.Equal("test-driver-1", resp.Driver.Name)
+	suite.NotEmpty(resp.DriverListPath)
 }
 
 func (suite *SubcommandTestSuite) TestAddMultipleOutput() {

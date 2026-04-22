@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,10 +24,22 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
 
 var msgStyle = lipgloss.NewStyle().Faint(true)
+
+func marshalEnvelope(kind string, payload any) string {
+	payloadBytes, _ := json.Marshal(payload)
+	env := jsonschema.Envelope{
+		SchemaVersion: jsonschema.SchemaVersion,
+		Kind:          kind,
+		Payload:       json.RawMessage(payloadBytes),
+	}
+	out, _ := json.Marshal(env)
+	return string(out)
+}
 
 func driverListPath(path string) (string, error) {
 	p, err := filepath.Abs(path)
@@ -44,34 +57,44 @@ type AddCmd struct {
 	Driver []string `arg:"positional,required" help:"One or more drivers to add, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
 	Pre    bool     `arg:"--pre" help:"Allow pre-release versions implicitly"`
+	Json   bool     `arg:"--json" help:"Output JSON instead of plaintext"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return addModel{
-		baseModel: baseModel,
-		Driver:    c.Driver,
-		Path:      c.Path,
-		Pre:       c.Pre,
+		baseModel:  baseModel,
+		Driver:     c.Driver,
+		Path:       c.Path,
+		Pre:        c.Pre,
+		jsonOutput: c.Json,
 	}
 }
 
 func (c AddCmd) GetModel() tea.Model {
 	return addModel{
-		Driver:    c.Driver,
-		Path:      c.Path,
-		Pre:       c.Pre,
-		baseModel: defaultBaseModel(),
+		Driver:     c.Driver,
+		Path:       c.Path,
+		Pre:        c.Pre,
+		jsonOutput: c.Json,
+		baseModel:  defaultBaseModel(),
 	}
+}
+
+type addDoneMsg struct {
+	result      string
+	resolvedPath string
 }
 
 type addModel struct {
 	baseModel
 
-	Driver []string
-	Path   string
-	Pre    bool
-	list   DriversList
-	result string
+	Driver     []string
+	Path       string
+	Pre        bool
+	jsonOutput bool
+	list       DriversList
+	result     string
+	resolvedPath string
 }
 
 func (m addModel) Init() tea.Cmd {
@@ -187,12 +210,16 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 		result += "\nuse `dbc sync` to install the drivers in the list"
-		return result
+		return addDoneMsg{result: result, resolvedPath: p}
 	}
 }
 
 func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case addDoneMsg:
+		m.result = msg.result
+		m.resolvedPath = msg.resolvedPath
+		return m, tea.Quit
 	case string:
 		m.result = msg
 		return m, tea.Quit
@@ -207,6 +234,20 @@ func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m addModel) FinalOutput() string {
 	if m.status != 0 {
 		return ""
+	}
+	if m.jsonOutput {
+		driverName, constraint, _ := parseDriverConstraint(m.Driver[0])
+		var constraintStr string
+		if constraint != nil {
+			constraintStr = constraint.String()
+		}
+		return marshalEnvelope("add.response", jsonschema.AddResponse{
+			DriverListPath: m.resolvedPath,
+			Driver: jsonschema.AddResponseDriver{
+				Name:              driverName,
+				VersionConstraint: constraintStr,
+			},
+		})
 	}
 	return m.result
 }

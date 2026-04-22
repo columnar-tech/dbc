@@ -17,12 +17,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -92,4 +94,20 @@ func TestInit(t *testing.T) {
 			os.Remove(tt.expected)
 		})
 	}
+}
+
+func (suite *SubcommandTestSuite) TestInit_JSON() {
+	tmpPath := filepath.Join(suite.T().TempDir(), "dbc.toml")
+	m := InitCmd{Path: tmpPath, Json: true}.GetModel()
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("init.response", env.Kind)
+
+	var resp jsonschema.InitResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
+	suite.True(resp.Created)
+	suite.NotEmpty(resp.DriverListPath)
 }
