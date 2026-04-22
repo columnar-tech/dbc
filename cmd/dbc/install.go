@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
@@ -30,6 +31,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -210,9 +212,30 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 	}
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		installDir := "."
+		if locs := filepath.SplitList(m.cfg.Location); len(locs) > 0 && locs[0] != "" {
+			installDir = locs[0]
+		}
+		lockDir := installDir
+		for {
+			if _, err := os.Stat(lockDir); err == nil {
+				break
+			}
+			parent := filepath.Dir(lockDir)
+			if parent == lockDir {
+				lockDir = os.TempDir()
+				break
+			}
+			lockDir = parent
+		}
+		lockPath := filepath.Join(lockDir, ".dbc.install.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
 		drivers, err := m.getDriverRegistry()
-		// Return both drivers and error - we'll decide how to handle based on whether
-		// the requested driver is found
 		return driversWithRegistryError{
 			drivers: drivers,
 			err:     err,

@@ -23,6 +23,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
@@ -30,6 +31,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -135,6 +137,13 @@ func (s syncModel) Init() tea.Cmd {
 		if filepath.Ext(p) == "" {
 			p = filepath.Join(p, "dbc.toml")
 		}
+
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
 
 		drivers, err := loadDriverList(p)
 		if err != nil {

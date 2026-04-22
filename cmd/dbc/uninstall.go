@@ -17,9 +17,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -58,7 +62,31 @@ type uninstallModel struct {
 }
 
 func (m uninstallModel) Init() tea.Cmd {
-	return m.startUninstall
+	return func() tea.Msg {
+		installDir := "."
+		if locs := filepath.SplitList(m.cfg.Location); len(locs) > 0 && locs[0] != "" {
+			installDir = locs[0]
+		}
+		lockDir := installDir
+		for {
+			if _, err := os.Stat(lockDir); err == nil {
+				break
+			}
+			parent := filepath.Dir(lockDir)
+			if parent == lockDir {
+				lockDir = os.TempDir()
+				break
+			}
+			lockDir = parent
+		}
+		lockPath := filepath.Join(lockDir, ".dbc.install.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+		return m.startUninstall()
+	}
 }
 
 func (m uninstallModel) FinalOutput() string {

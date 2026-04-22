@@ -15,11 +15,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -72,8 +76,24 @@ func (m removeModel) Init() tea.Cmd {
 			return err
 		}
 
-		m.list, err = openAndDecodeDriverList(m.Path)
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
 		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
+		f, err := os.Open(p)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+			} else {
+				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
+			}
+		}
+		defer f.Close()
+
+		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
 
@@ -89,13 +109,13 @@ func (m removeModel) Init() tea.Cmd {
 
 		delete(m.list.Drivers, m.Driver)
 
-		f, err := os.Create(p)
+		wf, err := os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
-		defer f.Close()
+		defer wf.Close()
 
-		if err := toml.NewEncoder(f).Encode(m.list); err != nil {
+		if err := toml.NewEncoder(wf).Encode(m.list); err != nil {
 			return err
 		}
 

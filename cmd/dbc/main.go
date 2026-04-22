@@ -38,12 +38,6 @@ var (
 	skipMark  = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).SetString("-")
 )
 
-type TuiCmd struct{}
-
-func (TuiCmd) GetModel() tea.Model {
-	return getTuiModel()
-}
-
 type modelCmd interface {
 	GetModel() tea.Model
 }

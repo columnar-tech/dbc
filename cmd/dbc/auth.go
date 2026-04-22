@@ -29,6 +29,7 @@ import (
 	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
 	"github.com/columnar-tech/dbc/auth"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func ensureHTTPS(uri string) string {
@@ -57,6 +58,7 @@ type LoginCmd struct {
 	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with [default: https://dbc-cdn-private.columnar.tech]"`
 	ClientID    string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
 	ApiKey      string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
+	Json        bool   `arg:"--json" help:"Output JSON instead of plaintext"`
 }
 
 func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -88,6 +90,7 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		inputURI:      l.RegistryURL,
 		oauthClientID: l.ClientID,
 		apiKey:        l.ApiKey,
+		jsonOutput:    l.Json,
 		baseModel:     baseModel,
 	}
 }
@@ -110,6 +113,7 @@ type loginModel struct {
 	inputURI      string
 	oauthClientID string
 	apiKey        string
+	jsonOutput    bool
 	tokenURI      *url.URL
 	parsedURI     *url.URL
 }
@@ -184,6 +188,15 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tokenURI = (*url.URL)(&msg.TokenEndpoint)
 		return m, m.requestDeviceCode(msg)
 	case *device.CodeResponse:
+		if m.jsonOutput {
+			fmt.Fprintln(os.Stdout, marshalEnvelope("auth.device_code", jsonschema.AuthDeviceCodeEvent{
+				VerificationURI:         msg.VerificationURI,
+				VerificationURIComplete: msg.VerificationURIComplete,
+				UserCode:                msg.UserCode,
+				ExpiresIn:               msg.ExpiresIn,
+				Interval:                msg.Interval,
+			}))
+		}
 		return m, tea.Sequence(
 			tea.Println("Opening ", msg.VerificationURIComplete, " in your default web browser..."),
 			func() tea.Msg {
