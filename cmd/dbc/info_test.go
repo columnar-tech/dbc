@@ -15,9 +15,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func (suite *SubcommandTestSuite) TestInfo() {
@@ -93,4 +95,22 @@ func (suite *SubcommandTestSuite) TestInfoCompleteRegistryFailure() {
 
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "network unreachable")
+}
+
+func (suite *SubcommandTestSuite) TestInfo_JSON() {
+	m := InfoCmd{Driver: "test-driver-1", Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("driver.info", env.Kind)
+
+	var info jsonschema.DriverInfo
+	suite.Require().NoError(json.Unmarshal(env.Payload, &info))
+	suite.Equal("test-driver-1", info.Driver)
+	suite.Equal("1.1.0", info.Version)
+	suite.NotEmpty(info.Title)
+	suite.NotEmpty(info.Packages)
 }

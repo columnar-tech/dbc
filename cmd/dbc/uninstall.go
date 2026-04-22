@@ -15,10 +15,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 type driverDidUninstallMsg struct{}
@@ -65,7 +67,21 @@ func (m uninstallModel) FinalOutput() string {
 	}
 
 	if m.jsonOutput {
-		return fmt.Sprintf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver)
+		payload := jsonschema.UninstallStatus{Status: "success", Driver: m.Driver}
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+		}
+		env := jsonschema.Envelope{
+			SchemaVersion: jsonschema.SchemaVersion,
+			Kind:          "uninstall.status",
+			Payload:       json.RawMessage(payloadBytes),
+		}
+		jsonOutput, err := json.Marshal(env)
+		if err != nil {
+			return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+		}
+		return string(jsonOutput)
 	}
 	return fmt.Sprintf("Driver `%s` uninstalled successfully!", m.Driver)
 }
@@ -81,7 +97,15 @@ func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = 1
 		m.err = msg
 		if m.jsonOutput {
-			return m, tea.Sequence(tea.Printf("{\"status\": \"error\", \"error\": \"%s\"}\n", msg.Error()), tea.Quit)
+			payload := jsonschema.UninstallStatus{Status: "error", Driver: m.Driver}
+			payloadBytes, _ := json.Marshal(payload)
+			env := jsonschema.Envelope{
+				SchemaVersion: jsonschema.SchemaVersion,
+				Kind:          "uninstall.status",
+				Payload:       json.RawMessage(payloadBytes),
+			}
+			jsonOutput, _ := json.Marshal(env)
+			return m, tea.Sequence(tea.Println(string(jsonOutput)), tea.Quit)
 		}
 		return m, tea.Quit
 	}

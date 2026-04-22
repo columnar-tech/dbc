@@ -21,6 +21,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 type InfoCmd struct {
@@ -95,30 +96,31 @@ func driverInfoJSON(drv dbc.Driver) string {
 		return "{}"
 	}
 
-	var driverInfoOutput = struct {
-		Driver   string   `json:"driver"`
-		Version  string   `json:"version"`
-		Title    string   `json:"title"`
-		License  string   `json:"license"`
-		Desc     string   `json:"description"`
-		Packages []string `json:"packages"`
-	}{
-		Driver:  drv.Path,
-		Version: info.Version.String(),
-		Title:   drv.Title,
-		License: drv.License,
-		Desc:    drv.Desc,
+	driverInfo := jsonschema.DriverInfo{
+		Driver:      drv.Path,
+		Version:     info.Version.String(),
+		Title:       drv.Title,
+		License:     drv.License,
+		Description: drv.Desc,
 	}
 	for _, pkg := range info.Packages {
-		driverInfoOutput.Packages = append(driverInfoOutput.Packages, pkg.Platform)
+		driverInfo.Packages = append(driverInfo.Packages, pkg.Platform)
 	}
 
-	jsonBytes, err := json.Marshal(driverInfoOutput)
+	payloadBytes, err := json.Marshal(driverInfo)
 	if err != nil {
 		return err.Error()
 	}
-
-	return string(jsonBytes)
+	env := jsonschema.Envelope{
+		SchemaVersion: jsonschema.SchemaVersion,
+		Kind:          "driver.info",
+		Payload:       json.RawMessage(payloadBytes),
+	}
+	jsonOutput, err := json.Marshal(env)
+	if err != nil {
+		return err.Error()
+	}
+	return string(jsonOutput)
 }
 
 func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

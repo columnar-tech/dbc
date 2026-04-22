@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func (suite *SubcommandTestSuite) TestSearchCmd() {
@@ -362,4 +364,43 @@ func (suite *SubcommandTestSuite) TestSearchCmdRegistryTagAlignment() {
 	}
 	suite.Require().Len(privateColumns, 2, "expected exactly 2 [private] tags")
 	suite.Equal(privateColumns[0], privateColumns[1], "[private] tags should be at the same column")
+}
+
+func (suite *SubcommandTestSuite) TestSearch_JSON() {
+	m := SearchCmd{Json: true}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("search.results", env.Kind)
+
+	var result struct {
+		Drivers []jsonschema.SearchDriverBasic `json:"drivers"`
+		Warning string                          `json:"warning,omitempty"`
+	}
+	suite.Require().NoError(json.Unmarshal(env.Payload, &result))
+	suite.NotEmpty(result.Drivers)
+	suite.Equal("test-driver-1", result.Drivers[0].Driver)
+}
+
+func (suite *SubcommandTestSuite) TestSearch_JSON_Verbose() {
+	m := SearchCmd{Json: true, Verbose: true}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("search.results", env.Kind)
+
+	var result struct {
+		Drivers []jsonschema.SearchDriverVerbose `json:"drivers"`
+		Warning string                            `json:"warning,omitempty"`
+	}
+	suite.Require().NoError(json.Unmarshal(env.Payload, &result))
+	suite.NotEmpty(result.Drivers)
+	suite.Equal("test-driver-1", result.Drivers[0].Driver)
+	suite.NotEmpty(result.Drivers[0].License)
 }

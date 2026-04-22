@@ -27,6 +27,7 @@ import (
 	"charm.land/lipgloss/v2/tree"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 var (
@@ -219,21 +220,14 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors
 	current := config.Get()
 
 	if !verbose {
-		type output struct {
-			Driver      string   `json:"driver"`
-			Description string   `json:"description"`
-			Installed   []string `json:"installed,omitempty"`
-			Registry    string   `json:"registry,omitempty"`
-		}
-
-		var driverList []output
+		var driverList []jsonschema.SearchDriverBasic
 		for _, driver := range d {
 			installed, _ := getInstalled(driver, current)
 			if !allowPre && !driver.HasNonPrerelease() && len(installed) == 0 {
 				continue
 			}
 
-			driverList = append(driverList, output{
+			driverList = append(driverList, jsonschema.SearchDriverBasic{
 				Driver:      driver.Path,
 				Description: driver.Desc,
 				Installed:   installed,
@@ -241,33 +235,33 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors
 			})
 		}
 
-		type result struct {
-			Drivers []output `json:"drivers"`
-			Warning string   `json:"warning,omitempty"`
+		type basicResult struct {
+			Drivers []jsonschema.SearchDriverBasic `json:"drivers"`
+			Warning string                          `json:"warning,omitempty"`
 		}
 
-		res := result{Drivers: driverList}
+		res := basicResult{Drivers: driverList}
 		if registryErrors != nil && len(d) > 0 {
 			res.Warning = registryErrors.Error()
 		}
 
-		jsonBytes, err := json.Marshal(res)
+		payloadBytes, err := json.Marshal(res)
 		if err != nil {
 			return fmt.Sprintf("error marshaling JSON: %v", err)
 		}
-		return string(jsonBytes)
+		env := jsonschema.Envelope{
+			SchemaVersion: jsonschema.SchemaVersion,
+			Kind:          "search.results",
+			Payload:       json.RawMessage(payloadBytes),
+		}
+		jsonOutput, err := json.Marshal(env)
+		if err != nil {
+			return fmt.Sprintf("error marshaling JSON: %v", err)
+		}
+		return string(jsonOutput)
 	}
 
-	type output struct {
-		Driver            string              `json:"driver"`
-		Description       string              `json:"description"`
-		License           string              `json:"license"`
-		Registry          string              `json:"registry,omitempty"`
-		InstalledVersions map[string][]string `json:"installed_versions,omitempty"`
-		AvailableVersions []string            `json:"available_versions,omitempty"`
-	}
-
-	var driverList []output
+	var driverList []jsonschema.SearchDriverVerbose
 	for _, driver := range d {
 		_, installedVerbose := getInstalled(driver, current)
 
@@ -280,7 +274,7 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors
 			availableVersions = append(availableVersions, v.String())
 		}
 
-		driverList = append(driverList, output{
+		driverList = append(driverList, jsonschema.SearchDriverVerbose{
 			Driver:            driver.Path,
 			Description:       driver.Desc,
 			License:           driver.License,
@@ -290,21 +284,30 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors
 		})
 	}
 
-	type result struct {
-		Drivers []output `json:"drivers"`
-		Warning string   `json:"warning,omitempty"`
+	type verboseResult struct {
+		Drivers []jsonschema.SearchDriverVerbose `json:"drivers"`
+		Warning string                            `json:"warning,omitempty"`
 	}
 
-	res := result{Drivers: driverList}
+	res := verboseResult{Drivers: driverList}
 	if registryErrors != nil && len(d) > 0 {
 		res.Warning = registryErrors.Error()
 	}
 
-	jsonBytes, err := json.Marshal(res)
+	payloadBytes, err := json.Marshal(res)
 	if err != nil {
 		return fmt.Sprintf("error marshaling JSON: %v", err)
 	}
-	return string(jsonBytes)
+	env := jsonschema.Envelope{
+		SchemaVersion: jsonschema.SchemaVersion,
+		Kind:          "search.results",
+		Payload:       json.RawMessage(payloadBytes),
+	}
+	jsonOutput, err := json.Marshal(env)
+	if err != nil {
+		return fmt.Sprintf("error marshaling JSON: %v", err)
+	}
+	return string(jsonOutput)
 }
 
 func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) ([]string, map[string][]string) {
