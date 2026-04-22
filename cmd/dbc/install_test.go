@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
@@ -470,8 +471,10 @@ func (suite *SubcommandTestSuite) TestInstallJSON() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	lastLine := lines[len(lines)-1]
 	var env jsonschema.Envelope
-	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Require().NoError(json.Unmarshal([]byte(lastLine), &env), "last output line must be valid JSON: %s", lastLine)
 
 	suite.Equal(1, env.SchemaVersion)
 	suite.Equal("install.status", env.Kind)
@@ -483,4 +486,36 @@ func (suite *SubcommandTestSuite) TestInstallJSON() {
 	suite.Equal("test-driver-1", status.Driver)
 	suite.NotEmpty(status.Version)
 	suite.NotEmpty(status.Location)
+}
+
+func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 1, "expected multiple NDJSON lines")
+
+	var kinds []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var env jsonschema.Envelope
+		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
+		suite.Equal(1, env.SchemaVersion)
+		kinds = append(kinds, env.Kind)
+	}
+
+	suite.Contains(kinds, "install.progress")
+	suite.Equal("install.status", kinds[len(kinds)-1])
+
+	var hasDownloadStart bool
+	for _, line := range lines {
+		if strings.Contains(line, `"download.start"`) {
+			hasDownloadStart = true
+			break
+		}
+	}
+	suite.True(hasDownloadStart, "expected download.start event")
 }

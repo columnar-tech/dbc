@@ -174,6 +174,23 @@ func (s installState) String() string {
 
 func (progressiveInstallModel) NeedsRenderer() {}
 
+func (m progressiveInstallModel) IsJSONMode() bool { return m.jsonOutput }
+
+func (m progressiveInstallModel) addEvent(event string, extra ...func(*jsonschema.InstallProgressEvent)) progressiveInstallModel {
+	if !m.jsonOutput {
+		return m
+	}
+	evt := jsonschema.InstallProgressEvent{
+		Event:  event,
+		Driver: m.Driver,
+	}
+	for _, fn := range extra {
+		fn(&evt)
+	}
+	m.jsonEvents = append(m.jsonEvents, marshalEnvelope("install.progress", evt))
+	return m
+}
+
 type progressiveInstallModel struct {
 	baseModel
 
@@ -194,9 +211,10 @@ type progressiveInstallModel struct {
 
 	width, height    int
 	isLocal          bool
-	localPackagePath string // original path for display; only set when isLocal=true
+	localPackagePath string
 
-	registryErrors error // Store registry errors for better error messages
+	registryErrors error
+	jsonEvents     []string
 }
 
 type driversWithRegistryError struct {
@@ -311,7 +329,14 @@ func (m progressiveInstallModel) FinalOutput() string {
 			if err != nil {
 				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
 			}
-			return string(jsonOutput)
+			completeLine := marshalEnvelope("install.progress", jsonschema.InstallProgressEvent{
+				Event:  "install.complete",
+				Driver: m.Driver,
+			})
+			allLines := make([]string, 0, len(m.jsonEvents)+2)
+			allLines = append(allLines, m.jsonEvents...)
+			allLines = append(allLines, completeLine, string(jsonOutput))
+			return strings.Join(allLines, "\n")
 		}
 
 		if installStatus.Conflict != "" {
@@ -377,6 +402,7 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	m = m.addEvent("download.start")
 	return m, func() tea.Msg {
 		output, err := m.downloadPkg(m.DriverPackage)
 		if err != nil {
@@ -423,8 +449,14 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case progressMsg:
-		cmd := m.p.SetPercent(msg.written, msg.total)
-		return m, cmd
+		if m.jsonOutput {
+			m = m.addEvent("download.progress", func(e *jsonschema.InstallProgressEvent) {
+				e.Bytes = msg.written
+				e.Total = msg.total
+			})
+		}
+		progressCmd := m.p.SetPercent(msg.written, msg.total)
+		return m, progressCmd
 	case progress.FrameMsg:
 		var cmd tea.Cmd
 		m.p, cmd = m.p.Update(msg)
@@ -456,6 +488,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m.startDownloading()
 	case *os.File:
+		m = m.addEvent("download.complete")
+		m = m.addEvent("extract.start")
 		return m.startInstalling(msg)
 	case config.Manifest:
 		if m.DriverPackage.Version == nil {
@@ -464,6 +498,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
+		m = m.addEvent("extract.complete")
+		m = m.addEvent("verify.start")
 		return m, func() tea.Msg {
 			if err := verifySignature(msg, m.NoVerify); err != nil {
 				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
@@ -474,6 +510,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case writeDriverManifestMsg:
 		m.state = stDone
+		m = m.addEvent("verify.complete")
+		m = m.addEvent("manifest.create")
 		return m, tea.Sequence(func() tea.Msg {
 			return config.CreateManifest(m.cfg, msg.DriverInfo)
 		}, tea.Quit)
