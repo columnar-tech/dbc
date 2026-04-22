@@ -488,6 +488,46 @@ func (suite *SubcommandTestSuite) TestInstallJSON() {
 	suite.NotEmpty(status.Location)
 }
 
+func (suite *SubcommandTestSuite) TestInstall_ChecksumInStatus() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 0)
+
+	lastLine := lines[len(lines)-1]
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lastLine), &env))
+	suite.Equal("install.status", env.Kind)
+
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("installed", status.Status)
+	// Checksum should be present and start with "sha256:"
+	suite.True(strings.HasPrefix(status.Checksum, "sha256:"), "expected checksum to start with sha256:, got: %s", status.Checksum)
+}
+
+func (suite *SubcommandTestSuite) TestInstall_InsecureNoChecksumFlag() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true, InsecureNoChecksum: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 0)
+
+	lastLine := lines[len(lines)-1]
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lastLine), &env))
+	suite.Equal("install.status", env.Kind)
+
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("installed", status.Status)
+	// Checksum should be absent when --insecure-no-checksum is set
+	suite.Empty(status.Checksum, "expected no checksum when InsecureNoChecksum is set")
+}
+
 func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})

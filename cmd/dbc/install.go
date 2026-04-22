@@ -64,11 +64,12 @@ func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver   string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
-	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
-	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
-	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
-	Pre      bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
+	Driver             string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
+	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Json               bool               `arg:"--json" help:"Output JSON instead of plaintext"`
+	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Pre                bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
+	InsecureNoChecksum bool               `arg:"--insecure-no-checksum" help:"Skip sha256 checksum recording (not recommended)"`
 }
 
 func (InstallCmd) Description() string {
@@ -86,15 +87,16 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		localPackagePath = c.Driver
 	}
 	return progressiveInstallModel{
-		Driver:           c.Driver,
-		NoVerify:         c.NoVerify,
-		jsonOutput:       c.Json,
-		Pre:              c.Pre,
-		spinner:          s,
-		cfg:              getConfig(c.Level),
-		baseModel:        baseModel,
-		isLocal:          isLocal,
-		localPackagePath: localPackagePath,
+		Driver:             c.Driver,
+		NoVerify:           c.NoVerify,
+		jsonOutput:         c.Json,
+		Pre:                c.Pre,
+		insecureNoChecksum: c.InsecureNoChecksum,
+		spinner:            s,
+		cfg:                getConfig(c.Level),
+		baseModel:          baseModel,
+		isLocal:            isLocal,
+		localPackagePath:   localPackagePath,
 		p: NewFileProgress(
 			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
@@ -200,6 +202,9 @@ type progressiveInstallModel struct {
 	jsonOutput   bool
 	Pre          bool
 	cfg          config.Config
+
+	insecureNoChecksum  bool
+	installedDriverInfo config.DriverInfo
 
 	DriverPackage      dbc.PkgInfo
 	conflictingInfo    config.DriverInfo
@@ -315,7 +320,19 @@ func (m progressiveInstallModel) FinalOutput() string {
 			installStatus.Message = m.postInstallMessage
 		}
 
+		if !m.insecureNoChecksum && m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
+			driverPath := m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple())
+			if chksum, err := checksum(driverPath); err == nil {
+				installStatus.Checksum = "sha256:" + chksum
+			}
+		}
+
 		if m.jsonOutput {
+			if installStatus.Checksum != "" {
+				m = m.addEvent("verify.checksum.ok", func(e *jsonschema.InstallProgressEvent) {
+					e.Checksum = installStatus.Checksum
+				})
+			}
 			payloadBytes, err := json.Marshal(installStatus)
 			if err != nil {
 				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
@@ -510,6 +527,7 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case writeDriverManifestMsg:
 		m.state = stDone
+		m.installedDriverInfo = msg.DriverInfo
 		m = m.addEvent("verify.complete")
 		m = m.addEvent("manifest.create")
 		return m, tea.Sequence(func() tea.Msg {
