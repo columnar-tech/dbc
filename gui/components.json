@@ -1,0 +1,1 @@
+{"style":"nova","tailwind":{"config":"tailwind.config.js","css":"src/app.css","baseColor":"slate","cssVariables":true},"aliases":{"components":"$lib/components","utils":"$lib/utils","ui":"$lib/components/ui","hooks":"$lib/hooks","lib":"$lib"}}

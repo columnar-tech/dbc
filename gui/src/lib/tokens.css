@@ -1,0 +1,13 @@
+:root {
+  --brand-primary: #0ea5e9;
+  --brand-secondary: #0284c7;
+  --brand-accent: #38bdf8;
+  --radius: 0.5rem;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.dark {
+  --brand-primary: #38bdf8;
+  --brand-secondary: #7dd3fc;
+  --brand-accent: #bae6fd;
+}
