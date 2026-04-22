@@ -1,20 +1,20 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gui",
+  "productName": "dbc",
   "version": "0.1.0",
-  "identifier": "tech.columnar.dbc",
+  "identifier": "tech.columnar.dbc.gui",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "bash gui/scripts/build-sidecar.sh --target $TAURI_ENV_TARGET_TRIPLE",
     "frontendDist": "../build"
   },
   "app": {
     "windows": [
       {
-        "title": "gui",
-        "width": 800,
-        "height": 600
+        "title": "dbc",
+        "width": 1200,
+        "height": 800
       }
     ],
     "security": {
@@ -31,6 +31,23 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/dbc"]
+    "publisher": "Columnar Technologies Inc.",
+    "category": "DeveloperTool",
+    "shortDescription": "ADBC Driver Manager GUI",
+    "copyright": "\u00a9 2026 Columnar Technologies Inc.",
+    "externalBin": [
+      "binaries/dbc"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "PLACEHOLDER_PUBKEY_REPLACE_WITH_REAL_KEY",
+      "endpoints": [
+        "https://dbc.columnar.tech/gui/updater/{{target}}/{{current_version}}"
+      ]
+    }
   }
 }

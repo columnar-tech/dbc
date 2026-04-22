@@ -165,3 +165,8 @@ plugins:
           - reference/driver_list.md: Driver list file format
           - reference/supported_platforms.md: Supported platforms
           - reference/analytics.md: Analytics and telemetry
+
+        GUI:
+          - gui/getting-started.md: Getting Started with the GUI
+          - gui/workflows.md: GUI Workflows
+          - gui/faq.md: GUI FAQ

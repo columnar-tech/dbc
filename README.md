@@ -104,7 +104,11 @@ with adbc.connect(
 
 You can also manage drivers in a project using a [driver list](docs/guides/driver_list.md). And you can store connection options in a [connection profile](https://arrow.apache.org/adbc/current/format/connection_profiles.html) instead of in your code.
 
-For more details, see the [dbc documentation](https://docs.columnar.tech/dbc) and the [ADBC Quickstarts](https://github.com/columnar-tech/adbc-quickstarts).
+ For more details, see the [dbc documentation](https://docs.columnar.tech/dbc) and the [ADBC Quickstarts](https://github.com/columnar-tech/adbc-quickstarts).
+
+## Desktop GUI
+
+A graphical desktop application is available in the [`gui/`](gui/) directory. It provides a visual interface for browsing the driver catalog, installing/uninstalling drivers, managing project driver lists, and authenticating with registries. See [`gui/README.md`](gui/README.md) for setup instructions.
 
 ## Communications
 
