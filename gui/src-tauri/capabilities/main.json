@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Main window capabilities for dbc GUI",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-execute",
+    "shell:allow-open",
+    "dialog:allow-open",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    "core:event:default",
+    "opener:allow-open-url"
+  ]
+}
