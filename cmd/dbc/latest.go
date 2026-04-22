@@ -19,8 +19,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
@@ -60,25 +60,11 @@ func isPkgMgrInstall() bool {
 		return false
 	}
 
-	switch filepath.Dir(exe) {
-	case "/usr/local/bin":
-		// pip installs here on linux
-		return true
-	case "/usr/bin":
-		// likely a system package manager, but could be other things too
-		return true
-	default:
-		// likely a local user install via script
-		// or via msi on windows etc.
-		// this is the case where we want to notify about updates
-	}
-
-	if runtime.GOOS == "windows" && strings.HasSuffix(filepath.Dir(exe), "\\Scripts") {
-		// likely a pip install on windows
+	if isManaged(exe) {
 		return true
 	}
 
-	if strings.Contains(exe, "conda") || strings.Contains(exe, "venv") {
+	if strings.Contains(exe, "conda") || strings.Contains(exe, "venv") || strings.Contains(exe, "miniforge") {
 		// likely a conda or virtual environment install
 		return true
 	}
@@ -86,27 +72,55 @@ func isPkgMgrInstall() bool {
 	return false
 }
 
-func notifyLatest() {
-	if isPkgMgrInstall() {
-		// skip notifying if installed via package manager,
-		// since they likely have their own update mechanism
-		return
-	}
+func writeLastUpdateCheck(configDir string) {
+	// file doesn't exist, create it with current timestamp and skip update check
+	_ = os.MkdirAll(configDir, 0o700)
+	_ = os.WriteFile(filepath.Join(configDir, ".last-update-check"), []byte(time.Now().Format(time.DateOnly)), 0o600)
+}
 
-	configDir, err := internal.GetDbcConfigPath()
+func notifyLatest() {
+	configDir, err := internal.GetUserConfigPath()
 	if err != nil {
 		return
 	}
 
 	// skip notifying if $dbc_config_home/.no-update exists
 	_, err = os.Stat(filepath.Join(configDir, ".no-update"))
+	if err == nil {
+		return // file exists, skip update check
+	}
+
+	lastUpdate, err := os.ReadFile(filepath.Join(configDir, ".last-update-check"))
+	if errors.Is(err, os.ErrNotExist) {
+		writeLastUpdateCheck(configDir)
+	} else if err == nil {
+		lastCheckTime, err := time.Parse(time.DateOnly, string(lastUpdate))
+		if err != nil {
+			// if the file is corrupted, reset it
+			_ = os.WriteFile(filepath.Join(configDir, ".last-update-check"), []byte(time.Now().Format(time.DateOnly)), 0o600)
+			return
+		}
+
+		if time.Since(lastCheckTime) > 24*time.Hour {
+			writeLastUpdateCheck(configDir)
+		} else {
+			return // last check was within 24 hours, skip update check
+		}
+	}
+
+	if isPkgMgrInstall() {
+		// skip notifying if installed via package manager,
+		// since they likely have their own update mechanism
+		return
+	}
+
 	if errors.Is(err, os.ErrNotExist) {
 		latestVer, err := dbc.GetLatestDbcVersion()
 		if dbc.Version != "(devel)" && err == nil {
 			if semver.MustParse(dbc.Version).LessThan(latestVer) {
-				lipgloss.Printf(descStyle.Render("Update available: A new version of dbc is available. You're running v%s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
+				lipgloss.Fprintf(os.Stderr, descStyle.Render("Update available: A new version of dbc is available. You're running v%s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
 					dbc.Version, latestVer, "https://github.com/columnar-tech/dbc/releases/tag/v"+latestVer.String(), "https://docs.columnar.tech/dbc/getting_started/installation/")
-				lipgloss.Println()
+				lipgloss.Fprintln(os.Stderr)
 			}
 		}
 	}

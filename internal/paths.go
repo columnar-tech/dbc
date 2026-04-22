@@ -41,7 +41,9 @@ func GetUserConfigPath() (string, error) {
 	return finalDir, nil
 }
 
-func GetDbcConfigPath() (string, error) {
+// Directory for dbc credentials. This dir is distinct from GetUserConfigPath
+// except for on macOS where it's the same
+func GetCredentialPath() (string, error) {
 	dir := os.Getenv("XDG_DATA_HOME")
 	if dir == "" {
 		switch runtime.GOOS {
@@ -56,7 +58,7 @@ func GetDbcConfigPath() (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("failed to get user config directory: %w", err)
 			}
-			return userdir, nil
+			return filepath.Join(userdir, "credentials", "credentials.toml"), nil
 		default: // unix
 			home, err := os.UserHomeDir()
 			if err != nil {
@@ -68,16 +70,5 @@ func GetDbcConfigPath() (string, error) {
 		return "", errors.New("path in $XDG_DATA_HOME is relative")
 	}
 
-	return filepath.Join(dir, "dbc"), nil
-}
-
-// Directory for dbc credentials. This dir is distinct from GetUserConfigPath
-// except for on macOS where it's the same
-func GetCredentialPath() (string, error) {
-	dir, err := GetDbcConfigPath()
-	if err != nil {
-		return "", fmt.Errorf("failed to get dbc config path: %w", err)
-	}
-
-	return filepath.Join(dir, "credentials", "credentials.toml"), nil
+	return filepath.Join(dir, "dbc", "credentials", "credentials.toml"), nil
 }
