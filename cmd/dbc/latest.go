@@ -98,10 +98,7 @@ func notifyLatest() {
 		if err != nil {
 			// if the file is corrupted, reset it
 			_ = os.WriteFile(filepath.Join(configDir, ".last-update-check"), []byte(time.Now().Format(time.DateOnly)), 0o600)
-			return
-		}
-
-		if time.Since(lastCheckTime) > 24*time.Hour {
+		} else if time.Since(lastCheckTime) > 24*time.Hour {
 			writeLastUpdateCheck(configDir)
 		} else {
 			return // last check was within 24 hours, skip update check
@@ -114,14 +111,12 @@ func notifyLatest() {
 		return
 	}
 
-	if errors.Is(err, os.ErrNotExist) {
-		latestVer, err := dbc.GetLatestDbcVersion()
-		if dbc.Version != "(devel)" && err == nil {
-			if semver.MustParse(dbc.Version).LessThan(latestVer) {
-				lipgloss.Fprintf(os.Stderr, descStyle.Render("Update available: A new version of dbc is available. You're running v%s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
-					dbc.Version, latestVer, "https://github.com/columnar-tech/dbc/releases/tag/v"+latestVer.String(), "https://docs.columnar.tech/dbc/getting_started/installation/")
-				lipgloss.Fprintln(os.Stderr)
-			}
+	latestVer, err := dbc.GetLatestDbcVersion()
+	if dbc.Version != "(devel)" && err == nil {
+		if semver.MustParse(dbc.Version).LessThan(latestVer) {
+			lipgloss.Fprintf(os.Stderr, descStyle.Render("Update available: A new version of dbc is available. You're running v%s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
+				dbc.Version, latestVer, "https://github.com/columnar-tech/dbc/releases/tag/v"+latestVer.String(), "https://docs.columnar.tech/dbc/getting_started/installation/")
+			lipgloss.Fprintln(os.Stderr)
 		}
 	}
 }
