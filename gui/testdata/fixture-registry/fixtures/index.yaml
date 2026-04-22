@@ -1,0 +1,49 @@
+name: fixture-registry
+drivers:
+  - name: Fixture Happy Driver
+    description: A happy-path fixture driver for testing
+    license: MIT
+    path: fixture-happy
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: macos_arm64
+            url: drivers/fixture-happy/1.0.0/fixture-happy_macos_arm64-1.0.0.tar.gz
+            checksum: "sha256:PLACEHOLDER_CHECKSUM"
+          - platform: macos_amd64
+            url: drivers/fixture-happy/1.0.0/fixture-happy_macos_amd64-1.0.0.tar.gz
+            checksum: "sha256:PLACEHOLDER_CHECKSUM"
+          - platform: linux_amd64
+            url: drivers/fixture-happy/1.0.0/fixture-happy_linux_amd64-1.0.0.tar.gz
+            checksum: "sha256:PLACEHOLDER_CHECKSUM"
+          - platform: windows_amd64
+            url: drivers/fixture-happy/1.0.0/fixture-happy_windows_amd64-1.0.0.tar.gz
+            checksum: "sha256:PLACEHOLDER_CHECKSUM"
+  - name: Fixture Tampered Driver
+    description: A driver with tampered checksum for testing verification failure
+    license: MIT
+    path: fixture-tampered
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: macos_arm64
+            url: drivers/fixture-tampered/1.0.0/fixture-tampered_macos_arm64-1.0.0.tar.gz
+            checksum: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  - name: Fixture Rate Limited
+    description: Returns 429 for testing rate limit handling
+    license: MIT
+    path: fixture-rate-limited
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: macos_arm64
+            url: drivers/rate-limited/1.0.0/fixture-rate-limited_macos_arm64-1.0.0.tar.gz
+  - name: Fixture Missing
+    description: Returns 404 for testing missing driver handling
+    license: MIT
+    path: fixture-missing
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: macos_arm64
+            url: drivers/missing/1.0.0/fixture-missing_macos_arm64-1.0.0.tar.gz
