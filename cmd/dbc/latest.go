@@ -104,7 +104,7 @@ func notifyLatest() {
 		latestVer, err := dbc.GetLatestDbcVersion()
 		if dbc.Version != "(devel)" && err == nil {
 			if semver.MustParse(dbc.Version).LessThan(latestVer) {
-				lipgloss.Printf(descStyle.Render("Update available: A new version of dbc is available. You're running %s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
+				lipgloss.Printf(descStyle.Render("Update available: A new version of dbc is available. You're running v%s and v%s is available. Please upgrade.\nChangelog: %s. Docs: %s"),
 					dbc.Version, latestVer, "https://github.com/columnar-tech/dbc/releases/tag/v"+latestVer.String(), "https://docs.columnar.tech/dbc/getting_started/installation/")
 				lipgloss.Println()
 			}
