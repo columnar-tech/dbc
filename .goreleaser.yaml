@@ -343,7 +343,7 @@ after:
     - cmd: pwsh -Command "New-Item -ItemType Directory -Force -Path dist/python; Move-Item dist/*.whl dist/python/ -ErrorAction SilentlyContinue"
       if: '{{ eq .Runtime.Goos "windows" }}'
     # Collect + GPG-sign Linux GUI artifacts
-    - cmd: sh -c "mkdir -p dist/gui && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage dist/gui/ 2>/dev/null || true && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb dist/gui/ 2>/dev/null || true && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm dist/gui/ 2>/dev/null || true && for f in dist/gui/*.AppImage dist/gui/*.deb dist/gui/*.rpm; do [ -f \"$f\" ] && gpg --output \"${f}.sig\" --detach-sign \"$f\" 2>/dev/null || true; done"
+    - cmd: sh -c "mkdir -p dist/gui && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage dist/gui/ 2>/dev/null || true && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb dist/gui/ 2>/dev/null || true && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm dist/gui/ 2>/dev/null || true && for f in dist/gui/*.AppImage dist/gui/*.deb dist/gui/*.rpm; do [ -f \"$f\" ] && gpg --output \"${f}.sig\" --detach-sign \"$f\"; done"
       if: '{{ eq .Runtime.Goos "linux" }}'
     # Collect macOS arm64 GUI artifacts (notarized by tauri build)
     - cmd: sh -c "mkdir -p dist/gui && cp gui/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg dist/gui/ 2>/dev/null || true"

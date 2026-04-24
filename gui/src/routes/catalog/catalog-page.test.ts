@@ -73,4 +73,33 @@ describe("Catalog page", () => {
       }));
     }, { timeout: 2000 });
   });
+
+  it("shows Installed badge only for user-scope installs", async () => {
+    mockInvoke.mockResolvedValue({
+      drivers: [
+        { driver: "user-installed", description: "d", installed: ["user=>1.0.0"] },
+        { driver: "env-installed", description: "d", installed: ["env=>1.0.0"] },
+        { driver: "not-installed", description: "d" },
+      ],
+    });
+    render(Page);
+    await waitFor(() => {
+      expect(screen.getByText("user-installed")).toBeInTheDocument();
+    }, { timeout: 2000 });
+    const badges = screen.getAllByText("Installed");
+    expect(badges).toHaveLength(1);
+  });
+
+  it("does not show Installed badge for env-scope installs", async () => {
+    mockInvoke.mockResolvedValue({
+      drivers: [
+        { driver: "env-only", description: "d", installed: ["env=>1.0.0"] },
+      ],
+    });
+    render(Page);
+    await waitFor(() => {
+      expect(screen.getByText("env-only")).toBeInTheDocument();
+    }, { timeout: 2000 });
+    expect(screen.queryByText("Installed")).not.toBeInTheDocument();
+  });
 });

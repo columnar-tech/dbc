@@ -106,13 +106,13 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {#each drivers as driver}
         <button
-          onclick={() => openDrawer(driver.driver, 'installed' in driver && !!driver.installed?.length)}
+          onclick={() => openDrawer(driver.driver, 'installed' in driver && !!driver.installed?.some(e => e.startsWith('user=>')))}
           class="text-left"
         >
           <Card class="hover:border-primary transition-colors cursor-pointer h-full">
             <CardHeader>
               <CardTitle class="text-base">{driver.driver}</CardTitle>
-              {#if 'installed' in driver && driver.installed && driver.installed.length > 0}
+              {#if 'installed' in driver && driver.installed?.some(e => e.startsWith('user=>'))}
                 <Badge variant="secondary" class="w-fit">Installed</Badge>
               {/if}
             </CardHeader>
