@@ -94,13 +94,7 @@ pub async fn auth_logout(
     registry_url: Option<String>,
     purge: bool,
 ) -> Result<AuthLogoutResponse, SidecarError> {
-    let mut args_owned = vec!["auth".to_string(), "logout".to_string()];
-    if let Some(ref url) = registry_url {
-        args_owned.push(url.clone());
-    }
-    if purge {
-        args_owned.push("--purge".to_string());
-    }
+    let args_owned = build_logout_args(registry_url.as_deref(), purge);
     let registry = registry_url.unwrap_or_default();
     let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let sidecar = Sidecar::new(app);
@@ -109,6 +103,17 @@ pub async fn auth_logout(
         status: "success".to_string(),
         registry,
     })
+}
+
+fn build_logout_args(registry_url: Option<&str>, purge: bool) -> Vec<String> {
+    let mut args = vec!["auth".to_string(), "logout".to_string()];
+    if let Some(url) = registry_url {
+        args.push(url.to_string());
+    }
+    if purge {
+        args.push("--purge".to_string());
+    }
+    args
 }
 
 #[tauri::command]
@@ -244,5 +249,29 @@ mod tests {
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("device_code"));
         assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn test_build_logout_args_purge_no_url() {
+        let args = build_logout_args(None, true);
+        assert_eq!(args, vec!["auth", "logout", "--purge"]);
+    }
+
+    #[test]
+    fn test_build_logout_args_logout_with_url() {
+        let args = build_logout_args(Some("https://example.com"), false);
+        assert_eq!(args, vec!["auth", "logout", "https://example.com"]);
+    }
+
+    #[test]
+    fn test_build_logout_args_purge_with_url() {
+        let args = build_logout_args(Some("https://example.com"), true);
+        assert_eq!(args, vec!["auth", "logout", "https://example.com", "--purge"]);
+    }
+
+    #[test]
+    fn test_build_logout_args_logout_no_url() {
+        let args = build_logout_args(None, false);
+        assert_eq!(args, vec!["auth", "logout"]);
     }
 }
