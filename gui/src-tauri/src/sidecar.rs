@@ -210,6 +210,7 @@ impl Sidecar {
             Ok(()) => exit_code.or(Some(0)),
             Err(SidecarError::Cancelled) => None,
             Err(SidecarError::Timeout) => None,
+            Err(SidecarError::ExitStatus { code, .. }) => Some(*code),
             Err(_) => Some(-1),
         };
         push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args[1..]), log_exit, stderr_tail);

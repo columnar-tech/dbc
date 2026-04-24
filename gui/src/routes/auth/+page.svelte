@@ -27,17 +27,20 @@
 
   let authStatus = $state<RegistryStatus[]>([]);
   let statusLoading = $state(true);
+  let statusError = $state('');
   let loggingOutUrl = $state<string | null>(null);
 
   let authBusy = $derived(logging || loggingOutUrl !== null);
 
   async function loadStatus() {
     statusLoading = true;
+    statusError = '';
     try {
       const result = await invoke<{ registries: RegistryStatus[] }>('auth_status');
       authStatus = result.registries;
-    } catch {
+    } catch (e) {
       authStatus = [];
+      statusError = String(e);
     } finally {
       statusLoading = false;
     }
@@ -114,14 +117,14 @@
     }
   }
 
-  async function logoutPurge(url: string) {
+  async function logoutPurge() {
     if (authBusy) return;
-    if (!confirm(`Remove all local credentials for ${url}?`)) return;
-    loggingOutUrl = url;
+    if (!confirm('This will remove ALL stored credentials and the local license file for every registry. This cannot be undone. Continue?')) return;
+    loggingOutUrl = '__purge__';
     try {
-      await invoke<{ status: string }>('auth_logout', { registryUrl: url, purge: true });
+      await invoke<{ status: string }>('auth_logout', { registryUrl: registryUrl, purge: true });
       messageOk = true;
-      message = `Credentials purged for ${url}`;
+      message = 'All credentials purged';
       await loadStatus();
     } catch (e) {
       messageOk = false;
@@ -136,6 +139,10 @@
 
 <div class="p-6 max-w-lg">
   <h1 class="text-2xl font-bold mb-6">Authentication</h1>
+
+  {#if statusError}
+    <div class="mb-4 rounded-md bg-destructive/10 text-destructive text-sm p-3">{statusError}</div>
+  {/if}
 
   {#if !statusLoading && authStatus.length > 0}
     <Card class="mb-6">
@@ -157,10 +164,6 @@
               </Badge>
               <Button variant="ghost" size="sm" disabled={authBusy} onclick={() => logout(reg.url)}>
                 {loggingOutUrl === reg.url ? 'Logging out…' : 'Logout'}
-              </Button>
-              <Button variant="ghost" size="sm" disabled={authBusy} onclick={() => logoutPurge(reg.url)}
-                class="text-destructive hover:text-destructive">
-                Purge
               </Button>
             </div>
           </div>
@@ -213,4 +216,12 @@
       {/if}
     </CardContent>
   </Card>
+
+  <div class="mt-6 pt-4 border-t border-border">
+    <p class="text-xs text-muted-foreground mb-2">Danger zone</p>
+    <Button variant="destructive" size="sm" disabled={authBusy} onclick={logoutPurge}>
+      Purge All Credentials
+    </Button>
+    <p class="text-xs text-muted-foreground mt-1">Removes all stored credentials and the local license file for every registry.</p>
+  </div>
 </div>

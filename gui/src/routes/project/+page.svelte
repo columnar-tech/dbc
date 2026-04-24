@@ -18,8 +18,9 @@
     try {
       const entries = await invoke<Array<{ name: string; version_constraint?: string }>>('load_driver_list', { path });
       drivers = entries.map(e => ({ name: e.name, constraint: e.version_constraint }));
-    } catch {
+    } catch (e) {
       drivers = [];
+      loadError = `Failed to load driver list: ${String(e)}`;
     }
   }
 
@@ -27,13 +28,19 @@
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === 'string') {
       const path = selected + '/dbc.toml';
-      projectPath = path;
-      // Initialize if missing, then load
+      loadError = '';
       try {
         await invoke('init_driver_list', { path });
-      } catch {
-        // already exists — fine
+      } catch (e) {
+        const msg = String(e);
+        if (!msg.includes('already exists')) {
+          projectPath = path;
+          loadError = `Failed to initialize driver list: ${msg}`;
+          drivers = [];
+          return;
+        }
       }
+      projectPath = path;
       await loadDrivers(path);
     }
   }
