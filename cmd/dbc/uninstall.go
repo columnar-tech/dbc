@@ -125,15 +125,10 @@ func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = 1
 		m.err = msg
 		if m.jsonOutput {
-			payload := jsonschema.UninstallStatus{Status: "error", Driver: m.Driver}
-			payloadBytes, _ := json.Marshal(payload)
-			env := jsonschema.Envelope{
-				SchemaVersion: jsonschema.SchemaVersion,
-				Kind:          "uninstall.status",
-				Payload:       json.RawMessage(payloadBytes),
-			}
-			jsonOutput, _ := json.Marshal(env)
-			return m, tea.Sequence(tea.Println(string(jsonOutput)), tea.Quit)
+			return m, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "uninstall_failed",
+				Message: msg.Error(),
+			})), tea.Quit)
 		}
 		return m, tea.Quit
 	}

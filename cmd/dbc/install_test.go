@@ -504,8 +504,9 @@ func (suite *SubcommandTestSuite) TestInstall_ChecksumInStatus() {
 	var status jsonschema.InstallStatus
 	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
 	suite.Equal("installed", status.Status)
-	// Checksum should be present and start with "sha256:"
-	suite.True(strings.HasPrefix(status.Checksum, "sha256:"), "expected checksum to start with sha256:, got: %s", status.Checksum)
+	// Checksum should be present as a bare hex string (no prefix)
+	suite.NotEmpty(status.Checksum, "expected checksum to be non-empty")
+	suite.False(strings.HasPrefix(status.Checksum, "sha256:"), "expected bare hex checksum without sha256: prefix, got: %s", status.Checksum)
 }
 
 func (suite *SubcommandTestSuite) TestInstall_InsecureNoChecksumFlag() {

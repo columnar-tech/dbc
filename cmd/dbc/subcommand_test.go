@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,7 +124,10 @@ func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
 		if d.IsDir() {
 			return nil
 		}
-
+		// Skip advisory lock files created by fslock
+		if strings.HasSuffix(path, ".lock") {
+			return nil
+		}
 		filelist = append(filelist, path)
 		return nil
 	}))

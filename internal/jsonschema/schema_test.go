@@ -338,17 +338,19 @@ func TestInitResponse(t *testing.T) {
 func TestAddResponse(t *testing.T) {
 	v := jsonschema.AddResponse{
 		DriverListPath: "/proj/dbc.toml",
-		Driver: jsonschema.AddResponseDriver{
-			Name:              "snowflake",
-			VersionConstraint: ">=1.0.0",
+		Drivers: []jsonschema.AddResponseDriver{
+			{
+				Name:              "snowflake",
+				VersionConstraint: ">=1.0.0",
+			},
 		},
 	}
 	got := roundTrip(t, v)
 	if got.DriverListPath != v.DriverListPath {
 		t.Errorf("DriverListPath mismatch")
 	}
-	if got.Driver.Name != v.Driver.Name || got.Driver.VersionConstraint != v.Driver.VersionConstraint {
-		t.Errorf("Driver mismatch: %+v", got.Driver)
+	if len(got.Drivers) != len(v.Drivers) || got.Drivers[0].Name != v.Drivers[0].Name || got.Drivers[0].VersionConstraint != v.Drivers[0].VersionConstraint {
+		t.Errorf("Drivers mismatch: %+v", got.Drivers)
 	}
 }
 

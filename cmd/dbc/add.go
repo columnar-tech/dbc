@@ -256,17 +256,21 @@ func (m addModel) FinalOutput() string {
 		return ""
 	}
 	if m.jsonOutput {
-		driverName, constraint, _ := parseDriverConstraint(m.Driver[0])
-		var constraintStr string
-		if constraint != nil {
-			constraintStr = constraint.String()
+		drivers := make([]jsonschema.AddResponseDriver, 0, len(m.Driver))
+		for _, d := range m.Driver {
+			driverName, constraint, _ := parseDriverConstraint(d)
+			var constraintStr string
+			if constraint != nil {
+				constraintStr = constraint.String()
+			}
+			drivers = append(drivers, jsonschema.AddResponseDriver{
+				Name:              driverName,
+				VersionConstraint: constraintStr,
+			})
 		}
 		return marshalEnvelope("add.response", jsonschema.AddResponse{
 			DriverListPath: m.resolvedPath,
-			Driver: jsonschema.AddResponseDriver{
-				Name:              driverName,
-				VersionConstraint: constraintStr,
-			},
+			Drivers:        drivers,
 		})
 	}
 	return m.result

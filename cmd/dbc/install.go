@@ -291,13 +291,24 @@ func (m progressiveInstallModel) FinalOutput() string {
 				Version:  m.conflictingInfo.Version.String(),
 				Location: filepath.SplitList(m.cfg.Location)[0],
 			}
-			payloadBytes, _ := json.Marshal(payload)
+			if !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
+				if chksum, err := checksum(m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple())); err == nil {
+					payload.Checksum = chksum
+				}
+			}
+			payloadBytes, err := json.Marshal(payload)
+			if err != nil {
+				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+			}
 			env := jsonschema.Envelope{
 				SchemaVersion: jsonschema.SchemaVersion,
 				Kind:          "install.status",
 				Payload:       json.RawMessage(payloadBytes),
 			}
-			jsonOutput, _ := json.Marshal(env)
+			jsonOutput, err := json.Marshal(env)
+			if err != nil {
+				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+			}
 			return string(jsonOutput)
 		}
 		return fmt.Sprintf("\nDriver %s %s already installed at %s",
@@ -322,8 +333,15 @@ func (m progressiveInstallModel) FinalOutput() string {
 
 		if !m.insecureNoChecksum && m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
 			driverPath := m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple())
-			if chksum, err := checksum(driverPath); err == nil {
-				installStatus.Checksum = "sha256:" + chksum
+			chksum, err := checksum(driverPath)
+			if err != nil && m.jsonOutput {
+				return marshalEnvelope("error", jsonschema.ErrorResponse{
+					Code:    "checksum_failed",
+					Message: err.Error(),
+				})
+			}
+			if err == nil {
+				installStatus.Checksum = chksum
 			}
 		}
 
@@ -535,7 +553,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}, tea.Quit)
 	case error:
 		if m.jsonOutput {
-			return m, tea.Sequence(tea.Println(fmt.Sprintf(`{"status":"error","error":"%s"}`, msg.Error())), tea.Quit)
+			return m, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "install_failed",
+				Message: msg.Error(),
+			})), tea.Quit)
 		}
 	}
 

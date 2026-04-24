@@ -94,6 +94,7 @@ function _dbc_init_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        '--json[Output JSON instead of plaintext]' \
         ':file to create:_files -g \*.toml'
 }
 
@@ -102,6 +103,7 @@ function _dbc_add_completions {
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
         '--pre[Allow pre-release versions implicitly]' \
+        '--json[Output JSON instead of plaintext]' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
         ':driver name: '
@@ -148,6 +150,7 @@ function _dbc_remove_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        '--json[Output JSON instead of plaintext]' \
         '(-p)--path[driver list to remove from]: :_files -g \*.toml' \
         '(--path)-p[driver list to remove from]: :_files -g \*.toml' \
         ':driver name: '

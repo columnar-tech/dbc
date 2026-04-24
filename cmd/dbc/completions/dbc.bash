@@ -104,7 +104,7 @@ _dbc_init_completions() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --json" -- "$cur"))
         return 0
     fi
 
@@ -133,7 +133,7 @@ _dbc_add_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --path -p --pre" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --path -p --pre --json" -- "$cur"))
         return 0
     fi
 
@@ -228,7 +228,7 @@ _dbc_remove_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --path -p" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --path -p --json" -- "$cur"))
         return 0
     fi
 

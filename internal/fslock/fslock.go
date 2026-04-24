@@ -23,11 +23,8 @@ type Lock struct {
 	f *os.File
 }
 
-// Release releases the lock, closes the file, and removes the lock file.
+// Release releases the lock and closes the file. The lock file is left on
+// disk so that concurrent waiters do not race on a deleted path.
 func (l Lock) Release() error {
-	name := l.f.Name()
-	if err := l.f.Close(); err != nil {
-		return err
-	}
-	return os.Remove(name)
+	return l.f.Close()
 }

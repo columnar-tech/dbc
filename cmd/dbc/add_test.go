@@ -449,7 +449,8 @@ func (suite *SubcommandTestSuite) TestAdd_JSON() {
 
 	var resp jsonschema.AddResponse
 	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
-	suite.Equal("test-driver-1", resp.Driver.Name)
+	suite.Require().Len(resp.Drivers, 1)
+	suite.Equal("test-driver-1", resp.Drivers[0].Name)
 	suite.NotEmpty(resp.DriverListPath)
 }
 

@@ -177,12 +177,12 @@ type AddResponseDriver struct {
 	VersionConstraint string `json:"version_constraint,omitempty"`
 }
 
-// AddResponse is the JSON payload emitted after adding a driver to a driver list.
+// AddResponse is the JSON payload emitted after adding drivers to a driver list.
 type AddResponse struct {
 	// DriverListPath is the filesystem path of the driver list that was modified.
 	DriverListPath string `json:"driver_list_path"`
-	// Driver is the entry that was added.
-	Driver AddResponseDriver `json:"driver"`
+	// Drivers lists every driver entry that was added or updated.
+	Drivers []AddResponseDriver `json:"drivers"`
 }
 
 // RemoveResponseDriver carries the driver entry that was removed from the list.

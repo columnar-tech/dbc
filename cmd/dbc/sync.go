@@ -72,22 +72,20 @@ func (s syncModel) emitJSON(kind string, payload any) {
 }
 
 func (s syncModel) FinalOutput() string {
-	if s.status != 0 {
+	if s.status != 0 || !s.jsonOutput {
 		return ""
 	}
-	if !s.jsonOutput {
-		return ""
+	installed := s.newlyInstalled
+	if installed == nil {
+		installed = []jsonschema.SyncedDriver{}
 	}
-	installed := make([]jsonschema.SyncedDriver, 0, len(s.locked.Drivers))
-	for _, d := range s.locked.Drivers {
-		installed = append(installed, jsonschema.SyncedDriver{
-			Name:    d.Name,
-			Version: d.Version.String(),
-		})
+	skipped := s.skippedDrivers
+	if skipped == nil {
+		skipped = []jsonschema.SyncedDriver{}
 	}
 	return marshalEnvelope("sync.status", jsonschema.SyncStatus{
 		Installed: installed,
-		Skipped:   []jsonschema.SyncedDriver{},
+		Skipped:   skipped,
 		Errors:    []jsonschema.SyncError{},
 	})
 }
@@ -120,6 +118,11 @@ type syncModel struct {
 
 	done           bool
 	registryErrors error // Store registry errors for better error messages
+
+	// skippedDrivers tracks already-installed drivers for JSON output
+	skippedDrivers []jsonschema.SyncedDriver
+	// newlyInstalled tracks freshly installed drivers for JSON output
+	newlyInstalled []jsonschema.SyncedDriver
 }
 
 type driversListMsg struct {
@@ -411,10 +414,14 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Platform: config.PlatformTuple(),
 			Checksum: msg.item.Checksum,
 		})
+		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
+			Name:    msg.info.ID,
+			Version: msg.info.Version.String(),
+		})
 
 		if s.jsonOutput {
 			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
-				Phase:   "installed",
+				Phase:   "skipped",
 				Driver:  msg.info.ID,
 				Version: msg.info.Version.String(),
 			})
@@ -450,6 +457,12 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
 		if err != nil {
 			s.status = 1
+			if s.jsonOutput {
+				return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
+					Code:    "checksum_failed",
+					Message: err.Error(),
+				})), tea.Quit)
+			}
 			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
 		}
 		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
@@ -457,6 +470,10 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Version:  msg.info.Version,
 			Platform: config.PlatformTuple(),
 			Checksum: chksum,
+		})
+		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
+			Name:    msg.info.ID,
+			Version: msg.info.Version.String(),
 		})
 
 		if s.jsonOutput {
@@ -513,6 +530,13 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			printCmd,
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
+	case error:
+		if s.jsonOutput {
+			return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "sync_failed",
+				Message: msg.Error(),
+			})), tea.Quit)
+		}
 	}
 
 	bm, cmd := s.baseModel.Update(msg)
