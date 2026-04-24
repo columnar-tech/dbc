@@ -1505,6 +1505,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
+ "toml 0.8.2",
 ]
 
 [[package]]

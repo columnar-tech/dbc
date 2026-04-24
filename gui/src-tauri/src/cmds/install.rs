@@ -114,6 +114,7 @@ pub async fn install_driver(
             checksum: None,
         });
 
+    let _ = app.emit("driver-installed", &final_status);
     Ok(final_status)
 }
 

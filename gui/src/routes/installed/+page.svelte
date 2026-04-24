@@ -1,10 +1,10 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '$lib/components/ui/table';
   import { Button } from '$lib/components/ui/button';
   import { Badge } from '$lib/components/ui/badge';
 
-  // Use a simple interface since InstalledDriver isn't in schema yet
   interface Driver {
     name: string;
     version: string;
@@ -35,7 +35,11 @@
     }
   }
 
-  $effect(() => { load(); });
+  $effect(() => {
+    load();
+    const unlisten = listen('driver-installed', () => load());
+    return () => { unlisten.then(fn => fn()); };
+  });
 </script>
 
 <div class="p-6">

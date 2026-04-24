@@ -33,6 +33,15 @@ fn get_user_driver_dir() -> Option<PathBuf> {
     }
 }
 
+fn parse_version_from_manifest(path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(path).ok()?;
+    let value: toml::Value = toml::from_str(&content).ok()?;
+    value
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
 #[tauri::command]
 pub async fn list_installed(
     _app: AppHandle,
@@ -57,13 +66,17 @@ pub async fn list_installed(
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.is_dir() {
+        if path.extension().and_then(|e| e.to_str()) == Some("toml") {
             let name = path
-                .file_name()
+                .file_stem()
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
-            let version = "unknown".to_string();
+            if name.is_empty() {
+                continue;
+            }
+            let version = parse_version_from_manifest(&path)
+                .unwrap_or_else(|| "unknown".to_string());
             drivers.push(InstalledDriver {
                 name,
                 version,
@@ -72,6 +85,7 @@ pub async fn list_installed(
         }
     }
 
+    drivers.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(drivers)
 }
 
@@ -110,6 +124,25 @@ mod tests {
         let json = serde_json::to_string(&driver).unwrap();
         assert!(json.contains("snowflake"));
         assert!(json.contains("1.0.0"));
+    }
+
+    #[test]
+    fn test_parse_version_from_manifest() {
+        let dir = std::env::temp_dir().join("test_manifest.toml");
+        std::fs::write(&dir, "manifest_version = 1\nversion = '1.5.1'\n").unwrap();
+        assert_eq!(
+            parse_version_from_manifest(&dir),
+            Some("1.5.1".to_string())
+        );
+        std::fs::remove_file(&dir).ok();
+    }
+
+    #[test]
+    fn test_parse_version_missing_returns_none() {
+        let dir = std::env::temp_dir().join("test_manifest_no_ver.toml");
+        std::fs::write(&dir, "manifest_version = 1\n").unwrap();
+        assert_eq!(parse_version_from_manifest(&dir), None);
+        std::fs::remove_file(&dir).ok();
     }
 
     #[test]
