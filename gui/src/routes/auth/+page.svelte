@@ -29,6 +29,8 @@
   let statusLoading = $state(true);
   let loggingOutUrl = $state<string | null>(null);
 
+  let authBusy = $derived(logging || loggingOutUrl !== null);
+
   async function loadStatus() {
     statusLoading = true;
     try {
@@ -97,7 +99,7 @@
   }
 
   async function logout(url: string) {
-    if (loggingOutUrl !== null) return;
+    if (authBusy) return;
     loggingOutUrl = url;
     try {
       await invoke<{ status: string }>('auth_logout', { registryUrl: url, purge: false });
@@ -136,7 +138,7 @@
               <Badge variant={reg.authenticated ? 'default' : 'secondary'}>
                 {reg.authenticated ? 'Authenticated' : 'Expired'}
               </Badge>
-              <Button variant="ghost" size="sm" disabled={loggingOutUrl !== null} onclick={() => logout(reg.url)}>
+              <Button variant="ghost" size="sm" disabled={authBusy} onclick={() => logout(reg.url)}>
                 {loggingOutUrl === reg.url ? 'Logging out…' : 'Logout'}
               </Button>
             </div>
@@ -173,13 +175,13 @@
               {/if}
             </div>
           {/if}
-          <Button onclick={loginDevice} disabled={logging} class="w-full">
+          <Button onclick={loginDevice} disabled={authBusy} class="w-full">
             {logging ? 'Waiting for authorization…' : 'Login with Device Code'}
           </Button>
         </TabsContent>
         <TabsContent value="apikey" class="pt-4 space-y-2">
           <Input type="password" placeholder="API Key" bind:value={apiKey} />
-          <Button onclick={loginApiKey} disabled={logging} class="w-full">
+          <Button onclick={loginApiKey} disabled={authBusy} class="w-full">
             {logging ? 'Authenticating…' : 'Login with API Key'}
           </Button>
         </TabsContent>

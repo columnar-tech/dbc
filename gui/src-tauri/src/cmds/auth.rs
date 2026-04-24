@@ -110,9 +110,10 @@ pub async fn auth_logout(
 
 #[tauri::command]
 pub async fn auth_status(_app: AppHandle) -> Result<AuthStatus, SidecarError> {
-    let path = get_credentials_path();
-    let Some(path) = path else {
-        return Ok(AuthStatus { registries: vec![] });
+    let path = match get_credentials_path() {
+        Ok(Some(p)) => p,
+        Ok(None) => return Ok(AuthStatus { registries: vec![] }),
+        Err(e) => return Err(e),
     };
 
     let content = match std::fs::read_to_string(&path) {
@@ -160,36 +161,39 @@ pub async fn auth_status(_app: AppHandle) -> Result<AuthStatus, SidecarError> {
     Ok(AuthStatus { registries })
 }
 
-fn get_credentials_path() -> Option<std::path::PathBuf> {
+fn get_credentials_path() -> Result<Option<std::path::PathBuf>, SidecarError> {
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        if std::path::Path::new(&xdg).is_absolute() {
-            return Some(
-                std::path::PathBuf::from(xdg)
-                    .join("dbc")
-                    .join("credentials")
-                    .join("credentials.toml"),
-            );
+        if !std::path::Path::new(&xdg).is_absolute() {
+            return Err(SidecarError::Io(
+                "XDG_DATA_HOME is set to a relative path, which is not allowed".to_string(),
+            ));
         }
+        return Ok(Some(
+            std::path::PathBuf::from(xdg)
+                .join("dbc")
+                .join("credentials")
+                .join("credentials.toml"),
+        ));
     }
 
     #[cfg(target_os = "macos")]
     {
-        dirs::config_dir().map(|d| {
+        Ok(dirs::config_dir().map(|d| {
             d.join("Columnar")
                 .join("dbc")
                 .join("credentials")
                 .join("credentials.toml")
-        })
+        }))
     }
     #[cfg(target_os = "linux")]
     {
-        dirs::data_local_dir()
-            .map(|d| d.join("dbc").join("credentials").join("credentials.toml"))
+        Ok(dirs::data_local_dir()
+            .map(|d| d.join("dbc").join("credentials").join("credentials.toml")))
     }
     #[cfg(target_os = "windows")]
     {
-        dirs::data_local_dir()
-            .map(|d| d.join("dbc").join("credentials").join("credentials.toml"))
+        Ok(dirs::data_local_dir()
+            .map(|d| d.join("dbc").join("credentials").join("credentials.toml")))
     }
 }
 
