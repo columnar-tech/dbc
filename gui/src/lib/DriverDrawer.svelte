@@ -111,39 +111,41 @@
 </script>
 
 <Sheet bind:open>
-  <SheetContent side="right" class="w-96">
-    <SheetHeader>
-      <SheetTitle>{driverName}</SheetTitle>
-    </SheetHeader>
+  <SheetContent side="right" class="w-[28rem] sm:w-[32rem] overflow-y-auto">
+    <div class="p-6">
+      <SheetHeader class="mb-4">
+        <SheetTitle>{driverName}</SheetTitle>
+      </SheetHeader>
 
-    {#if loading}
-      <div class="space-y-3 mt-4">
-        <Skeleton class="h-4 w-full" />
-        <Skeleton class="h-4 w-3/4" />
-        <Skeleton class="h-4 w-1/2" />
-      </div>
-    {:else if error}
-      <p class="text-destructive mt-4">{error}</p>
-    {:else if info}
-      <div class="mt-4 space-y-4">
-        <p class="text-sm text-muted-foreground">{info.description}</p>
-        <div class="flex gap-2 flex-wrap">
-          <Badge>{info.license}</Badge>
-          <Badge variant="outline">v{info.version}</Badge>
+      {#if loading}
+        <div class="space-y-3">
+          <Skeleton class="h-4 w-full" />
+          <Skeleton class="h-4 w-3/4" />
+          <Skeleton class="h-4 w-1/2" />
         </div>
-        <div>
-          <p class="text-sm font-medium mb-1">Platforms</p>
-          <div class="flex gap-1 flex-wrap">
-            {#each info.packages as pkg}
-              <Badge variant="secondary" class="text-xs">{pkg}</Badge>
-            {/each}
+      {:else if error}
+        <p class="text-destructive">{error}</p>
+      {:else if info}
+        <div class="space-y-5">
+          <p class="text-sm text-muted-foreground leading-relaxed">{info.description}</p>
+          <div class="flex gap-2 flex-wrap">
+            <Badge>{info.license}</Badge>
+            <Badge variant="outline">v{info.version}</Badge>
           </div>
+          <div>
+            <p class="text-sm font-medium mb-2">Platforms</p>
+            <div class="flex gap-1 flex-wrap">
+              {#each info.packages as pkg}
+                <Badge variant="secondary" class="text-xs">{pkg}</Badge>
+              {/each}
+            </div>
+          </div>
+          <Button onclick={install} disabled={installing} class="w-full">
+            {installing ? 'Installing…' : 'Install'}
+          </Button>
         </div>
-        <Button onclick={install} disabled={installing} class="w-full">
-          {installing ? 'Installing…' : 'Install'}
-        </Button>
-      </div>
-    {/if}
+      {/if}
+    </div>
   </SheetContent>
 </Sheet>
 
