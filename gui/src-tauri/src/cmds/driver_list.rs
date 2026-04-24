@@ -299,7 +299,7 @@ mod tests {
             Some(v) => format!("{}={}", driver, v),
             None => driver.clone(),
         };
-        let args = vec!["add".to_string(), driver_arg, "-p".to_string(), "/tmp/dbc.toml".to_string()];
+        let args = ["add".to_string(), driver_arg, "-p".to_string(), "/tmp/dbc.toml".to_string()];
         assert_eq!(args[1], "duckdb");
         assert!(!args[1].contains('@'));
     }
