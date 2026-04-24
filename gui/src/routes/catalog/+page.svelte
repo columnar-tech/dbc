@@ -14,6 +14,7 @@
   let error = $state<string | null>(null);
   let drivers = $state<SearchResponse['drivers']>([]);
   let selectedDriver = $state<string | null>(null);
+  let selectedDriverInstalled = $state(false);
   let drawerOpen = $state(false);
 
   let debounceTimer: ReturnType<typeof setTimeout>;
@@ -66,8 +67,9 @@
     };
   });
 
-  function openDrawer(driverName: string) {
+  function openDrawer(driverName: string, isInstalled: boolean) {
     selectedDriver = driverName;
+    selectedDriverInstalled = isInstalled;
     drawerOpen = true;
   }
 </script>
@@ -104,7 +106,7 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {#each drivers as driver}
         <button
-          onclick={() => openDrawer(driver.driver)}
+          onclick={() => openDrawer(driver.driver, 'installed' in driver && !!driver.installed?.length)}
           class="text-left"
         >
           <Card class="hover:border-primary transition-colors cursor-pointer h-full">
@@ -127,6 +129,7 @@
 {#if selectedDriver}
   <DriverDrawer
     driverName={selectedDriver}
+    isInstalled={selectedDriverInstalled}
     bind:open={drawerOpen}
   />
 {/if}

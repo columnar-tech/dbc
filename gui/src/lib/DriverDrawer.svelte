@@ -12,21 +12,28 @@
   interface Props {
     driverName: string;
     open: boolean;
+    isInstalled?: boolean;
   }
 
-  let { driverName, open = $bindable() }: Props = $props();
+  let { driverName, open = $bindable(), isInstalled = false }: Props = $props();
 
   let info = $state<DriverInfo | null>(null);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  let installed = $state(false);
 
   let installing = $state(false);
+  let uninstalling = $state(false);
   let installPhase = $state('');
   let installProgress = $state(0);
   let installDone = $state(false);
   let installFailed = $state(false);
   let installError = $state('');
   let progressOpen = $state(false);
+
+  $effect(() => {
+    installed = isInstalled;
+  });
 
   $effect(() => {
     if (open && driverName) {
@@ -107,6 +114,23 @@
 
   function closeProgress() {
     progressOpen = false;
+    if (installDone && !installFailed) {
+      installed = true;
+    }
+  }
+
+  async function uninstall() {
+    if (!confirm(`Uninstall ${driverName}?`)) return;
+    uninstalling = true;
+    try {
+      await invoke('uninstall_driver', { name: driverName, level: 'user' });
+      installed = false;
+      open = false;
+    } catch (e) {
+      error = String(e);
+    } finally {
+      uninstalling = false;
+    }
   }
 </script>
 
@@ -140,9 +164,15 @@
               {/each}
             </div>
           </div>
-          <Button onclick={install} disabled={installing} class="w-full">
-            {installing ? 'Installing…' : 'Install'}
-          </Button>
+          {#if installed}
+            <Button variant="destructive" onclick={uninstall} disabled={uninstalling} class="w-full">
+              {uninstalling ? 'Uninstalling…' : 'Uninstall'}
+            </Button>
+          {:else}
+            <Button onclick={install} disabled={installing} class="w-full">
+              {installing ? 'Installing…' : 'Install'}
+            </Button>
+          {/if}
         </div>
       {/if}
     </div>
