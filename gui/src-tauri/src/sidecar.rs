@@ -68,11 +68,11 @@ impl Sidecar {
         let timed_out = timeout(timeout_duration, cmd.output()).await;
         let output = match timed_out {
             Err(_) => {
-                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args), None, "timed out".to_string());
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args[1..]), None, "timed out".to_string());
                 return Err(SidecarError::Timeout);
             }
             Ok(Err(e)) => {
-                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args), None, e.to_string());
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args[1..]), None, e.to_string());
                 return Err(SidecarError::Io(e.to_string()));
             }
             Ok(Ok(o)) => o,
@@ -83,11 +83,11 @@ impl Sidecar {
 
         if !output.status.success() {
             let code = output.status.code().unwrap_or(-1);
-            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args), Some(code), stderr_tail.clone());
+            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args[1..]), Some(code), stderr_tail.clone());
             return Err(SidecarError::ExitStatus { code, stderr_tail });
         }
 
-        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args), Some(0), stderr_tail);
+        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args[1..]), Some(0), stderr_tail);
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         serde_json::from_str(stdout.trim())
@@ -106,11 +106,11 @@ impl Sidecar {
         let timed_out = timeout(timeout_duration, cmd.output()).await;
         let output = match timed_out {
             Err(_) => {
-                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, None, "timed out".to_string());
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], None, "timed out".to_string());
                 return Err(SidecarError::Timeout);
             }
             Ok(Err(e)) => {
-                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, None, e.to_string());
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], None, e.to_string());
                 return Err(SidecarError::Io(e.to_string()));
             }
             Ok(Ok(o)) => o,
@@ -121,11 +121,11 @@ impl Sidecar {
 
         if !output.status.success() {
             let code = output.status.code().unwrap_or(-1);
-            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, Some(code), stderr_tail.clone());
+            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], Some(code), stderr_tail.clone());
             return Err(SidecarError::ExitStatus { code, stderr_tail });
         }
 
-        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, Some(0), stderr_tail);
+        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], Some(0), stderr_tail);
         Ok(())
     }
 
@@ -203,7 +203,7 @@ impl Sidecar {
             Err(SidecarError::Timeout) => None,
             Err(_) => Some(-1),
         };
-        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args), log_exit, stderr_tail);
+        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &redact_args(&full_args[1..]), log_exit, stderr_tail);
 
         result
     }
