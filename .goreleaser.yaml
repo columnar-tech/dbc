@@ -33,6 +33,54 @@ metadata:
 git:
   tag_sort: smartsemver
 
+partial:
+  by: target
+
+before:
+  hooks:
+    - cmd: npm ci
+      dir: gui
+    # Linux: build Linux x64 GUI sidecar + bundle
+    - cmd: bash gui/scripts/build-sidecar.sh --target x86_64-unknown-linux-gnu
+      if: '{{ eq .Runtime.Goos "linux" }}'
+      env:
+        - VERSION={{ .Version }}
+    - cmd: npm run tauri build -- --target x86_64-unknown-linux-gnu
+      dir: gui
+      if: '{{ eq .Runtime.Goos "linux" }}'
+      env:
+        - TAURI_ENV_TARGET_TRIPLE=x86_64-unknown-linux-gnu
+    # macOS arm64: build arm64 GUI sidecar + bundle
+    - cmd: bash gui/scripts/build-sidecar.sh --target aarch64-apple-darwin
+      if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64") }}'
+      env:
+        - VERSION={{ .Version }}
+    - cmd: npm run tauri build -- --target aarch64-apple-darwin
+      dir: gui
+      if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64") }}'
+      env:
+        - TAURI_ENV_TARGET_TRIPLE=aarch64-apple-darwin
+    # macOS amd64: build amd64 GUI sidecar + bundle
+    - cmd: bash gui/scripts/build-sidecar.sh --target x86_64-apple-darwin
+      if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "amd64") }}'
+      env:
+        - VERSION={{ .Version }}
+    - cmd: npm run tauri build -- --target x86_64-apple-darwin
+      dir: gui
+      if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "amd64") }}'
+      env:
+        - TAURI_ENV_TARGET_TRIPLE=x86_64-apple-darwin
+    # Windows: build Windows GUI sidecar + bundle
+    - cmd: pwsh gui/scripts/build-sidecar.ps1 -Target x86_64-pc-windows-msvc
+      if: '{{ eq .Runtime.Goos "windows" }}'
+      env:
+        - VERSION={{ .Version }}
+    - cmd: npm run tauri build -- --target x86_64-pc-windows-msvc
+      dir: gui
+      if: '{{ eq .Runtime.Goos "windows" }}'
+      env:
+        - TAURI_ENV_TARGET_TRIPLE=x86_64-pc-windows-msvc
+
 builds:
   - main: ./cmd/dbc
     binary: dbc
@@ -286,8 +334,22 @@ signs:
 
 after:
   hooks:
-    - mkdir -p dist/python
-    - cmd: sh -c "mv dist/*.whl dist/python/"
+    - cmd: sh -c "mkdir -p dist/python && mv dist/*.whl dist/python/ 2>/dev/null || true"
+      if: '{{ ne .Runtime.Goos "windows" }}'
+    - cmd: pwsh -Command "New-Item -ItemType Directory -Force -Path dist/python; Move-Item dist/*.whl dist/python/ -ErrorAction SilentlyContinue"
+      if: '{{ eq .Runtime.Goos "windows" }}'
+    # Collect + GPG-sign Linux GUI artifacts
+    - cmd: sh -c "mkdir -p dist/gui && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage dist/gui/ 2>/dev/null || true && cp gui/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb dist/gui/ 2>/dev/null || true && for f in dist/gui/*.AppImage dist/gui/*.deb; do [ -f \"$f\" ] && gpg --output \"${f}.sig\" --detach-sign \"$f\" 2>/dev/null || true; done"
+      if: '{{ eq .Runtime.Goos "linux" }}'
+    # Collect macOS arm64 GUI artifacts (notarized by tauri build)
+    - cmd: sh -c "mkdir -p dist/gui && cp gui/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg dist/gui/ 2>/dev/null || true"
+      if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64") }}'
+    # Collect macOS amd64 GUI artifacts (notarized by tauri build)
+    - cmd: sh -c "mkdir -p dist/gui && cp gui/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg dist/gui/ 2>/dev/null || true"
+      if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "amd64") }}'
+    # Collect + DigiCert-sign Windows GUI MSI
+    - cmd: pwsh -Command "New-Item -ItemType Directory -Force -Path dist/gui; Copy-Item gui/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi dist/gui/ -ErrorAction SilentlyContinue; if ($env:SM_API_KEY) { Get-ChildItem dist/gui/*.msi | ForEach-Object { smctl sign --keypair-alias $env:SM_KEYPAIR_ALIAS --input $_.FullName --config-file $env:PKCS11_CONFIG } }"
+      if: '{{ eq .Runtime.Goos "windows" }}'
 
 notarize:
   macos:
@@ -342,6 +404,12 @@ release:
   prerelease: auto
   extra_files:
     - glob: ./dist/*.whl
+    - glob: ./dist/gui/*.AppImage
+    - glob: ./dist/gui/*.AppImage.sig
+    - glob: ./dist/gui/*.deb
+    - glob: ./dist/gui/*.deb.sig
+    - glob: ./dist/gui/*.dmg
+    - glob: ./dist/gui/*.msi
   header: >-
     ## dbc Release ({{ .Now.Format "2006-01-02" }})
 
