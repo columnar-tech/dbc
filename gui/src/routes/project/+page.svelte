@@ -34,7 +34,6 @@
       } catch (e) {
         const msg = String(e);
         if (!msg.includes('already exists')) {
-          projectPath = path;
           loadError = `Failed to initialize driver list: ${msg}`;
           drivers = [];
           return;
@@ -92,11 +91,19 @@
 <div class="p-6">
   <h1 class="text-2xl font-bold mb-6">Project</h1>
 
+  {#if loadError && !projectPath}
+    <div class="rounded-md bg-destructive/10 text-destructive text-sm p-3 mb-4">{loadError}</div>
+  {/if}
+
   {#if !projectPath}
     <Button onclick={openProject}>Open Project</Button>
   {:else}
     <div class="space-y-4">
       <p class="text-sm text-muted-foreground">Project: {projectPath}</p>
+
+      {#if loadError}
+        <div class="rounded-md bg-destructive/10 text-destructive text-sm p-3">{loadError}</div>
+      {/if}
 
       <div class="flex gap-2">
         <Input placeholder="Driver name" bind:value={newDriver} class="max-w-xs" />

@@ -122,7 +122,10 @@
     if (!confirm('This will remove ALL stored credentials and the local license file for every registry. This cannot be undone. Continue?')) return;
     loggingOutUrl = '__purge__';
     try {
-      await invoke<{ status: string }>('auth_logout', { registryUrl: registryUrl, purge: true });
+      await invoke<{ status: string }>('auth_logout', {
+        registryUrl: 'https://dbc-cdn-private.columnar.tech',
+        purge: true,
+      });
       messageOk = true;
       message = 'All credentials purged';
       await loadStatus();
