@@ -114,6 +114,23 @@
     }
   }
 
+  async function logoutPurge(url: string) {
+    if (authBusy) return;
+    if (!confirm(`Remove all local credentials for ${url}?`)) return;
+    loggingOutUrl = url;
+    try {
+      await invoke<{ status: string }>('auth_logout', { registryUrl: url, purge: true });
+      messageOk = true;
+      message = `Credentials purged for ${url}`;
+      await loadStatus();
+    } catch (e) {
+      messageOk = false;
+      message = String(e);
+    } finally {
+      loggingOutUrl = null;
+    }
+  }
+
   $effect(() => { loadStatus(); });
 </script>
 
@@ -140,6 +157,10 @@
               </Badge>
               <Button variant="ghost" size="sm" disabled={authBusy} onclick={() => logout(reg.url)}>
                 {loggingOutUrl === reg.url ? 'Logging out…' : 'Logout'}
+              </Button>
+              <Button variant="ghost" size="sm" disabled={authBusy} onclick={() => logoutPurge(reg.url)}
+                class="text-destructive hover:text-destructive">
+                Purge
               </Button>
             </div>
           </div>
