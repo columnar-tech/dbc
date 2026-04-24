@@ -45,45 +45,41 @@ before:
       if: '{{ eq .Runtime.Goos "linux" }}'
       env:
         - VERSION={{ .Version }}
-    - cmd: npm run tauri build -- --target x86_64-unknown-linux-gnu
+    - cmd: npm run tauri build -- --target x86_64-unknown-linux-gnu --config '{{ "{" }}"version":"{{ .Version }}"{{ "}" }}'
       dir: gui
       if: '{{ eq .Runtime.Goos "linux" }}'
       env:
         - TAURI_ENV_TARGET_TRIPLE=x86_64-unknown-linux-gnu
-        - TAURI_APP_VERSION={{ .Version }}
     # macOS arm64: build arm64 GUI sidecar + bundle
     - cmd: bash gui/scripts/build-sidecar.sh --target aarch64-apple-darwin
       if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64") }}'
       env:
         - VERSION={{ .Version }}
-    - cmd: npm run tauri build -- --target aarch64-apple-darwin
+    - cmd: npm run tauri build -- --target aarch64-apple-darwin --config '{{ "{" }}"version":"{{ .Version }}"{{ "}" }}'
       dir: gui
       if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64") }}'
       env:
         - TAURI_ENV_TARGET_TRIPLE=aarch64-apple-darwin
-        - TAURI_APP_VERSION={{ .Version }}
     # macOS amd64: build amd64 GUI sidecar + bundle
     - cmd: bash gui/scripts/build-sidecar.sh --target x86_64-apple-darwin
       if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "amd64") }}'
       env:
         - VERSION={{ .Version }}
-    - cmd: npm run tauri build -- --target x86_64-apple-darwin
+    - cmd: npm run tauri build -- --target x86_64-apple-darwin --config '{{ "{" }}"version":"{{ .Version }}"{{ "}" }}'
       dir: gui
       if: '{{ and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "amd64") }}'
       env:
         - TAURI_ENV_TARGET_TRIPLE=x86_64-apple-darwin
-        - TAURI_APP_VERSION={{ .Version }}
     # Windows: build Windows GUI sidecar + bundle
     - cmd: pwsh gui/scripts/build-sidecar.ps1 -Target x86_64-pc-windows-msvc
       if: '{{ eq .Runtime.Goos "windows" }}'
       env:
         - VERSION={{ .Version }}
-    - cmd: npm run tauri build -- --target x86_64-pc-windows-msvc
+    - cmd: npm run tauri build -- --target x86_64-pc-windows-msvc --config '{{ "{" }}"version":"{{ .Version }}"{{ "}" }}'
       dir: gui
       if: '{{ eq .Runtime.Goos "windows" }}'
       env:
         - TAURI_ENV_TARGET_TRIPLE=x86_64-pc-windows-msvc
-        - TAURI_APP_VERSION={{ .Version }}
 
 builds:
   - main: ./cmd/dbc
