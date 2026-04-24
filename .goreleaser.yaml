@@ -75,7 +75,9 @@ before:
       if: '{{ eq .Runtime.Goos "windows" }}'
       env:
         - VERSION={{ .Version }}
-    - cmd: npm run tauri build -- --target x86_64-pc-windows-msvc --config '{{ "{" }}"version":"{{ .Version }}"{{ "}" }}'
+    - cmd: pwsh -Command "Set-Content -Path $env:TEMP/tauri-version.json -Value '{\"version\":\"{{ .Version }}\"}'"
+      if: '{{ eq .Runtime.Goos "windows" }}'
+    - cmd: npm run tauri build -- --target x86_64-pc-windows-msvc --config "$env:TEMP/tauri-version.json"
       dir: gui
       if: '{{ eq .Runtime.Goos "windows" }}'
       env:
