@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import { Input } from '$lib/components/ui/input';
   import { Badge } from '$lib/components/ui/badge';
   import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '$lib/components/ui/card';
@@ -54,6 +55,15 @@
       });
     }, 250);
     return () => clearTimeout(debounceTimer);
+  });
+
+  $effect(() => {
+    const unlisten = listen('driver-installed', () => search());
+    const unlistenUninstall = listen('driver-uninstalled', () => search());
+    return () => {
+      unlisten.then(fn => fn());
+      unlistenUninstall.then(fn => fn());
+    };
   });
 
   function openDrawer(driverName: string) {

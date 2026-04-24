@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use crate::cmds::installed::InstallLevel;
 use crate::error::SidecarError;
@@ -29,10 +29,11 @@ pub async fn uninstall_driver(
         ));
     }
 
-    let sidecar = Sidecar::new(app);
+    let sidecar = Sidecar::new(app.clone());
     let envelope: Envelope<UninstallStatus> = sidecar
         .run_json(&["uninstall", &name, "-l", "user"], Duration::from_secs(60))
         .await?;
+    let _ = app.emit("driver-uninstalled", &envelope.payload);
     Ok(envelope.payload)
 }
 
