@@ -423,12 +423,13 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return s, tea.Batch(s.installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
 	case alreadyInstalledDrvMsg:
-		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
+		entry := lockInfo{
 			Name:     msg.info.ID,
 			Version:  msg.info.Version,
 			Platform: config.PlatformTuple(),
 			Checksum: msg.item.Checksum,
-		})
+		}
+		s.locked.Drivers = append(s.locked.Drivers, entry)
 		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),

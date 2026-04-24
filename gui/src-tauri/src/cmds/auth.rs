@@ -150,6 +150,11 @@ pub async fn auth_status(_app: AppHandle) -> Result<AuthStatus, SidecarError> {
     let parsed: CredsFile = toml::from_str(&content)
         .map_err(|e| SidecarError::ParseError(e.to_string()))?;
 
+    let license_valid = path
+        .parent()
+        .map(|dir| dir.join("columnar.lic").exists())
+        .unwrap_or(false);
+
     let registries = parsed
         .credentials
         .into_iter()
@@ -161,7 +166,7 @@ pub async fn auth_status(_app: AppHandle) -> Result<AuthStatus, SidecarError> {
                 url,
                 authenticated,
                 auth_type: c.cred_type,
-                license_valid: false,
+                license_valid,
             })
         })
         .collect();

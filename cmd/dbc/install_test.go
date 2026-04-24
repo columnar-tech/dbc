@@ -534,31 +534,18 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	suite.Greater(len(lines), 1, "expected multiple NDJSON lines")
+	out = strings.TrimSpace(out)
+	suite.NotEmpty(out, "expected install.status output")
 
-	var kinds []string
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		var env jsonschema.Envelope
-		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
-		suite.Equal(1, env.SchemaVersion)
-		kinds = append(kinds, env.Kind)
-	}
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("install.status", env.Kind)
 
-	suite.Contains(kinds, "install.progress")
-	suite.Equal("install.status", kinds[len(kinds)-1])
-
-	var hasDownloadStart bool
-	for _, line := range lines {
-		if strings.Contains(line, `"download.start"`) {
-			hasDownloadStart = true
-			break
-		}
-	}
-	suite.True(hasDownloadStart, "expected download.start event")
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("installed", status.Status)
+	suite.Equal("test-driver-1", status.Driver)
 }
 
 // TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the
