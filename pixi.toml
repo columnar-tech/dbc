@@ -50,13 +50,14 @@ docs-serve = "mkdocs serve --livereload"
 [feature.gui.dependencies]
 nodejs = ">=20"
 rust = ">=1.80"
+go = ">=1.21"
 
 [feature.gui.tasks]
 gui-install   = { cmd = "npm install", cwd = "gui" }
 gui-dev       = { cmd = "npm run tauri dev", cwd = "gui", depends-on = ["gui-install"] }
-gui-build     = { cmd = "npm run tauri build", cwd = "gui", depends-on = ["gui-sidecar"] }
-gui-check     = { cmd = "npm run check", cwd = "gui" }
+gui-build     = { cmd = "npm run tauri build", cwd = "gui", depends-on = ["gui-sidecar", "gui-install"] }
+gui-check     = { cmd = "npm run check", cwd = "gui", depends-on = ["gui-install"] }
 gui-sidecar   = { cmd = "bash gui/scripts/build-sidecar.sh" }
-gui-test-rust = { cmd = "cargo test", cwd = "gui/src-tauri" }
-gui-test-fix  = { cmd = "go test ./gui/testdata/fixture-registry/...", cwd = "gui/testdata/fixture-registry" }
+gui-test-rust = { cmd = "cargo test", cwd = "gui/src-tauri", depends-on = ["gui-install"] }
+gui-test-fix  = { cmd = "go test ./...", cwd = "gui/testdata/fixture-registry" }
 gui-test      = { depends-on = ["gui-check", "gui-test-rust", "gui-test-fix"] }

@@ -72,22 +72,20 @@ pub async fn auth_login_apikey(
 ) -> Result<AuthLoginResponse, SidecarError> {
     let registry_clone = registry_url.clone();
     let sidecar = Sidecar::new(app);
-    let result = sidecar
+    match sidecar
         .run_json::<serde_json::Value>(
             &["auth", "login", &registry_url, "--api-key", &api_key],
             Duration::from_secs(30),
         )
-        .await;
-
-    Ok(AuthLoginResponse {
-        status: if result.is_ok() {
-            "success".to_string()
-        } else {
-            "error".to_string()
-        },
-        registry: registry_clone,
-        message: result.err().map(|e| e.to_string()),
-    })
+        .await
+    {
+        Ok(_) | Err(SidecarError::ParseError(_)) => Ok(AuthLoginResponse {
+            status: "success".to_string(),
+            registry: registry_clone,
+            message: None,
+        }),
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -103,18 +101,16 @@ pub async fn auth_logout(
     }
     let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let sidecar = Sidecar::new(app);
-    let result = sidecar
+    match sidecar
         .run_json::<serde_json::Value>(&args, Duration::from_secs(10))
-        .await;
-
-    Ok(AuthLogoutResponse {
-        status: if result.is_ok() {
-            "success".to_string()
-        } else {
-            "error".to_string()
-        },
-        registry: registry_clone,
-    })
+        .await
+    {
+        Ok(_) | Err(SidecarError::ParseError(_)) => Ok(AuthLogoutResponse {
+            status: "success".to_string(),
+            registry: registry_clone,
+        }),
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]

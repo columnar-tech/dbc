@@ -46,11 +46,11 @@ pub async fn install_driver(
     })?;
 
     let driver_arg = match &version {
-        Some(v) => format!("{}@{}", driver, v),
+        Some(v) => format!("{}={}", driver, v),
         None => driver.clone(),
     };
 
-    let mut args_owned = vec!["install".to_string(), driver_arg];
+    let mut args_owned = vec!["install".to_string(), driver_arg, "-l".to_string(), "user".to_string()];
     if no_verify {
         args_owned.push("--no-verify".to_string());
     }
@@ -140,7 +140,7 @@ pub async fn install_driver_local(
     }
 
     let path_str = tarball_path.to_string_lossy().to_string();
-    let mut args_owned = vec!["install".to_string(), path_str];
+    let mut args_owned = vec!["install".to_string(), path_str, "-l".to_string(), "user".to_string()];
     if no_verify {
         args_owned.push("--no-verify".to_string());
     }

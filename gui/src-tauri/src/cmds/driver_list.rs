@@ -85,7 +85,7 @@ pub async fn add_driver(
 ) -> Result<AddResponse, SidecarError> {
     let path_str = project_path.to_string_lossy().to_string();
     let driver_arg = match &version {
-        Some(v) => format!("{}@{}", driver, v),
+        Some(v) => format!("{}={}", driver, v),
         None => driver.clone(),
     };
     let mut args_owned = vec![
@@ -137,7 +137,7 @@ pub async fn sync_drivers(
     }
 
     let path_str = project_path.to_string_lossy().to_string();
-    let mut args_owned = vec!["sync".to_string(), "-p".to_string(), path_str];
+    let mut args_owned = vec!["sync".to_string(), "-p".to_string(), path_str, "-l".to_string(), "user".to_string()];
     if no_verify {
         args_owned.push("--no-verify".to_string());
     }

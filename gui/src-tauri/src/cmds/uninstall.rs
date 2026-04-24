@@ -31,7 +31,7 @@ pub async fn uninstall_driver(
 
     let sidecar = Sidecar::new(app);
     let envelope: Envelope<UninstallStatus> = sidecar
-        .run_json(&["uninstall", &name], Duration::from_secs(60))
+        .run_json(&["uninstall", &name, "-l", "user"], Duration::from_secs(60))
         .await?;
     Ok(envelope.payload)
 }

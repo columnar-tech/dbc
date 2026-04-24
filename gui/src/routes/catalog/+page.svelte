@@ -35,8 +35,24 @@
   }
 
   $effect(() => {
+    const q = query;
+    const pre = includePrerelease;
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(search, 250);
+    debounceTimer = setTimeout(() => {
+      loading = true;
+      error = null;
+      invoke<SearchResponse>('search_drivers', {
+        query: q || null,
+        includePrerelease: pre,
+        verbose: false,
+      }).then(result => {
+        drivers = result.drivers;
+      }).catch(e => {
+        error = String(e);
+      }).finally(() => {
+        loading = false;
+      });
+    }, 250);
     return () => clearTimeout(debounceTimer);
   });
 

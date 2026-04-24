@@ -23,8 +23,6 @@ jobs:
             target: x86_64-pc-windows-msvc
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-22.04
-            target: aarch64-unknown-linux-gnu
 
     runs-on: ${{ matrix.runner }}
     steps:
@@ -49,12 +47,6 @@ jobs:
       - name: Install dependencies
         working-directory: gui
         run: npm ci
-
-      - name: Install Linux ARM64 cross-compile tools
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'

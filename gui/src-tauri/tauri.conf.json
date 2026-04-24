@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "bash gui/scripts/build-sidecar.sh --target $TAURI_ENV_TARGET_TRIPLE",
+    "beforeBuildCommand": "npm run build && bash scripts/build-sidecar.sh${TAURI_ENV_TARGET_TRIPLE:+ --target $TAURI_ENV_TARGET_TRIPLE}",
     "frontendDist": "../build"
   },
   "app": {

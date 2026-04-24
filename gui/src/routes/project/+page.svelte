@@ -13,7 +13,7 @@
   async function openProject() {
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === 'string') {
-      projectPath = selected;
+      projectPath = selected + '/dbc.toml';
     }
   }
 
