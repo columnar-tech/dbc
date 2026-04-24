@@ -20,6 +20,7 @@ pub fn run() {
             cmds::uninstall::uninstall_driver,
             cmds::install::install_driver,
             cmds::install::install_driver_local,
+            cmds::driver_list::load_driver_list,
             cmds::driver_list::init_driver_list,
             cmds::driver_list::add_driver,
             cmds::driver_list::remove_driver,

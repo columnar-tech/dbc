@@ -111,7 +111,7 @@
 </script>
 
 <Sheet bind:open>
-  <SheetContent side="right" class="w-[28rem] sm:w-[32rem] overflow-y-auto">
+  <SheetContent side="right" class="w-full sm:w-[28rem] sm:max-w-[28rem] overflow-y-auto">
     <div class="p-6">
       <SheetHeader class="mb-4">
         <SheetTitle>{driverName}</SheetTitle>

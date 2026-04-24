@@ -38,19 +38,19 @@ pub struct RemoveResponse {
     pub driver: RemoveResponseDriver,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SyncedDriver {
     pub name: String,
     pub version: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SyncError {
     pub name: String,
     pub error: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SyncStatus {
     pub installed: Vec<SyncedDriver>,
     pub skipped: Vec<SyncedDriver>,
@@ -60,6 +60,45 @@ pub struct SyncStatus {
 #[derive(Deserialize)]
 struct Envelope<T> {
     payload: T,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DriverListEntry {
+    pub name: String,
+    pub version_constraint: Option<String>,
+}
+
+#[tauri::command]
+pub async fn load_driver_list(path: PathBuf) -> Result<Vec<DriverListEntry>, SidecarError> {
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(SidecarError::Io(e.to_string())),
+    };
+
+    #[derive(Deserialize)]
+    struct DriverSpec {
+        version: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct DriversList {
+        #[serde(default)]
+        drivers: std::collections::HashMap<String, DriverSpec>,
+    }
+
+    let parsed: DriversList = toml::from_str(&content)
+        .map_err(|e| SidecarError::ParseError(e.to_string()))?;
+
+    let mut entries: Vec<DriverListEntry> = parsed
+        .drivers
+        .into_iter()
+        .map(|(name, spec)| DriverListEntry {
+            name,
+            version_constraint: spec.version,
+        })
+        .collect();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(entries)
 }
 
 #[tauri::command]
@@ -147,6 +186,10 @@ pub async fn sync_drivers(
     let job_id_clone = job_id.clone();
     let (_cancel_tx, cancel_rx) = oneshot::channel::<()>();
 
+    let last_status: std::sync::Arc<std::sync::Mutex<Option<SyncStatus>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let last_status_clone = last_status.clone();
+
     let sidecar = Sidecar::new(app);
     sidecar
         .run_stream::<serde_json::Value, _>(
@@ -154,17 +197,32 @@ pub async fn sync_drivers(
             move |event| {
                 let event_name = format!("sync-progress:{}", job_id_clone);
                 let _ = app_clone.emit(&event_name, &event);
+                if event.get("kind").and_then(|k| k.as_str()) == Some("sync.status") {
+                    if let Some(payload) = event.get("payload") {
+                        if let Ok(status) = serde_json::from_value::<SyncStatus>(payload.clone()) {
+                            if let Ok(mut guard) = last_status_clone.lock() {
+                                *guard = Some(status);
+                            }
+                        }
+                    }
+                }
             },
             cancel_rx,
             Duration::from_secs(300),
         )
         .await?;
 
-    Ok(SyncStatus {
-        installed: vec![],
-        skipped: vec![],
-        errors: vec![],
-    })
+    let final_status = last_status
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| SyncStatus {
+            installed: vec![],
+            skipped: vec![],
+            errors: vec![],
+        });
+
+    Ok(final_status)
 }
 
 #[cfg(test)]

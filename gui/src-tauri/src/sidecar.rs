@@ -96,6 +96,7 @@ impl Sidecar {
 
     pub async fn run_plain(&self, args: &[&str], timeout_duration: Duration) -> Result<(), SidecarError> {
         let full_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let logged_args = redact_args(full_args.get(1..).unwrap_or(&[]));
 
         let shell = self.app.shell();
         let cmd = shell
@@ -106,11 +107,11 @@ impl Sidecar {
         let timed_out = timeout(timeout_duration, cmd.output()).await;
         let output = match timed_out {
             Err(_) => {
-                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], None, "timed out".to_string());
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &logged_args, None, "timed out".to_string());
                 return Err(SidecarError::Timeout);
             }
             Ok(Err(e)) => {
-                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], None, e.to_string());
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &logged_args, None, e.to_string());
                 return Err(SidecarError::Io(e.to_string()));
             }
             Ok(Ok(o)) => o,
@@ -121,11 +122,11 @@ impl Sidecar {
 
         if !output.status.success() {
             let code = output.status.code().unwrap_or(-1);
-            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], Some(code), stderr_tail.clone());
+            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &logged_args, Some(code), stderr_tail.clone());
             return Err(SidecarError::ExitStatus { code, stderr_tail });
         }
 
-        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args[1..], Some(0), stderr_tail);
+        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &logged_args, Some(0), stderr_tail);
         Ok(())
     }
 
@@ -187,6 +188,14 @@ impl Sidecar {
                         }
                         Some(CommandEvent::Terminated(status)) => {
                             exit_code = status.code;
+                            if let Some(code) = exit_code {
+                                if code != 0 {
+                                    break Err(SidecarError::ExitStatus {
+                                        code,
+                                        stderr_tail: stderr_lines.join("\n"),
+                                    });
+                                }
+                            }
                             break Ok(());
                         }
                         None => break Ok(()),

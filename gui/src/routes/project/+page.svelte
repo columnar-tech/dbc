@@ -5,15 +5,36 @@
   import { Input } from '$lib/components/ui/input';
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '$lib/components/ui/table';
 
+  interface DriverEntry { name: string; constraint?: string; }
+
   let projectPath = $state<string | null>(null);
-  let drivers = $state<Array<{name: string, constraint?: string}>>([]);
+  let drivers = $state<DriverEntry[]>([]);
   let newDriver = $state('');
   let syncing = $state(false);
+  let loadError = $state('');
+
+  async function loadDrivers(path: string) {
+    loadError = '';
+    try {
+      const entries = await invoke<Array<{ name: string; version_constraint?: string }>>('load_driver_list', { path });
+      drivers = entries.map(e => ({ name: e.name, constraint: e.version_constraint }));
+    } catch {
+      drivers = [];
+    }
+  }
 
   async function openProject() {
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === 'string') {
-      projectPath = selected + '/dbc.toml';
+      const path = selected + '/dbc.toml';
+      projectPath = path;
+      // Initialize if missing, then load
+      try {
+        await invoke('init_driver_list', { path });
+      } catch {
+        // already exists — fine
+      }
+      await loadDrivers(path);
     }
   }
 
@@ -27,6 +48,7 @@
         prerelease: false,
       });
       newDriver = '';
+      await loadDrivers(projectPath);
     } catch (e) {
       alert(String(e));
     }
@@ -36,7 +58,7 @@
     if (!projectPath) return;
     try {
       await invoke('remove_driver', { projectPath, driver: name });
-      drivers = drivers.filter(d => d.name !== name);
+      await loadDrivers(projectPath);
     } catch (e) {
       alert(String(e));
     }

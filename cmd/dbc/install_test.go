@@ -95,7 +95,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		suite.runCmd(m))
 
 	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
-		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getDriverFilesInTempDir())
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
@@ -168,7 +168,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Empty(suite.getDriverFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	// Note: The UI output (first parameter) serves as documentation but isn't verified
@@ -306,7 +306,7 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Empty(suite.getDriverFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: packagePath, NoVerify: true}.
