@@ -27,6 +27,7 @@
 
   let authStatus = $state<RegistryStatus[]>([]);
   let statusLoading = $state(true);
+  let loggingOutUrl = $state<string | null>(null);
 
   async function loadStatus() {
     statusLoading = true;
@@ -96,14 +97,18 @@
   }
 
   async function logout(url: string) {
+    if (loggingOutUrl !== null) return;
+    loggingOutUrl = url;
     try {
-      const result = await invoke<{ status: string }>('auth_logout', { registryUrl: url, purge: false });
-      messageOk = result.status === 'success';
-      message = messageOk ? `Logged out of ${url}` : 'Logout failed';
-      if (messageOk) await loadStatus();
+      await invoke<{ status: string }>('auth_logout', { registryUrl: url, purge: false });
+      messageOk = true;
+      message = `Logged out of ${url}`;
+      await loadStatus();
     } catch (e) {
       messageOk = false;
       message = String(e);
+    } finally {
+      loggingOutUrl = null;
     }
   }
 
@@ -131,8 +136,8 @@
               <Badge variant={reg.authenticated ? 'default' : 'secondary'}>
                 {reg.authenticated ? 'Authenticated' : 'Expired'}
               </Badge>
-              <Button variant="ghost" size="sm" onclick={() => logout(reg.url)}>
-                Logout
+              <Button variant="ghost" size="sm" disabled={loggingOutUrl !== null} onclick={() => logout(reg.url)}>
+                {loggingOutUrl === reg.url ? 'Logging out…' : 'Logout'}
               </Button>
             </div>
           </div>

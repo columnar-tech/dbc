@@ -101,9 +101,9 @@ pub async fn auth_logout(
     }
     let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let sidecar = Sidecar::new(app);
-    let result = sidecar.run_plain(&args, Duration::from_secs(10)).await;
+    sidecar.run_plain(&args, Duration::from_secs(10)).await?;
     Ok(AuthLogoutResponse {
-        status: if result.is_ok() { "success" } else { "error" }.to_string(),
+        status: "success".to_string(),
         registry: registry_clone,
     })
 }
@@ -161,6 +161,17 @@ pub async fn auth_status(_app: AppHandle) -> Result<AuthStatus, SidecarError> {
 }
 
 fn get_credentials_path() -> Option<std::path::PathBuf> {
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        if std::path::Path::new(&xdg).is_absolute() {
+            return Some(
+                std::path::PathBuf::from(xdg)
+                    .join("dbc")
+                    .join("credentials")
+                    .join("credentials.toml"),
+            );
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         dirs::config_dir().map(|d| {
@@ -172,12 +183,8 @@ fn get_credentials_path() -> Option<std::path::PathBuf> {
     }
     #[cfg(target_os = "linux")]
     {
-        let base = std::env::var("XDG_DATA_HOME")
-            .ok()
-            .filter(|s| std::path::Path::new(s).is_absolute())
-            .map(std::path::PathBuf::from)
-            .or_else(|| dirs::data_local_dir())?;
-        Some(base.join("dbc").join("credentials").join("credentials.toml"))
+        dirs::data_local_dir()
+            .map(|d| d.join("dbc").join("credentials").join("credentials.toml"))
     }
     #[cfg(target_os = "windows")]
     {
