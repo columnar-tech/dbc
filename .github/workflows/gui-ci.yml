@@ -1,0 +1,106 @@
+# Copyright 2026 Columnar Technologies Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: GUI CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'gui/**'
+      - '.github/workflows/gui-ci.yml'
+  pull_request:
+    paths:
+      - 'gui/**'
+      - '.github/workflows/gui-ci.yml'
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-gui-ci
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  svelte:
+    name: Svelte check + Vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: gui
+        run: npm ci
+
+      - name: Type-check (svelte-check)
+        working-directory: gui
+        run: npm run check
+
+      - name: Unit tests (Vitest)
+        working-directory: gui
+        run: npm test
+
+  rust:
+    name: Rust tests + Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Cargo test
+        working-directory: gui/src-tauri
+        run: cargo test
+
+      - name: Cargo clippy
+        working-directory: gui/src-tauri
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  fixture-registry:
+    name: Fixture registry tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: gui/testdata/fixture-registry/go.sum
+
+      - name: Test fixture registry
+        working-directory: gui/testdata/fixture-registry
+        run: go test ./...

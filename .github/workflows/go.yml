@@ -22,12 +22,14 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'cmd/dbc/**'
+      - 'gui/testdata/fixture-registry/**'
   pull_request:
     paths:
       - '**.go'
       - 'go.mod'
       - 'go.sum'
       - 'cmd/dbc/**'
+      - 'gui/testdata/fixture-registry/**'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}

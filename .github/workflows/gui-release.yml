@@ -8,6 +8,7 @@ on:
     paths:
       - 'gui/**'
       - '.github/workflows/gui-release.yml'
+      - '.github/workflows/gui-ci.yml'
 
 jobs:
   build:
@@ -39,10 +40,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui/src-tauri
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '20.19'
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
 
       - name: Install dependencies
         working-directory: gui
