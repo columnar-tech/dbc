@@ -25,6 +25,7 @@ python = ">=3.8"
 [environments]
 cdn = ["cdn"]
 docs = ["docs"]
+gui = ["gui"]
 
 [feature.cdn.dependencies]
 pyyaml = ">=6.0"
@@ -45,3 +46,17 @@ cairo = ">=1.18.4,<2"
 [feature.docs.tasks]
 docs-build = "mkdocs build"
 docs-serve = "mkdocs serve --livereload"
+
+[feature.gui.dependencies]
+nodejs = ">=20"
+rust = ">=1.80"
+
+[feature.gui.tasks]
+gui-install   = { cmd = "npm install", cwd = "gui" }
+gui-dev       = { cmd = "npm run tauri dev", cwd = "gui", depends-on = ["gui-install"] }
+gui-build     = { cmd = "npm run tauri build", cwd = "gui", depends-on = ["gui-sidecar"] }
+gui-check     = { cmd = "npm run check", cwd = "gui" }
+gui-sidecar   = { cmd = "bash gui/scripts/build-sidecar.sh" }
+gui-test-rust = { cmd = "cargo test", cwd = "gui/src-tauri" }
+gui-test-fix  = { cmd = "go test ./gui/testdata/fixture-registry/...", cwd = "gui/testdata/fixture-registry" }
+gui-test      = { depends-on = ["gui-check", "gui-test-rust", "gui-test-fix"] }
