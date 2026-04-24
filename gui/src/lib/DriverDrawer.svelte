@@ -63,9 +63,16 @@
           installProgress = Math.round((evt.bytes / evt.total) * 100);
         }
       } else if (kind === 'install.status') {
+        const s = envelope.payload;
         installDone = true;
-        installPhase = 'Complete';
         installProgress = 100;
+        if (s?.status === 'already installed') {
+          installPhase = 'Already installed';
+        } else {
+          installPhase = 'Complete';
+          if (s?.message) installPhase += ` — ${s.message}`;
+          if (s?.conflict) installPhase += ` (replaced ${s.conflict})`;
+        }
       } else if (kind === 'error') {
         installFailed = true;
         installError = envelope.payload?.message ?? 'Installation failed';
@@ -73,7 +80,7 @@
     });
 
     try {
-      await invoke('install_driver', {
+      const result = await invoke<{ status: string; message?: string; conflict?: string }>('install_driver', {
         driver: driverName,
         version: null,
         level: 'user',
@@ -81,8 +88,14 @@
         jobId,
       });
       installDone = true;
-      installPhase = 'Complete';
       installProgress = 100;
+      if (result.status === 'already installed') {
+        installPhase = 'Already installed';
+      } else {
+        installPhase = 'Complete';
+        if (result.message) installPhase += ` — ${result.message}`;
+        if (result.conflict) installPhase += ` (replaced ${result.conflict})`;
+      }
     } catch (e) {
       installFailed = true;
       installError = String(e);
@@ -134,7 +147,10 @@
   </SheetContent>
 </Sheet>
 
-<Dialog bind:open={progressOpen}>
+<Dialog
+  open={progressOpen}
+  onOpenChange={(v) => { if (!installing) progressOpen = v; }}
+>
   <DialogContent>
     <DialogHeader>
       <DialogTitle>Installing {driverName}</DialogTitle>

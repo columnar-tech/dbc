@@ -128,21 +128,19 @@ mod tests {
 
     #[test]
     fn test_parse_version_from_manifest() {
-        let dir = std::env::temp_dir().join("test_manifest.toml");
-        std::fs::write(&dir, "manifest_version = 1\nversion = '1.5.1'\n").unwrap();
+        let dir = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(dir.path(), "manifest_version = 1\nversion = '1.5.1'\n").unwrap();
         assert_eq!(
-            parse_version_from_manifest(&dir),
+            parse_version_from_manifest(dir.path()),
             Some("1.5.1".to_string())
         );
-        std::fs::remove_file(&dir).ok();
     }
 
     #[test]
     fn test_parse_version_missing_returns_none() {
-        let dir = std::env::temp_dir().join("test_manifest_no_ver.toml");
-        std::fs::write(&dir, "manifest_version = 1\n").unwrap();
-        assert_eq!(parse_version_from_manifest(&dir), None);
-        std::fs::remove_file(&dir).ok();
+        let dir = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(dir.path(), "manifest_version = 1\n").unwrap();
+        assert_eq!(parse_version_from_manifest(dir.path()), None);
     }
 
     #[test]

@@ -114,7 +114,9 @@ pub async fn install_driver(
             checksum: None,
         });
 
-    let _ = app.emit("driver-installed", &final_status);
+    if final_status.status == "installed" || final_status.status == "already installed" {
+        let _ = app.emit("driver-installed", &final_status);
+    }
     Ok(final_status)
 }
 
@@ -147,6 +149,7 @@ pub async fn install_driver_local(
     let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
 
     let app_clone = app.clone();
+    let app_emit = app.clone();
     let job_id_clone = job_id.clone();
     let (_cancel_tx, cancel_rx) = oneshot::channel::<()>();
 
@@ -169,7 +172,7 @@ pub async fn install_driver_local(
         .unwrap_or("unknown")
         .to_string();
 
-    Ok(InstallStatus {
+    let status = InstallStatus {
         status: "installed".to_string(),
         driver: driver_name,
         version: String::new(),
@@ -177,7 +180,9 @@ pub async fn install_driver_local(
         message: None,
         conflict: None,
         checksum: None,
-    })
+    };
+    let _ = app_emit.emit("driver-installed", &status);
+    Ok(status)
 }
 
 #[cfg(test)]
