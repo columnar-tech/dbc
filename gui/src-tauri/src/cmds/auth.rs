@@ -91,20 +91,23 @@ pub async fn auth_login_apikey(
 #[tauri::command]
 pub async fn auth_logout(
     app: AppHandle,
-    registry_url: String,
+    registry_url: Option<String>,
     purge: bool,
 ) -> Result<AuthLogoutResponse, SidecarError> {
-    let registry_clone = registry_url.clone();
-    let mut args_owned = vec!["auth".to_string(), "logout".to_string(), registry_url];
+    let mut args_owned = vec!["auth".to_string(), "logout".to_string()];
+    if let Some(ref url) = registry_url {
+        args_owned.push(url.clone());
+    }
     if purge {
         args_owned.push("--purge".to_string());
     }
+    let registry = registry_url.unwrap_or_default();
     let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let sidecar = Sidecar::new(app);
     sidecar.run_plain(&args, Duration::from_secs(10)).await?;
     Ok(AuthLogoutResponse {
         status: "success".to_string(),
-        registry: registry_clone,
+        registry,
     })
 }
 

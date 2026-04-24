@@ -123,7 +123,7 @@
     loggingOutUrl = '__purge__';
     try {
       await invoke<{ status: string }>('auth_logout', {
-        registryUrl: 'https://dbc-cdn-private.columnar.tech',
+        registryUrl: null,
         purge: true,
       });
       messageOk = true;
