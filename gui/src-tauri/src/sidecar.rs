@@ -94,6 +94,41 @@ impl Sidecar {
             .map_err(|e| SidecarError::ParseError(e.to_string()))
     }
 
+    pub async fn run_plain(&self, args: &[&str], timeout_duration: Duration) -> Result<(), SidecarError> {
+        let full_args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+
+        let shell = self.app.shell();
+        let cmd = shell
+            .sidecar("dbc")
+            .map_err(|e| SidecarError::Io(e.to_string()))?
+            .args(full_args.clone());
+
+        let timed_out = timeout(timeout_duration, cmd.output()).await;
+        let output = match timed_out {
+            Err(_) => {
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, None, "timed out".to_string());
+                return Err(SidecarError::Timeout);
+            }
+            Ok(Err(e)) => {
+                push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, None, e.to_string());
+                return Err(SidecarError::Io(e.to_string()));
+            }
+            Ok(Ok(o)) => o,
+        };
+
+        let stderr_text = String::from_utf8_lossy(&output.stderr);
+        let stderr_tail: String = stderr_text.lines().rev().take(10).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+
+        if !output.status.success() {
+            let code = output.status.code().unwrap_or(-1);
+            push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, Some(code), stderr_tail.clone());
+            return Err(SidecarError::ExitStatus { code, stderr_tail });
+        }
+
+        push_log(&self.app, args.first().copied().unwrap_or("dbc"), &full_args, Some(0), stderr_tail);
+        Ok(())
+    }
+
     pub async fn run_stream<E, F>(
         &self,
         args: &[&str],

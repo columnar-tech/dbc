@@ -153,6 +153,9 @@ pub async fn install_driver_local(
     let job_id_clone = job_id.clone();
     let (_cancel_tx, cancel_rx) = oneshot::channel::<()>();
 
+    let last_status: Arc<Mutex<Option<InstallStatus>>> = Arc::new(Mutex::new(None));
+    let last_status_clone = last_status.clone();
+
     let sidecar = Sidecar::new(app);
     sidecar
         .run_stream::<serde_json::Value, _>(
@@ -160,29 +163,46 @@ pub async fn install_driver_local(
             move |event| {
                 let event_name = format!("install-progress:{}", job_id_clone);
                 let _ = app_clone.emit(&event_name, &event);
+                if event.get("kind").and_then(|k| k.as_str()) == Some("install.status") {
+                    if let Some(payload) = event.get("payload") {
+                        if let Ok(status) = serde_json::from_value::<InstallStatus>(payload.clone()) {
+                            if let Ok(mut guard) = last_status_clone.lock() {
+                                *guard = Some(status);
+                            }
+                        }
+                    }
+                }
             },
             cancel_rx,
             Duration::from_secs(300),
         )
         .await?;
 
-    let driver_name = tarball_path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let final_status = last_status
+        .lock()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| {
+            let driver_name = tarball_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            InstallStatus {
+                status: "installed".to_string(),
+                driver: driver_name,
+                version: String::new(),
+                location: String::new(),
+                message: None,
+                conflict: None,
+                checksum: None,
+            }
+        });
 
-    let status = InstallStatus {
-        status: "installed".to_string(),
-        driver: driver_name,
-        version: String::new(),
-        location: String::new(),
-        message: None,
-        conflict: None,
-        checksum: None,
-    };
-    let _ = app_emit.emit("driver-installed", &status);
-    Ok(status)
+    if final_status.status == "installed" || final_status.status == "already installed" {
+        let _ = app_emit.emit("driver-installed", &final_status);
+    }
+    Ok(final_status)
 }
 
 #[cfg(test)]

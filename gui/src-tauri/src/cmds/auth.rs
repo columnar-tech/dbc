@@ -101,16 +101,11 @@ pub async fn auth_logout(
     }
     let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
     let sidecar = Sidecar::new(app);
-    match sidecar
-        .run_json::<serde_json::Value>(&args, Duration::from_secs(10))
-        .await
-    {
-        Ok(_) | Err(SidecarError::ParseError(_)) => Ok(AuthLogoutResponse {
-            status: "success".to_string(),
-            registry: registry_clone,
-        }),
-        Err(e) => Err(e),
-    }
+    let result = sidecar.run_plain(&args, Duration::from_secs(10)).await;
+    Ok(AuthLogoutResponse {
+        status: if result.is_ok() { "success" } else { "error" }.to_string(),
+        registry: registry_clone,
+    })
 }
 
 #[tauri::command]

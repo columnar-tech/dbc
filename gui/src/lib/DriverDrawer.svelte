@@ -66,13 +66,13 @@
         const s = envelope.payload;
         installDone = true;
         installProgress = 100;
-        if (s?.status === 'already installed') {
-          installPhase = 'Already installed';
-        } else {
-          installPhase = 'Complete';
-          if (s?.message) installPhase += ` — ${s.message}`;
-          if (s?.conflict) installPhase += ` (replaced ${s.conflict})`;
-        }
+        const statusLabel: Record<string, string> = {
+          'installed': 'Complete',
+          'already installed': 'Already installed',
+        };
+        installPhase = statusLabel[s?.status] ?? s?.status ?? 'Complete';
+        if (s?.message) installPhase += ` — ${s.message}`;
+        if (s?.conflict) installPhase += ` (replaced ${s.conflict})`;
       } else if (kind === 'error') {
         installFailed = true;
         installError = envelope.payload?.message ?? 'Installation failed';
@@ -89,13 +89,13 @@
       });
       installDone = true;
       installProgress = 100;
-      if (result.status === 'already installed') {
-        installPhase = 'Already installed';
-      } else {
-        installPhase = 'Complete';
-        if (result.message) installPhase += ` — ${result.message}`;
-        if (result.conflict) installPhase += ` (replaced ${result.conflict})`;
-      }
+      const statusLabel: Record<string, string> = {
+        'installed': 'Complete',
+        'already installed': 'Already installed',
+      };
+      installPhase = statusLabel[result.status] ?? result.status ?? 'Complete';
+      if (result.message) installPhase += ` — ${result.message}`;
+      if (result.conflict) installPhase += ` (replaced ${result.conflict})`;
     } catch (e) {
       installFailed = true;
       installError = String(e);
