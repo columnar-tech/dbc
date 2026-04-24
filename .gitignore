@@ -49,3 +49,15 @@ cdn-dev
 .claude
 
 __pycache__
+
+# macOS metadata
+.DS_Store
+
+# Node
+node_modules/
+
+# GUI build artifacts
+gui/.svelte-kit/
+gui/build/
+gui/src-tauri/gen/
+gui/src-tauri/target/
