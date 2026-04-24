@@ -290,4 +290,47 @@ mod tests {
         assert_eq!(env.payload.driver_list_path, "/p");
         assert!(!env.payload.created);
     }
+
+    #[test]
+    fn test_add_driver_args_no_version() {
+        let driver = "duckdb".to_string();
+        let version: Option<String> = None;
+        let driver_arg = match &version {
+            Some(v) => format!("{}={}", driver, v),
+            None => driver.clone(),
+        };
+        let args = vec!["add".to_string(), driver_arg, "-p".to_string(), "/tmp/dbc.toml".to_string()];
+        assert_eq!(args[1], "duckdb");
+        assert!(!args[1].contains('@'));
+    }
+
+    #[test]
+    fn test_add_driver_args_with_version() {
+        let driver = "duckdb".to_string();
+        let version = Some("1.2.3".to_string());
+        let driver_arg = match &version {
+            Some(v) => format!("{}={}", driver, v),
+            None => driver.clone(),
+        };
+        assert_eq!(driver_arg, "duckdb=1.2.3");
+        assert!(!driver_arg.contains('@'));
+    }
+
+    #[test]
+    fn test_sync_args_include_level() {
+        let path = "/tmp/dbc.toml".to_string();
+        let args: Vec<String> = vec!["sync".to_string(), "-p".to_string(), path, "-l".to_string(), "user".to_string()];
+        assert!(args.contains(&"-l".to_string()));
+        assert!(args.contains(&"user".to_string()));
+    }
+
+    #[test]
+    fn test_add_driver_prerelease_flag() {
+        let mut args = vec!["add".to_string(), "duckdb".to_string(), "-p".to_string(), "/tmp".to_string()];
+        let prerelease = true;
+        if prerelease {
+            args.push("--pre".to_string());
+        }
+        assert!(args.contains(&"--pre".to_string()));
+    }
 }

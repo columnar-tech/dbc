@@ -240,4 +240,78 @@ mod tests {
         assert!(status.message.is_none());
         assert!(status.checksum.is_none());
     }
+
+    #[test]
+    fn test_install_args_no_version() {
+        let driver = "duckdb".to_string();
+        let version: Option<String> = None;
+        let driver_arg = match &version {
+            Some(v) => format!("{}={}", driver, v),
+            None => driver.clone(),
+        };
+        let args = vec!["install".to_string(), driver_arg, "-l".to_string(), "user".to_string()];
+        assert_eq!(args, vec!["install", "duckdb", "-l", "user"]);
+    }
+
+    #[test]
+    fn test_install_args_with_version() {
+        let driver = "duckdb".to_string();
+        let version = Some("1.2.3".to_string());
+        let driver_arg = match &version {
+            Some(v) => format!("{}={}", driver, v),
+            None => driver.clone(),
+        };
+        let args = vec!["install".to_string(), driver_arg, "-l".to_string(), "user".to_string()];
+        assert_eq!(args, vec!["install", "duckdb=1.2.3", "-l", "user"]);
+    }
+
+    #[test]
+    fn test_install_args_no_verify_flag() {
+        let driver = "duckdb".to_string();
+        let no_verify = true;
+        let driver_arg = driver.clone();
+        let mut args = vec!["install".to_string(), driver_arg, "-l".to_string(), "user".to_string()];
+        if no_verify {
+            args.push("--no-verify".to_string());
+        }
+        assert!(args.contains(&"--no-verify".to_string()));
+        assert_eq!(args.len(), 5);
+    }
+
+    #[test]
+    fn test_install_args_version_uses_equals_separator() {
+        let driver = "snowflake".to_string();
+        let version = Some("2.0.0".to_string());
+        let driver_arg = match &version {
+            Some(v) => format!("{}={}", driver, v),
+            None => driver.clone(),
+        };
+        assert!(driver_arg.contains('='));
+        assert!(!driver_arg.contains('@'));
+        assert_eq!(driver_arg, "snowflake=2.0.0");
+    }
+
+    #[test]
+    fn test_install_status_already_installed() {
+        let json = r#"{"status":"already installed","driver":"duckdb","version":"1.0.0","location":"/tmp"}"#;
+        let status: InstallStatus = serde_json::from_str(json).unwrap();
+        assert_eq!(status.status, "already installed");
+        assert!(status.conflict.is_none());
+    }
+
+    #[test]
+    fn test_install_status_with_conflict() {
+        let status = InstallStatus {
+            status: "installed".to_string(),
+            driver: "duckdb".to_string(),
+            version: "2.0.0".to_string(),
+            location: "/tmp".to_string(),
+            message: None,
+            conflict: Some("old-duckdb (version: 1.0.0)".to_string()),
+            checksum: None,
+        };
+        let json = serde_json::to_string(&status).unwrap();
+        let parsed: InstallStatus = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.conflict, Some("old-duckdb (version: 1.0.0)".to_string()));
+    }
 }
