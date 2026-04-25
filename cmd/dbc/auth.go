@@ -122,6 +122,9 @@ type loginModel struct {
 	jsonOutput    bool
 	tokenURI      *url.URL
 	parsedURI     *url.URL
+	// storedCred holds the saved credential so ignorable post-login errors
+	// can still emit the success response.
+	storedCred *auth.Credential
 }
 
 func (m loginModel) Init() tea.Cmd {
@@ -238,6 +241,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return authSuccessMsg{cred: msg}
 		}
 	case authSuccessMsg:
+		m.storedCred = &msg.cred
 		return m, func() tea.Msg {
 			if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
 				if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
@@ -259,8 +263,13 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case errors.Is(msg, auth.ErrTrialExpired) ||
 			errors.Is(msg, auth.ErrNoTrialLicense):
-			// ignore these errors during auth login
-			// the user can still login but won't be able to download trial licenses
+			// Credentials were already saved; these license errors are ignorable.
+			// Treat as successful login completion.
+			if m.storedCred != nil {
+				return m, func() tea.Msg {
+					return authLoginCompleteMsg{cred: *m.storedCred}
+				}
+			}
 			return m, tea.Quit
 		default:
 			if m.jsonOutput {

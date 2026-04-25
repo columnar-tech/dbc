@@ -149,6 +149,9 @@ type writeDriverManifestMsg struct {
 
 type localInstallMsg struct{}
 
+// alreadyInstalledChecksumMsg carries the checksum computed for an already-installed driver.
+type alreadyInstalledChecksumMsg string
+
 type installState int
 
 const (
@@ -218,8 +221,9 @@ type progressiveInstallModel struct {
 	isLocal          bool
 	localPackagePath string
 
-	registryErrors error
-	jsonEvents     []string
+	registryErrors            error
+	jsonEvents                []string
+	alreadyInstalledChecksum  string
 }
 
 type driversWithRegistryError struct {
@@ -291,15 +295,8 @@ func (m progressiveInstallModel) FinalOutput() string {
 				Version:  m.conflictingInfo.Version.String(),
 				Location: filepath.SplitList(m.cfg.Location)[0],
 			}
-			if !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
-				chksum, err := checksum(m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()))
-				if err != nil {
-					return marshalEnvelope("error", jsonschema.ErrorResponse{
-						Code:    "checksum_failed",
-						Message: err.Error(),
-					})
-				}
-				payload.Checksum = chksum
+			if m.alreadyInstalledChecksum != "" {
+				payload.Checksum = m.alreadyInstalledChecksum
 			}
 			payloadBytes, err := json.Marshal(payload)
 			if err != nil {
@@ -439,6 +436,16 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	m.state = stDownloading
 	if m.isAlreadyInstalled() {
 		m.state = stDone
+		if m.jsonOutput && !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
+			driverPath := m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple())
+			return m, func() tea.Msg {
+				chksum, err := checksum(driverPath)
+				if err != nil {
+					return fmt.Errorf("checksum_failed: %w", err)
+				}
+				return alreadyInstalledChecksumMsg(chksum)
+			}
+		}
 		return m, tea.Quit
 	}
 
@@ -482,6 +489,9 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case alreadyInstalledChecksumMsg:
+		m.alreadyInstalledChecksum = string(msg)
+		return m, tea.Quit
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case spinner.TickMsg:
@@ -557,6 +567,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return config.CreateManifest(m.cfg, msg.DriverInfo)
 		}, tea.Quit)
 	case error:
+		m.status = 1
+		m.err = msg
 		if m.jsonOutput {
 			return m, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
 				Code:    "install_failed",

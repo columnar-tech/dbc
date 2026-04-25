@@ -345,7 +345,14 @@ func main() {
 	}
 
 	if h, ok := m.(HasStatus); ok {
-		if err := h.Err(); err != nil {
+		// Suppress plaintext error formatting when the model already emitted a
+		// structured JSON error envelope to stdout (JSON mode). Printing
+		// formatErr after a JSON envelope would corrupt NDJSON consumers.
+		inJSONMode := false
+		if jm, ok := m.(interface{ IsJSONMode() bool }); ok {
+			inJSONMode = jm.IsJSONMode()
+		}
+		if err := h.Err(); err != nil && !inJSONMode {
 			lipgloss.Println(formatErr(err))
 		}
 		os.Exit(h.Status())
