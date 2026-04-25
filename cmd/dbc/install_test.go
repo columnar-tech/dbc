@@ -586,20 +586,15 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	// Reinstall with --json. The already-installed path fires, but checksum
 	// fails because the file is gone. Run the model manually to mirror
 	// main.go's ordering: prog.Run() first, then FinalOutput().
-	// Inject a custom jsonWriter so error envelope output is captured
-	// alongside the Bubble Tea output buffer.
+	// JSON error output is stored in model state and returned by FinalOutput(),
+	// so it flows through the standard tea.WithOutput capture path.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	var jsonBuf bytes.Buffer
-	// Set jsonWriter on baseModel so JSON error output is captured without
-	// type-asserting the concrete model type.
-	bm := baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg, jsonWriter: &jsonBuf}
-	im := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
-		GetModelCustom(bm).(progressiveInstallModel)
-
+	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	var teaOut bytes.Buffer
-	prog = tea.NewProgram(im, tea.WithInput(nil), tea.WithOutput(&teaOut),
+	prog = tea.NewProgram(m2, tea.WithInput(nil), tea.WithOutput(&teaOut),
 		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() { prog = nil }()
 	finishedModel, runErr := prog.Run()
@@ -609,24 +604,21 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	// Assert non-zero exit status.
 	suite.Equal(1, finishedModel.(HasStatus).Status(), "expected non-zero status on checksum failure")
 
-	// FinalOutput() must return empty — this is the core regression: previously
-	// it emitted an install.status success envelope even when status was 1.
-	// This directly tests the m.status != 0 guard added to FinalOutput().
+	// FinalOutput() must return the structured error envelope (not a success
+	// envelope). Previously it returned an install.status success payload even
+	// when status was 1.
 	finalOutput := finishedModel.(HasFinalOutput).FinalOutput()
-	suite.Empty(finalOutput, "FinalOutput() must be empty when status != 0; a non-empty value means the install.status success envelope would be printed by main.go after the error")
+	suite.NotEmpty(finalOutput, "FinalOutput() must return the JSON error envelope")
+	suite.NotContains(finalOutput, `"install.status"`, "must not emit success envelope when checksum fails")
 
-	// The error envelope must be present in the injected JSON writer with the
-	// correct kind and code.
-	jsonStr := jsonBuf.String()
-	suite.NotEmpty(jsonStr, "expected JSON output from install error path")
+	// Decode the envelope and assert the correct kind and code.
 	var errEnv jsonschema.Envelope
-	suite.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(jsonStr)), &errEnv), "error output must be valid JSON: %s", jsonStr)
-	suite.Equal("error", errEnv.Kind, "expected kind=error")
+	suite.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(finalOutput)), &errEnv), "FinalOutput must be valid JSON: %s", finalOutput)
+	suite.Equal("error", errEnv.Kind, "expected kind=error in FinalOutput")
 	var errPayload jsonschema.ErrorResponse
 	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
 	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
 
-	// No install.status success envelope should appear anywhere.
-	combined := jsonStr + teaOut.String() + finalOutput
-	suite.NotContains(combined, `"install.status"`, "must not emit success envelope when checksum fails")
+	// The Bubble Tea output buffer must also not contain an install.status line.
+	suite.NotContains(teaOut.String()+finalOutput, `"install.status"`, "must not emit success envelope anywhere")
 }

@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -182,13 +181,6 @@ func (progressiveInstallModel) NeedsRenderer() {}
 
 func (m progressiveInstallModel) IsJSONMode() bool { return m.jsonOutput }
 
-func (m progressiveInstallModel) jsonOut() io.Writer {
-	if m.baseModel.jsonWriter != nil {
-		return m.baseModel.jsonWriter
-	}
-	return os.Stdout
-}
-
 func (m progressiveInstallModel) addEvent(event string, extra ...func(*jsonschema.InstallProgressEvent)) progressiveInstallModel {
 	if !m.jsonOutput {
 		return m
@@ -232,6 +224,7 @@ type progressiveInstallModel struct {
 	registryErrors           error
 	jsonEvents               []string
 	alreadyInstalledChecksum string
+	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
 }
 
 type driversWithRegistryError struct {
@@ -296,7 +289,7 @@ func (m progressiveInstallModel) isAlreadyInstalled() bool {
 
 func (m progressiveInstallModel) FinalOutput() string {
 	if m.status != 0 {
-		return ""
+		return m.jsonErrorOutput // empty string for non-JSON errors; structured envelope for JSON mode
 	}
 	if m.isAlreadyInstalled() {
 		if m.jsonOutput {
@@ -581,10 +574,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = 1
 		m.err = msg
 		if m.jsonOutput {
-			fmt.Fprintln(m.jsonOut(), marshalEnvelope("error", jsonschema.ErrorResponse{
+			m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
 				Code:    "install_failed",
 				Message: msg.Error(),
-			}))
+			})
 			return m, tea.Quit
 		}
 	}
