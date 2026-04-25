@@ -531,6 +531,8 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case error:
+		s.status = 1
+		s.err = msg
 		if s.jsonOutput {
 			return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
 				Code:    "sync_failed",

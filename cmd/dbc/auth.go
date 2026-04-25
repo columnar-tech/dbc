@@ -103,6 +103,10 @@ type authSuccessMsg struct {
 	cred auth.Credential
 }
 
+type authLoginCompleteMsg struct {
+	cred auth.Credential
+}
+
 func (m loginModel) NeedsRenderer() {}
 
 func (m loginModel) IsJSONMode() bool { return m.jsonOutput }
@@ -234,22 +238,23 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return authSuccessMsg{cred: msg}
 		}
 	case authSuccessMsg:
-		postLoginCmd := func() tea.Msg {
+		return m, func() tea.Msg {
 			if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
 				if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
 					return err
 				}
 			}
-			return tea.Quit()
+			return authLoginCompleteMsg{cred: msg.cred}
 		}
+	case authLoginCompleteMsg:
 		if m.jsonOutput {
 			fmt.Fprintln(os.Stdout, marshalEnvelope("auth.login", jsonschema.AuthLoginResponse{
 				Status:   "success",
 				Registry: msg.cred.RegistryURL.String(),
 			}))
-			return m, postLoginCmd
+			return m, tea.Quit
 		}
-		return m, tea.Sequence(tea.Println("Authentication successful!"), postLoginCmd)
+		return m, tea.Sequence(tea.Println("Authentication successful!"), tea.Quit)
 	case error:
 		switch {
 		case errors.Is(msg, auth.ErrTrialExpired) ||
@@ -259,6 +264,8 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		default:
 			if m.jsonOutput {
+				m.status = 1
+				m.err = msg
 				fmt.Fprintln(os.Stdout, marshalEnvelope("auth.login", jsonschema.AuthLoginResponse{
 					Status:   "failed",
 					Registry: m.inputURI,

@@ -292,9 +292,14 @@ func (m progressiveInstallModel) FinalOutput() string {
 				Location: filepath.SplitList(m.cfg.Location)[0],
 			}
 			if !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
-				if chksum, err := checksum(m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple())); err == nil {
-					payload.Checksum = chksum
+				chksum, err := checksum(m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()))
+				if err != nil {
+					return marshalEnvelope("error", jsonschema.ErrorResponse{
+						Code:    "checksum_failed",
+						Message: err.Error(),
+					})
 				}
+				payload.Checksum = chksum
 			}
 			payloadBytes, err := json.Marshal(payload)
 			if err != nil {
