@@ -495,3 +495,20 @@ func (suite *SubcommandTestSuite) TestAddReplacingDriverOutput() {
 	suite.Contains(out, "added test-driver-1 to driver list")
 	suite.Contains(out, "with constraint >=1.0.0")
 }
+
+func (suite *SubcommandTestSuite) TestAdd_JSON_DriverNotFound() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add a driver that doesn't exist in the registry using a failing registry
+	failingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry unreachable")
+	}
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"nonexistent-driver"},
+		Json:   true,
+	}.GetModelCustom(baseModel{getDriverRegistry: failingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "add_failed")
+}

@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -30,6 +31,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/suite"
 )
@@ -249,6 +251,26 @@ func TestSubcommandsSystem(t *testing.T) {
 		t.Skip("skipping tests for config level: ConfigSystem")
 	}
 	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigSystem})
+}
+
+// assertJSONErrorEnvelope parses the last JSON line in output and asserts
+// it is an error envelope with the expected error code.
+func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode string) {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var jsonLine string
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "{") {
+			jsonLine = strings.TrimSpace(lines[i])
+			break
+		}
+	}
+	suite.Require().NotEmpty(jsonLine, "expected a JSON line in output: %s", output)
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(jsonLine), &env), "must be valid JSON: %s", jsonLine)
+	suite.Equal("error", env.Kind, "expected kind=error")
+	var errPayload jsonschema.ErrorResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &errPayload))
+	suite.Equal(expectedCode, errPayload.Code, "expected error code %q, got %q", expectedCode, errPayload.Code)
 }
 
 func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {

@@ -110,3 +110,23 @@ func (suite *SubcommandTestSuite) TestRemove_JSON() {
 	suite.Equal("test-driver-1", resp.Driver.Name)
 	suite.NotEmpty(resp.DriverListPath)
 }
+
+func (suite *SubcommandTestSuite) TestRemove_JSON_DriverNotFound() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Add a driver so the list isn't empty, then try to remove a nonexistent one.
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+	}.GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	m = RemoveCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: "nonexistent-driver",
+		Json:   true,
+	}.GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "remove_failed")
+}

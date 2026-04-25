@@ -404,3 +404,13 @@ func (suite *SubcommandTestSuite) TestSearch_JSON_Verbose() {
 	suite.Equal("test-driver-1", result.Drivers[0].Driver)
 	suite.NotEmpty(result.Drivers[0].License)
 }
+
+func (suite *SubcommandTestSuite) TestSearch_JSON_CompleteRegistryFailure() {
+	completeFailingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("registry unreachable")
+	}
+	m := SearchCmd{Json: true}.GetModelCustom(
+		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "search_failed")
+}
