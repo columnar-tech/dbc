@@ -253,23 +253,27 @@ func TestSubcommandsSystem(t *testing.T) {
 	suite.Run(t, &SubcommandTestSuite{configLevel: config.ConfigSystem})
 }
 
-// assertJSONErrorEnvelope parses the last JSON line in output and asserts
-// it is an error envelope with the expected error code.
+// assertJSONErrorEnvelope asserts that every non-empty line in output is valid
+// JSON, and that the last JSON envelope has kind=="error" and the expected code.
+// Any non-JSON line causes the assertion to fail so regressions that mix
+// plaintext and structured output are caught immediately.
 func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode string) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	var jsonLine string
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(strings.TrimSpace(lines[i]), "{") {
-			jsonLine = strings.TrimSpace(lines[i])
-			break
+	var lastEnv jsonschema.Envelope
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
 		}
+		suite.Require().True(strings.HasPrefix(line, "{"),
+			"expected all non-empty output lines to be JSON objects, got: %q (full output: %s)", line, output)
+		suite.Require().NoError(json.Unmarshal([]byte(line), &lastEnv),
+			"line must be valid JSON: %q", line)
 	}
-	suite.Require().NotEmpty(jsonLine, "expected a JSON line in output: %s", output)
-	var env jsonschema.Envelope
-	suite.Require().NoError(json.Unmarshal([]byte(jsonLine), &env), "must be valid JSON: %s", jsonLine)
-	suite.Equal("error", env.Kind, "expected kind=error")
+	suite.Require().NotEmpty(lastEnv.Kind, "expected at least one JSON envelope in output: %s", output)
+	suite.Equal("error", lastEnv.Kind, "expected kind=error (full output: %s)", output)
 	var errPayload jsonschema.ErrorResponse
-	suite.Require().NoError(json.Unmarshal(env.Payload, &errPayload))
+	suite.Require().NoError(json.Unmarshal(lastEnv.Payload, &errPayload))
 	suite.Equal(expectedCode, errPayload.Code, "expected error code %q, got %q", expectedCode, errPayload.Code)
 }
 

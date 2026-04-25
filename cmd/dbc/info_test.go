@@ -116,11 +116,10 @@ func (suite *SubcommandTestSuite) TestInfo_JSON() {
 }
 
 func (suite *SubcommandTestSuite) TestInfo_JSON_DriverNotFound() {
-	failingRegistry := func() ([]dbc.Driver, error) {
-		return nil, fmt.Errorf("network unreachable")
-	}
+	// Use the real test registry but request a driver that doesn't exist,
+	// exercising the findDriver path rather than the registry-failure path.
 	m := InfoCmd{Driver: "nonexistent-driver", Json: true}.
-		GetModelCustom(baseModel{getDriverRegistry: failingRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "info_failed")
 }
