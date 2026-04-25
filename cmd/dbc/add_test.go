@@ -515,7 +515,8 @@ func (suite *SubcommandTestSuite) TestAdd_JSON_RegistryFailure() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
 
-	// Verify that a complete registry failure also emits a structured error envelope.
+	// Verify that a complete registry failure also emits a structured error envelope
+	// and that the underlying registry error detail is preserved in the message.
 	failingRegistry := func() ([]dbc.Driver, error) {
 		return nil, fmt.Errorf("network unreachable")
 	}
@@ -525,5 +526,5 @@ func (suite *SubcommandTestSuite) TestAdd_JSON_RegistryFailure() {
 		Json:   true,
 	}.GetModelCustom(baseModel{getDriverRegistry: failingRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
-	suite.assertJSONErrorEnvelope(out, "add_failed")
+	suite.assertJSONErrorEnvelope(out, "add_failed", "network unreachable")
 }

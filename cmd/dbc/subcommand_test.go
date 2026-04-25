@@ -257,7 +257,8 @@ func TestSubcommandsSystem(t *testing.T) {
 // JSON, and that the last JSON envelope has kind=="error" and the expected code.
 // Any non-JSON line causes the assertion to fail so regressions that mix
 // plaintext and structured output are caught immediately.
-func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode string) {
+// Optional msgSubstrings are checked against the error payload's message field.
+func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode string, msgSubstrings ...string) {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	var lastEnv jsonschema.Envelope
 	for _, line := range lines {
@@ -275,6 +276,9 @@ func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode s
 	var errPayload jsonschema.ErrorResponse
 	suite.Require().NoError(json.Unmarshal(lastEnv.Payload, &errPayload))
 	suite.Equal(expectedCode, errPayload.Code, "expected error code %q, got %q", expectedCode, errPayload.Code)
+	for _, sub := range msgSubstrings {
+		suite.Contains(errPayload.Message, sub, "expected error message to contain %q", sub)
+	}
 }
 
 func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {

@@ -125,12 +125,13 @@ func (suite *SubcommandTestSuite) TestInfo_JSON_DriverNotFound() {
 }
 
 func (suite *SubcommandTestSuite) TestInfo_JSON_RegistryFailure() {
-	// Verify that a complete registry failure also emits a structured error envelope.
+	// Verify that a complete registry failure also emits a structured error envelope
+	// and that the underlying registry error detail is preserved in the message.
 	failingRegistry := func() ([]dbc.Driver, error) {
 		return nil, fmt.Errorf("network unreachable")
 	}
 	m := InfoCmd{Driver: "test-driver-1", Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: failingRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
-	suite.assertJSONErrorEnvelope(out, "info_failed")
+	suite.assertJSONErrorEnvelope(out, "info_failed", "network unreachable")
 }
