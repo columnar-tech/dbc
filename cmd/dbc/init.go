@@ -94,6 +94,12 @@ func (m initModel) IsJSONMode() bool { return m.jsonOutput }
 
 func (m initModel) FinalOutput() string {
 	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "init_failed",
+				Message: m.err.Error(),
+			})
+		}
 		return ""
 	}
 	if m.jsonOutput {

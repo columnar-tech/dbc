@@ -128,6 +128,10 @@ func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case dbc.Driver:
 		m.drv = msg
 		return m, tea.Quit
+	case error:
+		m.status = 1
+		m.err = msg
+		return m, tea.Quit
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
@@ -138,6 +142,15 @@ func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m infoModel) IsJSONMode() bool { return m.jsonOutput }
 
 func (m infoModel) FinalOutput() string {
+	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "info_failed",
+				Message: m.err.Error(),
+			})
+		}
+		return ""
+	}
 	if m.jsonOutput {
 		return driverInfoJSON(m.drv)
 	}

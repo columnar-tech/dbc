@@ -255,6 +255,12 @@ func (m addModel) IsJSONMode() bool { return m.jsonOutput }
 
 func (m addModel) FinalOutput() string {
 	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "add_failed",
+				Message: m.err.Error(),
+			})
+		}
 		return ""
 	}
 	if m.jsonOutput {

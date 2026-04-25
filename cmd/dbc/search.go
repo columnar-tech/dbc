@@ -327,6 +327,16 @@ func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) (
 func (m searchModel) IsJSONMode() bool { return m.outputJson }
 
 func (m searchModel) FinalOutput() string {
+	if m.status != 0 {
+		if m.outputJson {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "search_failed",
+				Message: m.err.Error(),
+			})
+		}
+		return ""
+	}
+
 	var output string
 
 	// Display driver list first

@@ -144,6 +144,12 @@ func (m removeModel) IsJSONMode() bool { return m.jsonOutput }
 
 func (m removeModel) FinalOutput() string {
 	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "remove_failed",
+				Message: m.err.Error(),
+			})
+		}
 		return ""
 	}
 	if m.jsonOutput {
