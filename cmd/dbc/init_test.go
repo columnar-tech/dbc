@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -114,15 +113,11 @@ func (suite *SubcommandTestSuite) TestInit_JSON() {
 }
 
 func (suite *SubcommandTestSuite) TestInit_JSON_Failure() {
-	if runtime.GOOS == "windows" {
-		suite.T().Skip("chmod not reliable on Windows")
-	}
-	// Use a non-writable directory to force a write failure.
-	readonlyDir := suite.T().TempDir()
-	suite.Require().NoError(os.Chmod(readonlyDir, 0o555))
-	defer os.Chmod(readonlyDir, 0o755) //nolint:errcheck
+	// Force a failure by trying to init a file that already exists.
+	existingFile := filepath.Join(suite.T().TempDir(), "dbc.toml")
+	suite.Require().NoError(os.WriteFile(existingFile, []byte(""), 0o644))
 
-	m := InitCmd{Path: filepath.Join(readonlyDir, "dbc.toml"), Json: true}.GetModel()
+	m := InitCmd{Path: existingFile, Json: true}.GetModel()
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "init_failed")
 }
