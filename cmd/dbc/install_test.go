@@ -16,14 +16,18 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -580,12 +584,31 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	suite.Require().NoError(os.Remove(sharedPath))
 
 	// Reinstall with --json. The already-installed path fires, but checksum
-	// fails because the file is gone. Expect a non-zero exit and an error
-	// envelope — no install.status success line.
+	// fails because the file is gone. Run the model manually to mirror
+	// main.go's ordering: prog.Run() first, then FinalOutput().
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	out := suite.runCmdErr(m2)
+	var out bytes.Buffer
+	prog = tea.NewProgram(m2, tea.WithInput(nil), tea.WithOutput(&out),
+		tea.WithoutRenderer(), tea.WithContext(ctx))
+	defer func() { prog = nil }()
+	finishedModel, runErr := prog.Run()
+	prog.Wait()
+	suite.Require().NoError(runErr)
 
-	// No install.status line should appear in the output.
-	suite.NotContains(out, `"install.status"`, "must not emit success envelope when checksum fails")
+	// Assert non-zero exit status.
+	suite.Equal(1, finishedModel.(HasStatus).Status(), "expected non-zero status on checksum failure")
+
+	// FinalOutput() must return empty — this is the core regression: previously
+	// it emitted an install.status success envelope even when status was 1.
+	// This directly tests the m.status != 0 guard added to FinalOutput().
+	finalOutput := finishedModel.(HasFinalOutput).FinalOutput()
+	suite.Empty(finalOutput, "FinalOutput() must be empty when status != 0; a non-empty value means the install.status success envelope would be printed by main.go after the error")
+
+	// The in-process output (tea.Println emits to the configured output buffer
+	// in this test harness) must not contain an install.status success envelope.
+	suite.NotContains(out.String()+finalOutput, `"install.status"`, "must not emit success envelope when checksum fails")
 }
