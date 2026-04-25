@@ -16,18 +16,14 @@ package main
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -584,41 +580,32 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	suite.Require().NoError(os.Remove(sharedPath))
 
 	// Reinstall with --json. The already-installed path fires, but checksum
-	// fails because the file is gone. Run the model manually to mirror
-	// main.go's ordering: prog.Run() first, then FinalOutput().
-	// JSON error output is stored in model state and returned by FinalOutput(),
-	// so it flows through the standard tea.WithOutput capture path.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
+	// fails because the file is gone. runCmdErr now appends FinalOutput() so
+	// the JSON error envelope is captured through the shared harness path,
+	// matching how main.go emits it.
 	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	var teaOut bytes.Buffer
-	prog = tea.NewProgram(m2, tea.WithInput(nil), tea.WithOutput(&teaOut),
-		tea.WithoutRenderer(), tea.WithContext(ctx))
-	defer func() { prog = nil }()
-	finishedModel, runErr := prog.Run()
-	prog.Wait()
-	suite.Require().NoError(runErr)
+	out := suite.runCmdErr(m2)
 
-	// Assert non-zero exit status.
-	suite.Equal(1, finishedModel.(HasStatus).Status(), "expected non-zero status on checksum failure")
-
-	// FinalOutput() must return the structured error envelope (not a success
-	// envelope). Previously it returned an install.status success payload even
-	// when status was 1.
-	finalOutput := finishedModel.(HasFinalOutput).FinalOutput()
-	suite.NotEmpty(finalOutput, "FinalOutput() must return the JSON error envelope")
-	suite.NotContains(finalOutput, `"install.status"`, "must not emit success envelope when checksum fails")
+	// The combined output must contain the structured error envelope.
+	suite.NotEmpty(out, "expected error output from install JSON error path")
+	suite.NotContains(out, `"install.status"`, "must not emit success envelope when checksum fails")
 
 	// Decode the envelope and assert the correct kind and code.
+	// runCmdErr appends FinalOutput(), so the last non-empty line is the JSON.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var jsonLine string
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "{") {
+			jsonLine = strings.TrimSpace(lines[i])
+			break
+		}
+	}
+	suite.NotEmpty(jsonLine, "expected a JSON line in output: %s", out)
 	var errEnv jsonschema.Envelope
-	suite.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(finalOutput)), &errEnv), "FinalOutput must be valid JSON: %s", finalOutput)
-	suite.Equal("error", errEnv.Kind, "expected kind=error in FinalOutput")
+	suite.Require().NoError(json.Unmarshal([]byte(jsonLine), &errEnv), "must be valid JSON: %s", jsonLine)
+	suite.Equal("error", errEnv.Kind, "expected kind=error")
 	var errPayload jsonschema.ErrorResponse
 	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
 	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
-
-	// The Bubble Tea output buffer must also not contain an install.status line.
-	suite.NotContains(teaOut.String()+finalOutput, `"install.status"`, "must not emit success envelope anywhere")
 }

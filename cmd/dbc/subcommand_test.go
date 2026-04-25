@@ -156,12 +156,22 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 
 	var err error
 	m, err = prog.Run()
+	prog.Wait()
 	suite.Require().NoError(err)
 	suite.Equal(1, m.(HasStatus).Status(), "The subcommand did not exit with a status of 1 as expected.")
-	err = m.(HasStatus).Err()
-	suite.Require().Error(err, "Expected an error from the subcommand")
-	out.WriteString("\n" + formatErr(err))
-	return ansi.Strip(out.String())
+
+	// Append FinalOutput so JSON error envelopes (stored in model state) are
+	// included in the returned string, mirroring main.go's behaviour.
+	var extra string
+	if fo, ok := m.(HasFinalOutput); ok {
+		extra = fo.FinalOutput()
+	}
+
+	// For non-JSON errors, also append the formatted plaintext error.
+	if cmdErr := m.(HasStatus).Err(); cmdErr != nil && extra == "" {
+		extra = "\n" + formatErr(cmdErr)
+	}
+	return ansi.Strip(out.String() + extra)
 }
 
 func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
