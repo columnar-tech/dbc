@@ -573,10 +573,11 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = 1
 		m.err = msg
 		if m.jsonOutput {
-			return m, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
+			fmt.Fprintln(os.Stdout, marshalEnvelope("error", jsonschema.ErrorResponse{
 				Code:    "install_failed",
 				Message: msg.Error(),
-			})), tea.Quit)
+			}))
+			return m, tea.Quit
 		}
 	}
 

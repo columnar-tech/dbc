@@ -586,17 +586,33 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	// Reinstall with --json. The already-installed path fires, but checksum
 	// fails because the file is gone. Run the model manually to mirror
 	// main.go's ordering: prog.Run() first, then FinalOutput().
+	// Capture os.Stdout to inspect the structured error envelope emitted via
+	// fmt.Fprintln(os.Stdout, ...) in the error path.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Redirect os.Stdout to a pipe so we can read what's written there.
+	r, w, pipeErr := os.Pipe()
+	suite.Require().NoError(pipeErr)
+	origStdout := os.Stdout
+	os.Stdout = w
+
 	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	var out bytes.Buffer
-	prog = tea.NewProgram(m2, tea.WithInput(nil), tea.WithOutput(&out),
+	var teaOut bytes.Buffer
+	prog = tea.NewProgram(m2, tea.WithInput(nil), tea.WithOutput(&teaOut),
 		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() { prog = nil }()
 	finishedModel, runErr := prog.Run()
 	prog.Wait()
+
+	// Restore stdout and read captured output.
+	w.Close()
+	os.Stdout = origStdout
+	var stdoutBuf bytes.Buffer
+	_, _ = stdoutBuf.ReadFrom(r)
+	r.Close()
+
 	suite.Require().NoError(runErr)
 
 	// Assert non-zero exit status.
@@ -608,7 +624,11 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	finalOutput := finishedModel.(HasFinalOutput).FinalOutput()
 	suite.Empty(finalOutput, "FinalOutput() must be empty when status != 0; a non-empty value means the install.status success envelope would be printed by main.go after the error")
 
-	// The in-process output (tea.Println emits to the configured output buffer
-	// in this test harness) must not contain an install.status success envelope.
-	suite.NotContains(out.String()+finalOutput, `"install.status"`, "must not emit success envelope when checksum fails")
+	// The error envelope must be present in the captured stdout.
+	stdoutStr := stdoutBuf.String()
+	suite.Contains(stdoutStr, `"kind":"error"`, "expected error envelope in stdout")
+
+	// No install.status success envelope should appear anywhere.
+	combined := stdoutStr + finalOutput
+	suite.NotContains(combined, `"install.status"`, "must not emit success envelope when checksum fails")
 }
