@@ -287,6 +287,9 @@ func (m progressiveInstallModel) isAlreadyInstalled() bool {
 }
 
 func (m progressiveInstallModel) FinalOutput() string {
+	if m.status != 0 {
+		return ""
+	}
 	if m.isAlreadyInstalled() {
 		if m.jsonOutput {
 			payload := jsonschema.InstallStatus{
