@@ -560,3 +560,32 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	}
 	suite.True(hasDownloadStart, "expected download.start event")
 }
+
+// TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the
+// fix that gates FinalOutput() on m.status. When the driver binary is missing
+// the checksum computation fails, the model exits with status 1, and
+// FinalOutput() must not emit an install.status success envelope.
+func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailure() {
+	// First install the driver normally.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	// Locate and delete the shared library so checksum() will fail.
+	cfg := config.Get()[suite.configLevel]
+	driver, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
+	suite.Require().NotEmpty(sharedPath, "shared library path should not be empty")
+	suite.Require().NoError(os.Remove(sharedPath))
+
+	// Reinstall with --json. The already-installed path fires, but checksum
+	// fails because the file is gone. Expect a non-zero exit and an error
+	// envelope — no install.status success line.
+	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m2)
+
+	// No install.status line should appear in the output.
+	suite.NotContains(out, `"install.status"`, "must not emit success envelope when checksum fails")
+}
