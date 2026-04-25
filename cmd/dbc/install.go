@@ -183,8 +183,8 @@ func (progressiveInstallModel) NeedsRenderer() {}
 func (m progressiveInstallModel) IsJSONMode() bool { return m.jsonOutput }
 
 func (m progressiveInstallModel) jsonOut() io.Writer {
-	if m.jsonWriter != nil {
-		return m.jsonWriter
+	if m.baseModel.jsonWriter != nil {
+		return m.baseModel.jsonWriter
 	}
 	return os.Stdout
 }
@@ -229,13 +229,9 @@ type progressiveInstallModel struct {
 	isLocal          bool
 	localPackagePath string
 
-	registryErrors            error
-	jsonEvents                []string
-	alreadyInstalledChecksum  string
-
-	// jsonWriter is where JSON error envelopes are written. It defaults to
-	// os.Stdout but can be overridden in tests.
-	jsonWriter io.Writer
+	registryErrors           error
+	jsonEvents               []string
+	alreadyInstalledChecksum string
 }
 
 type driversWithRegistryError struct {

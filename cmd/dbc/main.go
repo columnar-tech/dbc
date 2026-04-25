@@ -17,6 +17,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -143,6 +144,11 @@ type baseModel struct {
 
 	status int
 	err    error
+
+	// jsonWriter is where JSON error/event lines are written. When nil,
+	// individual models fall back to os.Stdout. Tests may set this to capture
+	// output without type-asserting the concrete model.
+	jsonWriter io.Writer
 }
 
 func (m baseModel) Init() tea.Cmd       { return nil }

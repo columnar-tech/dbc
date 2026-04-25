@@ -592,11 +592,11 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	defer cancel()
 
 	var jsonBuf bytes.Buffer
-	// progressiveInstallModel is a value type; get a copy via type assertion
-	// and set the jsonWriter field before passing it to Bubble Tea.
+	// Set jsonWriter on baseModel so JSON error output is captured without
+	// type-asserting the concrete model type.
+	bm := baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg, jsonWriter: &jsonBuf}
 	im := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg}).(progressiveInstallModel)
-	im.jsonWriter = &jsonBuf
+		GetModelCustom(bm).(progressiveInstallModel)
 
 	var teaOut bytes.Buffer
 	prog = tea.NewProgram(im, tea.WithInput(nil), tea.WithOutput(&teaOut),
@@ -615,9 +615,16 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	finalOutput := finishedModel.(HasFinalOutput).FinalOutput()
 	suite.Empty(finalOutput, "FinalOutput() must be empty when status != 0; a non-empty value means the install.status success envelope would be printed by main.go after the error")
 
-	// The error envelope must be present in the injected JSON writer.
+	// The error envelope must be present in the injected JSON writer with the
+	// correct kind and code.
 	jsonStr := jsonBuf.String()
-	suite.Contains(jsonStr, `"kind":"error"`, "expected error envelope in JSON output")
+	suite.NotEmpty(jsonStr, "expected JSON output from install error path")
+	var errEnv jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(strings.TrimSpace(jsonStr)), &errEnv), "error output must be valid JSON: %s", jsonStr)
+	suite.Equal("error", errEnv.Kind, "expected kind=error")
+	var errPayload jsonschema.ErrorResponse
+	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
+	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
 
 	// No install.status success envelope should appear anywhere.
 	combined := jsonStr + teaOut.String() + finalOutput
