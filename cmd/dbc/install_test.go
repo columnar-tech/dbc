@@ -586,33 +586,24 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	// Reinstall with --json. The already-installed path fires, but checksum
 	// fails because the file is gone. Run the model manually to mirror
 	// main.go's ordering: prog.Run() first, then FinalOutput().
-	// Capture os.Stdout to inspect the structured error envelope emitted via
-	// fmt.Fprintln(os.Stdout, ...) in the error path.
+	// Inject a custom jsonWriter so error envelope output is captured
+	// alongside the Bubble Tea output buffer.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Redirect os.Stdout to a pipe so we can read what's written there.
-	r, w, pipeErr := os.Pipe()
-	suite.Require().NoError(pipeErr)
-	origStdout := os.Stdout
-	os.Stdout = w
+	var jsonBuf bytes.Buffer
+	// progressiveInstallModel is a value type; get a copy via type assertion
+	// and set the jsonWriter field before passing it to Bubble Tea.
+	im := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg}).(progressiveInstallModel)
+	im.jsonWriter = &jsonBuf
 
-	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	var teaOut bytes.Buffer
-	prog = tea.NewProgram(m2, tea.WithInput(nil), tea.WithOutput(&teaOut),
+	prog = tea.NewProgram(im, tea.WithInput(nil), tea.WithOutput(&teaOut),
 		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() { prog = nil }()
 	finishedModel, runErr := prog.Run()
 	prog.Wait()
-
-	// Restore stdout and read captured output.
-	w.Close()
-	os.Stdout = origStdout
-	var stdoutBuf bytes.Buffer
-	_, _ = stdoutBuf.ReadFrom(r)
-	r.Close()
-
 	suite.Require().NoError(runErr)
 
 	// Assert non-zero exit status.
@@ -624,11 +615,11 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	finalOutput := finishedModel.(HasFinalOutput).FinalOutput()
 	suite.Empty(finalOutput, "FinalOutput() must be empty when status != 0; a non-empty value means the install.status success envelope would be printed by main.go after the error")
 
-	// The error envelope must be present in the captured stdout.
-	stdoutStr := stdoutBuf.String()
-	suite.Contains(stdoutStr, `"kind":"error"`, "expected error envelope in stdout")
+	// The error envelope must be present in the injected JSON writer.
+	jsonStr := jsonBuf.String()
+	suite.Contains(jsonStr, `"kind":"error"`, "expected error envelope in JSON output")
 
 	// No install.status success envelope should appear anywhere.
-	combined := stdoutStr + finalOutput
+	combined := jsonStr + teaOut.String() + finalOutput
 	suite.NotContains(combined, `"install.status"`, "must not emit success envelope when checksum fails")
 }
