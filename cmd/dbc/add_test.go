@@ -510,3 +510,20 @@ func (suite *SubcommandTestSuite) TestAdd_JSON_DriverNotFound() {
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "add_failed")
 }
+
+func (suite *SubcommandTestSuite) TestAdd_JSON_RegistryFailure() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Verify that a complete registry failure also emits a structured error envelope.
+	failingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("network unreachable")
+	}
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+		Json:   true,
+	}.GetModelCustom(baseModel{getDriverRegistry: failingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "add_failed")
+}
