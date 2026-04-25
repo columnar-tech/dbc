@@ -324,6 +324,8 @@ func getInstalled(driver dbc.Driver, cfg map[config.ConfigLevel]config.Config) (
 	return installed, installedVerbose
 }
 
+func (m searchModel) IsJSONMode() bool { return m.outputJson }
+
 func (m searchModel) FinalOutput() string {
 	var output string
 

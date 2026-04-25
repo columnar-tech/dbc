@@ -251,6 +251,8 @@ func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m addModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m addModel) FinalOutput() string {
 	if m.status != 0 {
 		return ""

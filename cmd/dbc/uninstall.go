@@ -89,6 +89,8 @@ func (m uninstallModel) Init() tea.Cmd {
 	}
 }
 
+func (m uninstallModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m uninstallModel) FinalOutput() string {
 	if m.status != 0 {
 		return ""

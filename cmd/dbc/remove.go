@@ -140,6 +140,8 @@ func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m removeModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m removeModel) FinalOutput() string {
 	if m.status != 0 {
 		return ""

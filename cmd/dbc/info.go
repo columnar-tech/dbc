@@ -135,6 +135,8 @@ func (m infoModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m infoModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m infoModel) FinalOutput() string {
 	if m.jsonOutput {
 		return driverInfoJSON(m.drv)

@@ -167,9 +167,13 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 		extra = fo.FinalOutput()
 	}
 
-	// For non-JSON errors, also append the formatted plaintext error.
-	if cmdErr := m.(HasStatus).Err(); cmdErr != nil && extra == "" {
-		extra = "\n" + formatErr(cmdErr)
+	// Mirror main.go: suppress plaintext error formatting in JSON mode.
+	inJSONMode := false
+	if jm, ok := m.(interface{ IsJSONMode() bool }); ok {
+		inJSONMode = jm.IsJSONMode()
+	}
+	if cmdErr := m.(HasStatus).Err(); cmdErr != nil && !inJSONMode {
+		extra += "\n" + formatErr(cmdErr)
 	}
 	return ansi.Strip(out.String() + extra)
 }

@@ -90,6 +90,8 @@ func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m initModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m initModel) FinalOutput() string {
 	if m.status != 0 {
 		return ""
