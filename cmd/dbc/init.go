@@ -27,7 +27,7 @@ import (
 
 type InitCmd struct {
 	Path string `arg:"positional" default:"./dbc.toml" help:"File to create"`
-	Json bool   `arg:"--json" help:"Output JSON instead of plaintext"`
+	Json bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c InitCmd) GetModel() tea.Model {

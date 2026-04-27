@@ -60,7 +60,7 @@ type AddCmd struct {
 	Driver []string `arg:"positional,required" help:"One or more drivers to add, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
 	Pre    bool     `arg:"--pre" help:"Allow pre-release versions implicitly"`
-	Json   bool     `arg:"--json" help:"Output JSON instead of plaintext"`
+	Json   bool     `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -84,19 +84,19 @@ func (c AddCmd) GetModel() tea.Model {
 }
 
 type addDoneMsg struct {
-	result      string
+	result       string
 	resolvedPath string
 }
 
 type addModel struct {
 	baseModel
 
-	Driver     []string
-	Path       string
-	Pre        bool
-	jsonOutput bool
-	list       DriversList
-	result     string
+	Driver       []string
+	Path         string
+	Pre          bool
+	jsonOutput   bool
+	list         DriversList
+	result       string
 	resolvedPath string
 }
 

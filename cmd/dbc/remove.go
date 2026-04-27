@@ -31,7 +31,7 @@ import (
 type RemoveCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to remove"`
 	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to remove from"`
-	Json   bool   `arg:"--json" help:"Output JSON instead of plaintext"`
+	Json   bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c RemoveCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -53,7 +53,7 @@ func (c RemoveCmd) GetModel() tea.Model {
 }
 
 type removeDoneMsg struct {
-	result      string
+	result       string
 	resolvedPath string
 }
 
@@ -64,8 +64,8 @@ type removeModel struct {
 	Path       string
 	jsonOutput bool
 
-	list        DriversList
-	result      string
+	list         DriversList
+	result       string
 	resolvedPath string
 }
 

@@ -58,7 +58,7 @@ type LoginCmd struct {
 	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with [default: https://dbc-cdn-private.columnar.tech]"`
 	ClientID    string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
 	ApiKey      string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
-	Json        bool   `arg:"--json" help:"Output JSON instead of plaintext"`
+	Json        bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
