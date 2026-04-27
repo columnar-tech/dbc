@@ -582,6 +582,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/enchant-2.8.2-h02132a2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/expat-2.7.5-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-dejavu-sans-mono-2.37-hab24e00_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-inconsolata-3.000-h77eed37_0.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/font-ttf-source-code-pro-2.038-h77eed37_0.tar.bz2
@@ -1495,6 +1496,17 @@ packages:
   license_family: MIT
   size: 411735
   timestamp: 1758743520805
+- conda: https://conda.anaconda.org/conda-forge/linux-64/expat-2.7.5-hecca717_0.conda
+  sha256: 210155553489739765f31001f84eba91e58d9c692b032eed33f1a20340c78acb
+  md5: 7de50d165039df32d38be74c1b34a910
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libexpat 2.7.5 hecca717_0
+  - libgcc >=14
+  license: MIT
+  license_family: MIT
+  size: 146195
+  timestamp: 1774719191740
 - conda: https://conda.anaconda.org/conda-forge/noarch/faker-38.0.0-pyhd8ed1ab_0.conda
   sha256: 26e807936c19b0caf81d383228c66b1223782263c72f21746a828c61b1f36301
   md5: f6d2a65323c8e178b4605e81d62a4620

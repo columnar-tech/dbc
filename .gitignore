@@ -62,3 +62,4 @@ gui/build/
 gui/src-tauri/gen/
 gui/src-tauri/target/
 gui/.tauri-version.json
+gui/src-tauri/binaries/
