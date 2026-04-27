@@ -1,0 +1,65 @@
+productName = "dbc"
+version = "0.3.0"
+identifier = "tech.columnar.dbc.gui"
+mainBinaryName = "dbc-gui"
+
+[build]
+beforeDevCommand = "npm run dev"
+devUrl = "http://localhost:1420"
+beforeBuildCommand = "npm run build && bash scripts/build-sidecar.sh${TAURI_ENV_TARGET_TRIPLE:+ --target $TAURI_ENV_TARGET_TRIPLE}"
+frontendDist = "../build"
+
+[[app.windows]]
+title = "dbc"
+width = 1200
+height = 800
+
+[app.security]
+csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https: blob:; connect-src 'self' ipc: http://ipc.localhost"
+devCsp = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https: blob:; connect-src 'self' ipc: http://ipc.localhost http://localhost:* ws://localhost:*"
+
+[bundle]
+active = true
+licenseFile = "../../LICENSE"
+targets = ["deb", "rpm", "dmg", "msi", "nsis", "app"]
+icon = [
+  "icons/32x32.png",
+  "icons/128x128.png",
+  "icons/128x128@2x.png",
+  "icons/icon.icns",
+  "icons/icon.ico",
+]
+publisher = "Columnar Technologies Inc."
+category = "DeveloperTool"
+shortDescription = "ADBC Driver Manager GUI"
+copyright = "© 2026 Columnar Technologies Inc."
+externalBin = ["binaries/dbc"]
+homepage = "https://dbc.columnar.tech"
+
+[bundle.linux.deb]
+provides = ["dbc", "dbc-gui"]
+replaces = ["dbc"]
+files = {
+  "/etc/bash_completion.d/dbc" = "../../cmd/dbc/completions/dbc.bash",
+  "/usr/share/zsh/vendor-completions/_dbc" = "../../cmd/dbc/completions/dbc.zsh",
+  "/usr/share/fish/vendor_completions.d/dbc.fish" = "../../cmd/dbc/completions/dbc.fish",
+}
+
+[bundle.linux.rpm]
+provides = ["dbc", "dbc-gui"]
+obsoletes = ["dbc"]
+files = {
+  "/etc/bash_completion.d/dbc" = "../../cmd/dbc/completions/dbc.bash",
+  "/usr/share/zsh/vendor-completions/_dbc" = "../../cmd/dbc/completions/dbc.zsh",
+  "/usr/share/fish/vendor_completions.d/dbc.fish" = "../../cmd/dbc/completions/dbc.fish",
+}
+
+[bundle.macOS]
+minimumSystemVersion = "11.0"
+hardenedRuntime = true
+
+[plugins.updater]
+pubkey = "PLACEHOLDER_PUBKEY_REPLACE_WITH_REAL_KEY"
+endpoints = [
+  "https://dbc.columnar.tech/gui/updater/{{target}}/{{current_version}}",
+]

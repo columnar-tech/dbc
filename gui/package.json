@@ -17,6 +17,9 @@
     "test:watch": "vitest"
   },
   "license": "MIT",
+  "overrides": {
+    "cookie": "^1.0.2"
+  },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2",
