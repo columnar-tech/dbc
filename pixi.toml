@@ -17,7 +17,7 @@ name = "dbc"
 version = "0.1.0"
 description = "Automations for the dbc project"
 channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
 
 [dependencies]
 python = ">=3.8"
