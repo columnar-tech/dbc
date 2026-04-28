@@ -211,6 +211,23 @@ dbc can generate shell completions for a number of common shells.
 
     You can use the `dbc completion` subcommand to print extended instructions for your shell, including how to enable your shell's completion mechanism. For example, to print setup instructions for Bash, run `dbc completion bash --help`.
 
+## Updating
+
+{{ since_version('v0.2.0') }}
+
+If you installed dbc using the [Standalone Installer](#standalone-installer) or manually through [GitHub Releases](#github-releases), dbc will automatically notify you if your version is out of date and will provide instructions for updating.
+
+For other installation methods, dbc won't automatically notify of updates and you should upgrade dbc in whatever way is standard for your installation method.
+
+!!! note
+    To silence update notifications, create an empty file called `.no-update` in the dbc configuration directory for your operating system:
+
+    - Linux: `~/.config/columnar/dbc/.no-update`
+    - macOS: `~/Library/Application Support/Columnar/dbc/.no-update`
+    - Windows: `%AppData%/Columnar/dbc/.no-update`
+
+    If you use a custom `$XDG_CONFIG_HOME`, use `$XDG_CONFIG_HOME/columnar/dbc/.no-update`.
+
 ## Uninstallation
 
 To remove dbc from your system, run the uninstall command corresponding to your installation method.
