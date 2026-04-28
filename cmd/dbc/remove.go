@@ -15,43 +15,58 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
 
 type RemoveCmd struct {
 	Driver string `arg:"positional,required" help:"Driver to remove"`
 	Path   string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to remove from"`
+	Json   bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c RemoveCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return removeModel{
-		baseModel: baseModel,
-		Driver:    c.Driver,
-		Path:      c.Path,
+		baseModel:  baseModel,
+		Driver:     c.Driver,
+		Path:       c.Path,
+		jsonOutput: c.Json,
 	}
 }
 
 func (c RemoveCmd) GetModel() tea.Model {
 	return removeModel{
-		Driver:    c.Driver,
-		Path:      c.Path,
-		baseModel: defaultBaseModel(),
+		Driver:     c.Driver,
+		Path:       c.Path,
+		jsonOutput: c.Json,
+		baseModel:  defaultBaseModel(),
 	}
+}
+
+type removeDoneMsg struct {
+	result       string
+	resolvedPath string
 }
 
 type removeModel struct {
 	baseModel
 
-	Driver string
-	Path   string
+	Driver     string
+	Path       string
+	jsonOutput bool
 
-	list   DriversList
-	result string
+	list         DriversList
+	result       string
+	resolvedPath string
 }
 
 func (m removeModel) Init() tea.Cmd {
@@ -61,8 +76,24 @@ func (m removeModel) Init() tea.Cmd {
 			return err
 		}
 
-		m.list, err = openAndDecodeDriverList(m.Path)
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
 		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
+		f, err := os.Open(p)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+			} else {
+				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
+			}
+		}
+		defer f.Close()
+
+		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
 
@@ -78,22 +109,26 @@ func (m removeModel) Init() tea.Cmd {
 
 		delete(m.list.Drivers, m.Driver)
 
-		f, err := os.Create(p)
+		wf, err := os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
-		defer f.Close()
+		defer wf.Close()
 
-		if err := toml.NewEncoder(f).Encode(m.list); err != nil {
+		if err := toml.NewEncoder(wf).Encode(m.list); err != nil {
 			return err
 		}
 
-		return fmt.Sprintf("removed '%s' from driver list", m.Driver)
+		return removeDoneMsg{result: fmt.Sprintf("removed '%s' from driver list", m.Driver), resolvedPath: p}
 	}
 }
 
 func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case removeDoneMsg:
+		m.result = msg.result
+		m.resolvedPath = msg.resolvedPath
+		return m, tea.Quit
 	case string:
 		m.result = msg
 		return m, tea.Quit
@@ -105,9 +140,23 @@ func (m removeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m removeModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m removeModel) FinalOutput() string {
 	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "remove_failed",
+				Message: m.err.Error(),
+			})
+		}
 		return ""
+	}
+	if m.jsonOutput {
+		return marshalEnvelope("remove.response", jsonschema.RemoveResponse{
+			DriverListPath: m.resolvedPath,
+			Driver:         jsonschema.RemoveResponseDriver{Name: strings.TrimSpace(m.Driver)},
+		})
 	}
 	return m.result
 }

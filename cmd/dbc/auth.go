@@ -29,6 +29,7 @@ import (
 	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
 	"github.com/columnar-tech/dbc/auth"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func ensureHTTPS(uri string) string {
@@ -57,6 +58,7 @@ type LoginCmd struct {
 	RegistryURL string `arg:"positional" help:"URL of the driver registry to authenticate with [default: https://dbc-cdn-private.columnar.tech]"`
 	ClientID    string `arg:"env:OAUTH_CLIENT_ID" help:"OAuth Client ID (can also be set via DBC_OAUTH_CLIENT_ID)"`
 	ApiKey      string `arg:"--api-key" help:"Authenticate using an API key instead of OAuth (use '-' to read from stdin)"`
+	Json        bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -88,6 +90,7 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		inputURI:      l.RegistryURL,
 		oauthClientID: l.ClientID,
 		apiKey:        l.ApiKey,
+		jsonOutput:    l.Json,
 		baseModel:     baseModel,
 	}
 }
@@ -100,7 +103,13 @@ type authSuccessMsg struct {
 	cred auth.Credential
 }
 
-func (loginModel) NeedsRenderer() {}
+type authLoginCompleteMsg struct {
+	cred auth.Credential
+}
+
+func (m loginModel) NeedsRenderer() {}
+
+func (m loginModel) IsJSONMode() bool { return m.jsonOutput }
 
 type loginModel struct {
 	baseModel
@@ -110,8 +119,12 @@ type loginModel struct {
 	inputURI      string
 	oauthClientID string
 	apiKey        string
+	jsonOutput    bool
 	tokenURI      *url.URL
 	parsedURI     *url.URL
+	// storedCred holds the saved credential so ignorable post-login errors
+	// can still emit the success response.
+	storedCred *auth.Credential
 }
 
 func (m loginModel) Init() tea.Cmd {
@@ -184,28 +197,42 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tokenURI = (*url.URL)(&msg.TokenEndpoint)
 		return m, m.requestDeviceCode(msg)
 	case *device.CodeResponse:
+		if m.jsonOutput {
+			fmt.Fprintln(os.Stdout, marshalEnvelope("auth.device_code", jsonschema.AuthDeviceCodeEvent{
+				VerificationURI:         msg.VerificationURI,
+				VerificationURIComplete: msg.VerificationURIComplete,
+				UserCode:                msg.UserCode,
+				ExpiresIn:               msg.ExpiresIn,
+				Interval:                msg.Interval,
+			}))
+		}
+		waitCmd := func() tea.Msg {
+			browser.OpenURL(msg.VerificationURIComplete)
+			accessToken, err := device.Wait(context.TODO(), dbcClient.HTTPClient(), m.tokenURI.String(), device.WaitOptions{
+				ClientID:   m.oauthClientID,
+				DeviceCode: msg,
+			})
+
+			if err != nil {
+				return fmt.Errorf("failed to obtain access token: %w", err)
+			}
+
+			return auth.Credential{
+				Type:         auth.TypeToken,
+				AuthURI:      auth.Uri(*m.parsedURI),
+				Token:        accessToken.Token,
+				ClientID:     m.oauthClientID,
+				RegistryURL:  auth.Uri(*m.parsedURI),
+				RefreshToken: accessToken.RefreshToken,
+			}
+		}
+		if m.jsonOutput {
+			return m, waitCmd
+		}
 		return m, tea.Sequence(
 			tea.Println("Opening ", msg.VerificationURIComplete, " in your default web browser..."),
-			func() tea.Msg {
-				browser.OpenURL(msg.VerificationURIComplete)
-				accessToken, err := device.Wait(context.TODO(), dbcClient.HTTPClient(), m.tokenURI.String(), device.WaitOptions{
-					ClientID:   m.oauthClientID,
-					DeviceCode: msg,
-				})
-
-				if err != nil {
-					return fmt.Errorf("failed to obtain access token: %w", err)
-				}
-
-				return auth.Credential{
-					Type:         auth.TypeToken,
-					AuthURI:      auth.Uri(*m.parsedURI),
-					Token:        accessToken.Token,
-					ClientID:     m.oauthClientID,
-					RegistryURL:  auth.Uri(*m.parsedURI),
-					RefreshToken: accessToken.RefreshToken,
-				}
-			})
+			waitCmd,
+		)
 	case auth.Credential:
 		return m, func() tea.Msg {
 			if err := auth.AddCredential(msg, true); err != nil {
@@ -214,23 +241,47 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return authSuccessMsg{cred: msg}
 		}
 	case authSuccessMsg:
-		return m, tea.Sequence(tea.Println("Authentication successful!"),
-			func() tea.Msg {
-				if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
-					if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
-						return err
-					}
+		m.storedCred = &msg.cred
+		return m, func() tea.Msg {
+			if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
+				if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
+					return err
 				}
-				return tea.Quit()
-			})
+			}
+			return authLoginCompleteMsg{cred: msg.cred}
+		}
+	case authLoginCompleteMsg:
+		if m.jsonOutput {
+			fmt.Fprintln(os.Stdout, marshalEnvelope("auth.login", jsonschema.AuthLoginResponse{
+				Status:   "success",
+				Registry: msg.cred.RegistryURL.String(),
+			}))
+			return m, tea.Quit
+		}
+		return m, tea.Sequence(tea.Println("Authentication successful!"), tea.Quit)
 	case error:
 		switch {
 		case errors.Is(msg, auth.ErrTrialExpired) ||
 			errors.Is(msg, auth.ErrNoTrialLicense):
-			// ignore these errors during auth login
-			// the user can still login but won't be able to download trial licenses
+			// Credentials were already saved; these license errors are ignorable.
+			// Treat as successful login completion.
+			if m.storedCred != nil {
+				return m, func() tea.Msg {
+					return authLoginCompleteMsg{cred: *m.storedCred}
+				}
+			}
 			return m, tea.Quit
 		default:
+			if m.jsonOutput {
+				m.status = 1
+				m.err = msg
+				fmt.Fprintln(os.Stdout, marshalEnvelope("auth.login", jsonschema.AuthLoginResponse{
+					Status:   "failed",
+					Registry: m.inputURI,
+					Message:  msg.Error(),
+				}))
+				return m, tea.Quit
+			}
 			// for other errors, let the baseModel update handle it.
 		}
 	}
@@ -241,6 +292,9 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m loginModel) View() tea.View {
+	if m.jsonOutput {
+		return tea.NewView("")
+	}
 	return tea.NewView(m.spinner.View() + " Waiting for confirmation...")
 }
 

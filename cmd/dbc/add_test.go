@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -427,6 +429,60 @@ func (suite *SubcommandTestSuite) TestAddOutput() {
 	suite.Contains(out, "use `dbc sync` to install the drivers in the list")
 }
 
+func (suite *SubcommandTestSuite) TestAdd_JSON() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+		Json:   true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("add.response", env.Kind)
+
+	var resp jsonschema.AddResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
+	suite.Require().Len(resp.Drivers, 1)
+	suite.Equal("test-driver-1", resp.Drivers[0].Name)
+	suite.NotEmpty(resp.DriverListPath)
+}
+
+func (suite *SubcommandTestSuite) TestAdd_JSON_Constraint() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1>=1.0.0"},
+		Json:   true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("add.response", env.Kind)
+
+	// verify > is not HTML-escaped (>) in the JSON output
+	suite.NotContains(string(env.Payload), "\\u003e")
+
+	var resp jsonschema.AddResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
+	suite.Require().Len(resp.Drivers, 1)
+	suite.Equal("test-driver-1", resp.Drivers[0].Name)
+	suite.Equal(">=1.0.0", resp.Drivers[0].VersionConstraint)
+	suite.NotEmpty(resp.DriverListPath)
+}
+
 func (suite *SubcommandTestSuite) TestAddMultipleOutput() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
@@ -467,4 +523,37 @@ func (suite *SubcommandTestSuite) TestAddReplacingDriverOutput() {
 	suite.Contains(out, "old constraint: any; new constraint: >=1.0.0")
 	suite.Contains(out, "added test-driver-1 to driver list")
 	suite.Contains(out, "with constraint >=1.0.0")
+}
+
+func (suite *SubcommandTestSuite) TestAdd_JSON_DriverNotFound() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Use the real test registry but request a driver that doesn't exist,
+	// exercising the findDriver path rather than the registry-failure path.
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"nonexistent-driver"},
+		Json:   true,
+	}.GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "add_failed")
+}
+
+func (suite *SubcommandTestSuite) TestAdd_JSON_RegistryFailure() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	// Verify that a complete registry failure also emits a structured error envelope
+	// and that the underlying registry error detail is preserved in the message.
+	failingRegistry := func() ([]dbc.Driver, error) {
+		return nil, fmt.Errorf("network unreachable")
+	}
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1"},
+		Json:   true,
+	}.GetModelCustom(baseModel{getDriverRegistry: failingRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "add_failed", "network unreachable")
 }

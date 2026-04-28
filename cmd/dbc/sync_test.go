@@ -15,11 +15,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func (suite *SubcommandTestSuite) TestSync() {
@@ -242,4 +245,63 @@ func (suite *SubcommandTestSuite) TestSyncCompleteRegistryFailure() {
 
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "connection refused")
+}
+
+func (suite *SubcommandTestSuite) TestSync_JSONStream() {
+	tmpDir := suite.T().TempDir()
+	driverListPath := filepath.Join(tmpDir, "dbc.toml")
+	err := os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0644)
+	suite.Require().NoError(err)
+
+	m := SyncCmd{Path: driverListPath, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 0, "expected at least one NDJSON line")
+
+	var lastEnv jsonschema.Envelope
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var env jsonschema.Envelope
+		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
+		suite.Equal(1, env.SchemaVersion)
+		lastEnv = env
+	}
+	suite.Equal("sync.status", lastEnv.Kind)
+
+	var status jsonschema.SyncStatus
+	suite.Require().NoError(json.Unmarshal(lastEnv.Payload, &status))
+	suite.Len(status.Installed, 1)
+	suite.Equal("test-driver-1", status.Installed[0].Name)
+}
+
+func (suite *SubcommandTestSuite) TestSync_JSONProgressStream() {
+	tmpDir := suite.T().TempDir()
+	driverListPath := filepath.Join(tmpDir, "dbc.toml")
+	err := os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0644)
+	suite.Require().NoError(err)
+
+	m := SyncCmd{Path: driverListPath, JsonStreamProgress: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 1, "expected multiple NDJSON lines")
+
+	var kinds []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var env jsonschema.Envelope
+		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
+		suite.Equal(1, env.SchemaVersion)
+		kinds = append(kinds, env.Kind)
+	}
+
+	suite.Contains(kinds, "sync.progress")
+	suite.Equal("sync.status", kinds[len(kinds)-1])
 }

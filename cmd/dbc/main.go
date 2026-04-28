@@ -38,12 +38,6 @@ var (
 	skipMark  = lipgloss.NewStyle().Foreground(lipgloss.Color("3")).SetString("-")
 )
 
-type TuiCmd struct{}
-
-func (TuiCmd) GetModel() tea.Model {
-	return getTuiModel()
-}
-
 type modelCmd interface {
 	GetModel() tea.Model
 }
@@ -306,6 +300,9 @@ func main() {
 	// defer f.Close()
 
 	_, needsRenderer := m.(NeedsRenderer)
+	if jm, ok := m.(interface{ IsJSONMode() bool }); ok && jm.IsJSONMode() {
+		needsRenderer = false
+	}
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
@@ -336,7 +333,13 @@ func main() {
 		suppressTerminalProbeResponses()
 	}
 
-	if !args.Quiet {
+	inJSONMode := false
+	if jm, ok := m.(interface{ IsJSONMode() bool }); ok {
+		inJSONMode = jm.IsJSONMode()
+	}
+	// Always print FinalOutput in JSON mode — machine-readable payloads must
+	// not be suppressed by --quiet. For non-JSON mode, respect the quiet flag.
+	if !args.Quiet || inJSONMode {
 		if fo, ok := m.(HasFinalOutput); ok {
 			if output := fo.FinalOutput(); output != "" {
 				// Use lipgloss.Println instead of fmt.Println so that
@@ -348,7 +351,10 @@ func main() {
 	}
 
 	if h, ok := m.(HasStatus); ok {
-		if err := h.Err(); err != nil {
+		// Suppress plaintext error formatting when the model already emitted a
+		// structured JSON error envelope (JSON mode). Printing formatErr after
+		// a JSON envelope would corrupt NDJSON consumers.
+		if err := h.Err(); err != nil && !inJSONMode {
 			lipgloss.Println(formatErr(err))
 		}
 		os.Exit(h.Status())

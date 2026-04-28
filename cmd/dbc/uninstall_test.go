@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -22,6 +23,7 @@ import (
 	"runtime"
 
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -260,4 +262,28 @@ func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
 
 	// Verify symlink is gone
 	suite.NoFileExists(manifestPath)
+}
+
+func (suite *SubcommandTestSuite) TestUninstall_JSON() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	m = UninstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("uninstall.status", env.Kind)
+
+	var status jsonschema.UninstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("success", status.Status)
+	suite.Equal("test-driver-1", status.Driver)
 }

@@ -18,10 +18,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/progress"
 	"charm.land/bubbles/v2/spinner"
@@ -30,6 +32,8 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func manifestToPackageInfo(m config.Manifest) dbc.PkgInfo {
@@ -61,11 +65,13 @@ func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 
 type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver   string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
-	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
-	Json     bool               `arg:"--json" help:"Output JSON instead of plaintext"`
-	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
-	Pre      bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
+	Driver             string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
+	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Json               bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
+	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
+	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Pre                bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
+	InsecureNoChecksum bool               `arg:"--insecure-no-checksum" help:"Skip sha256 checksum recording (not recommended)"`
 }
 
 func (InstallCmd) Description() string {
@@ -83,15 +89,17 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		localPackagePath = c.Driver
 	}
 	return progressiveInstallModel{
-		Driver:           c.Driver,
-		NoVerify:         c.NoVerify,
-		jsonOutput:       c.Json,
-		Pre:              c.Pre,
-		spinner:          s,
-		cfg:              getConfig(c.Level),
-		baseModel:        baseModel,
-		isLocal:          isLocal,
-		localPackagePath: localPackagePath,
+		Driver:             c.Driver,
+		NoVerify:           c.NoVerify,
+		jsonOutput:         c.Json || c.JsonStreamProgress,
+		jsonStreamProgress: c.JsonStreamProgress,
+		Pre:                c.Pre,
+		insecureNoChecksum: c.InsecureNoChecksum,
+		spinner:            s,
+		cfg:                getConfig(c.Level),
+		baseModel:          baseModel,
+		isLocal:            isLocal,
+		localPackagePath:   localPackagePath,
 		p: NewFileProgress(
 			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
@@ -144,6 +152,9 @@ type writeDriverManifestMsg struct {
 
 type localInstallMsg struct{}
 
+// alreadyInstalledChecksumMsg carries the checksum computed for an already-installed driver.
+type alreadyInstalledChecksumMsg string
+
 type installState int
 
 const (
@@ -171,15 +182,49 @@ func (s installState) String() string {
 
 func (progressiveInstallModel) NeedsRenderer() {}
 
+func (m progressiveInstallModel) IsJSONMode() bool { return m.jsonOutput }
+
+func (m progressiveInstallModel) WithJSONWriter(w io.Writer) tea.Model {
+	m.jsonOut = w
+	return m
+}
+
+func (m progressiveInstallModel) emitJSON(kind string, payload any) {
+	out := m.jsonOut
+	if out == nil {
+		out = os.Stdout
+	}
+	fmt.Fprintln(out, marshalEnvelope(kind, payload))
+}
+
+func (m progressiveInstallModel) addEvent(event string, extra ...func(*jsonschema.InstallProgressEvent)) progressiveInstallModel {
+	if !m.jsonStreamProgress {
+		return m
+	}
+	evt := jsonschema.InstallProgressEvent{
+		Event:  event,
+		Driver: m.Driver,
+	}
+	for _, fn := range extra {
+		fn(&evt)
+	}
+	m.emitJSON("install.progress", evt)
+	return m
+}
+
 type progressiveInstallModel struct {
 	baseModel
 
-	Driver       string
-	VersionInput *semver.Version
-	NoVerify     bool
-	jsonOutput   bool
-	Pre          bool
-	cfg          config.Config
+	Driver             string
+	VersionInput       *semver.Version
+	NoVerify           bool
+	jsonOutput         bool
+	jsonStreamProgress bool
+	Pre                bool
+	cfg                config.Config
+
+	insecureNoChecksum  bool
+	installedDriverInfo config.DriverInfo
 
 	DriverPackage      dbc.PkgInfo
 	conflictingInfo    config.DriverInfo
@@ -191,9 +236,12 @@ type progressiveInstallModel struct {
 
 	width, height    int
 	isLocal          bool
-	localPackagePath string // original path for display; only set when isLocal=true
+	localPackagePath string
 
-	registryErrors error // Store registry errors for better error messages
+	registryErrors           error
+	alreadyInstalledChecksum string
+	jsonOut                  io.Writer
+	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
 }
 
 type driversWithRegistryError struct {
@@ -209,9 +257,30 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 	}
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
+		installDir := "."
+		if locs := filepath.SplitList(m.cfg.Location); len(locs) > 0 && locs[0] != "" {
+			installDir = locs[0]
+		}
+		lockDir := installDir
+		for {
+			if _, err := os.Stat(lockDir); err == nil {
+				break
+			}
+			parent := filepath.Dir(lockDir)
+			if parent == lockDir {
+				lockDir = os.TempDir()
+				break
+			}
+			lockDir = parent
+		}
+		lockPath := filepath.Join(lockDir, ".dbc.install.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
 		drivers, err := m.getDriverRegistry()
-		// Return both drivers and error - we'll decide how to handle based on whether
-		// the requested driver is found
 		return driversWithRegistryError{
 			drivers: drivers,
 			err:     err,
@@ -236,10 +305,34 @@ func (m progressiveInstallModel) isAlreadyInstalled() bool {
 }
 
 func (m progressiveInstallModel) FinalOutput() string {
+	if m.status != 0 {
+		return m.jsonErrorOutput // empty string for non-JSON errors; structured envelope for JSON mode
+	}
 	if m.isAlreadyInstalled() {
 		if m.jsonOutput {
-			return fmt.Sprintf(`{"status":"already installed","driver":"%s","version":"%s","location":"%s"}`,
-				m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			payload := jsonschema.InstallStatus{
+				Status:   "already installed",
+				Driver:   m.conflictingInfo.ID,
+				Version:  m.conflictingInfo.Version.String(),
+				Location: filepath.SplitList(m.cfg.Location)[0],
+			}
+			if m.alreadyInstalledChecksum != "" {
+				payload.Checksum = m.alreadyInstalledChecksum
+			}
+			payloadBytes, err := json.Marshal(payload)
+			if err != nil {
+				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+			}
+			env := jsonschema.Envelope{
+				SchemaVersion: jsonschema.SchemaVersion,
+				Kind:          "install.status",
+				Payload:       json.RawMessage(payloadBytes),
+			}
+			jsonOutput, err := json.Marshal(env)
+			if err != nil {
+				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+			}
+			return string(jsonOutput)
 		}
 		return fmt.Sprintf("\nDriver %s %s already installed at %s",
 			m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
@@ -247,44 +340,58 @@ func (m progressiveInstallModel) FinalOutput() string {
 
 	var b strings.Builder
 	if m.state == stDone {
-		var output struct {
-			Status   string `json:"status"`
-			Driver   string `json:"driver"`
-			Version  string `json:"version"`
-			Location string `json:"location"`
-			Message  string `json:"message,omitempty"`
-			Conflict string `json:"conflict,omitempty"`
+		installStatus := jsonschema.InstallStatus{
+			Status:   "installed",
+			Driver:   m.Driver,
+			Version:  m.DriverPackage.Version.String(),
+			Location: filepath.SplitList(m.cfg.Location)[0],
 		}
-
-		output.Status = "installed"
-		output.Driver = m.Driver
-		output.Version = m.DriverPackage.Version.String()
-		output.Location = filepath.SplitList(m.cfg.Location)[0]
 		if m.hasConflict() {
-			output.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
+			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
 		}
 
 		if m.postInstallMessage != "" {
-			output.Message = m.postInstallMessage
+			installStatus.Message = m.postInstallMessage
+		}
+
+		if !m.insecureNoChecksum && m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
+			driverPath := m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple())
+			chksum, err := checksum(driverPath)
+			if err != nil && m.jsonOutput {
+				return marshalEnvelope("error", jsonschema.ErrorResponse{
+					Code:    "checksum_failed",
+					Message: err.Error(),
+				})
+			}
+			if err == nil {
+				installStatus.Checksum = chksum
+			}
 		}
 
 		if m.jsonOutput {
-			jsonOutput, err := json.Marshal(output)
-			if err != nil {
-				return fmt.Sprintf(`{"status":"error","error":"%s"}`, err.Error())
+			if installStatus.Checksum != "" {
+				m.addEvent("verify.checksum.ok", func(e *jsonschema.InstallProgressEvent) {
+					e.Checksum = installStatus.Checksum
+				})
 			}
-			return string(jsonOutput)
+			if m.jsonStreamProgress {
+				m.emitJSON("install.progress", jsonschema.InstallProgressEvent{
+					Event:  "install.complete",
+					Driver: m.Driver,
+				})
+			}
+			return marshalEnvelope("install.status", installStatus)
 		}
 
-		if output.Conflict != "" {
-			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", output.Conflict)
+		if installStatus.Conflict != "" {
+			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", installStatus.Conflict)
 		}
 
 		fmt.Fprintf(&b, "\nInstalled %s %s to %s",
-			output.Driver, output.Version, output.Location)
+			installStatus.Driver, installStatus.Version, installStatus.Location)
 
-		if output.Message != "" {
-			b.WriteString("\n\n" + postMsgStyle.Render(output.Message))
+		if installStatus.Message != "" {
+			b.WriteString("\n\n" + postMsgStyle.Render(installStatus.Message))
 		}
 	}
 	return b.String()
@@ -336,9 +443,20 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	m.state = stDownloading
 	if m.isAlreadyInstalled() {
 		m.state = stDone
+		if m.jsonOutput && !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
+			driverPath := m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple())
+			return m, func() tea.Msg {
+				chksum, err := checksum(driverPath)
+				if err != nil {
+					return fmt.Errorf("checksum_failed: %w", err)
+				}
+				return alreadyInstalledChecksumMsg(chksum)
+			}
+		}
 		return m, tea.Quit
 	}
 
+	m = m.addEvent("download.start")
 	return m, func() tea.Msg {
 		output, err := m.downloadPkg(m.DriverPackage)
 		if err != nil {
@@ -378,6 +496,9 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case alreadyInstalledChecksumMsg:
+		m.alreadyInstalledChecksum = string(msg)
+		return m, tea.Quit
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case spinner.TickMsg:
@@ -385,8 +506,14 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 	case progressMsg:
-		cmd := m.p.SetPercent(msg.written, msg.total)
-		return m, cmd
+		if m.jsonOutput {
+			m = m.addEvent("download.progress", func(e *jsonschema.InstallProgressEvent) {
+				e.Bytes = msg.written
+				e.Total = msg.total
+			})
+		}
+		progressCmd := m.p.SetPercent(msg.written, msg.total)
+		return m, progressCmd
 	case progress.FrameMsg:
 		var cmd tea.Cmd
 		m.p, cmd = m.p.Update(msg)
@@ -418,6 +545,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return m.startDownloading()
 	case *os.File:
+		m = m.addEvent("download.complete")
+		m = m.addEvent("extract.start")
 		return m.startInstalling(msg)
 	case config.Manifest:
 		if m.DriverPackage.Version == nil {
@@ -426,6 +555,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
+		m = m.addEvent("extract.complete")
+		m = m.addEvent("verify.start")
 		return m, func() tea.Msg {
 			if err := verifySignature(msg, m.NoVerify); err != nil {
 				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
@@ -436,12 +567,21 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case writeDriverManifestMsg:
 		m.state = stDone
+		m.installedDriverInfo = msg.DriverInfo
+		m = m.addEvent("verify.complete")
+		m = m.addEvent("manifest.create")
 		return m, tea.Sequence(func() tea.Msg {
 			return config.CreateManifest(m.cfg, msg.DriverInfo)
 		}, tea.Quit)
 	case error:
+		m.status = 1
+		m.err = msg
 		if m.jsonOutput {
-			return m, tea.Sequence(tea.Println(fmt.Sprintf(`{"status":"error","error":"%s"}`, msg.Error())), tea.Quit)
+			m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "install_failed",
+				Message: msg.Error(),
+			})
+			return m, tea.Quit
 		}
 	}
 

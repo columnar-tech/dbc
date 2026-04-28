@@ -15,18 +15,41 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
 
 var msgStyle = lipgloss.NewStyle().Faint(true)
+
+func marshalEnvelope(kind string, payload any) string {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // don't escape <, >, & in JSON output
+	enc.Encode(payload)
+
+	env := jsonschema.Envelope{
+		SchemaVersion: jsonschema.SchemaVersion,
+		Kind:          kind,
+		Payload:       json.RawMessage(b.Bytes()),
+	}
+
+	b.Reset()
+	enc.Encode(env)
+	return b.String()
+}
 
 func driverListPath(path string) (string, error) {
 	p, err := filepath.Abs(path)
@@ -44,34 +67,44 @@ type AddCmd struct {
 	Driver []string `arg:"positional,required" help:"One or more drivers to add, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
 	Pre    bool     `arg:"--pre" help:"Allow pre-release versions implicitly"`
+	Json   bool     `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return addModel{
-		baseModel: baseModel,
-		Driver:    c.Driver,
-		Path:      c.Path,
-		Pre:       c.Pre,
+		baseModel:  baseModel,
+		Driver:     c.Driver,
+		Path:       c.Path,
+		Pre:        c.Pre,
+		jsonOutput: c.Json,
 	}
 }
 
 func (c AddCmd) GetModel() tea.Model {
 	return addModel{
-		Driver:    c.Driver,
-		Path:      c.Path,
-		Pre:       c.Pre,
-		baseModel: defaultBaseModel(),
+		Driver:     c.Driver,
+		Path:       c.Path,
+		Pre:        c.Pre,
+		jsonOutput: c.Json,
+		baseModel:  defaultBaseModel(),
 	}
+}
+
+type addDoneMsg struct {
+	result       string
+	resolvedPath string
 }
 
 type addModel struct {
 	baseModel
 
-	Driver []string
-	Path   string
-	Pre    bool
-	list   DriversList
-	result string
+	Driver       []string
+	Path         string
+	Pre          bool
+	jsonOutput   bool
+	list         DriversList
+	result       string
+	resolvedPath string
 }
 
 func (m addModel) Init() tea.Cmd {
@@ -105,10 +138,27 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		m.list, err = openAndDecodeDriverList(m.Path)
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
 		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
+		f, err := os.Open(p)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+			} else {
+				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
+			}
+		}
+		defer f.Close()
+
+		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
+
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)
 		}
@@ -177,22 +227,26 @@ func (m addModel) Init() tea.Cmd {
 			}
 		}
 
-		f, err := os.Create(p)
+		wf, err := os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
-		defer f.Close()
+		defer wf.Close()
 
-		if err := toml.NewEncoder(f).Encode(m.list); err != nil {
+		if err := toml.NewEncoder(wf).Encode(m.list); err != nil {
 			return err
 		}
 		result += "\nuse `dbc sync` to install the drivers in the list"
-		return result
+		return addDoneMsg{result: result, resolvedPath: p}
 	}
 }
 
 func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case addDoneMsg:
+		m.result = msg.result
+		m.resolvedPath = msg.resolvedPath
+		return m, tea.Quit
 	case string:
 		m.result = msg
 		return m, tea.Quit
@@ -204,9 +258,35 @@ func (m addModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m addModel) IsJSONMode() bool { return m.jsonOutput }
+
 func (m addModel) FinalOutput() string {
 	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "add_failed",
+				Message: m.err.Error(),
+			})
+		}
 		return ""
+	}
+	if m.jsonOutput {
+		drivers := make([]jsonschema.AddResponseDriver, 0, len(m.Driver))
+		for _, d := range m.Driver {
+			driverName, constraint, _ := parseDriverConstraint(d)
+			var constraintStr string
+			if constraint != nil {
+				constraintStr = constraint.String()
+			}
+			drivers = append(drivers, jsonschema.AddResponseDriver{
+				Name:              driverName,
+				VersionConstraint: constraintStr,
+			})
+		}
+		return marshalEnvelope("add.response", jsonschema.AddResponse{
+			DriverListPath: m.resolvedPath,
+			Drivers:        drivers,
+		})
 	}
 	return m.result
 }

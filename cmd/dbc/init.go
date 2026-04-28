@@ -22,18 +22,24 @@ import (
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 type InitCmd struct {
 	Path string `arg:"positional" default:"./dbc.toml" help:"File to create"`
+	Json bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c InitCmd) GetModel() tea.Model {
-	return initModel{Path: c.Path}
+	return initModel{Path: c.Path, jsonOutput: c.Json}
 }
 
+type initDoneMsg struct{ path string }
+
 type initModel struct {
-	Path string
+	Path         string
+	jsonOutput   bool
+	resolvedPath string
 
 	status int
 	err    error
@@ -67,18 +73,42 @@ func (m initModel) Init() tea.Cmd {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
 
-		return tea.Quit()
+		return initDoneMsg{path: p}
 	}
 }
 
 func (m initModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case initDoneMsg:
+		m.resolvedPath = msg.path
+		return m, tea.Quit
 	case error:
 		m.status = 1
 		m.err = msg
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m initModel) IsJSONMode() bool { return m.jsonOutput }
+
+func (m initModel) FinalOutput() string {
+	if m.status != 0 {
+		if m.jsonOutput {
+			return marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "init_failed",
+				Message: m.err.Error(),
+			})
+		}
+		return ""
+	}
+	if m.jsonOutput {
+		return marshalEnvelope("init.response", jsonschema.InitResponse{
+			DriverListPath: m.resolvedPath,
+			Created:        true,
+		})
+	}
+	return ""
 }
 
 func (m initModel) View() tea.View { return tea.NewView("") }

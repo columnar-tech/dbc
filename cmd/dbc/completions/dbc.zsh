@@ -76,6 +76,7 @@ function _dbc_install_completions {
         '(-h)--help[Help]' \
         '--no-verify[do not verify the driver after installation]' \
         '--json[Print output as JSON instead of plaintext]' \
+        '--json-stream-progress[Stream progress events as JSON lines (implies --json)]' \
         '--pre[Allow implicit installation of pre-release versions]' \
         '(-l)--level[installation level]: :(user system)' \
         '(--level)-l[installation level]: :(user system)' \
@@ -94,6 +95,7 @@ function _dbc_init_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        '--json[Print output as JSON instead of plaintext]' \
         ':file to create:_files -g \*.toml'
 }
 
@@ -102,6 +104,7 @@ function _dbc_add_completions {
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
         '--pre[Allow pre-release versions implicitly]' \
+        '--json[Print output as JSON instead of plaintext]' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
         ':driver name: '
@@ -115,7 +118,9 @@ function _dbc_sync_completions {
         '(--level)-l[installation level]: :(user system)' \
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
-        '--no-verify[do not verify the driver after installation]'
+        '--no-verify[do not verify the driver after installation]' \
+        '--json[Print output as JSON instead of plaintext]' \
+        '--json-stream-progress[Stream progress events as JSON lines (implies --json)]'
 }
 
 function _dbc_search_completions {
@@ -148,6 +153,7 @@ function _dbc_remove_completions {
     _arguments  \
         '(--help)-h[Help]' \
         '(-h)--help[Help]' \
+        '--json[Print output as JSON instead of plaintext]' \
         '(-p)--path[driver list to remove from]: :_files -g \*.toml' \
         '(--path)-p[driver list to remove from]: :_files -g \*.toml' \
         ':driver name: '

@@ -17,13 +17,16 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 func (suite *SubcommandTestSuite) TestInstall() {
@@ -461,4 +464,148 @@ func (suite *SubcommandTestSuite) TestInstallDriverWithSubdirectories() {
 
 	// and return an error with this
 	suite.Contains(out, "driver archives shouldn't contain subdirectories")
+}
+
+func (suite *SubcommandTestSuite) TestInstallJSON() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	lastLine := lines[len(lines)-1]
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lastLine), &env), "last output line must be valid JSON: %s", lastLine)
+
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("install.status", env.Kind)
+
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+
+	suite.Equal("installed", status.Status)
+	suite.Equal("test-driver-1", status.Driver)
+	suite.NotEmpty(status.Version)
+	suite.NotEmpty(status.Location)
+}
+
+func (suite *SubcommandTestSuite) TestInstall_ChecksumInStatus() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 0)
+
+	lastLine := lines[len(lines)-1]
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lastLine), &env))
+	suite.Equal("install.status", env.Kind)
+
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("installed", status.Status)
+	// Checksum should be present as a bare hex string (no prefix)
+	suite.NotEmpty(status.Checksum, "expected checksum to be non-empty")
+	suite.False(strings.HasPrefix(status.Checksum, "sha256:"), "expected bare hex checksum without sha256: prefix, got: %s", status.Checksum)
+}
+
+func (suite *SubcommandTestSuite) TestInstall_InsecureNoChecksumFlag() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true, InsecureNoChecksum: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 0)
+
+	lastLine := lines[len(lines)-1]
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lastLine), &env))
+	suite.Equal("install.status", env.Kind)
+
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("installed", status.Status)
+	// Checksum should be absent when --insecure-no-checksum is set
+	suite.Empty(status.Checksum, "expected no checksum when InsecureNoChecksum is set")
+}
+
+func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, JsonStreamProgress: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 1, "expected multiple NDJSON lines")
+
+	var kinds []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var env jsonschema.Envelope
+		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
+		suite.Equal(1, env.SchemaVersion)
+		kinds = append(kinds, env.Kind)
+	}
+
+	suite.Contains(kinds, "install.progress")
+	suite.Equal("install.status", kinds[len(kinds)-1])
+
+	var hasDownloadStart bool
+	for _, line := range lines {
+		if strings.Contains(line, `"download.start"`) {
+			hasDownloadStart = true
+			break
+		}
+	}
+	suite.True(hasDownloadStart, "expected download.start event")
+}
+
+// TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the
+// fix that gates FinalOutput() on m.status. When the driver binary is missing
+// the checksum computation fails, the model exits with status 1, and
+// FinalOutput() must not emit an install.status success envelope.
+func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailure() {
+	// First install the driver normally.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.runCmd(m)
+
+	// Locate and delete the shared library so checksum() will fail.
+	cfg := config.Get()[suite.configLevel]
+	driver, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
+	suite.Require().NotEmpty(sharedPath, "shared library path should not be empty")
+	suite.Require().NoError(os.Remove(sharedPath))
+
+	// Reinstall with --json. The already-installed path fires, but checksum
+	// fails because the file is gone. runCmdErr now appends FinalOutput() so
+	// the JSON error envelope is captured through the shared harness path,
+	// matching how main.go emits it.
+	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmdErr(m2)
+
+	// The combined output must contain the structured error envelope.
+	suite.NotEmpty(out, "expected error output from install JSON error path")
+	suite.NotContains(out, `"install.status"`, "must not emit success envelope when checksum fails")
+
+	// Decode the envelope and assert the correct kind and code.
+	// runCmdErr appends FinalOutput(), so the last non-empty line is the JSON.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var jsonLine string
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "{") {
+			jsonLine = strings.TrimSpace(lines[i])
+			break
+		}
+	}
+	suite.NotEmpty(jsonLine, "expected a JSON line in output: %s", out)
+	var errEnv jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(jsonLine), &errEnv), "must be valid JSON: %s", jsonLine)
+	suite.Equal("error", errEnv.Kind, "expected kind=error")
+	var errPayload jsonschema.ErrorResponse
+	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
+	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
 }

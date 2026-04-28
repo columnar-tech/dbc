@@ -15,10 +15,16 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
 type driverDidUninstallMsg struct{}
@@ -56,8 +62,34 @@ type uninstallModel struct {
 }
 
 func (m uninstallModel) Init() tea.Cmd {
-	return m.startUninstall
+	return func() tea.Msg {
+		installDir := "."
+		if locs := filepath.SplitList(m.cfg.Location); len(locs) > 0 && locs[0] != "" {
+			installDir = locs[0]
+		}
+		lockDir := installDir
+		for {
+			if _, err := os.Stat(lockDir); err == nil {
+				break
+			}
+			parent := filepath.Dir(lockDir)
+			if parent == lockDir {
+				lockDir = os.TempDir()
+				break
+			}
+			lockDir = parent
+		}
+		lockPath := filepath.Join(lockDir, ".dbc.install.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+		return m.startUninstall()
+	}
 }
+
+func (m uninstallModel) IsJSONMode() bool { return m.jsonOutput }
 
 func (m uninstallModel) FinalOutput() string {
 	if m.status != 0 {
@@ -65,7 +97,21 @@ func (m uninstallModel) FinalOutput() string {
 	}
 
 	if m.jsonOutput {
-		return fmt.Sprintf("{\"status\": \"success\", \"driver\": \"%s\"}\n", m.Driver)
+		payload := jsonschema.UninstallStatus{Status: "success", Driver: m.Driver}
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+		}
+		env := jsonschema.Envelope{
+			SchemaVersion: jsonschema.SchemaVersion,
+			Kind:          "uninstall.status",
+			Payload:       json.RawMessage(payloadBytes),
+		}
+		jsonOutput, err := json.Marshal(env)
+		if err != nil {
+			return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
+		}
+		return string(jsonOutput)
 	}
 	return fmt.Sprintf("Driver `%s` uninstalled successfully!", m.Driver)
 }
@@ -81,7 +127,10 @@ func (m uninstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = 1
 		m.err = msg
 		if m.jsonOutput {
-			return m, tea.Sequence(tea.Printf("{\"status\": \"error\", \"error\": \"%s\"}\n", msg.Error()), tea.Quit)
+			return m, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    "uninstall_failed",
+				Message: msg.Error(),
+			})), tea.Quit)
 		}
 		return m, tea.Quit
 	}
