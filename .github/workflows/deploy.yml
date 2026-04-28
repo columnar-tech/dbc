@@ -58,10 +58,13 @@ jobs:
 
       - name: Download release artifacts
         run: |
-          gh release download ${{ inputs.release_tag }} --repo ${{ github.repository }}
+          gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}"
         env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
           GH_TOKEN: ${{ github.token }}
 
       - name: Upload artifacts
         run: |
-          aws s3 cp . s3://dbc-distribution/${{ inputs.release_tag }} --recursive
+          aws s3 cp . "s3://dbc-distribution/${RELEASE_TAG}" --recursive
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
