@@ -39,7 +39,7 @@ type clientConfig struct {
 
 type Option func(*clientConfig)
 
-// Client is a driver registry client for searching and managing ADBC drivers.
+// Client is a dbc client for searching registries and managing ADBC drivers.
 type Client struct {
 	httpClient         *http.Client
 	registries         []Registry
