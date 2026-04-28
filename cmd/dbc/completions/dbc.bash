@@ -69,7 +69,7 @@ _dbc_install_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "--json --no-verify --level -l --pre" -- "$cur"))
+        COMPREPLY=($(compgen -W "--json --json-stream-progress --no-verify --level -l --pre" -- "$cur"))
         return 0
     fi
 
@@ -162,7 +162,7 @@ _dbc_sync_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --level -l --path -p --no-verify" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --level -l --path -p --no-verify --json --json-stream-progress" -- "$cur"))
         return 0
     fi
 

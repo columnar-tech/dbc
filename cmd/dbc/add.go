@@ -15,6 +15,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,14 +35,20 @@ import (
 var msgStyle = lipgloss.NewStyle().Faint(true)
 
 func marshalEnvelope(kind string, payload any) string {
-	payloadBytes, _ := json.Marshal(payload)
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false) // don't escape <, >, & in JSON output
+	enc.Encode(payload)
+
 	env := jsonschema.Envelope{
 		SchemaVersion: jsonschema.SchemaVersion,
 		Kind:          kind,
-		Payload:       json.RawMessage(payloadBytes),
+		Payload:       json.RawMessage(b.Bytes()),
 	}
-	out, _ := json.Marshal(env)
-	return string(out)
+
+	b.Reset()
+	enc.Encode(env)
+	return b.String()
 }
 
 func driverListPath(path string) (string, error) {

@@ -454,6 +454,36 @@ func (suite *SubcommandTestSuite) TestAdd_JSON() {
 	suite.NotEmpty(resp.DriverListPath)
 }
 
+func (suite *SubcommandTestSuite) TestAdd_JSON_Constraint() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{
+		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+		Driver: []string{"test-driver-1>=1.0.0"},
+		Json:   true,
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+	suite.Equal(1, env.SchemaVersion)
+	suite.Equal("add.response", env.Kind)
+
+	// verify we aren't escaping the > character in the JSON output
+	suite.Equal(string(env.Payload), `{"driver_list_path":"`+filepath.Join(suite.tempdir, "dbc.toml")+
+		`","drivers":[{"name":"test-driver-1","version_constraint":">=1.0.0"}]}`)
+
+	var resp jsonschema.AddResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
+	suite.Require().Len(resp.Drivers, 1)
+	suite.Equal("test-driver-1", resp.Drivers[0].Name)
+	suite.Equal(">=1.0.0", resp.Drivers[0].VersionConstraint)
+	suite.NotEmpty(resp.DriverListPath)
+}
+
 func (suite *SubcommandTestSuite) TestAddMultipleOutput() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)

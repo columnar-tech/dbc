@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -67,6 +68,7 @@ type InstallCmd struct {
 	Driver             string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	Json               bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
+	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
 	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 	Pre                bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
 	InsecureNoChecksum bool               `arg:"--insecure-no-checksum" help:"Skip sha256 checksum recording (not recommended)"`
@@ -89,7 +91,8 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return progressiveInstallModel{
 		Driver:             c.Driver,
 		NoVerify:           c.NoVerify,
-		jsonOutput:         c.Json,
+		jsonOutput:         c.Json || c.JsonStreamProgress,
+		jsonStreamProgress: c.JsonStreamProgress,
 		Pre:                c.Pre,
 		insecureNoChecksum: c.InsecureNoChecksum,
 		spinner:            s,
@@ -181,8 +184,21 @@ func (progressiveInstallModel) NeedsRenderer() {}
 
 func (m progressiveInstallModel) IsJSONMode() bool { return m.jsonOutput }
 
+func (m progressiveInstallModel) WithJSONWriter(w io.Writer) tea.Model {
+	m.jsonOut = w
+	return m
+}
+
+func (m progressiveInstallModel) emitJSON(kind string, payload any) {
+	out := m.jsonOut
+	if out == nil {
+		out = os.Stdout
+	}
+	fmt.Fprintln(out, marshalEnvelope(kind, payload))
+}
+
 func (m progressiveInstallModel) addEvent(event string, extra ...func(*jsonschema.InstallProgressEvent)) progressiveInstallModel {
-	if !m.jsonOutput {
+	if !m.jsonStreamProgress {
 		return m
 	}
 	evt := jsonschema.InstallProgressEvent{
@@ -192,19 +208,20 @@ func (m progressiveInstallModel) addEvent(event string, extra ...func(*jsonschem
 	for _, fn := range extra {
 		fn(&evt)
 	}
-	m.jsonEvents = append(m.jsonEvents, marshalEnvelope("install.progress", evt))
+	m.emitJSON("install.progress", evt)
 	return m
 }
 
 type progressiveInstallModel struct {
 	baseModel
 
-	Driver       string
-	VersionInput *semver.Version
-	NoVerify     bool
-	jsonOutput   bool
-	Pre          bool
-	cfg          config.Config
+	Driver             string
+	VersionInput       *semver.Version
+	NoVerify           bool
+	jsonOutput         bool
+	jsonStreamProgress bool
+	Pre                bool
+	cfg                config.Config
 
 	insecureNoChecksum  bool
 	installedDriverInfo config.DriverInfo
@@ -222,8 +239,8 @@ type progressiveInstallModel struct {
 	localPackagePath string
 
 	registryErrors           error
-	jsonEvents               []string
 	alreadyInstalledChecksum string
+	jsonOut                  io.Writer
 	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
 }
 
@@ -353,31 +370,15 @@ func (m progressiveInstallModel) FinalOutput() string {
 
 		if m.jsonOutput {
 			if installStatus.Checksum != "" {
-				m = m.addEvent("verify.checksum.ok", func(e *jsonschema.InstallProgressEvent) {
+				m.addEvent("verify.checksum.ok", func(e *jsonschema.InstallProgressEvent) {
 					e.Checksum = installStatus.Checksum
 				})
 			}
-			payloadBytes, err := json.Marshal(installStatus)
-			if err != nil {
-				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
-			}
-			env := jsonschema.Envelope{
-				SchemaVersion: jsonschema.SchemaVersion,
-				Kind:          "install.status",
-				Payload:       json.RawMessage(payloadBytes),
-			}
-			jsonOutput, err := json.Marshal(env)
-			if err != nil {
-				return fmt.Sprintf(`{"schema_version":1,"kind":"error","payload":{"code":"marshal_error","message":"%s"}}`, err.Error())
-			}
-			completeLine := marshalEnvelope("install.progress", jsonschema.InstallProgressEvent{
+			m.emitJSON("install.progress", jsonschema.InstallProgressEvent{
 				Event:  "install.complete",
 				Driver: m.Driver,
 			})
-			allLines := make([]string, 0, len(m.jsonEvents)+2)
-			allLines = append(allLines, m.jsonEvents...)
-			allLines = append(allLines, completeLine, string(jsonOutput))
-			return strings.Join(allLines, "\n")
+			return marshalEnvelope("install.status", installStatus)
 		}
 
 		if installStatus.Conflict != "" {

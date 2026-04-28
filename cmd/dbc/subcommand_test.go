@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/url"
 	"os"
@@ -145,11 +146,19 @@ func (suite *SubcommandTestSuite) Dir() string {
 	return suite.configLevel.ConfigLocation()
 }
 
+// HasJSONWriter is implemented by models that stream JSON events directly to an io.Writer.
+type HasJSONWriter interface {
+	WithJSONWriter(io.Writer) tea.Model
+}
+
 func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var out bytes.Buffer
+	if jw, ok := m.(HasJSONWriter); ok {
+		m = jw.WithJSONWriter(&out)
+	}
 	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
 		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() {
@@ -185,6 +194,9 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 	defer cancel()
 
 	var out bytes.Buffer
+	if jw, ok := m.(HasJSONWriter); ok {
+		m = jw.WithJSONWriter(&out)
+	}
 	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
 		tea.WithoutRenderer(), tea.WithContext(ctx))
 	defer func() {

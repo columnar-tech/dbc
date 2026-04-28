@@ -530,7 +530,7 @@ func (suite *SubcommandTestSuite) TestInstall_InsecureNoChecksumFlag() {
 }
 
 func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
-	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, JsonStreamProgress: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmd(m)
 

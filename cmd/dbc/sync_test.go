@@ -277,3 +277,31 @@ func (suite *SubcommandTestSuite) TestSync_JSONStream() {
 	suite.Len(status.Installed, 1)
 	suite.Equal("test-driver-1", status.Installed[0].Name)
 }
+
+func (suite *SubcommandTestSuite) TestSync_JSONProgressStream() {
+	tmpDir := suite.T().TempDir()
+	driverListPath := filepath.Join(tmpDir, "dbc.toml")
+	err := os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0644)
+	suite.Require().NoError(err)
+
+	m := SyncCmd{Path: driverListPath, JsonStreamProgress: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	suite.Greater(len(lines), 1, "expected multiple NDJSON lines")
+
+	var kinds []string
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		var env jsonschema.Envelope
+		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
+		suite.Equal(1, env.SchemaVersion)
+		kinds = append(kinds, env.Kind)
+	}
+
+	suite.Contains(kinds, "sync.progress")
+	suite.Equal("sync.status", kinds[len(kinds)-1])
+}

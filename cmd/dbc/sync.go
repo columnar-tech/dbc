@@ -37,29 +37,32 @@ import (
 )
 
 type SyncCmd struct {
-	Path     string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to sync from"`
-	Level    config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
-	NoVerify bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
-	Json     bool               `arg:"--json" help:"Output NDJSON progress events instead of TUI"`
+	Path               string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to sync from"`
+	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Json               bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
+	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
 }
 
 func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	return syncModel{
-		baseModel:  baseModel,
-		Path:       c.Path,
-		cfg:        getConfig(c.Level),
-		NoVerify:   c.NoVerify,
-		jsonOutput: c.Json,
+		baseModel:          baseModel,
+		Path:               c.Path,
+		cfg:                getConfig(c.Level),
+		NoVerify:           c.NoVerify,
+		jsonOutput:         c.Json || c.JsonStreamProgress,
+		jsonStreamProgress: c.JsonStreamProgress,
 	}
 }
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path:       c.Path,
-		cfg:        getConfig(c.Level),
-		NoVerify:   c.NoVerify,
-		jsonOutput: c.Json,
-		baseModel:  defaultBaseModel(),
+		Path:               c.Path,
+		cfg:                getConfig(c.Level),
+		NoVerify:           c.NoVerify,
+		jsonOutput:         c.Json || c.JsonStreamProgress,
+		jsonStreamProgress: c.JsonStreamProgress,
+		baseModel:          defaultBaseModel(),
 	}
 }
 
@@ -67,8 +70,17 @@ func (syncModel) NeedsRenderer() {}
 
 func (s syncModel) IsJSONMode() bool { return s.jsonOutput }
 
+func (s syncModel) WithJSONWriter(w io.Writer) tea.Model {
+	s.jsonOut = w
+	return s
+}
+
 func (s syncModel) emitJSON(kind string, payload any) {
-	fmt.Fprintln(os.Stdout, marshalEnvelope(kind, payload))
+	out := s.jsonOut
+	if out == nil {
+		out = os.Stdout
+	}
+	fmt.Fprintln(out, marshalEnvelope(kind, payload))
 }
 
 func (s syncModel) FinalOutput() string {
@@ -101,7 +113,8 @@ type syncModel struct {
 	locked LockFile
 	cfg    config.Config
 
-	jsonOutput bool
+	jsonOutput         bool
+	jsonStreamProgress bool
 
 	// the list of drivers in the driver list
 	list DriversList
@@ -123,6 +136,8 @@ type syncModel struct {
 	skippedDrivers []jsonschema.SyncedDriver
 	// newlyInstalled tracks freshly installed drivers for JSON output
 	newlyInstalled []jsonschema.SyncedDriver
+
+	jsonOut io.Writer
 }
 
 type driversListMsg struct {
@@ -397,7 +412,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		s.installItems = msg
 
-		if s.jsonOutput {
+		if s.jsonStreamProgress {
 			for _, item := range msg {
 				s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
 					Phase:  "resolving",
@@ -419,7 +434,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Version: msg.info.Version.String(),
 		})
 
-		if s.jsonOutput {
+		if s.jsonStreamProgress {
 			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
 				Phase:   "skipped",
 				Driver:  msg.info.ID,
@@ -476,7 +491,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Version: msg.info.Version.String(),
 		})
 
-		if s.jsonOutput {
+		if s.jsonStreamProgress {
 			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
 				Phase:   "installed",
 				Driver:  msg.info.ID,
