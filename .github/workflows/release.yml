@@ -38,7 +38,6 @@ jobs:
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: './go.mod'
-          cache: false
 
       # pull more recent version of wixl than in the ubuntu repos
       # needed for Path Env update support
@@ -73,8 +72,6 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
-        with:
-          enable-cache: false
 
       - name: Install Wheel
         run: pip install wheel
