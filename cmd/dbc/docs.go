@@ -58,22 +58,18 @@ func (c DocsCmd) GetModelCustom(baseModel baseModel, noOpen bool, openBrowserFun
 }
 
 func (c DocsCmd) GetModel() tea.Model {
-	return c.GetModelCustom(baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
-	}, c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
+	return c.GetModelCustom(defaultBaseModel(), c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
 }
 
 type docsModel struct {
 	baseModel
 
-	driver         string
-	drv            *dbc.Driver
-	urlToOpen      string
-	noOpen         bool
-	fallbackUrls   map[string]string
-	openBrowser    func(string) error
-	registryErrors error // Store registry errors for better error messages
+	driver       string
+	drv          *dbc.Driver
+	urlToOpen    string
+	noOpen       bool
+	fallbackUrls map[string]string
+	openBrowser  func(string) error
 }
 
 func (m docsModel) Init() tea.Cmd {
@@ -90,11 +86,7 @@ func (m docsModel) Init() tea.Cmd {
 
 		drv, err := findDriver(m.driver, drivers)
 		if err != nil {
-			// If we have registry errors, enhance the error message
-			if registryErr != nil {
-				return fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, registryErr.Error())
-			}
-			return err
+			return wrapWithRegistryContext(err, registryErr)
 		}
 
 		return drv
@@ -111,8 +103,8 @@ func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 }
 
 func (m docsModel) getDocsUrlFor(driver *dbc.Driver) string {
-	if driver.DocsUrl != "" {
-		return driver.DocsUrl
+	if driver.DocsURL != "" {
+		return driver.DocsURL
 	}
 	fallbackUrl, keyExists := m.fallbackUrls[driver.Path]
 	if keyExists && fallbackUrl != "" {

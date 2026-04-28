@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/columnar-tech/dbc"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -41,17 +40,6 @@ type Manifest struct {
 	PostInstall struct {
 		Messages []string `toml:"messages,inline,omitempty"`
 	} `toml:"PostInstall,omitempty"`
-}
-
-func (m Manifest) ToPackageInfo() dbc.PkgInfo {
-	return dbc.PkgInfo{
-		Driver: dbc.Driver{
-			Title:   m.Name,
-			Path:    m.ID,
-			License: m.License,
-		},
-		Version: m.Version,
-	}
 }
 
 type DriverInfo struct {
@@ -205,8 +193,8 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		}
 	}
 
-	manifest_path := filepath.Join(location, driver.ID+".toml")
-	f, err := os.Create(manifest_path)
+	manifestPath := filepath.Join(location, driver.ID+".toml")
+	f, err := os.Create(manifestPath)
 	if err != nil {
 		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
 	}
@@ -220,7 +208,7 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	// installing.
 	//
 	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	createManifestSymlink(location, driver.ID, manifest_path)
+	createManifestSymlink(location, driver.ID, manifestPath)
 
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,

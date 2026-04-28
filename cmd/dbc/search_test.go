@@ -27,8 +27,7 @@ import (
 
 func (suite *SubcommandTestSuite) TestSearchCmd() {
 	m := SearchCmd{}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ",
 		"test-driver-1                This is a test driver                                                                             \n"+
 			"test-driver-2                This is another test driver                                                                       \n"+
@@ -40,12 +39,11 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	m = SearchCmd{}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ",
 		"test-driver-1                This is a test driver                                                                              [installed: env=>1.1.0]\n"+
 			"test-driver-2                This is another test driver                                                                                               \n"+
@@ -57,8 +55,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 	m := SearchCmd{Verbose: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ", "• test-driver-1\n   Title: Test Driver 1\n   "+
 		"Description: This is a test driver\n   License: MIT\n   "+
 		"Available Versions:\n    ├── 1.0.0\n    ╰── 1.1.0\n"+
@@ -81,12 +78,11 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	m = SearchCmd{Verbose: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ", "• test-driver-1\n   Title: Test Driver 1\n   "+
 		"Description: This is a test driver\n   License: MIT\n   "+
 		"Installed Versions:\n    ╰── 1.1.0\n        ╰── env => "+filepath.Join(suite.tempdir)+
@@ -123,7 +119,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 func (suite *SubcommandTestSuite) TestSearchCmdWithMissingVersionInManifest() {
 	// Install a driver
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	// Corrupt the manifest by removing the version key
@@ -145,16 +141,14 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithMissingVersionInManifest() {
 
 	suite.Require().NotPanics(func() {
 		m = SearchCmd{}.GetModelCustom(
-			baseModel{getDriverRegistry: getTestDriverRegistry,
-				downloadPkg: downloadTestPkg})
+			testBaseModel())
 		suite.runCmd(m)
 	}, "Search should not panic when manifest is missing version key")
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithPre() {
 	m := SearchCmd{Pre: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ",
 		"test-driver-1                This is a test driver                                                                             \n"+
 			"test-driver-2                This is another test driver                                                                       \n"+
@@ -167,8 +161,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithPre() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithPre() {
 	m := SearchCmd{Verbose: true, Pre: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ", "• test-driver-1\n   Title: Test Driver 1\n   "+
 		"Description: This is a test driver\n   License: MIT\n   "+
 		"Available Versions:\n    ├── 1.0.0\n    ╰── 1.1.0\n"+
@@ -194,12 +187,11 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithPre() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPre() {
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	m = SearchCmd{}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.validateOutput("\r ",
 		"test-driver-1                This is a test driver                                                                                                             \n"+
 			"test-driver-2                This is another test driver                                                                                                       \n"+
@@ -212,18 +204,16 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPre() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalledPre() {
 	searchModel := SearchCmd{Verbose: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	before := suite.runCmd(searchModel)
 	suite.NotContains(before, "test-driver-only-pre")
 
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	searchModel = SearchCmd{Verbose: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	after := suite.runCmd(searchModel)
 
 	suite.Contains(after, "test-driver-only-pre")
@@ -236,18 +226,16 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalledPre() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdNonVerboseWithInstalledPre() {
 	searchModel := SearchCmd{}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	before := suite.runCmd(searchModel)
 	suite.NotContains(before, "test-driver-only-pre")
 
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	searchModel = SearchCmd{}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	after := suite.runCmd(searchModel)
 
 	suite.Contains(after, "test-driver-only-pre")
@@ -258,18 +246,16 @@ func (suite *SubcommandTestSuite) TestSearchCmdNonVerboseWithInstalledPre() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPreJSON() {
 	searchModel := SearchCmd{Json: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	before := suite.runCmd(searchModel)
 	suite.NotContains(before, `"test-driver-only-pre"`)
 
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	searchModel = SearchCmd{Json: true}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: downloadTestPkg})
+		testBaseModel())
 	after := suite.runCmd(searchModel)
 
 	suite.Contains(after, `"test-driver-only-pre"`)

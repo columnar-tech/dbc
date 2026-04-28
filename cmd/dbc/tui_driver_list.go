@@ -18,21 +18,17 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/Masterminds/semver/v3"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 )
 
 const defaultWidth = 40
 
-var (
-	docStyle          = lipgloss.NewStyle().Margin(1, 2)
-	itemStyle         = lipgloss.NewStyle().PaddingLeft(4)
-	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(2).Foreground(lipgloss.Color("170"))
-)
+var docStyle = lipgloss.NewStyle().Margin(1, 2)
 
 type item struct {
 	d dbc.Driver
@@ -53,7 +49,7 @@ type model struct {
 }
 
 func getDrivers() tea.Msg {
-	drivers, err := dbc.GetDriverList()
+	drivers, err := getDriverRegistry()
 	if err != nil {
 		fmt.Println("Error getting drivers:", err)
 		os.Exit(1)
@@ -91,7 +87,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.chooseVersion = versionModel{
-					list:   list.New(versions, dbc.SimpleItemDelegate{Prompt: ">"}, 40, 15),
+					list:   list.New(versions, SimpleItemDelegate{Prompt: ">"}, 40, 15),
 					choice: "",
 				}
 				m.chooseVersion.list.Title = fmt.Sprintf("Versions for %s", i.d.Title)
@@ -125,7 +121,7 @@ func (m model) View() tea.View {
 type versionOption semver.Version
 
 func (v versionOption) FilterValue() string { return v.String() }
-func (v versionOption) String() string      { return v.String() }
+func (v versionOption) String() string      { return semver.Version(v).String() }
 
 type versionModel struct {
 	list   list.Model

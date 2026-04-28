@@ -84,13 +84,13 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 
 	// Install to Env first
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	// Then System (here, we fake it as $tempdir/etc/adbc)
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	installModel := m.(progressiveInstallModel)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
 	m = installModel // <- We need to reassign to make the change stick
@@ -99,7 +99,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocations() {
 
 	// Uninstall from Env level
 	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
@@ -113,20 +113,20 @@ func (suite *SubcommandTestSuite) TestUninstallDriverTwice() {
 
 	// Install to Env first
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	// Uninstall from Env level
 	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
 	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	// Uninstall from Env level
 	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r ", "\nError: failed to find driver `test-driver-1` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
@@ -139,13 +139,13 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 
 	// Install to Env first
 	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	// Then System (here, we fake it as $tempdir/etc/adbc)
 	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	installModel := m.(progressiveInstallModel)
 	installModel.cfg.Location = filepath.Join(suite.tempdir, "root", installModel.cfg.Location)
 	m = installModel // <- We need to reassign to make the change stick
@@ -154,7 +154,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 
 	// Then uninstall System (again, faked as $tempdir/etc/adbc)
 	m = UninstallCmd{Driver: "test-driver-1", Level: config.ConfigSystem}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	uninstallModel := m.(uninstallModel)
 	uninstallModel.cfg.Location = filepath.Join(suite.tempdir, "root", uninstallModel.cfg.Location)
 	m = uninstallModel // <- We need to reassign to make the change stick
@@ -166,7 +166,7 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 
 func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+
@@ -183,7 +183,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 
 	// Now uninstall and verify we clean up
 	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r ", "Driver `test-driver-manifest-only` uninstalled successfully!", suite.runCmd(m))
 	suite.driverIsNotInstalled("test-driver-manifest-only")
 	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
@@ -196,7 +196,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	}
 
 	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
 
@@ -243,7 +243,7 @@ func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
 
 	// Install a driver
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	_ = suite.runCmd(m)
 	suite.driverIsInstalled("test-driver-1", true)
 

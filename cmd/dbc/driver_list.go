@@ -44,7 +44,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
-	drivers, err := dbc.GetDriverList()
+	drivers, err := getDriverRegistry()
 	if err != nil {
 		return nil, err
 	}

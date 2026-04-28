@@ -54,10 +54,7 @@ func (s SearchCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (s SearchCmd) GetModel() tea.Model {
-	return s.GetModelCustom(baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
-	})
+	return s.GetModelCustom(defaultBaseModel())
 }
 
 type searchModel struct {

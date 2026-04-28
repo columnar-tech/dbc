@@ -21,7 +21,6 @@ import (
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
-	"github.com/columnar-tech/dbc/config"
 )
 
 func getTuiModel() tea.Model {
@@ -39,7 +38,7 @@ func getTuiModel() tea.Model {
 	driversModel.list.SetFilteringEnabled(true)
 
 	m.options.SetItems([]list.Item{
-		menuOption{title: "Current Config", delegate: config.Model{Prev: &m}},
+		menuOption{title: "Current Config", delegate: configViewModel{Prev: &m}},
 		menuOption{title: "Drivers", delegate: &driversModel},
 	})
 

@@ -15,6 +15,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -64,12 +65,12 @@ func fetch[T any](u *url.URL, dest *T) error {
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to fetch %s: %s", u.String(), resp.Status)
 	}
 
-	defer resp.Body.Close()
 	return json.NewDecoder(resp.Body).Decode(dest)
 }
 
@@ -99,8 +100,11 @@ func refreshOauth(cred *Credential) error {
 	}
 
 	payload := values.Encode()
-	req, _ := http.NewRequest(http.MethodPost, cfg.TokenEndpoint.String(),
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, cfg.TokenEndpoint.String(),
 		strings.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("failed to build token request: %w", err)
+	}
 	req.Header.Add("content-type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

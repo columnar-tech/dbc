@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
@@ -166,8 +165,8 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "test-api-key",
 		}
 
-		success := cred.Refresh()
-		assert.True(t, success)
+		err := cred.Refresh()
+		assert.NoError(t, err)
 		assert.Equal(t, "new-token", cred.Token)
 	})
 
@@ -184,8 +183,8 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "invalid-key",
 		}
 
-		success := cred.Refresh()
-		assert.False(t, success)
+		err := cred.Refresh()
+		assert.Error(t, err)
 	})
 
 	t.Run("failed refresh with apikey - invalid json", func(t *testing.T) {
@@ -202,8 +201,8 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "test-api-key",
 		}
 
-		success := cred.Refresh()
-		assert.False(t, success)
+		err := cred.Refresh()
+		assert.Error(t, err)
 	})
 }
 
@@ -273,20 +272,10 @@ func TestLoadCreds(t *testing.T) {
 }
 
 func TestGetCredentials(t *testing.T) {
-	// Save original values and restore after test
-	origCredPath := credPath
-	origLoadedCredentials := loadedCredentials
-	defer func() {
-		credPath = origCredPath
-		loadedCredentials = origLoadedCredentials
-	}()
-
-	// Reset loaded state
-	loaded = sync.Once{}
+	resetCredState(t)
 
 	t.Run("get existing credentials", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		u, _ := url.Parse("https://example.com")
 		testCreds := struct {
@@ -314,11 +303,10 @@ func TestGetCredentials(t *testing.T) {
 	})
 
 	// Reset for next test
-	loaded = sync.Once{}
+	ResetCredentialsForTesting()
 
 	t.Run("return nil when credentials not found", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		// Create empty credentials file
 		testCreds := struct {
@@ -341,20 +329,10 @@ func TestGetCredentials(t *testing.T) {
 }
 
 func TestAddCredential(t *testing.T) {
-	// Save original values and restore after test
-	origCredPath := credPath
-	origLoadedCredentials := loadedCredentials
-	defer func() {
-		credPath = origCredPath
-		loadedCredentials = origLoadedCredentials
-	}()
-
-	// Reset loaded state
-	loaded = sync.Once{}
+	resetCredState(t)
 
 	t.Run("add new credential", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		u, _ := url.Parse("https://example.com")
 		newCred := Credential{
@@ -374,12 +352,10 @@ func TestAddCredential(t *testing.T) {
 	})
 
 	// Reset for next test
-	loaded = sync.Once{}
-	loadedCredentials = nil
+	ResetCredentialsForTesting()
 
 	t.Run("return error when credential already exists", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		u, _ := url.Parse("https://example.com")
 		cred := Credential{
@@ -399,12 +375,10 @@ func TestAddCredential(t *testing.T) {
 	})
 
 	// Reset for next test
-	loaded = sync.Once{}
-	loadedCredentials = nil
+	ResetCredentialsForTesting()
 
 	t.Run("overwrite existing credential when allowOverwrite is true", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		u, _ := url.Parse("https://example.com")
 		originalCred := Credential{
@@ -441,20 +415,10 @@ func TestAddCredential(t *testing.T) {
 }
 
 func TestRemoveCredential(t *testing.T) {
-	// Save original values and restore after test
-	origCredPath := credPath
-	origLoadedCredentials := loadedCredentials
-	defer func() {
-		credPath = origCredPath
-		loadedCredentials = origLoadedCredentials
-	}()
-
-	// Reset loaded state
-	loaded = sync.Once{}
+	resetCredState(t)
 
 	t.Run("remove existing credential", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		u, _ := url.Parse("https://example.com")
 		cred := Credential{
@@ -478,12 +442,10 @@ func TestRemoveCredential(t *testing.T) {
 	})
 
 	// Reset for next test
-	loaded = sync.Once{}
-	loadedCredentials = nil
+	ResetCredentialsForTesting()
 
 	t.Run("return error when credential not found", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		// Create empty credentials file
 		testCreds := struct {
@@ -506,20 +468,10 @@ func TestRemoveCredential(t *testing.T) {
 }
 
 func TestUpdateCreds(t *testing.T) {
-	// Save original values and restore after test
-	origCredPath := credPath
-	origLoadedCredentials := loadedCredentials
-	defer func() {
-		credPath = origCredPath
-		loadedCredentials = origLoadedCredentials
-	}()
-
-	// Reset loaded state
-	loaded = sync.Once{}
+	resetCredState(t)
 
 	t.Run("update credentials file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		credPath = filepath.Join(tmpDir, "credentials.toml")
+		credPath = withTempCredPath(t)
 
 		u, _ := url.Parse("https://example.com")
 
@@ -543,9 +495,8 @@ func TestUpdateCreds(t *testing.T) {
 		_, err = os.Stat(credPath)
 		assert.NoError(t, err)
 
-		// Reset sync.Once to read from file
-		loaded = sync.Once{}
-		loadedCredentials = nil
+		// Reset to read from file
+		ResetCredentialsForTesting()
 
 		// Verify content
 		creds, err := loadCreds()

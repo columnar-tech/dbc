@@ -28,9 +28,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/cli/browser"
 	"github.com/cli/oauth/device"
-	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 )
+
+func ensureHTTPS(uri string) string {
+	if !strings.HasPrefix(uri, "https://") {
+		return "https://" + uri
+	}
+	return uri
+}
 
 type AuthCmd struct {
 	Login   *LoginCmd   `arg:"subcommand" help:"Authenticate with a driver registry"`
@@ -58,7 +64,8 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		reader := bufio.NewReader(os.Stdin)
 		apiKey, err := reader.ReadString('\n')
 		if err != nil && err != io.EOF {
-			panic(fmt.Errorf("failed to read API key from stdin: %w", err))
+			fmt.Fprintf(os.Stderr, "failed to read API key from stdin: %s\n", err)
+			os.Exit(1)
 		}
 
 		l.ApiKey = strings.TrimSpace(apiKey)
@@ -86,12 +93,7 @@ func (l LoginCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (l LoginCmd) GetModel() tea.Model {
-	return l.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	)
+	return l.GetModelCustom(defaultBaseModel())
 }
 
 type authSuccessMsg struct {
@@ -113,9 +115,7 @@ type loginModel struct {
 }
 
 func (m loginModel) Init() tea.Cmd {
-	if !strings.HasPrefix(m.inputURI, "https://") {
-		m.inputURI = "https://" + m.inputURI
-	}
+	m.inputURI = ensureHTTPS(m.inputURI)
 
 	u, err := url.Parse(m.inputURI)
 	if err != nil {
@@ -139,7 +139,7 @@ func (m loginModel) authConfig() tea.Cmd {
 
 func (m loginModel) requestDeviceCode(cfg auth.OpenIDConfig) tea.Cmd {
 	return func() tea.Msg {
-		rsp, err := device.RequestCode(dbc.DefaultClient, cfg.DeviceAuthorizationEndpoint.String(),
+		rsp, err := device.RequestCode(dbcClient.HTTPClient(), cfg.DeviceAuthorizationEndpoint.String(),
 			m.oauthClientID, []string{"openid", "offline_access"})
 		if err != nil {
 			return fmt.Errorf("failed to request device code: %w", err)
@@ -159,8 +159,8 @@ func (m loginModel) apiKeyToToken() tea.Cmd {
 			ApiKey:      m.apiKey,
 		}
 
-		if !cred.Refresh() {
-			return fmt.Errorf("failed to obtain access token using provided API key")
+		if err := cred.Refresh(); err != nil {
+			return fmt.Errorf("failed to obtain access token using provided API key: %w", err)
 		}
 
 		return cred
@@ -188,7 +188,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tea.Println("Opening ", msg.VerificationURIComplete, " in your default web browser..."),
 			func() tea.Msg {
 				browser.OpenURL(msg.VerificationURIComplete)
-				accessToken, err := device.Wait(context.TODO(), dbc.DefaultClient, m.tokenURI.String(), device.WaitOptions{
+				accessToken, err := device.Wait(context.TODO(), dbcClient.HTTPClient(), m.tokenURI.String(), device.WaitOptions{
 					ClientID:   m.oauthClientID,
 					DeviceCode: msg,
 				})
@@ -262,12 +262,7 @@ func (l LogoutCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (l LogoutCmd) GetModel() tea.Model {
-	return l.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	)
+	return l.GetModelCustom(defaultBaseModel())
 }
 
 type logoutModel struct {
@@ -278,9 +273,7 @@ type logoutModel struct {
 }
 
 func (m logoutModel) Init() tea.Cmd {
-	if !strings.HasPrefix(m.inputURI, "https://") {
-		m.inputURI = "https://" + m.inputURI
-	}
+	m.inputURI = ensureHTTPS(m.inputURI)
 
 	u, err := url.Parse(m.inputURI)
 	if err != nil {
@@ -326,12 +319,7 @@ func (l LicenseInstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 }
 
 func (l LicenseInstallCmd) GetModel() tea.Model {
-	return l.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
-	)
+	return l.GetModelCustom(defaultBaseModel())
 }
 
 type licenseInstalledMsg struct{}
@@ -369,7 +357,11 @@ func (m licenseInstallModel) FinalOutput() string {
 	if !m.installed {
 		return ""
 	}
-	return "License installed to " + auth.LicensePath()
+	p, err := auth.LicensePath()
+	if err != nil {
+		return "License installed (could not determine path)"
+	}
+	return "License installed to " + p
 }
 
 func (m licenseInstallModel) View() tea.View { return tea.NewView("") }

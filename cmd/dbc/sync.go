@@ -50,13 +50,10 @@ func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c SyncCmd) GetModel() tea.Model {
 	return syncModel{
-		Path:     c.Path,
-		cfg:      getConfig(c.Level),
-		NoVerify: c.NoVerify,
-		baseModel: baseModel{
-			getDriverRegistry: getDriverRegistry,
-			downloadPkg:       downloadPkg,
-		},
+		Path:      c.Path,
+		cfg:       getConfig(c.Level),
+		NoVerify:  c.NoVerify,
+		baseModel: defaultBaseModel(),
 	}
 }
 
@@ -118,23 +115,10 @@ func (s syncModel) Init() tea.Cmd {
 }
 
 func loadDriverList(path string) (DriversList, error) {
-	f, err := os.Open(path)
+	list, err := openAndDecodeDriverList(path)
 	if err != nil {
-		var outError error
-		if errors.Is(err, os.ErrNotExist) {
-			outError = fmt.Errorf("error opening driver list: %s doesn't exist\ndid you run `dbc init`?", path)
-		} else {
-			outError = fmt.Errorf("error opening driver list at %s: %w", path, err)
-		}
-		return DriversList{}, outError
-	}
-	defer f.Close()
-
-	var list DriversList
-	if err := toml.NewDecoder(f).Decode(&list); err != nil {
 		return DriversList{}, err
 	}
-
 	if len(list.Drivers) == 0 {
 		return DriversList{}, fmt.Errorf("no drivers found in driver list `%s`", path)
 	}
@@ -165,11 +149,7 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		// locate the driver info in the CDN driver registry index
 		drv, err := findDriver(name, s.driverIndex)
 		if err != nil {
-			// If we have registry errors, enhance the error message
-			if s.registryErrors != nil {
-				return nil, fmt.Errorf("%w\n\nNote: Some driver registries were unavailable:\n%s", err, s.registryErrors.Error())
-			}
-			return nil, err
+			return nil, wrapWithRegistryContext(err, s.registryErrors)
 		}
 
 		var pkg dbc.PkgInfo

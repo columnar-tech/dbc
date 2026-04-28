@@ -58,6 +58,10 @@ func getTestDriverRegistry() ([]dbc.Driver, error) {
 	return drivers.Drivers, nil
 }
 
+func testBaseModel() baseModel {
+	return baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg}
+}
+
 func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 	switch pkg.Driver.Path {
 	case "test-driver-1":

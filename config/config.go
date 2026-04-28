@@ -183,6 +183,7 @@ func loadConfig(lvl ConfigLevel) Config {
 			maps.Copy(finalDrivers, drivers)
 		}
 		cfg.Exists, cfg.Drivers = len(finalDrivers) > 0, finalDrivers
+		return cfg
 	}
 
 	drivers, err := loadDir(cfg.Location)
@@ -249,7 +250,9 @@ func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 	defer f.Close()
 	var m Manifest
 
-	f.Seek(0, io.SeekStart)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return m, fmt.Errorf("could not seek to start: %w", err)
+	}
 	rdr, err := gzip.NewReader(f)
 	if err != nil {
 		return m, fmt.Errorf("could not create gzip reader: %w", err)
@@ -423,11 +426,11 @@ func UninstallDriverShared(info DriverInfo) error {
 	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
 	// work. We do want to clean this folder up so here we guess what it is and
 	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
-	extra_folder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
-	extra_folder = filepath.Clean(extra_folder)
-	finfo, err := root.Stat(extra_folder)
-	if err == nil && finfo.IsDir() && extra_folder != "." {
-		_ = root.RemoveAll(extra_folder)
+	extraFolder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
+	extraFolder = filepath.Clean(extraFolder)
+	finfo, err := root.Stat(extraFolder)
+	if err == nil && finfo.IsDir() && extraFolder != "." {
+		_ = root.RemoveAll(extraFolder)
 		// ignore errors
 	}
 

@@ -20,6 +20,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -78,8 +79,34 @@ type NeedsRenderer interface {
 	NeedsRenderer()
 }
 
+var (
+	dbcClient     *dbc.Client
+	dbcClientErr  error
+	dbcClientOnce sync.Once
+)
+
+func newDefaultClient() (*dbc.Client, error) {
+	var opts []dbc.Option
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		opts = append(opts, dbc.WithBaseURL(val))
+	}
+	return dbc.NewClient(opts...)
+}
+
+func initDBCClient() error {
+	dbcClientOnce.Do(func() {
+		dbcClient, dbcClientErr = newDefaultClient()
+	})
+	return dbcClientErr
+}
+
 // use this so we can override this in tests
-var getDriverRegistry = dbc.GetDriverList
+var getDriverRegistry = func() ([]dbc.Driver, error) {
+	if err := initDBCClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
+	}
+	return dbcClient.Search("")
+}
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -217,9 +244,14 @@ func main() {
 		args cmds
 	)
 
+	if err := initDBCClient(); err != nil {
+		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", err)
+		os.Exit(1)
+	}
+
 	p, err := newParser(&args)
 	if err != nil {
-		fmt.Println("Error creating argument parser:", err)
+		fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -261,6 +293,9 @@ func main() {
 		os.Exit(0)
 	case modelCmd:
 		m = sub.GetModel()
+	default:
+		fmt.Fprintf(os.Stderr, "internal error: unrecognized subcommand %T\n", p.Subcommand())
+		os.Exit(1)
 	}
 
 	// f, err := tea.LogToFile("debug.log", "debug")

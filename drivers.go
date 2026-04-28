@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"context"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -36,7 +37,6 @@ import (
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
-	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 	machineid "github.com/zeroshade/machine-id"
 )
@@ -61,17 +61,19 @@ func mustParseURL(u string) *url.URL {
 }
 
 var (
-	registries = []Registry{
-		{BaseURL: mustParseURL("https://dbc-cdn.columnar.tech")},
-		{BaseURL: mustParseURL("https://" + auth.DefaultOauthURI())},
-	}
 	Version = "unknown"
 	mid     string
 	uid     uuid.UUID
 
-	// use this default client for all requests,
-	// it will add the dbc user-agent to all requests
+	// DefaultClient is the HTTP client used for all requests.
+	//
+	// Deprecated: Use NewClient with WithHTTPClient instead.
+	// DefaultClient must be set during program initialization,
+	// before any concurrent calls to GetDriverList or makereq.
 	DefaultClient = http.DefaultClient
+
+	setupOnce      sync.Once
+	internalClient *http.Client
 )
 
 type uaRoundTripper struct {
@@ -81,6 +83,7 @@ type uaRoundTripper struct {
 
 // custom RoundTripper that sets the User-Agent header on any requests
 func (u *uaRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
 	req.Header.Set("User-Agent", u.userAgent)
 	return u.RoundTripper.RoundTrip(req)
 }
@@ -90,62 +93,65 @@ func init() {
 	if ok && Version == "unknown" {
 		Version = info.Main.Version
 	}
+}
 
-	if val := os.Getenv("DBC_BASE_URL"); val != "" {
-		registries = []Registry{
-			{BaseURL: mustParseURL(val)},
+func ensureSetup() {
+	setupOnce.Do(func() {
+		userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
+			Version, runtime.GOOS, runtime.GOARCH)
+
+		if ci := os.Getenv("CI"); ci != "" {
+			if val, _ := strconv.ParseBool(ci); val {
+				userAgent += " CI"
+			}
 		}
-	}
 
-	userAgent := fmt.Sprintf("dbc-cli/%s (%s; %s)",
-		Version, runtime.GOOS, runtime.GOARCH)
-
-	// many CI systems set CI=true in the env so let's check for that
-	if ci := os.Getenv("CI"); ci != "" {
-		if val, _ := strconv.ParseBool(ci); val {
-			userAgent += " CI"
+		internalClient = &http.Client{
+			Transport: &uaRoundTripper{
+				RoundTripper: http.DefaultTransport,
+				userAgent:    userAgent,
+			},
 		}
-	}
 
-	DefaultClient.Transport = &uaRoundTripper{
-		RoundTripper: http.DefaultTransport,
-		userAgent:    userAgent,
-	}
+		mid, _ = machineid.ProtectedID()
 
-	mid, _ = machineid.ProtectedID()
-
-	// get user config dir
-	userdir, err := internal.GetUserConfigPath()
-	if err != nil {
-		// if we can't get the dir for some reason, just generate a new UUID
-		uid = uuid.New()
-		return
-	}
-
-	fp := filepath.Join(userdir, "uid.uuid")
-	data, err := os.ReadFile(fp)
-	if err == nil {
-		if err = uid.UnmarshalBinary(data); err == nil {
+		userdir, err := internal.GetUserConfigPath()
+		if err != nil {
+			uid = uuid.New()
 			return
 		}
-	}
 
-	// if the file didn't exist or we couldn't parse it, generate a new uuid
-	// and then write a new file
-	uid = uuid.New()
-	// if we fail to create the dir or write the file, just ignore the error
-	// and use the fresh UUID
-	if err = os.MkdirAll(filepath.Dir(fp), 0o700); err == nil {
-		if data, err = uid.MarshalBinary(); err == nil {
-			os.WriteFile(fp, data, 0o600)
+		fp := filepath.Join(userdir, "uid.uuid")
+		data, err := os.ReadFile(fp)
+		if err == nil {
+			if err = uid.UnmarshalBinary(data); err == nil {
+				return
+			}
 		}
+
+		uid = uuid.New()
+		if err = os.MkdirAll(filepath.Dir(fp), 0o700); err == nil {
+			if data, err = uid.MarshalBinary(); err == nil {
+				os.WriteFile(fp, data, 0o600)
+			}
+		}
+	})
+}
+
+func getHTTPClient() *http.Client {
+	ensureSetup()
+	if DefaultClient != http.DefaultClient {
+		return DefaultClient
 	}
+	return internalClient
 }
 
 func makereq(u string) (resp *http.Response, err error) {
+	ensureSetup()
+
 	uri, err := url.Parse(u)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse URL %s: %w", uri, err)
+		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
 
 	cred, err := auth.GetCredentials(uri)
@@ -158,16 +164,22 @@ func makereq(u string) (resp *http.Response, err error) {
 	q.Add("uid", uid.String())
 	uri.RawQuery = q.Encode()
 
-	req := http.Request{
-		Method: http.MethodGet,
-		URL:    uri,
-		Header: http.Header{},
+	buildLegacyReq := func(token string) (*http.Request, error) {
+		urlCopy := *uri
+		r, err := http.NewRequestWithContext(context.Background(), http.MethodGet, urlCopy.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		if uri.Path == "/index.yaml" {
+			r.Header.Set("Accept", "application/yaml")
+		}
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		return r, nil
 	}
 
-	if uri.Path == "/index.yaml" {
-		req.Header.Set("Accept", "application/yaml")
-	}
-
+	token := ""
 	if cred != nil {
 		if auth.IsColumnarPrivateRegistry(uri) {
 			// if we're accessing the private registry then attempt to
@@ -176,23 +188,31 @@ func makereq(u string) (resp *http.Response, err error) {
 			// trial or it is expired, then this will silently fail.
 			_ = auth.FetchColumnarLicense(cred)
 		}
-		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
+		token = cred.GetAuthToken()
 	}
 
-	resp, err = DefaultClient.Do(&req)
+	req, err := buildLegacyReq(token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request: %w", err)
+	}
+	resp, err = getHTTPClient().Do(req)
 	if err != nil {
 		return
 	}
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		// Try refreshing the token
-		if !cred.Refresh() {
-			return nil, fmt.Errorf("failed to refresh auth token")
+		if err := cred.Refresh(); err != nil {
+			return nil, fmt.Errorf("failed to refresh auth token: %w", err)
 		}
-
-		req.Header.Set("Authorization", "Bearer "+cred.GetAuthToken())
-		resp, err = DefaultClient.Do(&req)
+		retryReq, retryErr := buildLegacyReq(cred.GetAuthToken())
+		if retryErr != nil {
+			return nil, fmt.Errorf("failed to build retry request: %w", retryErr)
+		}
+		resp, err = getHTTPClient().Do(retryReq)
+		if err != nil {
+			return
+		}
 	}
 
 	switch resp.StatusCode {
@@ -207,65 +227,6 @@ func makereq(u string) (resp *http.Response, err error) {
 
 	return resp, err
 }
-
-func getDriverListFromIndex(index *Registry) ([]Driver, error) {
-	resp, err := makereq(index.BaseURL.JoinPath("/index.yaml").String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		// ignore registries we aren't authorized to access
-		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("failed to fetch drivers: %s", resp.Status)
-	}
-
-	defer resp.Body.Close()
-	drivers := struct {
-		Name    string   `yaml:"name"`
-		Drivers []Driver `yaml:"drivers"`
-	}{}
-
-	err = yaml.NewDecoder(resp.Body).Decode(&drivers)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse driver registry index: %s", err)
-	}
-
-	if drivers.Name != "" {
-		index.Name = drivers.Name
-	}
-
-	// Set registry reference
-	for i := range drivers.Drivers {
-		drivers.Drivers[i].Registry = index
-	}
-
-	result := drivers.Drivers
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Path < result[j].Path
-	})
-
-	return result, nil
-}
-
-var getDrivers = sync.OnceValues(func() ([]Driver, error) {
-	var totalErr error
-	allDrivers := make([]Driver, 0)
-	for i := range registries {
-		drivers, err := getDriverListFromIndex(&registries[i])
-		if err != nil {
-			totalErr = errors.Join(totalErr, fmt.Errorf("registry %s: %w", registries[i].BaseURL, err))
-			continue
-		}
-		registries[i].Drivers = drivers
-		allDrivers = append(allDrivers, drivers...)
-	}
-
-	return allDrivers, totalErr
-})
 
 //go:embed columnar.pubkey
 var armoredPubKey string
@@ -305,6 +266,7 @@ type PkgInfo struct {
 	Path *url.URL
 }
 
+// Deprecated: Use Client.Download instead.
 func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	if p.Path == nil {
 		return nil, fmt.Errorf("cannot download package for %s: no url set", p.Driver.Title)
@@ -317,6 +279,7 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	}
 
 	if rsp.StatusCode != http.StatusOK {
+		rsp.Body.Close()
 		return nil, fmt.Errorf("failed to download driver %s: %s", location, rsp.Status)
 	}
 	defer rsp.Body.Close()
@@ -329,6 +292,7 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 
 	output, err := os.Create(path.Join(tmpdir, fname))
 	if err != nil {
+		os.RemoveAll(tmpdir)
 		return nil, fmt.Errorf("failed to create temp file to download to: %w", err)
 	}
 
@@ -341,6 +305,8 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	_, err = io.Copy(pw, rsp.Body)
 	if err != nil {
 		output.Close()
+		output = nil
+		os.RemoveAll(tmpdir)
 	}
 	return output, err
 }
@@ -358,13 +324,20 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 		return PkgInfo{}, fmt.Errorf("no packages available for version %s", p.Version)
 	}
 
+	if d.Registry == nil {
+		return PkgInfo{}, fmt.Errorf("cannot resolve package URL for %s: driver has no registry", d.Title)
+	}
 	base := d.Registry.BaseURL
 	for _, pkg := range p.Packages {
 		if pkg.PlatformTuple == platformTuple {
 			var uri *url.URL
 
 			if pkg.URL != "" {
-				uri, _ = url.Parse(pkg.URL)
+				var err error
+				uri, err = url.Parse(pkg.URL)
+				if err != nil {
+					return PkgInfo{}, fmt.Errorf("invalid package URL %q: %w", pkg.URL, err)
+				}
 				if !uri.IsAbs() {
 					uri = base.JoinPath(pkg.URL)
 				}
@@ -403,7 +376,7 @@ type Driver struct {
 	License string    `yaml:"license"`
 	Path    string    `yaml:"path"`
 	URLs    []string  `yaml:"urls"`
-	DocsUrl string    `yaml:"docs_url"`
+	DocsURL string    `yaml:"docs_url"`
 	PkgInfo []pkginfo `yaml:"pkginfo"`
 }
 
@@ -434,7 +407,8 @@ func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (
 	var result *pkginfo
 	for pkg := range itr {
 		if result == nil || pkg.Version.GreaterThan(result.Version) {
-			result = &pkg
+			found := pkg
+			result = &found
 		}
 	}
 
@@ -462,8 +436,10 @@ func (d Driver) Versions(platformTuple string) semver.Collection {
 func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowPrerelease bool) (PkgInfo, error) {
 	pkglist := d.PkgInfo
 
-	// Filter out pre-releases and record whether any pre-releases were filtered
-	// out so we can produce a more helpful error message
+	// Filter prereleases when no specific stable version is requested.
+	// When version is a specific stable release (Prerelease() == ""),
+	// filtering is unnecessary — the exact-match search below will
+	// only match the requested stable version.
 	if !allowPrerelease && (version == nil || version.Prerelease() != "") {
 		hadPackages := len(d.PkgInfo) > 0
 		pkglist = slices.Collect(filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
@@ -488,6 +464,9 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 			return p.Version.Equal(version)
 		})
 		if idx == -1 {
+			if !allowPrerelease && version.Prerelease() != "" {
+				return PkgInfo{}, fmt.Errorf("version %s is a prerelease; use --pre to allow it", version)
+			}
 			return PkgInfo{}, fmt.Errorf("version %s not found", version)
 		}
 		pkg = pkglist[idx]
@@ -496,16 +475,75 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 	return pkg.GetPackage(d, platformTuple)
 }
 
-func (d Driver) MaxVersion() pkginfo {
-	return slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
+func (d Driver) MaxVersion() (VersionInfo, bool) {
+	if len(d.PkgInfo) == 0 {
+		return VersionInfo{}, false
+	}
+	p := slices.MaxFunc(d.PkgInfo, func(a, b pkginfo) int {
 		return a.Version.Compare(b.Version)
 	})
+	pkgs := make([]PackageInfo, 0, len(p.Packages))
+	for _, pkg := range p.Packages {
+		pkgs = append(pkgs, PackageInfo{
+			Platform: pkg.PlatformTuple,
+			URL:      pkg.URL,
+		})
+	}
+	return VersionInfo{Version: p.Version, Packages: pkgs}, true
 }
 
+// PackageInfo holds the platform and raw URL string for a single package entry.
+// The URL may be relative (joined against the registry base URL) or absolute.
+type PackageInfo struct {
+	Platform string
+	URL      string
+}
+
+// VersionInfo holds the version and its associated packages for a driver.
+type VersionInfo struct {
+	Version  *semver.Version
+	Packages []PackageInfo
+}
+
+// AllVersions returns all version/package entries for the driver as exported
+// VersionInfo values. This allows callers outside the dbc package to iterate
+// over every version and platform without needing access to the unexported
+// pkginfo type.
+func (d Driver) AllVersions() []VersionInfo {
+	result := make([]VersionInfo, 0, len(d.PkgInfo))
+	for _, pi := range d.PkgInfo {
+		pkgs := make([]PackageInfo, 0, len(pi.Packages))
+		for _, p := range pi.Packages {
+			pkgs = append(pkgs, PackageInfo{
+				Platform: p.PlatformTuple,
+				URL:      p.URL,
+			})
+		}
+		result = append(result, VersionInfo{
+			Version:  pi.Version,
+			Packages: pkgs,
+		})
+	}
+	return result
+}
+
+// GetDriverList returns a list of all available drivers from all configured registries.
+//
+// Deprecated: Use NewClient and Client.Search instead.
 func GetDriverList() ([]Driver, error) {
-	return getDrivers()
+	ensureSetup()
+	var opts []Option
+	if val := os.Getenv("DBC_BASE_URL"); val != "" {
+		opts = append(opts, WithBaseURL(val))
+	}
+	c, err := NewClient(append(opts, WithHTTPClient(getHTTPClient()))...)
+	if err != nil {
+		return nil, err
+	}
+	return c.Search("")
 }
 
+// Deprecated: Signature verification is now handled internally by Client.Install.
 // SignedByColumnar returns nil if the library was signed by
 // the columnar public key (embedded in the CLI) or an error
 // otherwise.

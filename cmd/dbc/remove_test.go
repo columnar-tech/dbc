@@ -27,7 +27,7 @@ func (suite *SubcommandTestSuite) TestRemoveOutput() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: []string{"test-driver-1"},
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.runCmd(m)
 
 	// Remove the driver and verify output
@@ -35,7 +35,7 @@ func (suite *SubcommandTestSuite) TestRemoveOutput() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: "test-driver-1",
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmd(m)
 	suite.Contains(out, "removed 'test-driver-1' from driver list")
@@ -50,7 +50,7 @@ func (suite *SubcommandTestSuite) TestRemoveNonexistentDriverError() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: []string{"test-driver-1"},
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 	suite.runCmd(m)
 
 	// Try to remove a driver that doesn't exist
@@ -58,7 +58,7 @@ func (suite *SubcommandTestSuite) TestRemoveNonexistentDriverError() {
 		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
 		Driver: "nonexistent-driver",
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "driver 'nonexistent-driver' not found")
@@ -70,7 +70,7 @@ func (suite *SubcommandTestSuite) TestRemoveFromNonexistentFile() {
 		Path:   filepath.Join(suite.tempdir, "nonexistent-dbc.toml"),
 		Driver: "test-driver-1",
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		testBaseModel())
 
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "doesn't exist")
