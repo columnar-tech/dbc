@@ -43,8 +43,8 @@ jobs:
       # needed for Path Env update support
       - name: Install wixl
         run: |
-          wget https://deb.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
-          wget https://deb.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
           sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
           rm ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
 
@@ -130,8 +130,8 @@ jobs:
       # needed for Path Env update support
       - name: Install wixl
         run: |
-          wget https://deb.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
-          wget https://deb.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
+          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
           sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
           rm ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
 
