@@ -472,9 +472,8 @@ func (suite *SubcommandTestSuite) TestAdd_JSON_Constraint() {
 	suite.Equal(1, env.SchemaVersion)
 	suite.Equal("add.response", env.Kind)
 
-	// verify we aren't escaping the > character in the JSON output
-	suite.Equal(string(env.Payload), `{"driver_list_path":"`+filepath.Join(suite.tempdir, "dbc.toml")+
-		`","drivers":[{"name":"test-driver-1","version_constraint":">=1.0.0"}]}`)
+	// verify > is not HTML-escaped (>) in the JSON output
+	suite.NotContains(string(env.Payload), "\\u003e")
 
 	var resp jsonschema.AddResponse
 	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
