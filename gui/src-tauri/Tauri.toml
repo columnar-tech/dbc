@@ -15,8 +15,9 @@ width = 1200
 height = 800
 
 [app.security]
-csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https: blob:; connect-src 'self' ipc: http://ipc.localhost"
-devCsp = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset: https: blob:; connect-src 'self' ipc: http://ipc.localhost http://localhost:* ws://localhost:*"
+# script-src 'unsafe-inline' is required for SvelteKit adapter-static's inline hydration script.
+csp = "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https: data: blob:; connect-src 'self' ipc: http://ipc.localhost; font-src 'self' data:"
+devCsp = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' http://localhost:* http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https: data: blob:; connect-src 'self' ipc: http://ipc.localhost http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*; font-src 'self' data:"
 
 [bundle]
 active = true

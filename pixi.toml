@@ -86,7 +86,7 @@ APPIMAGE_EXTRACT_AND_RUN = "1"
 
 [feature.gui.tasks]
 gui-install   = { cmd = "npm install", cwd = "gui" }
-gui-dev       = { cmd = "npm run tauri dev", cwd = "gui", depends-on = ["gui-install"] }
+gui-dev       = { cmd = "npm run tauri dev", cwd = "gui", depends-on = ["gui-install", "gui-sidecar"] }
 gui-build     = { cmd = "npm run tauri build -- --verbose", cwd = "gui", depends-on = ["gui-sidecar", "gui-install"] }
 gui-check     = { cmd = "npm run check", cwd = "gui", depends-on = ["gui-install"] }
 gui-sidecar   = { cmd = "bash gui/scripts/build-sidecar.sh" }

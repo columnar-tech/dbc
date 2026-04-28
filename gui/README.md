@@ -48,3 +48,4 @@ Required secrets: `MACOS_SIGN_P12`, `MACOS_SIGN_P12_PASSWORD`, `APPLE_SIGNING_ID
 - **Credentials**: `~/.config/dbc/credentials.toml` (Linux/macOS)
 - **Driver location**: `~/Library/Application Support/ADBC/Drivers` (macOS)
 - **Registry override**: Set `DBC_BASE_URL` environment variable
+- **Linux: app freezes when launched from VSCode integrated terminal**: VSCode's Electron environment pollutes library paths and wedges WebKitGTK during paint init. Launch `pixi run gui-dev` (or `npm run tauri dev`) from an external terminal (GNOME Terminal, Konsole, kitty, etc.) instead.
