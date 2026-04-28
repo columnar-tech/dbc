@@ -374,10 +374,12 @@ func (m progressiveInstallModel) FinalOutput() string {
 					e.Checksum = installStatus.Checksum
 				})
 			}
-			m.emitJSON("install.progress", jsonschema.InstallProgressEvent{
-				Event:  "install.complete",
-				Driver: m.Driver,
-			})
+			if m.jsonStreamProgress {
+				m.emitJSON("install.progress", jsonschema.InstallProgressEvent{
+					Event:  "install.complete",
+					Driver: m.Driver,
+				})
+			}
 			return marshalEnvelope("install.status", installStatus)
 		}
 
