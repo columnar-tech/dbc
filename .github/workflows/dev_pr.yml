@@ -15,7 +15,7 @@
 name: Dev PR
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, synchronize, ready_for_review, review_requested]
 
 permissions:
@@ -27,9 +27,11 @@ jobs:
     name: Check PR Title
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '18'
       - name: Install commitlint
@@ -37,4 +39,6 @@ jobs:
           npm install @commitlint/cli @commitlint/config-conventional
       - name: Check PR title follows conventional commits spec
         run: |
-          echo "${{ github.event.pull_request.title }}" | npx commitlint --extends @commitlint/config-conventional
+          echo "${PR_TITLE}" | npx commitlint --extends @commitlint/config-conventional
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
