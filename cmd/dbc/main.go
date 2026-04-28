@@ -28,6 +28,7 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/mattn/go-isatty"
 )
 
@@ -102,6 +103,8 @@ func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
 		prog.Send(progressMsg{total: total, written: written})
 	})
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 func getConfig(c config.ConfigLevel) config.Config {
 	switch c {
@@ -242,6 +245,12 @@ func main() {
 	if p.Subcommand() == nil {
 		p.WriteHelp(os.Stdout)
 		os.Exit(1)
+	}
+
+	if configDir, err := internal.GetUserConfigPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", err)
+	} else if err := dbc.ConfigureRegistries(configDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load registry config: %v\n", err)
 	}
 
 	var m tea.Model

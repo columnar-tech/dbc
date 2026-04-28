@@ -330,10 +330,16 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.Path = msg.path
 		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
 		s.list = msg.list
+		var replace *bool
+		if msg.list.ReplaceDefaults {
+			replace = boolPtr(true)
+		}
+		// SetProjectRegistries mutates global state; safe because dbc is single-command-per-process.
+		if err := dbc.SetProjectRegistries(msg.list.Registries, replace); err != nil {
+			return s, errCmd("error configuring project registries: %w", err)
+		}
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()
-			// Return both drivers and error - we'll decide how to handle based on whether
-			// all requested drivers can be found
 			return driversWithRegistryError{
 				drivers: drivers,
 				err:     err,

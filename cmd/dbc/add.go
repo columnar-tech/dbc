@@ -23,6 +23,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -95,15 +96,7 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		drivers, registryErr := m.getDriverRegistry()
-		// If we have no drivers and there's an error, fail immediately
-		if len(drivers) == 0 && registryErr != nil {
-			return fmt.Errorf("error getting driver list: %w", registryErr)
-		}
-		// Store registry errors to use later if driver is not found
-		// We continue processing if we have some drivers
-		var registryErrors error = registryErr
-
+		// SetProjectRegistries mutates global state; safe because dbc is single-command-per-process.
 		p, err := driverListPath(m.Path)
 		if err != nil {
 			return err
@@ -113,15 +106,31 @@ func (m addModel) Init() tea.Cmd {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
-			} else {
-				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 			}
+			return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 		}
 		defer f.Close()
 
 		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
+
+		var replace *bool
+		if m.list.ReplaceDefaults {
+			replace = boolPtr(true)
+		}
+		if regErr := dbc.SetProjectRegistries(m.list.Registries, replace); regErr != nil {
+			return fmt.Errorf("error configuring project registries: %w", regErr)
+		}
+
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
+		}
+		// Store registry errors to use later if driver is not found
+		// We continue processing if we have some drivers
+		var registryErrors error = registryErr
 
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)

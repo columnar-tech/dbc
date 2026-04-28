@@ -222,6 +222,55 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryFailureDriverNotFound()
 	suite.Contains(out, "network timeout")
 }
 
+func (suite *SubcommandTestSuite) TestSyncWithProjectRegistries() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	err := os.WriteFile(filepath.Join(suite.tempdir, "dbc.toml"), []byte(`# dbc driver list
+[[registries]]
+url = 'https://custom-registry.example.com'
+name = 'custom'
+
+[drivers]
+[drivers.test-driver-1]
+`), 0644)
+	suite.Require().NoError(err)
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+
+	if os.Getenv("DBC_BASE_URL") == "" {
+		regs := dbc.GetRegistries()
+		found := false
+		for _, r := range regs {
+			if r.BaseURL != nil && r.BaseURL.String() == "https://custom-registry.example.com" {
+				found = true
+				break
+			}
+		}
+		suite.True(found, "expected custom registry to be in active registries after sync with [[registries]] in dbc.toml")
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncWithProjectRegistriesBackwardCompat() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModel()
+	suite.runCmd(m)
+
+	m = SyncCmd{
+		Path: filepath.Join(suite.tempdir, "dbc.toml"),
+	}.GetModelCustom(
+		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+}
+
 func (suite *SubcommandTestSuite) TestSyncCompleteRegistryFailure() {
 	// Initialize driver list
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()

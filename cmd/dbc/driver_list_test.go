@@ -98,3 +98,24 @@ func TestMarshalDriverManifestList(t *testing.T) {
 version = '>=1.6.0'
 `, string(data))
 }
+
+func TestDriversListRegistries(t *testing.T) {
+	t.Run("existing dbc.toml without registries still decodes (backward compat)", func(t *testing.T) {
+		content := "[drivers]\n[drivers.clickhouse]\nversion = '>=1.0.0'"
+		var list DriversList
+		require.NoError(t, toml.Unmarshal([]byte(content), &list))
+		assert.Len(t, list.Drivers, 1)
+		assert.Empty(t, list.Registries)
+		assert.False(t, list.ReplaceDefaults)
+	})
+
+	t.Run("dbc.toml with drivers AND registries decodes both", func(t *testing.T) {
+		content := "[drivers]\n[drivers.snowflake]\nversion = '>=1.0.0'\n\n[[registries]]\nurl = \"https://custom.example.com\"\nname = \"Custom\""
+		var list DriversList
+		require.NoError(t, toml.Unmarshal([]byte(content), &list))
+		assert.Len(t, list.Drivers, 1)
+		require.Len(t, list.Registries, 1)
+		assert.Equal(t, "https://custom.example.com", list.Registries[0].URL)
+		assert.Equal(t, "Custom", list.Registries[0].Name)
+	})
+}

@@ -1,0 +1,214 @@
+// Copyright 2026 Columnar Technologies Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dbc
+
+import (
+	"errors"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/pelletier/go-toml/v2"
+)
+
+type RegistryEntry struct {
+	URL  string `toml:"url"`
+	Name string `toml:"name"`
+}
+
+type GlobalConfig struct {
+	Registries      []RegistryEntry `toml:"registries"`
+	ReplaceDefaults bool            `toml:"replace_defaults,omitempty"`
+}
+
+// defaultRegistries holds the built-in defaults, snapshotted at package init time
+// (after drivers.go's init() runs). If DBC_BASE_URL is set at process start,
+// this snapshot reflects that override rather than the compiled-in defaults.
+// SetProjectRegistries and ConfigureRegistries both short-circuit when DBC_BASE_URL
+// is set, so this value is only used when DBC_BASE_URL is absent.
+var defaultRegistries []Registry
+
+// globalConfig holds the loaded global config.toml (nil if not loaded).
+// Used by SetProjectRegistries to include global registries in the merge.
+var globalConfig *GlobalConfig
+
+func init() {
+	// Snapshot registries at package init time (after drivers.go init() has run,
+	// which may have replaced registries with a DBC_BASE_URL-derived singleton).
+	// This gives SetProjectRegistries a stable base even when ConfigureRegistries
+	// is never called. Note: if DBC_BASE_URL is set, this snapshot holds the
+	// override value — but both ConfigureRegistries and SetProjectRegistries
+	// short-circuit on DBC_BASE_URL, so defaultRegistries is never consulted
+	// in that case.
+	defaultRegistries = make([]Registry, len(registries))
+	copy(defaultRegistries, registries)
+}
+
+func loadGlobalConfig(configDir string) (*GlobalConfig, error) {
+	configPath := filepath.Join(configDir, "config.toml")
+	f, err := os.Open(configPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var cfg GlobalConfig
+	if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
+		return nil, err
+	}
+
+	for _, entry := range cfg.Registries {
+		if entry.URL == "" {
+			return nil, fmt.Errorf("registry entry in %s has empty url", configPath)
+		}
+		u, err := url.Parse(entry.URL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid registry URL %q in %s: %w", entry.URL, configPath, err)
+		}
+		if u.Host == "" {
+			return nil, fmt.Errorf("invalid registry URL %q in %s: missing host", entry.URL, configPath)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return nil, fmt.Errorf("invalid registry URL %q in %s: scheme must be http or https", entry.URL, configPath)
+		}
+	}
+
+	return &cfg, nil
+}
+
+func mergeRegistries(
+	projectRegs []RegistryEntry,
+	projectReplaceDefaults *bool,
+	globalRegs []RegistryEntry,
+	globalReplaceDefaults bool,
+	defaults []Registry,
+) []Registry {
+	replaceDefaults := globalReplaceDefaults
+	if projectReplaceDefaults != nil {
+		replaceDefaults = *projectReplaceDefaults
+	}
+
+	seen := make(map[string]bool)
+	var result []Registry
+
+	urlKey := func(u *url.URL) string {
+		path := strings.TrimRight(u.Path, "/")
+		return u.Scheme + "://" + u.Host + path
+	}
+
+	toRegistry := func(entry RegistryEntry) (Registry, bool) {
+		u, err := url.Parse(entry.URL)
+		if err != nil || u.Host == "" {
+			return Registry{}, false
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return Registry{}, false
+		}
+		return Registry{Name: entry.Name, BaseURL: u}, true
+	}
+
+	addEntries := func(entries []RegistryEntry) {
+		for _, e := range entries {
+			r, ok := toRegistry(e)
+			if !ok {
+				continue
+			}
+			key := urlKey(r.BaseURL)
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, r)
+			}
+		}
+	}
+
+	addEntries(projectRegs)
+	addEntries(globalRegs)
+
+	if !replaceDefaults {
+		for _, r := range defaults {
+			if r.BaseURL == nil {
+				continue
+			}
+			key := urlKey(r.BaseURL)
+			if !seen[key] {
+				seen[key] = true
+				result = append(result, r)
+			}
+		}
+	}
+
+	return result
+}
+
+func ConfigureRegistries(globalConfigDir string) error {
+	if os.Getenv("DBC_BASE_URL") != "" {
+		return nil
+	}
+	cfg, err := loadGlobalConfig(globalConfigDir)
+	if err != nil {
+		return err
+	}
+	globalConfig = cfg // always reset, even to nil, so stale state from prior calls doesn't persist
+	if cfg == nil {
+		registries = append([]Registry(nil), defaultRegistries...)
+		return nil
+	}
+	registries = mergeRegistries(nil, nil, cfg.Registries, cfg.ReplaceDefaults, defaultRegistries)
+	return nil
+}
+
+func SetProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) error {
+	if os.Getenv("DBC_BASE_URL") != "" {
+		return nil
+	}
+	if replaceDefaults != nil && *replaceDefaults && len(entries) == 0 {
+		return fmt.Errorf("replace_defaults = true requires at least one [[registries]] entry; omit replace_defaults or add a registry entry")
+	}
+	for _, e := range entries {
+		if e.URL == "" {
+			return fmt.Errorf("registry entry has empty url")
+		}
+		u, err := url.Parse(e.URL)
+		if err != nil {
+			return fmt.Errorf("invalid registry URL %q: %w", e.URL, err)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("invalid registry URL %q: missing host", e.URL)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("invalid registry URL %q: scheme must be http or https", e.URL)
+		}
+	}
+	var globalRegs []RegistryEntry
+	var globalReplaceDefaults bool
+	if globalConfig != nil {
+		globalRegs = globalConfig.Registries
+		globalReplaceDefaults = globalConfig.ReplaceDefaults
+	}
+	base := append([]Registry(nil), defaultRegistries...)
+	registries = mergeRegistries(entries, replaceDefaults, globalRegs, globalReplaceDefaults, base)
+	return nil
+}
+
+// GetRegistries returns a copy of the current active registry list.
+// Intended for testing and diagnostic use.
+func GetRegistries() []Registry {
+	return append([]Registry(nil), registries...)
+}

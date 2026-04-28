@@ -21,11 +21,13 @@ import (
 	"io"
 	"os"
 
+	dbc "github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"golang.org/x/sys/windows/registry"
 )
 
 func (suite *SubcommandTestSuite) TearDownTest() {
+	_ = dbc.SetProjectRegistries(nil, nil)
 	// Clean up the registry and filesystem after each test
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
