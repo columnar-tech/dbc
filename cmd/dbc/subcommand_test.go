@@ -137,6 +137,16 @@ func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
 	return filelist
 }
 
+func (suite *SubcommandTestSuite) getDriverFilesInTempDir() []string {
+	var filelist []string
+	for _, f := range suite.getFilesInTempDir() {
+		if f != ".dbc.install.lock" && f != ".dbc.project.lock" {
+			filelist = append(filelist, f)
+		}
+	}
+	return filelist
+}
+
 // Get the base directory for where drivers are installed. Use this instead of
 // hardcoding checks to suite.tempdir to make tests support other config levels.
 func (suite *SubcommandTestSuite) Dir() string {

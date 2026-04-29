@@ -95,7 +95,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		suite.runCmd(m))
 
 	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
-		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getDriverFilesInTempDir())
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
@@ -168,7 +168,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Empty(suite.getDriverFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	// Note: The UI output (first parameter) serves as documentation but isn't verified
@@ -306,7 +306,7 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Empty(suite.getDriverFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: packagePath, NoVerify: true}.
@@ -538,7 +538,9 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	suite.Greater(len(lines), 1, "expected multiple NDJSON lines")
 
 	var kinds []string
+	var lastEnv jsonschema.Envelope
 	for _, line := range lines {
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -546,19 +548,16 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 		suite.Require().NoError(json.Unmarshal([]byte(line), &env), "line must be valid JSON: %s", line)
 		suite.Equal(1, env.SchemaVersion)
 		kinds = append(kinds, env.Kind)
+		lastEnv = env
 	}
 
 	suite.Contains(kinds, "install.progress")
-	suite.Equal("install.status", kinds[len(kinds)-1])
+	suite.Equal("install.status", lastEnv.Kind)
 
-	var hasDownloadStart bool
-	for _, line := range lines {
-		if strings.Contains(line, `"download.start"`) {
-			hasDownloadStart = true
-			break
-		}
-	}
-	suite.True(hasDownloadStart, "expected download.start event")
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(lastEnv.Payload, &status))
+	suite.Equal("installed", status.Status)
+	suite.Equal("test-driver-1", status.Driver)
 }
 
 // TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the

@@ -145,7 +145,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 	suite.validateOutput("\r ",
 		"\nError: failed to verify signature: signature file 'test-driver-1-not-valid.so.sig' for driver is missing",
 		suite.runCmdErr(m))
-	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
+	suite.Equal([]string{"dbc.toml"}, suite.getDriverFilesInTempDir())
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {
