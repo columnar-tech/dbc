@@ -40,6 +40,7 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#search">dbc search</a></dt><dd><p>Search for a driver to install</p></dd>
 <dt><a href="#install">dbc install</a></dt><dd><p>Install a driver</p></dd>
 <dt><a href="#uninstall">dbc uninstall</a></dt><dd><p>Uninstall a driver</p></dd>
+<dt><a href="#list">dbc list</a></dt><dd><p>List all currently installed drivers</p></dd>
 <dt><a href="#init">dbc init</a></dt><dd><p>Create a <a href="../../concepts/driver_list/">driver list</a> file</p></dd>
 <dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
@@ -152,6 +153,32 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 :   The configuration level to uninstall the driver from (`user`, or `system`). See [Config Level](config_level.md).
 
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
+
+:   Suppress all output
+
+## list
+
+{{ since_version('v0.3.0') }}
+
+List all currently installed drivers across every [configuration level](config_level.md) (system, user, and environment). Use `--level` to restrict the output to drivers installed at a single level.
+
+<h3>Usage</h3>
+
+```console
+$ dbc list [OPTIONS]
+```
+
+<h3>Options</h3>
+
+`--json`
+
+:   Print output as JSON instead of plaintext
+
+`--level LEVEL`, `-l LEVEL`
+
+:   Only list drivers installed at the given configuration level (`user`, or `system`). See [Config Level](config_level.md).
+
+`--quiet`, `-q`
 
 :   Suppress all output
 

@@ -30,6 +30,7 @@ complete -c dbc -n '__fish_dbc_needs_command' -l quiet -s q -d 'Suppress all out
 # Subcommands
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'install' -d 'Install a driver'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'uninstall' -d 'Uninstall a driver'
+complete -f -c dbc -n '__fish_dbc_needs_command' -a 'list' -d 'List all currently installed drivers'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'init' -d 'Create new driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'add' -d 'Add one or more drivers to the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'sync' -d 'Install all drivers in the driver list'
@@ -52,6 +53,12 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand install' -l level -s l -d 'In
 # uninstall subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand uninstall' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand uninstall' -l level -s l -d 'Installation level' -xa 'user system'
+
+# list subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand list' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand list' -l help -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand list' -l json -d 'Print output as JSON instead of plaintext'
+complete -f -c dbc -n '__fish_dbc_using_subcommand list' -l level -s l -d 'Config level to filter by' -xa 'user system'
 
 # init subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand init' -s h -d 'Help'

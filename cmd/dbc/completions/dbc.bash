@@ -4,7 +4,7 @@ _dbc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="install uninstall init add sync search info docs remove completion auth"
+    local subcommands="install uninstall list init add sync search info docs remove completion auth"
     local global_opts="--help -h --version --quiet -q"
 
     # If we're completing the first argument (subcommand)
@@ -22,6 +22,9 @@ _dbc() {
             ;;
         uninstall)
             _dbc_uninstall_completions
+            ;;
+        list)
+            _dbc_list_completions
             ;;
         init)
             _dbc_init_completions
@@ -95,6 +98,26 @@ _dbc_uninstall_completions() {
     fi
 
     # Driver name completion (no specific completion available)
+    COMPREPLY=()
+}
+
+_dbc_list_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    case "$prev" in
+        --level|-l)
+            COMPREPLY=($(compgen -W "user system" -- "$cur"))
+            return 0
+            ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "--json --level -l" -- "$cur"))
+        return 0
+    fi
+
     COMPREPLY=()
 }
 
