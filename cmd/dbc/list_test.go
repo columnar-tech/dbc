@@ -16,6 +16,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"runtime"
 
 	"github.com/columnar-tech/dbc/config"
@@ -85,4 +87,34 @@ func (suite *SubcommandTestSuite) TestListJSONInstalled() {
 	suite.Equal("env", entry.Level)
 	suite.Equal(suite.tempdir, entry.Location)
 	suite.NotEmpty(entry.Name)
+}
+
+func (suite *SubcommandTestSuite) TestListUnreadableConfig() {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		suite.T().Skip()
+	}
+
+	unreadable := filepath.Join(suite.T().TempDir(), "unreadable")
+	suite.Require().NoError(os.Mkdir(unreadable, 0o000))
+	suite.T().Cleanup(func() { _ = os.Chmod(unreadable, 0o700) })
+	suite.T().Setenv("ADBC_DRIVER_PATH", filepath.Join(unreadable, "drivers"))
+
+	m := ListCmd{Level: config.ConfigEnv}.GetModel()
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "failed to load drivers")
+}
+
+func (suite *SubcommandTestSuite) TestListUnreadableConfigJSON() {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		suite.T().Skip()
+	}
+
+	unreadable := filepath.Join(suite.T().TempDir(), "unreadable")
+	suite.Require().NoError(os.Mkdir(unreadable, 0o000))
+	suite.T().Cleanup(func() { _ = os.Chmod(unreadable, 0o700) })
+	suite.T().Setenv("ADBC_DRIVER_PATH", filepath.Join(unreadable, "drivers"))
+
+	m := ListCmd{Level: config.ConfigEnv, Json: true}.GetModel()
+	out := suite.runCmdErr(m)
+	suite.assertJSONErrorEnvelope(out, "list_failed", "failed to load drivers")
 }
