@@ -41,8 +41,8 @@ func TestLoadGlobalConfig(t *testing.T) {
 		toml        string
 		omitFile    bool // if true, don't write config.toml (tests missing-file path)
 		wantNil     bool
-		wantErr     string // substring; "" means expect nil
-		wantRegs    int    // expected number of registries parsed (when not erroring)
+		wantErr     string          // substring; "" means no error
+		wantEntries []RegistryEntry // expected ordered contents of cfg.Registries on success
 		wantReplace bool
 	}{
 		{
@@ -55,7 +55,10 @@ name = "example"
 [[registries]]
 url = "https://other.example.org"
 `,
-			wantRegs: 2,
+			wantEntries: []RegistryEntry{
+				{URL: "https://example.com/registry", Name: "example"},
+				{URL: "https://other.example.org"},
+			},
 		},
 		{
 			name: "replace_defaults true with one registry",
@@ -65,7 +68,7 @@ replace_defaults = true
 [[registries]]
 url = "https://custom.registry.io"
 `,
-			wantRegs:    1,
+			wantEntries: []RegistryEntry{{URL: "https://custom.registry.io"}},
 			wantReplace: true,
 		},
 		{
@@ -74,9 +77,9 @@ url = "https://custom.registry.io"
 			wantNil:  true,
 		},
 		{
-			name:     "replace_defaults=true with no entries accepted (project may supply)",
-			toml:     "replace_defaults = true\n",
-			wantRegs: 0, wantReplace: true,
+			name:        "replace_defaults=true with no entries accepted (project may supply)",
+			toml:        "replace_defaults = true\n",
+			wantReplace: true,
 		},
 		{
 			name:    "invalid URL rejected",
@@ -123,7 +126,7 @@ url = "https://custom.registry.io"
 				return
 			}
 			require.NotNil(t, cfg)
-			assert.Len(t, cfg.Registries, tc.wantRegs)
+			assert.Equal(t, tc.wantEntries, cfg.Registries)
 			assert.Equal(t, tc.wantReplace, cfg.ReplaceDefaults)
 		})
 	}
