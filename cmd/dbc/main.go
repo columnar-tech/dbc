@@ -77,7 +77,7 @@ type NeedsRenderer interface {
 var (
 	dbcClient     *dbc.Client
 	dbcClientErr  error
-	dbcClientOnce sync.Once
+	dbcClientOnce = &sync.Once{}
 
 	// globalRegistryConfig is loaded once at startup and reused by every client
 	// built in this process, including clients rebuilt after reading a project's
@@ -116,7 +116,11 @@ func setDBCClient(c *dbc.Client) {
 
 func initDBCClient() error {
 	dbcClientOnce.Do(func() {
-		dbcClient, dbcClientErr = newDefaultClient()
+		// Re-check dbcClient — a project command may have already built one
+		// via applyProjectRegistries before the lazy path was first hit.
+		if dbcClient == nil {
+			dbcClient, dbcClientErr = newDefaultClient()
+		}
 	})
 	return dbcClientErr
 }
@@ -273,10 +277,11 @@ func main() {
 		globalRegistryConfig = cfg
 	}
 
-	if err := initDBCClient(); err != nil {
-		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", err)
-		os.Exit(1)
-	}
+	// Defer dbcClient construction until after argument parsing. Project
+	// commands (add, sync) read a dbc.toml whose [[registries]] can supply
+	// entries required by a global replace_defaults=true, so eagerly
+	// calling NewClient here would reject configurations the project
+	// override would otherwise satisfy.
 
 	p, err := newParser(&args)
 	if err != nil {
@@ -285,14 +290,14 @@ func main() {
 	}
 
 	if err = p.Parse(os.Args[1:]); err != nil {
-		switch {
-		case err == arg.ErrHelp:
+		switch err {
+		case arg.ErrHelp:
 			if d, ok := p.Subcommand().(arg.Described); ok {
 				fmt.Println(d.Description())
 			}
 			p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
 			os.Exit(0)
-		case err == arg.ErrVersion:
+		case arg.ErrVersion:
 			fmt.Println(dbc.Version)
 			os.Exit(0)
 		default:

@@ -152,6 +152,9 @@ func (m loginModel) authConfig() tea.Cmd {
 
 func (m loginModel) requestDeviceCode(cfg auth.OpenIDConfig) tea.Cmd {
 	return func() tea.Msg {
+		if err := initDBCClient(); err != nil {
+			return fmt.Errorf("failed to initialize client: %w", err)
+		}
 		rsp, err := device.RequestCode(dbcClient.HTTPClient(), cfg.DeviceAuthorizationEndpoint.String(),
 			m.oauthClientID, []string{"openid", "offline_access"})
 		if err != nil {
