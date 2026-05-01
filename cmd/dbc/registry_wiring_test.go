@@ -735,6 +735,75 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
 }
 
+// TestAddInitialReadIsAtomicAgainstTornState drives an actual torn-write
+// scenario: hold the project lock, truncate dbc.toml to invalid TOML,
+// start dbc add, then restore valid TOML and release. With the initial
+// read under the project lock, add blocks until release and decodes the
+// restored valid TOML. Without the read lock, add races in, sees the
+// invalid TOML, and fails with a decode error.
+//
+// This is stronger than TestAddInitialReadBlocksWhileLockHeld: this test
+// uses actual torn state as the failure signal rather than a timing-based
+// signal from the registry hook, so a regression cannot mask itself by
+// being slow.
+func TestAddInitialReadIsAtomicAgainstTornState(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	lockPath := filepath.Join(dir, ".dbc.project.lock")
+	validTOML := []byte("[drivers]\n")
+	invalidTOML := []byte("this is definitely ::: not [[ valid toml")
+	require.NoError(t, os.WriteFile(tomlPath, validTOML, 0o644))
+
+	heldLock, err := fslock.Acquire(lockPath, 5*time.Second)
+	require.NoError(t, err)
+	// Simulate a mid-write torn state: the file on disk is invalid while
+	// the lock is held.
+	require.NoError(t, os.WriteFile(tomlPath, invalidTOML, 0o644))
+
+	addDone := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg},
+		)
+		addDone <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	// Give add plenty of time to attempt the initial read. If it races
+	// past the lock, it'll see invalidTOML and fail FAST with a decode
+	// error — we'd observe addDone here.
+	select {
+	case msg := <-addDone:
+		if errMsg, ok := msg.(error); ok {
+			heldLock.Release()
+			t.Fatalf("add decoded torn state (initial read not gated by lock): %v", errMsg)
+		}
+		heldLock.Release()
+		t.Fatalf("add completed with torn state still on disk: %v", msg)
+	case <-time.After(300 * time.Millisecond):
+		// Good — add is blocked on the lock and has not read the invalid TOML.
+	}
+
+	// Restore valid content, then release. Add now decodes the valid
+	// snapshot.
+	require.NoError(t, os.WriteFile(tomlPath, validTOML, 0o644))
+	require.NoError(t, heldLock.Release())
+
+	msgOut := <-addDone
+	if errMsg, ok := msgOut.(error); ok {
+		t.Fatalf("add failed after restored valid TOML + lock release: %v", errMsg)
+	}
+
+	data, err := os.ReadFile(tomlPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "[drivers.test-driver-1]",
+		"add must have decoded the restored valid TOML and written its entry")
+}
+
 // TestAddInitialReadBlocksWhileLockHeld pins the invariant that the
 // initial dbc.toml decode is performed under the project lock, so a
 // concurrent writer holding the lock cannot expose torn state. We hold
