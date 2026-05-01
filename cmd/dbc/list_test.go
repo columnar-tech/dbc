@@ -101,7 +101,7 @@ func (suite *SubcommandTestSuite) TestListUnreadableConfig() {
 
 	m := ListCmd{Level: config.ConfigEnv}.GetModel()
 	out := suite.runCmdErr(m)
-	suite.Contains(out, "failed to load drivers")
+	suite.Contains(out, "failed to list drivers")
 }
 
 func (suite *SubcommandTestSuite) TestListUnreadableConfigJSON() {
