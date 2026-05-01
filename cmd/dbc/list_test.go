@@ -27,7 +27,7 @@ import (
 func (suite *SubcommandTestSuite) TestListEmpty() {
 	m := ListCmd{Level: config.ConfigEnv}.GetModel()
 	out := suite.runCmd(m)
-	suite.Contains(out, "No drivers installed.")
+	suite.Zero(out)
 }
 
 func (suite *SubcommandTestSuite) TestListInstalled() {
