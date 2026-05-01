@@ -105,8 +105,20 @@ func mergeRegistries(
 	seen := make(map[string]bool)
 	var result []Registry
 
+	// urlKey returns a canonical form that collapses only truly no-op
+	// differences: scheme/host casing, trailing-slash on the path, and
+	// fragments. Query, userinfo, and path segments are preserved because
+	// they change the effective registry endpoint (tenant selectors,
+	// credential-bearing URLs, path-mounted registries) and must be
+	// treated as distinct registries here.
 	urlKey := func(u *url.URL) string {
-		return u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/")
+		cp := *u
+		cp.Scheme = strings.ToLower(cp.Scheme)
+		cp.Host = strings.ToLower(cp.Host)
+		cp.Path = strings.TrimRight(cp.Path, "/")
+		cp.Fragment = ""
+		cp.RawFragment = ""
+		return cp.String()
 	}
 
 	addEntries := func(entries []RegistryEntry) {

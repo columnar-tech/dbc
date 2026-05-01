@@ -198,6 +198,51 @@ func TestMergeRegistries(t *testing.T) {
 		assert.Equal(t, "project", got[0].Name)
 	})
 
+	t.Run("query-bearing URLs with different queries are distinct entries", func(t *testing.T) {
+		entries := []RegistryEntry{
+			{URL: "https://r.example.com?tenant=a"},
+			{URL: "https://r.example.com?tenant=b"},
+		}
+		got := mergeRegistries(entries, boolPtr(true), nil, false, nil)
+		require.Len(t, got, 2, "tenant selector differences must not be deduplicated away")
+	})
+
+	t.Run("userinfo-bearing URLs with different users are distinct entries", func(t *testing.T) {
+		entries := []RegistryEntry{
+			{URL: "https://u1@r.example.com"},
+			{URL: "https://u2@r.example.com"},
+		}
+		got := mergeRegistries(entries, boolPtr(true), nil, false, nil)
+		require.Len(t, got, 2, "userinfo differences affect auth identity and must not be deduplicated")
+	})
+
+	t.Run("different path segments are distinct entries", func(t *testing.T) {
+		entries := []RegistryEntry{
+			{URL: "https://r.example.com/tenant-a"},
+			{URL: "https://r.example.com/tenant-b"},
+		}
+		got := mergeRegistries(entries, boolPtr(true), nil, false, nil)
+		require.Len(t, got, 2, "path-mounted registries must remain distinct")
+	})
+
+	t.Run("host/scheme casing and trailing slash still collapse", func(t *testing.T) {
+		entries := []RegistryEntry{
+			{URL: "https://R.Example.COM/path/"},
+			{URL: "HTTPS://r.example.com/path"},
+		}
+		got := mergeRegistries(entries, boolPtr(true), nil, false, nil)
+		require.Len(t, got, 1, "casing/trailing-slash-only differences must dedupe")
+	})
+
+	t.Run("fragment-only differences collapse (not sent on HTTP)", func(t *testing.T) {
+		entries := []RegistryEntry{
+			{URL: "https://r.example.com/#a"},
+			{URL: "https://r.example.com/#b"},
+		}
+		got := mergeRegistries(entries, boolPtr(true), nil, false, nil)
+		require.Len(t, got, 1)
+	})
+
 	t.Run("invalid entries silently skipped", func(t *testing.T) {
 		project := []RegistryEntry{
 			{URL: "not a url"},
