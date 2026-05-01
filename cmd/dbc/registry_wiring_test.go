@@ -570,6 +570,33 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 		"project-declared registry should have been hit end-to-end")
 }
 
+// TestRunStartupSkipsLoadWhenConfigDirEmpty pins the invariant that
+// runStartup does NOT read ./config.toml from the current working directory
+// when the user config directory could not be located (configDir==""). A
+// regression here would make an unrelated ./config.toml in the invocation
+// CWD silently change registry resolution.
+func TestRunStartupSkipsLoadWhenConfigDirEmpty(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal := globalRegistryConfig
+	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+	globalRegistryConfig = nil
+
+	// Plant a hostile config.toml in cwd to prove runStartup doesn't touch it.
+	cwd := t.TempDir()
+	require.NoError(t, os.WriteFile(cwd+"/config.toml", []byte("replace_defaults = true\n"), 0o644))
+	savedCWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(cwd))
+	t.Cleanup(func() { _ = os.Chdir(savedCWD) })
+
+	// configDir == "" means main() failed to resolve the user config dir.
+	res := runStartup("", []string{"search"})
+	require.Equal(t, startupModel, res.kind)
+	assert.Nil(t, globalRegistryConfig,
+		"runStartup must not read ./config.toml when configDir is empty")
+}
+
 // TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies
 // the deferred-init ordering above: if the CLI ever tries to build the
 // default client against a global replace_defaults=true with no entries

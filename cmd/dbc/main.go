@@ -330,7 +330,10 @@ type startupResult struct {
 }
 
 // runStartup executes the full startup sequence shared by main() and tests:
-//  1. load the global registry config,
+//  1. load the global registry config (skipped when configDir is empty —
+//     callers use "" to signal that no user config directory could be
+//     located, which preserves pre-refactor behavior of leaving default
+//     registries untouched instead of reading ./config.toml from cwd),
 //  2. parse argv,
 //  3. select the subcommand and build its bubbletea model (for model commands).
 //
@@ -340,8 +343,10 @@ type startupResult struct {
 // would break the "global replace_defaults=true + project supplies
 // registries" scenario, which is why tests drive this helper end-to-end.
 func runStartup(configDir string, argv []string) startupResult {
-	if msg := loadStartupRegistryConfig(configDir); msg != "" {
-		fmt.Fprintln(os.Stderr, msg)
+	if configDir != "" {
+		if msg := loadStartupRegistryConfig(configDir); msg != "" {
+			fmt.Fprintln(os.Stderr, msg)
+		}
 	}
 
 	args := &cmds{}
