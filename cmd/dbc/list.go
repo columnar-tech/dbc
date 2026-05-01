@@ -79,7 +79,7 @@ func (m listModel) Init() tea.Cmd {
 				continue
 			}
 			if cfg.Err != nil {
-				return fmt.Errorf("failed to load drivers at %s level: %w", lvl, cfg.Err)
+				return fmt.Errorf("failed to list drivers at %s level: %w", lvl, cfg.Err)
 			}
 			for _, d := range cfg.Drivers {
 				version := ""
