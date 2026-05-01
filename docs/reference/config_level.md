@@ -16,7 +16,7 @@ limitations under the License.
 
 # Config Level Reference
 
-Various dbc subcommands (like [install](cli.md#install), [sync](cli.md#sync)) take a `--level` argument which gives you control over where dbc installs drivers.
+Various dbc subcommands (like [install](cli.md#install), [sync](cli.md#sync), [list](cli.md#list)) take a `--level` argument which gives you control over where dbc installs or looks for drivers.
 
 ## Default Behavior
 

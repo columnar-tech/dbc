@@ -15,6 +15,7 @@ function _dbc {
             _values "dbc command" \
                 'install[Install a driver]' \
                 'uninstall[Uninstall a driver]' \
+                'list[List all currently installed drivers]' \
                 'init[Create new driver list]' \
                 'add[Add one or more drivers to the driver list]' \
                 'sync[Install all drivers in the driver list]' \
@@ -37,6 +38,9 @@ function _dbc {
                 ;;
                 uninstall)
                     _dbc_uninstall_completions
+                ;;
+                list)
+                    _dbc_list_completions
                 ;;
                 init)
                     _dbc_init_completions
@@ -89,6 +93,15 @@ function _dbc_uninstall_completions {
         '(--level)-l[installation level]: :(user system)' \
         '--json[Print output as JSON instead of plaintext]' \
         ':driver name: '
+}
+
+function _dbc_list_completions {
+    _arguments \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        '(-l)--level[config level]: :(user system)' \
+        '(--level)-l[config level]: :(user system)' \
+        '--json[Print output as JSON instead of plaintext]'
 }
 
 function _dbc_init_completions {

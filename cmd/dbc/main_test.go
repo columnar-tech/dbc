@@ -146,12 +146,6 @@ func TestSubcommandSuggestions(t *testing.T) {
 		hasSuggestion   bool
 	}{
 		{
-			name:           "list suggests search",
-			invalidCmd:     "list",
-			wantSuggestion: "search",
-			hasSuggestion:  true,
-		},
-		{
 			name:          "unknown command has no suggestion",
 			invalidCmd:    "foobar",
 			hasSuggestion: false,

@@ -158,6 +158,30 @@ type DriverInfo struct {
 }
 
 // -----------------------------------------------------------------------------
+// List (installed drivers)
+// -----------------------------------------------------------------------------
+
+// ListDriverEntry is a single installed driver entry in a list response.
+type ListDriverEntry struct {
+	// Driver is the driver identifier path.
+	Driver string `json:"driver"`
+	// Name is the human-readable driver name from its manifest.
+	Name string `json:"name"`
+	// Version is the installed driver version string.
+	Version string `json:"version"`
+	// Level is the config level where the driver is installed: "system", "user", or "env".
+	Level string `json:"level"`
+	// Location is the filesystem path containing the driver's manifest.
+	Location string `json:"location"`
+}
+
+// ListResponse is the top-level JSON payload for the list command.
+type ListResponse struct {
+	// Drivers is the list of installed drivers across all inspected config levels.
+	Drivers []ListDriverEntry `json:"drivers"`
+}
+
+// -----------------------------------------------------------------------------
 // Init / Add / Remove (driver list management)
 // -----------------------------------------------------------------------------
 
