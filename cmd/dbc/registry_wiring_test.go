@@ -366,6 +366,100 @@ func runTeaCmdToCompletion(t *testing.T, m interface {
 	return nil
 }
 
+// TestAuthHTTPClientDoesNotRequireRegistryConfig pins the invariant that
+// OAuth/device-code login does NOT require valid registry configuration.
+// Previously device-code login routed through dbcClient, so a global
+// replace_defaults=true with no entries broke `dbc auth login` — the exact
+// recovery path a user would take to fix the config.
+func TestAuthHTTPClientDoesNotRequireRegistryConfig(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal := globalRegistryConfig
+	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+
+	// A global config that would make NewClient(WithGlobalConfig(...)) fail.
+	globalRegistryConfig = &dbc.GlobalConfig{ReplaceDefaults: true}
+
+	// authHTTPClient must still return a usable client.
+	c := authHTTPClient()
+	require.NotNil(t, c)
+}
+
+// TestGetDriverListHonorsProjectRegistries proves GetDriverList — a helper
+// used by library consumers that parse dbc.toml directly — applies the
+// project's [[registries]] section before resolving driver packages.
+func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
+	indexYAML := `drivers:
+  - name: Get Driver
+    description: served by the GetDriverList test server
+    license: MIT
+    path: get-driver-x
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+            url: get-driver-x/1.0.0/x.tar.gz
+          - platform: linux_arm64
+            url: get-driver-x/1.0.0/x.tar.gz
+          - platform: macos_amd64
+            url: get-driver-x/1.0.0/x.tar.gz
+          - platform: macos_arm64
+            url: get-driver-x/1.0.0/x.tar.gz
+          - platform: windows_amd64
+            url: get-driver-x/1.0.0/x.tar.gz
+          - platform: windows_arm64
+            url: get-driver-x/1.0.0/x.tar.gz
+`
+
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			atomic.AddInt32(&hits, 1)
+			w.Header().Set("Content-Type", "application/yaml")
+			w.Write([]byte(indexYAML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedClient, savedErr, savedOnce := dbcClient, dbcClientErr, dbcClientOnce
+	savedGetter, savedGlobal := getDriverRegistry, globalRegistryConfig
+	t.Cleanup(func() {
+		dbcClient = savedClient
+		dbcClientErr = savedErr
+		dbcClientOnce = savedOnce
+		getDriverRegistry = savedGetter
+		globalRegistryConfig = savedGlobal
+	})
+
+	dbcClient = nil
+	dbcClientErr = nil
+	dbcClientOnce = &sync.Once{}
+	globalRegistryConfig = nil
+	getDriverRegistry = func() ([]dbc.Driver, error) {
+		if err := initDBCClient(); err != nil {
+			return nil, err
+		}
+		return dbcClient.Search("")
+	}
+
+	tomlPath := t.TempDir() + "/dbc.toml"
+	content := "replace_defaults = true\n\n" +
+		"[[registries]]\nurl = '" + server.URL + "'\n\n" +
+		"[drivers]\n[drivers.get-driver-x]\nversion = '>=1.0.0'\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(content), 0o644))
+
+	pkgs, err := GetDriverList(tomlPath)
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1)
+	assert.Equal(t, "get-driver-x", pkgs[0].Driver.Path)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&hits), int32(1),
+		"GetDriverList must hit the project-declared registry")
+}
+
 // TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies
 // the deferred-init ordering above: if the CLI ever tries to build the
 // default client against a global replace_defaults=true with no entries

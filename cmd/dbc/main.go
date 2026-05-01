@@ -17,6 +17,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -87,6 +88,20 @@ var (
 
 func newDefaultClient() (*dbc.Client, error) {
 	return newDBCClient(nil, nil)
+}
+
+// authHTTPClient returns an *http.Client suitable for auth flows (device-code
+// login, license fetch, etc.) that do not need driver registries resolved.
+// It bypasses dbc.NewClient so registry misconfiguration — a valid state for
+// a user who is about to run `dbc auth login` to fix it — cannot break login.
+func authHTTPClient() *http.Client {
+	c, err := dbc.NewClient(dbc.WithBaseURL("https://placeholder.invalid"))
+	if err != nil {
+		// Impossible in practice: WithBaseURL short-circuits all registry
+		// validation. Fall back to http.DefaultClient so auth still works.
+		return http.DefaultClient
+	}
+	return c.HTTPClient()
 }
 
 // newDBCClient builds a client with the given project registry overrides.

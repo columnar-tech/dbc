@@ -65,6 +65,10 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
+	if err := applyProjectRegistries(m); err != nil {
+		return nil, err
+	}
+
 	drivers, err := getDriverRegistry()
 	if err != nil {
 		return nil, err
