@@ -22,6 +22,31 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestConfigLevelUnmarshalText(t *testing.T) {
+	valid := []struct {
+		input string
+		want  ConfigLevel
+	}{
+		{"user", ConfigUser},
+		{"system", ConfigSystem},
+		{"USER", ConfigUser},
+		{"SYSTEM", ConfigSystem},
+	}
+	for _, tt := range valid {
+		var c ConfigLevel
+		assert.NoError(t, c.UnmarshalText([]byte(tt.input)))
+		assert.Equal(t, tt.want, c)
+	}
+
+	invalid := []string{"env", "bad", ""}
+	for _, s := range invalid {
+		var c ConfigLevel
+		err := c.UnmarshalText([]byte(s))
+		assert.ErrorContains(t, err, "unknown config level")
+		assert.ErrorContains(t, err, "valid values are: user, system")
+	}
+}
+
 func TestConfigEnvVarHierarchy(t *testing.T) {
 	// Test the order is honored (ADBC_DRIVER_PATH before VIRTUAL_ENV before
 	// CONDA_PREFIX) and unset each one (in order) to verify.
