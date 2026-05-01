@@ -735,6 +735,82 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
 }
 
+// TestAddInitialReadBlocksWhileLockHeld pins the invariant that the
+// initial dbc.toml decode is performed under the project lock, so a
+// concurrent writer holding the lock cannot expose torn state. We hold
+// the lock externally and assert dbc add cannot progress past the
+// initial read (it cannot even reach the registry lookup) until we
+// release. If the initial read skips the lock, add reads the file and
+// drives forward into getDriverRegistry, which the test observes.
+func TestAddInitialReadBlocksWhileLockHeld(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	lockPath := filepath.Join(dir, ".dbc.project.lock")
+	require.NoError(t, os.WriteFile(tomlPath, []byte("[drivers]\n"), 0o644))
+
+	// Acquire the lock and keep it held for the duration of the blocking
+	// assertion. The holder stays alive — no mid-flight release.
+	heldLock, err := fslock.Acquire(lockPath, 5*time.Second)
+	require.NoError(t, err)
+
+	// Instrument getDriverRegistry so the test knows when (or whether)
+	// add progressed past the initial read. With the read lock in place,
+	// add MUST block before reaching this; if the fix is ever reverted,
+	// this fires while the lock is still held.
+	registryReached := make(chan struct{}, 1)
+	slowRegistry := func() ([]dbc.Driver, error) {
+		select {
+		case registryReached <- struct{}{}:
+		default:
+		}
+		return getTestDriverRegistry()
+	}
+
+	addDone := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		addDone <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	// Wait long enough that add would have reached the registry lookup
+	// if the initial read were not gated by the lock.
+	select {
+	case <-registryReached:
+		heldLock.Release()
+		<-addDone
+		t.Fatalf("add reached getDriverRegistry while project lock was held; initial read is not gated by the lock")
+	case <-time.After(300 * time.Millisecond):
+		// Good — add is blocked on the lock.
+	}
+
+	// Release the lock; add should now proceed and complete.
+	require.NoError(t, heldLock.Release())
+
+	select {
+	case <-registryReached:
+		// Add reached the lookup after the lock was released, as expected.
+	case <-time.After(2 * time.Second):
+		<-addDone
+		t.Fatal("add did not proceed after lock release")
+	}
+
+	msgOut := <-addDone
+	if errMsg, ok := msgOut.(error); ok {
+		t.Fatalf("AddCmd failed after lock released: %v", errMsg)
+	}
+
+	data, err := os.ReadFile(tomlPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "[drivers.test-driver-1]")
+}
+
 // TestRunStartupSkipsLoadWhenConfigDirEmpty pins the invariant that
 // runStartup does NOT read ./config.toml from the current working directory
 // when the user config directory could not be located (configDir==""). A
