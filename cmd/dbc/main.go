@@ -168,7 +168,7 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 type cmds struct {
 	Install    *InstallCmd      `arg:"subcommand" help:"Install a driver"`
 	Uninstall  *UninstallCmd    `arg:"subcommand" help:"Uninstall a driver"`
-	List       *ListCmd         `arg:"subcommand" help:"List all currently installed drivers"`
+	List       *ListCmd         `arg:"subcommand" help:"List installed drivers"`
 	Init       *InitCmd         `arg:"subcommand" help:"Initialize a new dbc driver list"`
 	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
 	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
