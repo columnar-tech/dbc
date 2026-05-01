@@ -124,15 +124,6 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		drivers, registryErr := m.getDriverRegistry()
-		// If we have no drivers and there's an error, fail immediately
-		if len(drivers) == 0 && registryErr != nil {
-			return fmt.Errorf("error getting driver list: %w", registryErr)
-		}
-		// Store registry errors to use later if driver is not found
-		// We continue processing if we have some drivers
-		var registryErrors error = registryErr
-
 		p, err := driverListPath(m.Path)
 		if err != nil {
 			return err
@@ -149,15 +140,27 @@ func (m addModel) Init() tea.Cmd {
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
-			} else {
-				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 			}
+			return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 		}
 		defer f.Close()
 
 		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
+
+		if err := applyProjectRegistries(m.list); err != nil {
+			return err
+		}
+
+		drivers, registryErr := m.getDriverRegistry()
+		// If we have no drivers and there's an error, fail immediately
+		if len(drivers) == 0 && registryErr != nil {
+			return fmt.Errorf("error getting driver list: %w", registryErr)
+		}
+		// Store registry errors to use later if driver is not found
+		// We continue processing if we have some drivers
+		var registryErrors error = registryErr
 
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)

@@ -29,6 +29,7 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/mattn/go-isatty"
 )
 
@@ -77,14 +78,40 @@ var (
 	dbcClient     *dbc.Client
 	dbcClientErr  error
 	dbcClientOnce sync.Once
+
+	// globalRegistryConfig is loaded once at startup and reused by every client
+	// built in this process, including clients rebuilt after reading a project's
+	// dbc.toml registry section.
+	globalRegistryConfig *dbc.GlobalConfig
 )
 
 func newDefaultClient() (*dbc.Client, error) {
+	return newDBCClient(nil, nil)
+}
+
+// newDBCClient builds a client with the given project registry overrides.
+// Callers pass nil/nil for process-wide operations (search, info, install);
+// project commands (add, sync, remove) pass the values parsed from dbc.toml.
+func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
 	var opts []dbc.Option
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
+	} else {
+		if globalRegistryConfig != nil {
+			opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+		}
+		if projectRegs != nil || projectReplaceDefaults != nil {
+			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
+		}
 	}
 	return dbc.NewClient(opts...)
+}
+
+// setDBCClient swaps the process-wide client, so subsequent calls through
+// getDriverRegistry pick up the new registry list. Project commands call this
+// after parsing dbc.toml.
+func setDBCClient(c *dbc.Client) {
+	dbcClient = c
 }
 
 func initDBCClient() error {
@@ -101,6 +128,8 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	}
 	return dbcClient.Search("")
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -236,6 +265,14 @@ func main() {
 	var (
 		args cmds
 	)
+
+	if configDir, err := internal.GetUserConfigPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", err)
+	} else if cfg, err := dbc.LoadGlobalConfig(configDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load registry config: %v\n", err)
+	} else {
+		globalRegistryConfig = cfg
+	}
 
 	if err := initDBCClient(); err != nil {
 		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", err)

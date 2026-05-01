@@ -483,6 +483,58 @@ func (suite *SubcommandTestSuite) TestAdd_JSON_Constraint() {
 	suite.NotEmpty(resp.DriverListPath)
 }
 
+func (suite *SubcommandTestSuite) TestAddWithProjectRegistries() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	err := os.WriteFile(filepath.Join(suite.tempdir, "dbc.toml"), []byte(`# dbc driver list
+[[registries]]
+url = 'https://custom-registry.example.com'
+name = 'custom'
+
+[drivers]
+`), 0644)
+	suite.Require().NoError(err)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+	suite.Contains(out, "added test-driver-1 to driver list")
+
+	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+	suite.Require().NoError(err)
+	suite.Contains(string(data), "[drivers.test-driver-1]")
+
+	if os.Getenv("DBC_BASE_URL") == "" {
+		suite.Require().NotNil(dbcClient)
+		found := false
+		for _, r := range dbcClient.Registries() {
+			if r.BaseURL != nil && r.BaseURL.String() == "https://custom-registry.example.com" {
+				found = true
+				break
+			}
+		}
+		suite.True(found, "expected custom registry in active client registries after add with [[registries]] in dbc.toml")
+	}
+}
+
+func (suite *SubcommandTestSuite) TestAddWithInvalidProjectRegistryURL() {
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+
+	err := os.WriteFile(filepath.Join(suite.tempdir, "dbc.toml"), []byte(`# dbc driver list
+[[registries]]
+url = ''
+
+[drivers]
+[drivers.test-driver-1]
+`), 0644)
+	suite.Require().NoError(err)
+
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-1"}}.GetModelCustom(testBaseModel())
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "empty url")
+}
+
 func (suite *SubcommandTestSuite) TestAddMultipleOutput() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)
