@@ -161,11 +161,44 @@ func TestRegistriesChanged(t *testing.T) {
 	})
 
 	t.Run("replace_defaults tri-state differences compare unequal", func(t *testing.T) {
-		a := DriversList{ReplaceDefaults: bp(true)}
-		b := DriversList{ReplaceDefaults: bp(false)}
-		assert.True(t, registriesChanged(a, b))
-		c := DriversList{} // nil
-		assert.True(t, registriesChanged(a, c))
+		a := DriversList{ReplaceDefaults: bp(true), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		b := DriversList{ReplaceDefaults: bp(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		assert.True(t, registriesChanged(a, b),
+			"replace_defaults=true drops built-in defaults; the merged sets differ")
+	})
+
+	t.Run("nil vs explicit false replace_defaults compare equal (no-op flip)", func(t *testing.T) {
+		// When no global config is loaded, nil and &false both mean
+		// "keep defaults" — the merged registry set is identical.
+		a := DriversList{ReplaceDefaults: nil, Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		b := DriversList{ReplaceDefaults: bp(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		assert.False(t, registriesChanged(a, b),
+			"flipping unset→explicit-false without a global override doesn't change the merged set")
+	})
+
+	t.Run("exact duplicate entries collapse (mergeRegistries dedupes)", func(t *testing.T) {
+		// Adding a duplicate registry entry is a no-op because
+		// mergeRegistries dedupes. The effective resolution is unchanged.
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{
+			{URL: "https://r.example.com"},
+			{URL: "https://r.example.com"},
+		}}
+		assert.False(t, registriesChanged(a, b),
+			"adding an exact duplicate registry entry doesn't change the merged set")
+	})
+
+	t.Run("name-only duplicate rename is a no-op", func(t *testing.T) {
+		// Same URLs, different names — merge uses first-wins for Name,
+		// and registriesChanged compares only URLs, so this is equal.
+		a := DriversList{Registries: []dbc.RegistryEntry{
+			{URL: "https://r.example.com", Name: "a"},
+			{URL: "https://r.example.com", Name: "b"},
+		}}
+		b := DriversList{Registries: []dbc.RegistryEntry{
+			{URL: "https://r.example.com", Name: "c"},
+		}}
+		assert.False(t, registriesChanged(a, b))
 	})
 }
 

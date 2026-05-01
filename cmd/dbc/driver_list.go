@@ -35,33 +35,55 @@ type DriversList struct {
 	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
-// registriesChanged reports whether two DriversList values differ in
-// fields that affect the EFFECTIVE registry resolution: replace_defaults
-// and normalized registry URLs. Display-only fields like RegistryEntry.Name
-// are ignored — renaming a registry doesn't change which server drivers
-// are fetched from, so an add shouldn't abort over it. Callers use this
-// to detect that a concurrent editor changed registry resolution between
-// an unlocked driver lookup and the locked write-back phase.
+// registriesChanged reports whether two DriversList values would produce
+// a different EFFECTIVE registry resolution when combined with the
+// current process-wide globalRegistryConfig and built-in defaults. This
+// is what the client actually uses to resolve drivers, so changes that
+// the merge would collapse (e.g. flipping nil → &false when defaults
+// were already inherited, or removing an exact duplicate entry) are
+// correctly NOT treated as drift.
+//
+// Implemented by running both lists through the same newDBCClient merge
+// path and comparing the resulting normalized URL sets. Display-only
+// fields like RegistryEntry.Name are ignored because they don't appear
+// in the merged URL comparison.
 func registriesChanged(a, b DriversList) bool {
-	if !triStateEqual(a.ReplaceDefaults, b.ReplaceDefaults) {
+	urlsA, errA := effectiveRegistryURLs(a)
+	urlsB, errB := effectiveRegistryURLs(b)
+	// If either side fails to produce a merged set (e.g. invalid config),
+	// treat as changed so the command aborts rather than writing against
+	// a config we can't analyze.
+	if errA != nil || errB != nil {
+		return errA != errB
+	}
+	if len(urlsA) != len(urlsB) {
 		return true
 	}
-	if len(a.Registries) != len(b.Registries) {
-		return true
-	}
-	for i := range a.Registries {
-		if normalizeRegistryURL(a.Registries[i].URL) != normalizeRegistryURL(b.Registries[i].URL) {
+	for i := range urlsA {
+		if urlsA[i] != urlsB[i] {
 			return true
 		}
 	}
 	return false
 }
 
-func triStateEqual(a, b *bool) bool {
-	if a == nil || b == nil {
-		return a == b
+// effectiveRegistryURLs returns the normalized URL list the client would
+// use after merging the given DriversList with the current global config
+// and built-in defaults. It builds a throwaway client via newDBCClient
+// so merge semantics stay in sync with what NewClient actually uses.
+func effectiveRegistryURLs(list DriversList) ([]string, error) {
+	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	if err != nil {
+		return nil, err
 	}
-	return *a == *b
+	regs := c.Registries()
+	out := make([]string, len(regs))
+	for i, r := range regs {
+		if r.BaseURL != nil {
+			out[i] = normalizeRegistryURL(r.BaseURL.String())
+		}
+	}
+	return out, nil
 }
 
 // normalizeRegistryURL returns a canonical form of a registry URL for
