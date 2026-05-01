@@ -597,25 +597,53 @@ func TestRunStartupSkipsLoadWhenConfigDirEmpty(t *testing.T) {
 		"runStartup must not read ./config.toml when configDir is empty")
 }
 
-// TestRunStartupClearsStaleGlobalConfigWhenConfigDirEmpty pins the
-// invariant that runStartup("", ...) actively resets prior in-process
-// state, rather than leaking a previous call's global config.
-func TestRunStartupClearsStaleGlobalConfigWhenConfigDirEmpty(t *testing.T) {
+// TestRunStartupClearsStaleClientState pins the invariant that runStartup
+// resets ALL cached client state (globalRegistryConfig, dbcClient,
+// dbcClientOnce) at the start of every call, so a second in-process startup
+// doesn't silently reuse the previous invocation's registries.
+func TestRunStartupClearsStaleClientState(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 
-	savedGlobal := globalRegistryConfig
-	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+	savedGlobal, savedClient, savedErr, savedOnce := globalRegistryConfig, dbcClient, dbcClientErr, dbcClientOnce
+	t.Cleanup(func() {
+		globalRegistryConfig = savedGlobal
+		dbcClient = savedClient
+		dbcClientErr = savedErr
+		dbcClientOnce = savedOnce
+	})
 
-	// Prime global state as if a previous runStartup invocation had
-	// successfully loaded a config.
+	// Prime BOTH state paths as if a previous runStartup invocation had
+	// loaded a config and built a client. The review specifically called
+	// out that clearing only globalRegistryConfig isn't enough because
+	// dbcClient is cached via dbcClientOnce.
+	staleClient, err := dbc.NewClient(dbc.WithBaseURL("https://stale.example.com"))
+	require.NoError(t, err)
+	dbcClient = staleClient
+	dbcClientErr = nil
+	once := &sync.Once{}
+	once.Do(func() {}) // mark as "already run" so reinit would be skipped
+	dbcClientOnce = once
 	globalRegistryConfig = &dbc.GlobalConfig{
 		Registries: []dbc.RegistryEntry{{URL: "https://stale.example.com"}},
 	}
 
 	res := runStartup("", []string{"search"})
 	require.Equal(t, startupModel, res.kind)
+
 	assert.Nil(t, globalRegistryConfig,
-		"runStartup must clear stale globalRegistryConfig when configDir is empty")
+		"runStartup must clear globalRegistryConfig")
+	assert.Nil(t, dbcClient,
+		"runStartup must clear dbcClient so stale registries aren't reused")
+	assert.NotSame(t, once, dbcClientOnce,
+		"runStartup must reset dbcClientOnce so a fresh init actually runs")
+
+	// Fresh init should now succeed with defaults, not stale state.
+	require.NoError(t, initDBCClient())
+	require.NotNil(t, dbcClient)
+	for _, r := range dbcClient.Registries() {
+		require.NotEqual(t, "https://stale.example.com", r.BaseURL.String(),
+			"fresh client must not carry the stale registry")
+	}
 }
 
 // TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies

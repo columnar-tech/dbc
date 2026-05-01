@@ -129,6 +129,17 @@ func setDBCClient(c *dbc.Client) {
 	dbcClient = c
 }
 
+// resetClientState returns the process-wide client and global config to
+// their pre-startup state. Called at the top of runStartup so each
+// invocation begins from a clean slate, and so repeated in-process startups
+// cannot leak configuration from one call to the next.
+func resetClientState() {
+	dbcClient = nil
+	dbcClientErr = nil
+	dbcClientOnce = &sync.Once{}
+	globalRegistryConfig = nil
+}
+
 func initDBCClient() error {
 	dbcClientOnce.Do(func() {
 		// Re-check dbcClient — a project command may have already built one
@@ -343,11 +354,16 @@ type startupResult struct {
 // would break the "global replace_defaults=true + project supplies
 // registries" scenario, which is why tests drive this helper end-to-end.
 func runStartup(configDir string, argv []string) startupResult {
+	// Reset all cached client state at the start of every startup so the
+	// same process can run multiple commands without one invocation's
+	// configuration leaking into the next (matters for tests and for any
+	// embedder that calls runStartup more than once).
+	resetClientState()
+
 	if configDir == "" {
-		// No user config directory available — clear any stale state from
-		// a prior in-process call so this invocation genuinely runs with
+		// No user config directory available — leave globalRegistryConfig
+		// cleared by resetClientState so this invocation runs with
 		// default registries only.
-		globalRegistryConfig = nil
 	} else if msg := loadStartupRegistryConfig(configDir); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
