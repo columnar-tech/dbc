@@ -65,11 +65,16 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
-	if err := applyProjectRegistries(m); err != nil {
-		return nil, err
+	// Build a per-call client scoped to this list's registry overrides so
+	// repeated calls in the same process don't leak configuration from one
+	// dbc.toml to another. Unlike add/sync (which own the process for one
+	// command), GetDriverList is a library helper that may be called
+	// multiple times.
+	client, err := newDBCClient(m.Registries, m.ReplaceDefaults)
+	if err != nil {
+		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}
-
-	drivers, err := getDriverRegistry()
+	drivers, err := client.Search("")
 	if err != nil {
 		return nil, err
 	}

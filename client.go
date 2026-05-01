@@ -85,9 +85,6 @@ func NewClient(opts ...Option) (*Client, error) {
 				return nil, err
 			}
 		}
-		if cfg.projectReplaceDefaults != nil && *cfg.projectReplaceDefaults && len(cfg.projectRegistries) == 0 {
-			return nil, fmt.Errorf("replace_defaults = true requires at least one [[registries]] entry; omit replace_defaults or add a registry entry")
-		}
 		var globalRegs []RegistryEntry
 		var globalReplace bool
 		if cfg.globalConfig != nil {

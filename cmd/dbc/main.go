@@ -279,6 +279,20 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 	os.Exit(2)
 }
 
+// loadStartupRegistryConfig reads the user's global config.toml and stashes
+// it into globalRegistryConfig. Extracted from main() so tests can exercise
+// the same startup path. Returns an error message string for display (never
+// fatal — a missing or malformed config is reported as a warning and the
+// default registry set is preserved).
+func loadStartupRegistryConfig(configDir string) string {
+	cfg, err := dbc.LoadGlobalConfig(configDir)
+	if err != nil {
+		return fmt.Sprintf("warning: failed to load registry config: %v", err)
+	}
+	globalRegistryConfig = cfg
+	return ""
+}
+
 func main() {
 	var (
 		args cmds
@@ -286,10 +300,8 @@ func main() {
 
 	if configDir, err := internal.GetUserConfigPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", err)
-	} else if cfg, err := dbc.LoadGlobalConfig(configDir); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to load registry config: %v\n", err)
-	} else {
-		globalRegistryConfig = cfg
+	} else if msg := loadStartupRegistryConfig(configDir); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
 	}
 
 	// Defer dbcClient construction until after argument parsing. Project

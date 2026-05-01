@@ -256,9 +256,19 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		assert.ErrorContains(t, err, "empty url")
 	})
 
-	t.Run("WithProjectRegistries rejects replace_defaults=true with no entries", func(t *testing.T) {
+	t.Run("project replace_defaults=true with no entries rejected only if merge is empty", func(t *testing.T) {
+		// No global registries, no project registries, drop defaults: truly empty.
 		_, err := NewClient(WithProjectRegistries(nil, boolPtr(true)))
-		assert.ErrorContains(t, err, "replace_defaults")
+		assert.ErrorContains(t, err, "empty registry list")
+	})
+
+	t.Run("project replace_defaults=true with no project entries keeps global entries", func(t *testing.T) {
+		cfg := &GlobalConfig{Registries: []RegistryEntry{{URL: "https://glob.example.com"}}}
+		c, err := NewClient(WithGlobalConfig(cfg), WithProjectRegistries(nil, boolPtr(true)))
+		require.NoError(t, err)
+		regs := c.Registries()
+		require.Len(t, regs, 1, "project replace_defaults drops only built-in defaults, not global entries")
+		assert.Equal(t, "https://glob.example.com", regs[0].BaseURL.String())
 	})
 
 	t.Run("WithProjectRegistries rejects non-http scheme", func(t *testing.T) {

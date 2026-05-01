@@ -386,29 +386,112 @@ func TestAuthHTTPClientDoesNotRequireRegistryConfig(t *testing.T) {
 }
 
 // TestGetDriverListHonorsProjectRegistries proves GetDriverList — a helper
-// used by library consumers that parse dbc.toml directly — applies the
-// project's [[registries]] section before resolving driver packages.
+// used by library consumers that parse dbc.toml directly — honors the
+// project's [[registries]] section when resolving driver packages, AND
+// does not leak that configuration across calls in the same process.
 func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
-	indexYAML := `drivers:
-  - name: Get Driver
-    description: served by the GetDriverList test server
+	indexFor := func(drvName string) string {
+		return `drivers:
+  - name: ` + drvName + `
+    description: test
     license: MIT
-    path: get-driver-x
+    path: ` + drvName + `
     pkginfo:
       - version: v1.0.0
         packages:
           - platform: linux_amd64
-            url: get-driver-x/1.0.0/x.tar.gz
+            url: ` + drvName + `/1.0.0/x.tar.gz
           - platform: linux_arm64
-            url: get-driver-x/1.0.0/x.tar.gz
+            url: ` + drvName + `/1.0.0/x.tar.gz
           - platform: macos_amd64
-            url: get-driver-x/1.0.0/x.tar.gz
+            url: ` + drvName + `/1.0.0/x.tar.gz
           - platform: macos_arm64
-            url: get-driver-x/1.0.0/x.tar.gz
+            url: ` + drvName + `/1.0.0/x.tar.gz
           - platform: windows_amd64
-            url: get-driver-x/1.0.0/x.tar.gz
+            url: ` + drvName + `/1.0.0/x.tar.gz
           - platform: windows_arm64
-            url: get-driver-x/1.0.0/x.tar.gz
+            url: ` + drvName + `/1.0.0/x.tar.gz
+`
+	}
+
+	makeServer := func(drvName string, hits *int32) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+				atomic.AddInt32(hits, 1)
+				w.Header().Set("Content-Type", "application/yaml")
+				w.Write([]byte(indexFor(drvName)))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+	}
+
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal := globalRegistryConfig
+	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+	globalRegistryConfig = nil
+
+	var hitsA, hitsB int32
+	serverA := makeServer("driver-a", &hitsA)
+	defer serverA.Close()
+	serverB := makeServer("driver-b", &hitsB)
+	defer serverB.Close()
+
+	writeList := func(t *testing.T, registryURL, drvName string) string {
+		t.Helper()
+		p := t.TempDir() + "/dbc.toml"
+		content := "replace_defaults = true\n\n" +
+			"[[registries]]\nurl = '" + registryURL + "'\n\n" +
+			"[drivers]\n[drivers." + drvName + "]\nversion = '>=1.0.0'\n"
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+		return p
+	}
+
+	// Call 1: dbc.toml pointing at server A.
+	pkgs, err := GetDriverList(writeList(t, serverA.URL, "driver-a"))
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1)
+	assert.Equal(t, "driver-a", pkgs[0].Driver.Path)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&hitsA), int32(1))
+
+	// Call 2: a DIFFERENT dbc.toml pointing at server B. If GetDriverList
+	// leaked registry state from call 1, server B wouldn't be hit.
+	pkgs, err = GetDriverList(writeList(t, serverB.URL, "driver-b"))
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1)
+	assert.Equal(t, "driver-b", pkgs[0].Driver.Path)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&hitsB), int32(1),
+		"GetDriverList must not leak registry state from a previous call")
+}
+
+// TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries runs the full
+// CLI startup sequence (loadStartupRegistryConfig + project-command dispatch
+// via applyProjectRegistries) against a temp global config.toml declaring
+// replace_defaults=true with no entries, and a project dbc.toml supplying
+// the registries. This is the exact scenario that an eager initDBCClient()
+// in main() would break. If anyone reintroduces eager init this test fails.
+func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
+	indexYAML := `drivers:
+  - name: Startup Driver
+    description: startup e2e
+    license: MIT
+    path: startup-driver
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+            url: startup-driver/1.0.0/x.tar.gz
+          - platform: linux_arm64
+            url: startup-driver/1.0.0/x.tar.gz
+          - platform: macos_amd64
+            url: startup-driver/1.0.0/x.tar.gz
+          - platform: macos_arm64
+            url: startup-driver/1.0.0/x.tar.gz
+          - platform: windows_amd64
+            url: startup-driver/1.0.0/x.tar.gz
+          - platform: windows_arm64
+            url: startup-driver/1.0.0/x.tar.gz
 `
 
 	var hits int32
@@ -434,11 +517,27 @@ func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
 		getDriverRegistry = savedGetter
 		globalRegistryConfig = savedGlobal
 	})
-
 	dbcClient = nil
 	dbcClientErr = nil
 	dbcClientOnce = &sync.Once{}
 	globalRegistryConfig = nil
+
+	// Step 1: main() loads the global config (replace_defaults=true, no entries).
+	globalDir := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		globalDir+"/config.toml",
+		[]byte("replace_defaults = true\n"),
+		0o644,
+	))
+	msg := loadStartupRegistryConfig(globalDir)
+	require.Empty(t, msg, "a valid global config must load without warnings")
+
+	// Step 2: main() does NOT eagerly init dbcClient — project commands
+	// must get a chance to merge project registries first.
+	require.Nil(t, dbcClient, "startup must not construct the client until after arg parse")
+
+	// Step 3: project command reads dbc.toml with registries that satisfy
+	// the global replace_defaults=true.
 	getDriverRegistry = func() ([]dbc.Driver, error) {
 		if err := initDBCClient(); err != nil {
 			return nil, err
@@ -446,18 +545,20 @@ func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
 		return dbcClient.Search("")
 	}
 
-	tomlPath := t.TempDir() + "/dbc.toml"
-	content := "replace_defaults = true\n\n" +
-		"[[registries]]\nurl = '" + server.URL + "'\n\n" +
-		"[drivers]\n[drivers.get-driver-x]\nversion = '>=1.0.0'\n"
-	require.NoError(t, os.WriteFile(tomlPath, []byte(content), 0o644))
+	projectPath := t.TempDir() + "/dbc.toml"
+	require.NoError(t, os.WriteFile(projectPath, []byte(
+		"[[registries]]\nurl = '"+server.URL+"'\n\n[drivers]\n[drivers.startup-driver]\nversion = '>=1.0.0'\n",
+	), 0o644))
 
-	pkgs, err := GetDriverList(tomlPath)
-	require.NoError(t, err)
-	require.Len(t, pkgs, 1)
-	assert.Equal(t, "get-driver-x", pkgs[0].Driver.Path)
+	m := AddCmd{Path: projectPath, Driver: []string{"startup-driver"}}.GetModel()
+	msgOut := runTeaCmdToCompletion(t, m)
+	if errMsg, ok := msgOut.(error); ok {
+		t.Fatalf("AddCmd failed: %v", errMsg)
+	}
+
+	require.NotNil(t, dbcClient, "applyProjectRegistries must have built a client")
 	assert.GreaterOrEqual(t, atomic.LoadInt32(&hits), int32(1),
-		"GetDriverList must hit the project-declared registry")
+		"project-declared registry should have been hit end-to-end")
 }
 
 // TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies
