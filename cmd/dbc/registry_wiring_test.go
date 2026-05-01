@@ -545,27 +545,19 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 		return dbcClient.Search("")
 	}
 
-	// Run the real startup sequence end-to-end, mirroring main():
-	//  1. loadStartupRegistryConfig
-	//  2. parseStartupArgs (the shared helper main() also uses)
-	//  3. subcommand.GetModel()
-	// If eager initDBCClient() ever slips between steps 1 and 3, this test
-	// fails with "empty registry list" because the project dbc.toml hasn't
-	// been read yet.
-	require.Empty(t, loadStartupRegistryConfig(globalDir), "valid global config must load without warnings")
-	require.NotNil(t, globalRegistryConfig, "step 1 must stash the global config")
-	require.Nil(t, dbcClient, "startup step 1 must not construct dbcClient")
+	// Run the real startup sequence end-to-end by invoking the shared
+	// helper main() also uses — runStartup covers config load, argv parse,
+	// and subcommand dispatch (including GetModel). If anyone
+	// reintroduces eager initDBCClient() anywhere in that path, dbcClient
+	// would be non-nil here and runStartup would have already failed with
+	// "empty registry list" for this global config.
+	res := runStartup(globalDir, []string{"add", "--path", projectPath, "startup-driver"})
+	require.Equal(t, startupModel, res.kind, "runStartup must reach the model branch without error")
+	require.NotNil(t, res.model)
+	require.NotNil(t, globalRegistryConfig, "runStartup must stash the global config")
+	require.Nil(t, dbcClient, "runStartup must defer dbcClient construction until applyProjectRegistries")
 
-	parser, _, parseErr := parseStartupArgs([]string{"add", "--path", projectPath, "startup-driver"})
-	require.NoError(t, parseErr)
-	require.Nil(t, dbcClient, "startup step 2 (argv parse) must not construct dbcClient")
-
-	mc, ok := parser.Subcommand().(modelCmd)
-	require.True(t, ok)
-	model := mc.GetModel()
-	require.Nil(t, dbcClient, "startup step 3 (GetModel) must not construct dbcClient; applyProjectRegistries will")
-
-	msgOut := runTeaCmdToCompletion(t, model.(interface {
+	msgOut := runTeaCmdToCompletion(t, res.model.(interface {
 		Init() tea.Cmd
 		Update(tea.Msg) (tea.Model, tea.Cmd)
 	}))

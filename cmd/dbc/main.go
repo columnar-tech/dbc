@@ -293,83 +293,130 @@ func loadStartupRegistryConfig(configDir string) string {
 	return ""
 }
 
-// parseStartupArgs parses argv into a cmds struct, matching the exact
-// ordering main() uses: global config load first, then argv parse, then
-// subcommand selection — with no dbcClient construction in between. Tests
-// share this helper with main() so a regression that eagerly initializes
-// dbcClient before subcommand dispatch fails the startup test.
-func parseStartupArgs(argv []string) (*arg.Parser, *cmds, error) {
-	args := &cmds{}
-	p, err := newParser(args)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error creating argument parser: %w", err)
-	}
-	if err := p.Parse(argv); err != nil {
-		return p, args, err
-	}
-	return p, args, nil
+// startupKind names the terminal states of the startup sequence so main()
+// can react to each one without duplicating the dispatch logic the test
+// exercises.
+type startupKind int
+
+const (
+	// startupModel means startup resolved to a runnable bubbletea model.
+	startupModel startupKind = iota
+	// startupHelp means parsing completed but the user asked for help.
+	startupHelp
+	// startupVersion means the user asked for --version.
+	startupVersion
+	// startupParseError means argv parsing failed with a non-help error.
+	startupParseError
+	// startupNoSubcommand means the user provided no subcommand.
+	startupNoSubcommand
+	// startupHelpOnlyCmd is a subcommand that only prints its help text
+	// (AuthCmd, LicenseCmd, bare completions.Cmd).
+	startupHelpOnlyCmd
+	// startupCompletionShell means the user asked for a completion script.
+	startupCompletionShell
+	// startupUnknownSubcommand means parsing succeeded but the subcommand
+	// type isn't one we know how to dispatch. Indicates a programming error.
+	startupUnknownSubcommand
+)
+
+// startupResult is the outcome of runStartup.
+type startupResult struct {
+	kind        startupKind
+	parser      *arg.Parser
+	args        *cmds
+	parseErr    error
+	model       tea.Model
+	shellScript string
 }
 
-func main() {
-	// Load the global registry config before argument parsing. dbcClient
-	// construction is intentionally deferred; project commands read a
-	// dbc.toml whose [[registries]] can supply entries required by a
-	// global replace_defaults=true, so eagerly calling NewClient here
-	// would reject configurations the project override would otherwise
-	// satisfy.
-	if configDir, err := internal.GetUserConfigPath(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", err)
-	} else if msg := loadStartupRegistryConfig(configDir); msg != "" {
+// runStartup executes the full startup sequence shared by main() and tests:
+//  1. load the global registry config,
+//  2. parse argv,
+//  3. select the subcommand and build its bubbletea model (for model commands).
+//
+// No dbcClient is constructed along the way — project commands' models
+// build it lazily via applyProjectRegistries once they decode dbc.toml.
+// Reintroducing an eager initDBCClient() anywhere between steps 1 and 3
+// would break the "global replace_defaults=true + project supplies
+// registries" scenario, which is why tests drive this helper end-to-end.
+func runStartup(configDir string, argv []string) startupResult {
+	if msg := loadStartupRegistryConfig(configDir); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
 
-	p, args, err := parseStartupArgs(os.Args[1:])
+	args := &cmds{}
+	p, err := newParser(args)
 	if err != nil {
-		if p == nil {
-			fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", err)
-			os.Exit(1)
-		}
+		return startupResult{kind: startupParseError, parser: p, args: args, parseErr: err}
+	}
+
+	if err := p.Parse(argv); err != nil {
 		switch err {
 		case arg.ErrHelp:
-			if d, ok := p.Subcommand().(arg.Described); ok {
-				fmt.Println(d.Description())
-			}
-			p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-			os.Exit(0)
+			return startupResult{kind: startupHelp, parser: p, args: args}
 		case arg.ErrVersion:
-			fmt.Println(dbc.Version)
-			os.Exit(0)
+			return startupResult{kind: startupVersion, parser: p, args: args}
 		default:
-			failSubcommandAndSuggest(p, err.Error(), p.SubcommandNames()...)
+			return startupResult{kind: startupParseError, parser: p, args: args, parseErr: err}
 		}
 	}
 
 	if p.Subcommand() == nil {
-		p.WriteHelp(os.Stdout)
-		os.Exit(1)
+		return startupResult{kind: startupNoSubcommand, parser: p, args: args}
 	}
 
-	var m tea.Model
-
 	switch sub := p.Subcommand().(type) {
-	case *AuthCmd:
-		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-		os.Exit(2)
-	case *LicenseCmd:
-		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-		os.Exit(2)
-	case *completions.Cmd: // "dbc completions" without specifying the shell type
-		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-		os.Exit(2)
+	case *AuthCmd, *LicenseCmd, *completions.Cmd:
+		return startupResult{kind: startupHelpOnlyCmd, parser: p, args: args}
 	case completions.ShellImpl:
-		fmt.Print(sub.GetScript())
-		os.Exit(0)
+		return startupResult{kind: startupCompletionShell, parser: p, args: args, shellScript: sub.GetScript()}
 	case modelCmd:
-		m = sub.GetModel()
+		return startupResult{kind: startupModel, parser: p, args: args, model: sub.GetModel()}
 	default:
+		return startupResult{kind: startupUnknownSubcommand, parser: p, args: args}
+	}
+}
+
+func main() {
+	configDir, cfgErr := internal.GetUserConfigPath()
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", cfgErr)
+	}
+
+	res := runStartup(configDir, os.Args[1:])
+	p, args := res.parser, res.args
+
+	switch res.kind {
+	case startupParseError:
+		if p == nil {
+			fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", res.parseErr)
+			os.Exit(1)
+		}
+		failSubcommandAndSuggest(p, res.parseErr.Error(), p.SubcommandNames()...)
+	case startupHelp:
+		if d, ok := p.Subcommand().(arg.Described); ok {
+			fmt.Println(d.Description())
+		}
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(0)
+	case startupVersion:
+		fmt.Println(dbc.Version)
+		os.Exit(0)
+	case startupNoSubcommand:
+		p.WriteHelp(os.Stdout)
+		os.Exit(1)
+	case startupHelpOnlyCmd:
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(2)
+	case startupCompletionShell:
+		fmt.Print(res.shellScript)
+		os.Exit(0)
+	case startupUnknownSubcommand:
 		fmt.Fprintf(os.Stderr, "internal error: unrecognized subcommand %T\n", p.Subcommand())
 		os.Exit(1)
 	}
+
+	m := res.model
 
 	// f, err := tea.LogToFile("debug.log", "debug")
 	// if err != nil {
@@ -402,8 +449,9 @@ func main() {
 		}
 	}
 
-	if m, err = prog.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error running program:", err)
+	var runErr error
+	if m, runErr = prog.Run(); runErr != nil {
+		fmt.Fprintln(os.Stderr, "Error running program:", runErr)
 		os.Exit(1)
 	}
 
