@@ -99,6 +99,49 @@ version = '>=1.6.0'
 `, string(data))
 }
 
+func TestRegistriesChanged(t *testing.T) {
+	bp := func(b bool) *bool { return &b }
+
+	t.Run("identical lists compare equal", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
+		assert.False(t, registriesChanged(a, b))
+	})
+
+	t.Run("different URL compares unequal", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://b.example.com"}}}
+		assert.True(t, registriesChanged(a, b))
+	})
+
+	t.Run("name-only changes are ignored (display-only field)", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com", Name: "prod"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com", Name: "production"}}}
+		assert.False(t, registriesChanged(a, b),
+			"renaming a registry must not trigger a false-positive config-drift abort")
+	})
+
+	t.Run("trailing slash normalization", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com/"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
+		assert.False(t, registriesChanged(a, b))
+	})
+
+	t.Run("case-insensitive host", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://A.Example.COM"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
+		assert.False(t, registriesChanged(a, b))
+	})
+
+	t.Run("replace_defaults tri-state differences compare unequal", func(t *testing.T) {
+		a := DriversList{ReplaceDefaults: bp(true)}
+		b := DriversList{ReplaceDefaults: bp(false)}
+		assert.True(t, registriesChanged(a, b))
+		c := DriversList{} // nil
+		assert.True(t, registriesChanged(a, c))
+	})
+}
+
 func TestDriversListRegistries(t *testing.T) {
 	t.Run("existing dbc.toml without registries still decodes (backward compat)", func(t *testing.T) {
 		content := "[drivers]\n[drivers.clickhouse]\nversion = '>=1.0.0'"

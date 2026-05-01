@@ -16,7 +16,9 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
@@ -33,11 +35,13 @@ type DriversList struct {
 	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
-// registriesChanged reports whether two DriversList values differ in the
-// fields that affect registry resolution ([[registries]] and
-// replace_defaults). Driver entries themselves are ignored. Callers use
-// this to detect that a concurrent editor changed the registry config
-// between an unlocked driver lookup and the locked write-back phase.
+// registriesChanged reports whether two DriversList values differ in
+// fields that affect the EFFECTIVE registry resolution: replace_defaults
+// and normalized registry URLs. Display-only fields like RegistryEntry.Name
+// are ignored — renaming a registry doesn't change which server drivers
+// are fetched from, so an add shouldn't abort over it. Callers use this
+// to detect that a concurrent editor changed registry resolution between
+// an unlocked driver lookup and the locked write-back phase.
 func registriesChanged(a, b DriversList) bool {
 	if !triStateEqual(a.ReplaceDefaults, b.ReplaceDefaults) {
 		return true
@@ -46,7 +50,7 @@ func registriesChanged(a, b DriversList) bool {
 		return true
 	}
 	for i := range a.Registries {
-		if a.Registries[i] != b.Registries[i] {
+		if normalizeRegistryURL(a.Registries[i].URL) != normalizeRegistryURL(b.Registries[i].URL) {
 			return true
 		}
 	}
@@ -58,6 +62,17 @@ func triStateEqual(a, b *bool) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+// normalizeRegistryURL returns a canonical form of a registry URL for
+// equality comparisons: strip trailing slashes on the path and lowercase
+// the host. Equivalent spellings compare equal.
+func normalizeRegistryURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimRight(u.Path, "/")
 }
 
 // applyProjectRegistries rebuilds the process-wide dbc client with the

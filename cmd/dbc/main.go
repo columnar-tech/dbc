@@ -123,8 +123,15 @@ func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool)
 }
 
 // setDBCClient swaps the process-wide client, so subsequent calls through
-// getDriverRegistry pick up the new registry list. Project commands call this
-// after parsing dbc.toml.
+// getDriverRegistry pick up the new registry list. Project commands call
+// this after parsing dbc.toml.
+//
+// This only swaps dbcClient, not dbcClientErr/dbcClientOnce. That's
+// safe because cmd/dbc is a single-command-per-process binary: one user
+// invocation is one Go process. resetClientState() at the top of
+// runStartup clears ALL cached state at the start of every run, so a
+// "stale dbcClientErr after setDBCClient" scenario across runs cannot
+// happen. In-process reuse is a test-only concern and is handled there.
 func setDBCClient(c *dbc.Client) {
 	dbcClient = c
 }
