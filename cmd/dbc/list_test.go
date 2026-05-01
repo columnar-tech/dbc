@@ -116,5 +116,5 @@ func (suite *SubcommandTestSuite) TestListUnreadableConfigJSON() {
 
 	m := ListCmd{Level: config.ConfigEnv, Json: true}.GetModel()
 	out := suite.runCmdErr(m)
-	suite.assertJSONErrorEnvelope(out, "list_failed", "failed to load drivers")
+	suite.assertJSONErrorEnvelope(out, "list_failed", "failed to list drivers")
 }
