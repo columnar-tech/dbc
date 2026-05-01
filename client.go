@@ -30,11 +30,14 @@ import (
 )
 
 type clientConfig struct {
-	httpClient         *http.Client
-	registries         []Registry
-	userAgent          string
-	baseURL            string
-	credentialResolver func(*url.URL) (*auth.Credential, error)
+	httpClient             *http.Client
+	registries             []Registry
+	userAgent              string
+	baseURL                string
+	credentialResolver     func(*url.URL) (*auth.Credential, error)
+	globalConfig           *GlobalConfig
+	projectRegistries      []RegistryEntry
+	projectReplaceDefaults *bool
 }
 
 type Option func(*clientConfig)
@@ -76,6 +79,22 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	if cfg.baseURL != "" {
 		cfg.registries = []Registry{{BaseURL: mustParseURL(cfg.baseURL)}}
+	} else if cfg.globalConfig != nil || cfg.projectRegistries != nil || cfg.projectReplaceDefaults != nil {
+		for _, e := range cfg.projectRegistries {
+			if err := validateRegistryEntry(e); err != nil {
+				return nil, err
+			}
+		}
+		if cfg.projectReplaceDefaults != nil && *cfg.projectReplaceDefaults && len(cfg.projectRegistries) == 0 {
+			return nil, fmt.Errorf("replace_defaults = true requires at least one [[registries]] entry; omit replace_defaults or add a registry entry")
+		}
+		var globalRegs []RegistryEntry
+		var globalReplace bool
+		if cfg.globalConfig != nil {
+			globalRegs = cfg.globalConfig.Registries
+			globalReplace = cfg.globalConfig.ReplaceDefaults
+		}
+		cfg.registries = mergeRegistries(cfg.projectRegistries, cfg.projectReplaceDefaults, globalRegs, globalReplace, cfg.registries)
 	}
 
 	credResolver := cfg.credentialResolver
