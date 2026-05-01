@@ -15,6 +15,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -612,14 +613,16 @@ func TestRunStartupClearsStaleClientState(t *testing.T) {
 		dbcClientOnce = savedOnce
 	})
 
-	// Prime BOTH state paths as if a previous runStartup invocation had
-	// loaded a config and built a client. The review specifically called
-	// out that clearing only globalRegistryConfig isn't enough because
-	// dbcClient is cached via dbcClientOnce.
+	// Prime ALL cached state as if a previous runStartup invocation had
+	// loaded a config, built a client, and recorded an init error. The
+	// review specifically called out that clearing only
+	// globalRegistryConfig isn't enough because dbcClient is cached via
+	// dbcClientOnce and dbcClientErr persists alongside.
 	staleClient, err := dbc.NewClient(dbc.WithBaseURL("https://stale.example.com"))
 	require.NoError(t, err)
 	dbcClient = staleClient
-	dbcClientErr = nil
+	staleErr := errors.New("stale-init-error-sentinel")
+	dbcClientErr = staleErr
 	once := &sync.Once{}
 	once.Do(func() {}) // mark as "already run" so reinit would be skipped
 	dbcClientOnce = once
@@ -634,11 +637,17 @@ func TestRunStartupClearsStaleClientState(t *testing.T) {
 		"runStartup must clear globalRegistryConfig")
 	assert.Nil(t, dbcClient,
 		"runStartup must clear dbcClient so stale registries aren't reused")
+	assert.Nil(t, dbcClientErr,
+		"runStartup must clear dbcClientErr so stale init errors don't leak")
 	assert.NotSame(t, once, dbcClientOnce,
 		"runStartup must reset dbcClientOnce so a fresh init actually runs")
 
-	// Fresh init should now succeed with defaults, not stale state.
-	require.NoError(t, initDBCClient())
+	// Fresh init should now succeed with defaults and NOT return the
+	// stale sentinel error, confirming dbcClientErr was actually reset.
+	initErr := initDBCClient()
+	require.NoError(t, initErr)
+	require.NotErrorIs(t, initErr, staleErr,
+		"fresh init must not surface the stale error sentinel")
 	require.NotNil(t, dbcClient)
 	for _, r := range dbcClient.Registries() {
 		require.NotEqual(t, "https://stale.example.com", r.BaseURL.String(),
