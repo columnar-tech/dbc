@@ -25,8 +25,11 @@ import (
 )
 
 type DriversList struct {
-	Registries      []dbc.RegistryEntry   `toml:"registries,omitempty"`
-	ReplaceDefaults bool                  `toml:"replace_defaults,omitempty"`
+	Registries []dbc.RegistryEntry `toml:"registries,omitempty"`
+	// ReplaceDefaults is a tri-state: nil means "inherit from global config",
+	// &true replaces both global and built-in default registries, &false forces
+	// defaults back on even when the global config set replace_defaults = true.
+	ReplaceDefaults *bool                 `toml:"replace_defaults,omitempty"`
 	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
@@ -35,14 +38,10 @@ type DriversList struct {
 // through getDriverRegistry see the merged registry list. No-op when neither
 // registries nor replace_defaults are set.
 func applyProjectRegistries(list DriversList) error {
-	if len(list.Registries) == 0 && !list.ReplaceDefaults {
+	if len(list.Registries) == 0 && list.ReplaceDefaults == nil {
 		return nil
 	}
-	var replace *bool
-	if list.ReplaceDefaults {
-		replace = boolPtr(true)
-	}
-	c, err := newDBCClient(list.Registries, replace)
+	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
 	if err != nil {
 		return fmt.Errorf("error configuring project registries: %w", err)
 	}

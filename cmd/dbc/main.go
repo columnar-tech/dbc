@@ -129,7 +129,6 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	return dbcClient.Search("")
 }
 
-func boolPtr(b bool) *bool { return &b }
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {

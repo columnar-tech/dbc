@@ -116,6 +116,16 @@ url = "https:///onlypath"
 		assert.ErrorContains(t, err, "missing host")
 	})
 
+	t.Run("replace_defaults=true with no entries rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		content := `replace_defaults = true
+`
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0600))
+
+		_, err := LoadGlobalConfig(dir)
+		assert.ErrorContains(t, err, "replace_defaults")
+	})
+
 	t.Run("malformed TOML rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		content := `[[registries
@@ -251,5 +261,30 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 	t.Run("WithProjectRegistries rejects non-http scheme", func(t *testing.T) {
 		_, err := NewClient(WithProjectRegistries([]RegistryEntry{{URL: "ftp://example.com"}}, nil))
 		assert.ErrorContains(t, err, "scheme must be http or https")
+	})
+
+	t.Run("WithGlobalConfig rejects invalid URL at NewClient time", func(t *testing.T) {
+		cfg := &GlobalConfig{Registries: []RegistryEntry{{URL: ""}}}
+		_, err := NewClient(WithGlobalConfig(cfg))
+		assert.ErrorContains(t, err, "empty url")
+	})
+
+	t.Run("WithGlobalConfig rejects non-http scheme at NewClient time", func(t *testing.T) {
+		cfg := &GlobalConfig{Registries: []RegistryEntry{{URL: "ftp://example.com"}}}
+		_, err := NewClient(WithGlobalConfig(cfg))
+		assert.ErrorContains(t, err, "scheme must be http or https")
+	})
+
+	t.Run("global replace_defaults with no entries rejected when project also has none", func(t *testing.T) {
+		cfg := &GlobalConfig{ReplaceDefaults: true}
+		_, err := NewClient(WithGlobalConfig(cfg))
+		assert.ErrorContains(t, err, "empty registry list")
+	})
+
+	t.Run("project replace_defaults=false overrides global true even with no global entries", func(t *testing.T) {
+		cfg := &GlobalConfig{ReplaceDefaults: true}
+		c, err := NewClient(WithGlobalConfig(cfg), WithProjectRegistries(nil, boolPtr(false)))
+		require.NoError(t, err)
+		assert.NotEmpty(t, c.Registries())
 	})
 }

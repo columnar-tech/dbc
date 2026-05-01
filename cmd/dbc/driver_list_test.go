@@ -106,7 +106,7 @@ func TestDriversListRegistries(t *testing.T) {
 		require.NoError(t, toml.Unmarshal([]byte(content), &list))
 		assert.Len(t, list.Drivers, 1)
 		assert.Empty(t, list.Registries)
-		assert.False(t, list.ReplaceDefaults)
+		assert.Nil(t, list.ReplaceDefaults)
 	})
 
 	t.Run("dbc.toml with drivers AND registries decodes both", func(t *testing.T) {
@@ -117,5 +117,21 @@ func TestDriversListRegistries(t *testing.T) {
 		require.Len(t, list.Registries, 1)
 		assert.Equal(t, "https://custom.example.com", list.Registries[0].URL)
 		assert.Equal(t, "Custom", list.Registries[0].Name)
+	})
+
+	t.Run("replace_defaults = false is preserved as explicit false (tri-state)", func(t *testing.T) {
+		content := "replace_defaults = false\n[drivers]"
+		var list DriversList
+		require.NoError(t, toml.Unmarshal([]byte(content), &list))
+		require.NotNil(t, list.ReplaceDefaults)
+		assert.False(t, *list.ReplaceDefaults)
+	})
+
+	t.Run("replace_defaults = true parses as explicit true", func(t *testing.T) {
+		content := "replace_defaults = true\n[[registries]]\nurl = \"https://a.example.com\"\n[drivers]"
+		var list DriversList
+		require.NoError(t, toml.Unmarshal([]byte(content), &list))
+		require.NotNil(t, list.ReplaceDefaults)
+		assert.True(t, *list.ReplaceDefaults)
 	})
 }

@@ -91,10 +91,19 @@ func NewClient(opts ...Option) (*Client, error) {
 		var globalRegs []RegistryEntry
 		var globalReplace bool
 		if cfg.globalConfig != nil {
+			for _, e := range cfg.globalConfig.Registries {
+				if err := validateRegistryEntry(e); err != nil {
+					return nil, err
+				}
+			}
 			globalRegs = cfg.globalConfig.Registries
 			globalReplace = cfg.globalConfig.ReplaceDefaults
 		}
-		cfg.registries = mergeRegistries(cfg.projectRegistries, cfg.projectReplaceDefaults, globalRegs, globalReplace, cfg.registries)
+		merged := mergeRegistries(cfg.projectRegistries, cfg.projectReplaceDefaults, globalRegs, globalReplace, cfg.registries)
+		if len(merged) == 0 {
+			return nil, fmt.Errorf("registry configuration produced an empty registry list; replace_defaults requires at least one [[registries]] entry")
+		}
+		cfg.registries = merged
 	}
 
 	credResolver := cfg.credentialResolver
