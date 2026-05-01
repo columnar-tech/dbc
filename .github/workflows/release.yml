@@ -51,9 +51,6 @@ jobs:
       - name: install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
-      - name: check snapcraft access
-        run: curl --verbose api.snapcraft.io
-
       - name: Install Snapcraft
         uses: samuelmeuli/action-snapcraft@fceeb3c308e76f3487e72ef608618de625fb7fe8 # v3
 
