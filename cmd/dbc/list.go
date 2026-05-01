@@ -33,7 +33,7 @@ type ListCmd struct {
 }
 
 func (ListCmd) Description() string {
-	return "List all currently installed drivers across user, system, and environment config levels."
+	return "List installed drivers across user, system, and environment config levels."
 }
 
 func (c ListCmd) GetModel() tea.Model {
