@@ -25,7 +25,29 @@ import (
 )
 
 type DriversList struct {
-	Drivers map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	Registries      []dbc.RegistryEntry   `toml:"registries,omitempty"`
+	ReplaceDefaults bool                  `toml:"replace_defaults,omitempty"`
+	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+}
+
+// applyProjectRegistries rebuilds the process-wide dbc client with the
+// registry overrides declared in the project's dbc.toml, so subsequent calls
+// through getDriverRegistry see the merged registry list. No-op when neither
+// registries nor replace_defaults are set.
+func applyProjectRegistries(list DriversList) error {
+	if len(list.Registries) == 0 && !list.ReplaceDefaults {
+		return nil
+	}
+	var replace *bool
+	if list.ReplaceDefaults {
+		replace = boolPtr(true)
+	}
+	c, err := newDBCClient(list.Registries, replace)
+	if err != nil {
+		return fmt.Errorf("error configuring project registries: %w", err)
+	}
+	setDBCClient(c)
+	return nil
 }
 
 type driverSpec struct {
