@@ -625,6 +625,68 @@ func TestAddDoesNotHoldLockDuringRegistryLookup(t *testing.T) {
 	assert.Contains(t, string(data), "[drivers.test-driver-1]")
 }
 
+// TestAddPreservesConcurrentEdits simulates a concurrent dbc.toml mutation
+// that lands AFTER `dbc add` reads the file and BEFORE it writes the merged
+// result back. The post-lock merge must only touch keys this invocation
+// actually added — never overwrite unrelated drivers, registries, or
+// replace_defaults that the concurrent editor changed.
+func TestAddPreservesConcurrentEdits(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(
+		"[drivers]\n[drivers.test-driver-2]\nversion = '>=2.0.0'\n",
+	), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+
+	// Simulate a concurrent editor (another `dbc add`/`dbc remove`, or a
+	// human) landing changes while our add is stalled on the registry:
+	// add a new driver entry, plus a [[registries]] section. The add
+	// command must NOT clobber either of these when it writes back.
+	concurrentContent := "[[registries]]\n" +
+		"url = 'https://concurrent.example.com'\n\n" +
+		"[drivers]\n" +
+		"[drivers.test-driver-2]\nversion = '>=2.0.0'\n\n" +
+		"[drivers.test-driver-manifest-only]\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
+
+	close(unblock)
+	msgOut := <-done
+	if errMsg, ok := msgOut.(error); ok {
+		t.Fatalf("AddCmd failed: %v", errMsg)
+	}
+
+	data, err := os.ReadFile(tomlPath)
+	require.NoError(t, err)
+	s := string(data)
+	assert.Contains(t, s, "[drivers.test-driver-1]", "this invocation's add must land")
+	assert.Contains(t, s, "[drivers.test-driver-2]", "concurrent driver must be preserved")
+	assert.Contains(t, s, "[drivers.test-driver-manifest-only]", "concurrent driver must be preserved")
+	assert.Contains(t, s, "concurrent.example.com",
+		"concurrent [[registries]] edit must not be clobbered by dbc add")
+}
+
 // TestRunStartupSkipsLoadWhenConfigDirEmpty pins the invariant that
 // runStartup does NOT read ./config.toml from the current working directory
 // when the user config directory could not be located (configDir==""). A

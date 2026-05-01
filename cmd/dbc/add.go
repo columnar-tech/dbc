@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -249,14 +248,17 @@ func (m addModel) Init() tea.Cmd {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("error re-reading driver list at %s: %w", m.Path, err)
 		}
-		// Preserve concurrent additions: start from the on-disk state,
-		// then re-apply this invocation's new driver entries on top.
+		// Merge ONLY the driver entries this invocation actually added or
+		// replaced onto whatever is on disk. Leaving untouched drivers,
+		// registries, and replace_defaults alone preserves concurrent
+		// `dbc remove`/`dbc add` edits that landed while we were doing
+		// the unlocked registry lookup above.
 		if current.Drivers == nil {
 			current.Drivers = make(map[string]driverSpec)
 		}
-		maps.Copy(current.Drivers, m.list.Drivers)
-		current.Registries = m.list.Registries
-		current.ReplaceDefaults = m.list.ReplaceDefaults
+		for _, spec := range specs {
+			current.Drivers[spec.Name] = m.list.Drivers[spec.Name]
+		}
 
 		wf, err := os.Create(p)
 		if err != nil {
