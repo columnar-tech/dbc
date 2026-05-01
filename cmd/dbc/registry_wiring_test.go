@@ -597,6 +597,27 @@ func TestRunStartupSkipsLoadWhenConfigDirEmpty(t *testing.T) {
 		"runStartup must not read ./config.toml when configDir is empty")
 }
 
+// TestRunStartupClearsStaleGlobalConfigWhenConfigDirEmpty pins the
+// invariant that runStartup("", ...) actively resets prior in-process
+// state, rather than leaking a previous call's global config.
+func TestRunStartupClearsStaleGlobalConfigWhenConfigDirEmpty(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal := globalRegistryConfig
+	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+
+	// Prime global state as if a previous runStartup invocation had
+	// successfully loaded a config.
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{{URL: "https://stale.example.com"}},
+	}
+
+	res := runStartup("", []string{"search"})
+	require.Equal(t, startupModel, res.kind)
+	assert.Nil(t, globalRegistryConfig,
+		"runStartup must clear stale globalRegistryConfig when configDir is empty")
+}
+
 // TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies
 // the deferred-init ordering above: if the CLI ever tries to build the
 // default client against a global replace_defaults=true with no entries

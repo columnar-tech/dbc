@@ -343,10 +343,13 @@ type startupResult struct {
 // would break the "global replace_defaults=true + project supplies
 // registries" scenario, which is why tests drive this helper end-to-end.
 func runStartup(configDir string, argv []string) startupResult {
-	if configDir != "" {
-		if msg := loadStartupRegistryConfig(configDir); msg != "" {
-			fmt.Fprintln(os.Stderr, msg)
-		}
+	if configDir == "" {
+		// No user config directory available — clear any stale state from
+		// a prior in-process call so this invocation genuinely runs with
+		// default registries only.
+		globalRegistryConfig = nil
+	} else if msg := loadStartupRegistryConfig(configDir); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
 	}
 
 	args := &cmds{}
