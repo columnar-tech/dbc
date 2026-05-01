@@ -17,6 +17,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -142,7 +143,8 @@ func (m listModel) FinalOutput() string {
 
 func formatInstalledDrivers(drivers []installedDriver) string {
 	if len(drivers) == 0 {
-		return "No drivers installed."
+		lipgloss.Fprintln(os.Stderr, "No drivers installed.")
+		return ""
 	}
 
 	t := table.New().Border(lipgloss.HiddenBorder()).
