@@ -98,7 +98,7 @@ func (m listModel) Init() tea.Cmd {
 
 		sort.Slice(drivers, func(i, j int) bool {
 			if drivers[i].Level != drivers[j].Level {
-				return drivers[i].Level < drivers[j].Level
+				return drivers[i].Level > drivers[j].Level
 			}
 			return drivers[i].ID < drivers[j].ID
 		})
