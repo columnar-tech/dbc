@@ -161,8 +161,10 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 // over the same flag in the global config; pass nil to inherit the global
 // config's value.
 //
-// An error is returned at NewClient time if any entry is malformed or if
-// replaceDefaults is true with no entries.
+// NewClient returns an error if any entry is malformed or if the merged
+// registry list ends up empty (e.g. replaceDefaults=true with no project or
+// global entries). replaceDefaults=true is valid on its own when a non-empty
+// global config supplies the entries — the post-merge check is what matters.
 //
 // WithBaseURL takes precedence over this option — when set, project
 // registries are ignored.

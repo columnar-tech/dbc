@@ -522,22 +522,22 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 	dbcClientOnce = &sync.Once{}
 	globalRegistryConfig = nil
 
-	// Step 1: main() loads the global config (replace_defaults=true, no entries).
+	// Write the global config.toml with replace_defaults=true and no entries.
 	globalDir := t.TempDir()
 	require.NoError(t, os.WriteFile(
 		globalDir+"/config.toml",
 		[]byte("replace_defaults = true\n"),
 		0o644,
 	))
-	msg := loadStartupRegistryConfig(globalDir)
-	require.Empty(t, msg, "a valid global config must load without warnings")
 
-	// Step 2: main() does NOT eagerly init dbcClient — project commands
-	// must get a chance to merge project registries first.
-	require.Nil(t, dbcClient, "startup must not construct the client until after arg parse")
+	// Write the project dbc.toml with a registry that satisfies the merge.
+	projectPath := t.TempDir() + "/dbc.toml"
+	require.NoError(t, os.WriteFile(projectPath, []byte(
+		"[[registries]]\nurl = '"+server.URL+"'\n\n[drivers]\n[drivers.startup-driver]\nversion = '>=1.0.0'\n",
+	), 0o644))
 
-	// Step 3: project command reads dbc.toml with registries that satisfy
-	// the global replace_defaults=true.
+	// Rewire getDriverRegistry so the eventual AddCmd lookup goes through
+	// the real dbcClient instead of the test-suite stub.
 	getDriverRegistry = func() ([]dbc.Driver, error) {
 		if err := initDBCClient(); err != nil {
 			return nil, err
@@ -545,13 +545,30 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 		return dbcClient.Search("")
 	}
 
-	projectPath := t.TempDir() + "/dbc.toml"
-	require.NoError(t, os.WriteFile(projectPath, []byte(
-		"[[registries]]\nurl = '"+server.URL+"'\n\n[drivers]\n[drivers.startup-driver]\nversion = '>=1.0.0'\n",
-	), 0o644))
+	// Run the real startup sequence end-to-end, mirroring main():
+	//  1. loadStartupRegistryConfig
+	//  2. parseStartupArgs (the shared helper main() also uses)
+	//  3. subcommand.GetModel()
+	// If eager initDBCClient() ever slips between steps 1 and 3, this test
+	// fails with "empty registry list" because the project dbc.toml hasn't
+	// been read yet.
+	require.Empty(t, loadStartupRegistryConfig(globalDir), "valid global config must load without warnings")
+	require.NotNil(t, globalRegistryConfig, "step 1 must stash the global config")
+	require.Nil(t, dbcClient, "startup step 1 must not construct dbcClient")
 
-	m := AddCmd{Path: projectPath, Driver: []string{"startup-driver"}}.GetModel()
-	msgOut := runTeaCmdToCompletion(t, m)
+	parser, _, parseErr := parseStartupArgs([]string{"add", "--path", projectPath, "startup-driver"})
+	require.NoError(t, parseErr)
+	require.Nil(t, dbcClient, "startup step 2 (argv parse) must not construct dbcClient")
+
+	mc, ok := parser.Subcommand().(modelCmd)
+	require.True(t, ok)
+	model := mc.GetModel()
+	require.Nil(t, dbcClient, "startup step 3 (GetModel) must not construct dbcClient; applyProjectRegistries will")
+
+	msgOut := runTeaCmdToCompletion(t, model.(interface {
+		Init() tea.Cmd
+		Update(tea.Msg) (tea.Model, tea.Cmd)
+	}))
 	if errMsg, ok := msgOut.(error); ok {
 		t.Fatalf("AddCmd failed: %v", errMsg)
 	}

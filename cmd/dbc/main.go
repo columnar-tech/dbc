@@ -293,30 +293,42 @@ func loadStartupRegistryConfig(configDir string) string {
 	return ""
 }
 
-func main() {
-	var (
-		args cmds
-	)
+// parseStartupArgs parses argv into a cmds struct, matching the exact
+// ordering main() uses: global config load first, then argv parse, then
+// subcommand selection — with no dbcClient construction in between. Tests
+// share this helper with main() so a regression that eagerly initializes
+// dbcClient before subcommand dispatch fails the startup test.
+func parseStartupArgs(argv []string) (*arg.Parser, *cmds, error) {
+	args := &cmds{}
+	p, err := newParser(args)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating argument parser: %w", err)
+	}
+	if err := p.Parse(argv); err != nil {
+		return p, args, err
+	}
+	return p, args, nil
+}
 
+func main() {
+	// Load the global registry config before argument parsing. dbcClient
+	// construction is intentionally deferred; project commands read a
+	// dbc.toml whose [[registries]] can supply entries required by a
+	// global replace_defaults=true, so eagerly calling NewClient here
+	// would reject configurations the project override would otherwise
+	// satisfy.
 	if configDir, err := internal.GetUserConfigPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", err)
 	} else if msg := loadStartupRegistryConfig(configDir); msg != "" {
 		fmt.Fprintln(os.Stderr, msg)
 	}
 
-	// Defer dbcClient construction until after argument parsing. Project
-	// commands (add, sync) read a dbc.toml whose [[registries]] can supply
-	// entries required by a global replace_defaults=true, so eagerly
-	// calling NewClient here would reject configurations the project
-	// override would otherwise satisfy.
-
-	p, err := newParser(&args)
+	p, args, err := parseStartupArgs(os.Args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", err)
-		os.Exit(1)
-	}
-
-	if err = p.Parse(os.Args[1:]); err != nil {
+		if p == nil {
+			fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", err)
+			os.Exit(1)
+		}
 		switch err {
 		case arg.ErrHelp:
 			if d, ok := p.Subcommand().(arg.Described); ok {
