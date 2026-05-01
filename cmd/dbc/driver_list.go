@@ -69,10 +69,11 @@ func triStateEqual(a, b *bool) bool {
 //
 //   - scheme and host are lowercased (case-insensitive per RFC 3986)
 //   - a trailing slash on the path is stripped
+//   - fragments are dropped (not sent on HTTP requests)
 //
-// Query, userinfo, fragment, and path segments are preserved because
-// they can change the effective registry endpoint (e.g. a tenant
-// selector in ?tenant=a vs ?tenant=b, or a credential-bearing URL).
+// Query, userinfo, and path segments are preserved because they can
+// change the effective registry endpoint (tenant selector in query,
+// credential-bearing userinfo, path-addressed registry mount points).
 // A concurrent edit that flips any of those MUST still trigger the
 // config-drift abort in dbc add.
 func normalizeRegistryURL(raw string) string {
@@ -83,6 +84,8 @@ func normalizeRegistryURL(raw string) string {
 	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
 	u.Path = strings.TrimRight(u.Path, "/")
+	u.Fragment = ""
+	u.RawFragment = ""
 	return u.String()
 }
 

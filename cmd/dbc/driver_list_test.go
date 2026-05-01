@@ -133,6 +133,13 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.False(t, registriesChanged(a, b))
 	})
 
+	t.Run("fragment-only changes are ignored (not sent on HTTP requests)", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/#a"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/#b"}}}
+		assert.False(t, registriesChanged(a, b),
+			"fragments don't affect registry fetches; fragment-only edits must not abort dbc add")
+	})
+
 	t.Run("query string changes ARE significant", func(t *testing.T) {
 		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/?tenant=a"}}}
 		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/?tenant=b"}}}
