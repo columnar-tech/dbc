@@ -262,6 +262,19 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		assert.ErrorContains(t, err, "empty registry list")
 	})
 
+	t.Run("WithRegistries takes precedence over WithGlobalConfig and WithProjectRegistries", func(t *testing.T) {
+		explicit := []Registry{{BaseURL: mustParseURL("https://explicit.example.com")}}
+		c, err := NewClient(
+			WithRegistries(explicit),
+			WithGlobalConfig(&GlobalConfig{Registries: []RegistryEntry{{URL: "https://glob.example.com"}}}),
+			WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, nil),
+		)
+		require.NoError(t, err)
+		regs := c.Registries()
+		require.Len(t, regs, 1, "WithRegistries must win; no merge with global/project")
+		assert.Equal(t, "https://explicit.example.com", regs[0].BaseURL.String())
+	})
+
 	t.Run("project replace_defaults=true with no project entries keeps global entries", func(t *testing.T) {
 		cfg := &GlobalConfig{Registries: []RegistryEntry{{URL: "https://glob.example.com"}}}
 		c, err := NewClient(WithGlobalConfig(cfg), WithProjectRegistries(nil, boolPtr(true)))

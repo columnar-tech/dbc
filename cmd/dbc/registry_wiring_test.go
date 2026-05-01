@@ -19,13 +19,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -569,6 +572,57 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 	require.NotNil(t, dbcClient, "applyProjectRegistries must have built a client")
 	assert.GreaterOrEqual(t, atomic.LoadInt32(&hits), int32(1),
 		"project-declared registry should have been hit end-to-end")
+}
+
+// TestAddDoesNotHoldLockDuringRegistryLookup pins the invariant that a
+// slow registry fetch does NOT hold .dbc.project.lock. The test stalls a
+// custom getDriverRegistry hook via a shared channel, checks mid-stall
+// that the lockfile can still be acquired, then unblocks the lookup.
+func TestAddDoesNotHoldLockDuringRegistryLookup(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	require.NoError(t, os.WriteFile(tomlPath, []byte("[drivers]\n"), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+
+	// At this point add has decoded the file but is stalled inside the
+	// registry lookup. The project lock MUST be acquirable by another
+	// caller — otherwise we'd be holding it across network I/O.
+	lockPath := filepath.Join(dir, ".dbc.project.lock")
+	lock, err := fslock.Acquire(lockPath, 500*time.Millisecond)
+	require.NoError(t, err, "project lock must not be held during registry lookup")
+	require.NoError(t, lock.Release())
+
+	close(unblock)
+	msgOut := <-done
+	if errMsg, ok := msgOut.(error); ok {
+		t.Fatalf("AddCmd failed: %v", errMsg)
+	}
+
+	data, err := os.ReadFile(tomlPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "[drivers.test-driver-1]")
 }
 
 // TestRunStartupSkipsLoadWhenConfigDirEmpty pins the invariant that

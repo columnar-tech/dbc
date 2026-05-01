@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -129,13 +130,10 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
-		lock, err := fslock.Acquire(lockPath, 10*time.Second)
-		if err != nil {
-			return fmt.Errorf("another dbc operation is in progress: %w", err)
-		}
-		defer lock.Release()
-
+		// Decode the driver list WITHOUT holding the project lock so a
+		// slow or hung registry fetch (next step) doesn't hold the lock
+		// across network I/O. The lock only protects the read-modify-write
+		// phase at the bottom.
 		f, err := os.Open(p)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
@@ -143,11 +141,11 @@ func (m addModel) Init() tea.Cmd {
 			}
 			return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 		}
-		defer f.Close()
-
 		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
+			f.Close()
 			return err
 		}
+		f.Close()
 
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
@@ -230,13 +228,43 @@ func (m addModel) Init() tea.Cmd {
 			}
 		}
 
+		// Acquire the project lock only around the read-modify-write
+		// phase. Re-read the file under the lock so a concurrent
+		// `dbc add`/`dbc remove` that landed while we were doing the
+		// registry lookup above doesn't get clobbered.
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
+		var current DriversList
+		if rf, err := os.Open(p); err == nil {
+			if decodeErr := toml.NewDecoder(rf).Decode(&current); decodeErr != nil {
+				rf.Close()
+				return fmt.Errorf("error re-reading driver list under lock: %w", decodeErr)
+			}
+			rf.Close()
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("error re-reading driver list at %s: %w", m.Path, err)
+		}
+		// Preserve concurrent additions: start from the on-disk state,
+		// then re-apply this invocation's new driver entries on top.
+		if current.Drivers == nil {
+			current.Drivers = make(map[string]driverSpec)
+		}
+		maps.Copy(current.Drivers, m.list.Drivers)
+		current.Registries = m.list.Registries
+		current.ReplaceDefaults = m.list.ReplaceDefaults
+
 		wf, err := os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
 		defer wf.Close()
 
-		if err := toml.NewEncoder(wf).Encode(m.list); err != nil {
+		if err := toml.NewEncoder(wf).Encode(current); err != nil {
 			return err
 		}
 		result += "\nuse `dbc sync` to install the drivers in the list"
