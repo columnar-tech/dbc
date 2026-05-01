@@ -625,12 +625,11 @@ func TestAddDoesNotHoldLockDuringRegistryLookup(t *testing.T) {
 	assert.Contains(t, string(data), "[drivers.test-driver-1]")
 }
 
-// TestAddPreservesConcurrentEdits simulates a concurrent dbc.toml mutation
-// that lands AFTER `dbc add` reads the file and BEFORE it writes the merged
-// result back. The post-lock merge must only touch keys this invocation
-// actually added — never overwrite unrelated drivers, registries, or
-// replace_defaults that the concurrent editor changed.
-func TestAddPreservesConcurrentEdits(t *testing.T) {
+// TestAddPreservesConcurrentDriverEdits verifies that a concurrent editor
+// adding/removing unrelated DRIVER entries (without touching
+// registries/replace_defaults) has its changes preserved when `dbc add`
+// writes back. Registry config is unchanged, so the add proceeds normally.
+func TestAddPreservesConcurrentDriverEdits(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 
 	dir := t.TempDir()
@@ -660,13 +659,8 @@ func TestAddPreservesConcurrentEdits(t *testing.T) {
 
 	<-lookupStarted
 
-	// Simulate a concurrent editor (another `dbc add`/`dbc remove`, or a
-	// human) landing changes while our add is stalled on the registry:
-	// add a new driver entry, plus a [[registries]] section. The add
-	// command must NOT clobber either of these when it writes back.
-	concurrentContent := "[[registries]]\n" +
-		"url = 'https://concurrent.example.com'\n\n" +
-		"[drivers]\n" +
+	// Concurrent editor adds an unrelated driver entry (no registry changes).
+	concurrentContent := "[drivers]\n" +
 		"[drivers.test-driver-2]\nversion = '>=2.0.0'\n\n" +
 		"[drivers.test-driver-manifest-only]\n"
 	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
@@ -683,8 +677,62 @@ func TestAddPreservesConcurrentEdits(t *testing.T) {
 	assert.Contains(t, s, "[drivers.test-driver-1]", "this invocation's add must land")
 	assert.Contains(t, s, "[drivers.test-driver-2]", "concurrent driver must be preserved")
 	assert.Contains(t, s, "[drivers.test-driver-manifest-only]", "concurrent driver must be preserved")
-	assert.Contains(t, s, "concurrent.example.com",
-		"concurrent [[registries]] edit must not be clobbered by dbc add")
+}
+
+// TestAddAbortsOnConcurrentRegistryConfigChange verifies that if the
+// registry configuration changes while the registry lookup is in flight,
+// `dbc add` aborts instead of silently writing a driver that was validated
+// against a now-stale registry set.
+func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	require.NoError(t, os.WriteFile(tomlPath, []byte("[drivers]\n"), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+
+	// Concurrent editor adds a [[registries]] section AND
+	// replace_defaults=true. The add in flight validated against the
+	// original registry set and must abort rather than write.
+	concurrentContent := "replace_defaults = true\n\n" +
+		"[[registries]]\n" +
+		"url = 'https://concurrent.example.com'\n\n" +
+		"[drivers]\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
+
+	close(unblock)
+	msgOut := <-done
+	err, ok := msgOut.(error)
+	require.True(t, ok, "AddCmd must return an error when registry config drifts")
+	assert.Contains(t, err.Error(), "registry configuration changed")
+
+	// The concurrent content must remain intact (add aborted before write).
+	data, readErr := os.ReadFile(tomlPath)
+	require.NoError(t, readErr)
+	s := string(data)
+	assert.Contains(t, s, "concurrent.example.com", "concurrent registry edit must not be clobbered")
+	assert.Contains(t, s, "replace_defaults = true", "concurrent replace_defaults must not be clobbered")
+	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
 }
 
 // TestRunStartupSkipsLoadWhenConfigDirEmpty pins the invariant that

@@ -33,6 +33,33 @@ type DriversList struct {
 	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
+// registriesChanged reports whether two DriversList values differ in the
+// fields that affect registry resolution ([[registries]] and
+// replace_defaults). Driver entries themselves are ignored. Callers use
+// this to detect that a concurrent editor changed the registry config
+// between an unlocked driver lookup and the locked write-back phase.
+func registriesChanged(a, b DriversList) bool {
+	if !triStateEqual(a.ReplaceDefaults, b.ReplaceDefaults) {
+		return true
+	}
+	if len(a.Registries) != len(b.Registries) {
+		return true
+	}
+	for i := range a.Registries {
+		if a.Registries[i] != b.Registries[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func triStateEqual(a, b *bool) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 // applyProjectRegistries rebuilds the process-wide dbc client with the
 // registry overrides declared in the project's dbc.toml, so subsequent calls
 // through getDriverRegistry see the merged registry list. No-op when neither

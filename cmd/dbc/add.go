@@ -248,6 +248,16 @@ func (m addModel) Init() tea.Cmd {
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("error re-reading driver list at %s: %w", m.Path, err)
 		}
+
+		// If the registry configuration changed while the (unlocked)
+		// registry lookup was in flight, the drivers we just validated
+		// may not exist under the new registry set. Abort so the caller
+		// can retry against the new configuration rather than write a
+		// potentially-inconsistent dbc.toml.
+		if registriesChanged(m.list, current) {
+			return fmt.Errorf("dbc.toml registry configuration changed while resolving drivers; please retry `dbc add`")
+		}
+
 		// Merge ONLY the driver entries this invocation actually added or
 		// replaced onto whatever is on disk. Leaving untouched drivers,
 		// registries, and replace_defaults alone preserves concurrent
