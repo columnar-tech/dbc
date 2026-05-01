@@ -160,7 +160,7 @@ $ dbc uninstall [OPTIONS] <DRIVER>
 
 {{ since_version('v0.3.0') }}
 
-List all currently installed drivers across every [configuration level](config_level.md) (system, user, and environment). Use `--level` to restrict the output to drivers installed at a single level.
+List all currently installed drivers across every [configuration level](config_level.md) (system, user, and from environment variables). Use `--level` to restrict the output to drivers installed at a single level.
 
 <h3>Usage</h3>
 
