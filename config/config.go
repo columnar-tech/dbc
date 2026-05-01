@@ -99,6 +99,8 @@ func (c ConfigLevel) String() string {
 	}
 }
 
+var validLevelArgConfigValues = []ConfigLevel{ConfigUser, ConfigSystem}
+
 func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	switch strings.ToLower(strings.TrimSpace(string(b))) {
 	case "system":
@@ -106,7 +108,11 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	case "user":
 		*c = ConfigUser
 	default:
-		return errors.New("unknown config level")
+		names := make([]string, len(validLevelArgConfigValues))
+		for i, lvl := range validLevelArgConfigValues {
+			names[i] = lvl.String()
+		}
+		return fmt.Errorf("unknown config level %q, valid values are: %s", string(b), strings.Join(names, ", "))
 	}
 	return nil
 }
