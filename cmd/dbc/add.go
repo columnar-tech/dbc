@@ -129,12 +129,20 @@ func (m addModel) Init() tea.Cmd {
 			return err
 		}
 
-		// Decode the driver list WITHOUT holding the project lock so a
-		// slow or hung registry fetch (next step) doesn't hold the lock
-		// across network I/O. The lock only protects the read-modify-write
-		// phase at the bottom.
+		// Take the project lock briefly to read a consistent snapshot of
+		// dbc.toml, then release it before the registry lookup so a slow
+		// network fetch doesn't hold the lock. The lock is reacquired
+		// below for the final merge/write phase. Without this short-lock
+		// read, a concurrent writer using os.Create could expose partial
+		// contents to this decode path.
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		readLock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
 		f, err := os.Open(p)
 		if err != nil {
+			readLock.Release()
 			if errors.Is(err, os.ErrNotExist) {
 				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
 			}
@@ -142,9 +150,11 @@ func (m addModel) Init() tea.Cmd {
 		}
 		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			f.Close()
+			readLock.Release()
 			return err
 		}
 		f.Close()
+		readLock.Release()
 
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
@@ -227,11 +237,10 @@ func (m addModel) Init() tea.Cmd {
 			}
 		}
 
-		// Acquire the project lock only around the read-modify-write
-		// phase. Re-read the file under the lock so a concurrent
+		// Reacquire the project lock for the read-modify-write phase.
+		// Re-read the file under the lock so a concurrent
 		// `dbc add`/`dbc remove` that landed while we were doing the
 		// registry lookup above doesn't get clobbered.
-		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
 		lock, err := fslock.Acquire(lockPath, 10*time.Second)
 		if err != nil {
 			return fmt.Errorf("another dbc operation is in progress: %w", err)
