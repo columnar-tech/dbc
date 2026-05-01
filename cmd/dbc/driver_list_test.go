@@ -133,6 +133,26 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.False(t, registriesChanged(a, b))
 	})
 
+	t.Run("query string changes ARE significant", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/?tenant=a"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/?tenant=b"}}}
+		assert.True(t, registriesChanged(a, b),
+			"tenant-selector query changes change the effective endpoint and must not be normalized away")
+	})
+
+	t.Run("userinfo changes ARE significant", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://u1:p@r.example.com"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://u2:p@r.example.com"}}}
+		assert.True(t, registriesChanged(a, b),
+			"userinfo changes change the authenticated identity and must not be normalized away")
+	})
+
+	t.Run("path segment changes ARE significant", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/a"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/b"}}}
+		assert.True(t, registriesChanged(a, b))
+	})
+
 	t.Run("replace_defaults tri-state differences compare unequal", func(t *testing.T) {
 		a := DriversList{ReplaceDefaults: bp(true)}
 		b := DriversList{ReplaceDefaults: bp(false)}

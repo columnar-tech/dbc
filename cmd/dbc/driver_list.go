@@ -65,14 +65,25 @@ func triStateEqual(a, b *bool) bool {
 }
 
 // normalizeRegistryURL returns a canonical form of a registry URL for
-// equality comparisons: strip trailing slashes on the path and lowercase
-// the host. Equivalent spellings compare equal.
+// equality comparisons. Only truly no-op differences are collapsed:
+//
+//   - scheme and host are lowercased (case-insensitive per RFC 3986)
+//   - a trailing slash on the path is stripped
+//
+// Query, userinfo, fragment, and path segments are preserved because
+// they can change the effective registry endpoint (e.g. a tenant
+// selector in ?tenant=a vs ?tenant=b, or a credential-bearing URL).
+// A concurrent edit that flips any of those MUST still trigger the
+// config-drift abort in dbc add.
 func normalizeRegistryURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return raw
 	}
-	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimRight(u.Path, "/")
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	return u.String()
 }
 
 // applyProjectRegistries rebuilds the process-wide dbc client with the
