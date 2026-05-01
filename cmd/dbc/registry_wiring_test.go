@@ -160,3 +160,30 @@ func TestApplyProjectRegistriesNoopWhenBaseURLSet(t *testing.T) {
 	require.Len(t, regs, 1)
 	assert.Equal(t, "https://envvar.example.com", regs[0].BaseURL.String())
 }
+
+// TestGlobalReplaceDefaultsWithProjectSuppliedEntries exercises the CLI path
+// where the global config.toml declares replace_defaults=true with no entries
+// of its own, and the project dbc.toml supplies the registries. This used to
+// be rejected by LoadGlobalConfig, which made the CLI drop the global config
+// and silently diverge from the library's NewClient semantics.
+func TestGlobalReplaceDefaultsWithProjectSuppliedEntries(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal, savedClient := globalRegistryConfig, dbcClient
+	t.Cleanup(func() {
+		globalRegistryConfig = savedGlobal
+		dbcClient = savedClient
+	})
+
+	globalRegistryConfig = &dbc.GlobalConfig{ReplaceDefaults: true}
+
+	list := DriversList{
+		Registries: []dbc.RegistryEntry{{URL: "https://proj.example.com"}},
+	}
+	require.NoError(t, applyProjectRegistries(list))
+	require.NotNil(t, dbcClient)
+
+	regs := dbcClient.Registries()
+	require.Len(t, regs, 1, "global replace_defaults drops built-in defaults; only project entry remains")
+	assert.Equal(t, "https://proj.example.com", regs[0].BaseURL.String())
+}

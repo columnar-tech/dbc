@@ -56,10 +56,10 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("invalid %s: %w", configPath, err)
 	}
 
-	if cfg.ReplaceDefaults && len(cfg.Registries) == 0 {
-		return nil, fmt.Errorf("%s: replace_defaults = true requires at least one [[registries]] entry", configPath)
-	}
-
+	// Note: a global replace_defaults=true with no [[registries]] is NOT rejected
+	// here, because a project's dbc.toml may supply the entries at NewClient
+	// time. The "zero resulting registries" case is enforced after merging in
+	// NewClient so both library and CLI callers share the same semantics.
 	for _, entry := range cfg.Registries {
 		if err := validateRegistryEntry(entry); err != nil {
 			return nil, fmt.Errorf("%s: %w", configPath, err)
