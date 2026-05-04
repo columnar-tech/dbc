@@ -41,12 +41,12 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#install">dbc install</a></dt><dd><p>Install a driver</p></dd>
 <dt><a href="#uninstall">dbc uninstall</a></dt><dd><p>Uninstall a driver</p></dd>
 <dt><a href="#list">dbc list</a></dt><dd><p>List installed drivers</p></dd>
+<dt><a href="#info">dbc info</a></dt><dd><p>Get information about a driver</p></dd>
+<dt><a href="#docs">dbc docs</a></dt><dd><p>Open driver documentation in a web browser</p></dd>
 <dt><a href="#init">dbc init</a></dt><dd><p>Create a <a href="../../concepts/driver_list/">driver list</a> file</p></dd>
 <dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
-<dt><a href="#info">dbc info</a></dt><dd><p>Get information about a driver</p></dd>
-<dt><a href="#docs">dbc docs</a></dt><dd><p>Open driver documentation in a web browser</p></dd>
 <dt><a href="#auth">dbc auth</a></dt><dd><p>Manage driver registry credentials</p></dd>
 </dl>
 
