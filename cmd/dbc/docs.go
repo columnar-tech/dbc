@@ -42,6 +42,10 @@ var openBrowserFunc = browser.OpenURL
 
 type docsUrlFound string
 
+type browserOpenFailed struct {
+	err error
+}
+
 type DocsCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
 	NoOpen bool   `arg:"--no-open" help:"Print the documentation URL instead of opening it in a web browser"`
@@ -64,12 +68,13 @@ func (c DocsCmd) GetModel() tea.Model {
 type docsModel struct {
 	baseModel
 
-	driver       string
-	drv          *dbc.Driver
-	urlToOpen    string
-	noOpen       bool
-	fallbackUrls map[string]string
-	openBrowser  func(string) error
+	driver           string
+	drv              *dbc.Driver
+	urlToOpen        string
+	browserOpenError error
+	noOpen           bool
+	fallbackUrls     map[string]string
+	openBrowser      func(string) error
 }
 
 func (m docsModel) Init() tea.Cmd {
@@ -96,7 +101,7 @@ func (m docsModel) Init() tea.Cmd {
 func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.openBrowser(url); err != nil {
-			return fmt.Errorf("failed to open browser: %w", err)
+			return browserOpenFailed{err: err}
 		}
 		return tea.Quit()
 	}
@@ -137,6 +142,10 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, m.openBrowserCmd(m.urlToOpen)
+
+	case browserOpenFailed:
+		m.browserOpenError = msg.err
+		return m, tea.Quit
 	default:
 		bm, cmd := m.baseModel.Update(msg)
 		m.baseModel = bm.(baseModel)
@@ -149,14 +158,21 @@ func (m docsModel) View() tea.View {
 }
 
 func (m docsModel) FinalOutput() string {
-	if m.noOpen && m.urlToOpen != "" {
+	if (m.noOpen || m.browserOpenError != nil) && m.urlToOpen != "" {
 		var docName string
 		if m.driver == "" {
 			docName = "dbc"
 		} else {
 			docName = m.driver + " driver"
 		}
-		return fmt.Sprintf("%s docs are available at the following URL:\n%s", docName, m.urlToOpen)
+		urlMsg := fmt.Sprintf("%s docs are available at the following URL:\n%s", docName, m.urlToOpen)
+
+		// Prepend the error to the output if we have one
+		if m.browserOpenError != nil {
+			return fmt.Sprintf("Opening the %s docs automatically failed with error: %s\n\n%s", docName, m.browserOpenError, urlMsg)
+		}
+
+		return urlMsg
 	}
 	return ""
 }
