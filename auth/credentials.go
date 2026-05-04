@@ -77,10 +77,10 @@ type Credential struct {
 	Audience     string `toml:"audience,omitempty"`
 }
 
-func (t *Credential) Refresh() error {
+func (t *Credential) Refresh(ctx context.Context) error {
 	switch t.Type {
 	case TypeApiKey:
-		req, err := http.NewRequestWithContext(context.Background(),
+		req, err := http.NewRequestWithContext(ctx,
 			http.MethodGet, (*url.URL)(&t.AuthURI).String(), nil)
 		if err != nil {
 			return fmt.Errorf("apikey refresh: %w", err)
@@ -106,7 +106,7 @@ func (t *Credential) Refresh() error {
 		t.Token = tokenResp.Token
 		return nil
 	case TypeToken:
-		if err := refreshOauth(t); err != nil {
+		if err := refreshOauth(ctx, t); err != nil {
 			return fmt.Errorf("oauth refresh: %w", err)
 		}
 		return nil
@@ -117,12 +117,12 @@ func (t *Credential) Refresh() error {
 
 // GetAuthToken returns the current token, refreshing if needed.
 // Must not be called while credMu is held (Refresh may acquire it via UpdateCreds).
-func (t *Credential) GetAuthToken() string {
+func (t *Credential) GetAuthToken(ctx context.Context) string {
 	if t.Token != "" {
 		return t.Token
 	}
 
-	if err := t.Refresh(); err == nil {
+	if err := t.Refresh(ctx); err == nil {
 		_ = UpdateCreds()
 		return t.Token
 	}
@@ -356,7 +356,7 @@ func InstallLicenseFromFile(srcPath string, force bool) error {
 	return nil
 }
 
-func FetchColumnarLicense(cred *Credential) error {
+func FetchColumnarLicense(ctx context.Context, cred *Credential) error {
 	cp, err := getCredPath()
 	if err != nil {
 		return fmt.Errorf("failed to get credential path: %w", err)
@@ -378,7 +378,7 @@ func FetchColumnarLicense(cred *Credential) error {
 		authToken = cred.ApiKey
 	case TypeToken:
 		p := jwt.NewParser()
-		tk, err := p.Parse(cred.GetAuthToken(), nil)
+		tk, err := p.Parse(cred.GetAuthToken(ctx), nil)
 		if err != nil && !errors.Is(err, jwt.ErrTokenUnverifiable) {
 			return fmt.Errorf("failed to parse oauth token: %w", err)
 		}
@@ -387,12 +387,12 @@ func FetchColumnarLicense(cred *Credential) error {
 		if !ok {
 			return ErrNoTrialLicense
 		}
-		authToken = cred.GetAuthToken()
+		authToken = cred.GetAuthToken(ctx)
 	default:
 		return fmt.Errorf("unsupported credential type: %s", cred.Type)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, licenseURI, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, licenseURI, nil)
 	if err != nil {
 		return err
 	}

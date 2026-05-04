@@ -125,7 +125,7 @@ func TestCredential_GetAuthToken(t *testing.T) {
 		cred := &Credential{
 			Token: "existing-token",
 		}
-		assert.Equal(t, "existing-token", cred.GetAuthToken())
+		assert.Equal(t, "existing-token", cred.GetAuthToken(t.Context()))
 	})
 
 	t.Run("returns empty string when refresh fails", func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestCredential_GetAuthToken(t *testing.T) {
 		}
 		cred.AuthURI = Uri(url.URL{Scheme: "http", Host: "invalid-host-xyz-123.local"})
 
-		token := cred.GetAuthToken()
+		token := cred.GetAuthToken(t.Context())
 		assert.Equal(t, "", token)
 	})
 }
@@ -165,7 +165,7 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "test-api-key",
 		}
 
-		err := cred.Refresh()
+		err := cred.Refresh(t.Context())
 		assert.NoError(t, err)
 		assert.Equal(t, "new-token", cred.Token)
 	})
@@ -183,7 +183,7 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "invalid-key",
 		}
 
-		err := cred.Refresh()
+		err := cred.Refresh(t.Context())
 		assert.Error(t, err)
 	})
 
@@ -201,7 +201,7 @@ func TestCredential_Refresh_ApiKey(t *testing.T) {
 			ApiKey:  "test-api-key",
 		}
 
-		err := cred.Refresh()
+		err := cred.Refresh(t.Context())
 		assert.Error(t, err)
 	})
 }

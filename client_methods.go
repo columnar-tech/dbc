@@ -67,9 +67,9 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 	token := ""
 	if cred != nil {
 		if auth.IsColumnarPrivateRegistry(uri) {
-			_ = auth.FetchColumnarLicense(cred)
+			_ = auth.FetchColumnarLicense(ctx, cred)
 		}
-		token = cred.GetAuthToken()
+		token = cred.GetAuthToken(ctx)
 	}
 
 	req, err := buildReq(token)
@@ -83,10 +83,10 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		if err := cred.Refresh(); err != nil {
+		if err := cred.Refresh(ctx); err != nil {
 			return nil, fmt.Errorf("failed to refresh auth token: %w", err)
 		}
-		req, err = buildReq(cred.GetAuthToken())
+		req, err = buildReq(cred.GetAuthToken(ctx))
 		if err != nil {
 			return nil, fmt.Errorf("failed to build retry request: %w", err)
 		}

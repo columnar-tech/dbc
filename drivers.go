@@ -186,9 +186,9 @@ func makereq(u string) (resp *http.Response, err error) {
 			// fetch the trial license. This will be a no-op if they have
 			// a license saved already, and if they haven't started their
 			// trial or it is expired, then this will silently fail.
-			_ = auth.FetchColumnarLicense(cred)
+			_ = auth.FetchColumnarLicense(context.Background(), cred)
 		}
-		token = cred.GetAuthToken()
+		token = cred.GetAuthToken(context.Background())
 	}
 
 	req, err := buildLegacyReq(token)
@@ -202,10 +202,10 @@ func makereq(u string) (resp *http.Response, err error) {
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		if err := cred.Refresh(); err != nil {
+		if err := cred.Refresh(context.Background()); err != nil {
 			return nil, fmt.Errorf("failed to refresh auth token: %w", err)
 		}
-		retryReq, retryErr := buildLegacyReq(cred.GetAuthToken())
+		retryReq, retryErr := buildLegacyReq(cred.GetAuthToken(context.Background()))
 		if retryErr != nil {
 			return nil, fmt.Errorf("failed to build retry request: %w", retryErr)
 		}
