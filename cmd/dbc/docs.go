@@ -42,9 +42,9 @@ var openBrowserFunc = browser.OpenURL
 
 type docsUrlFound string
 
-type browserOpenFailed struct {
-	err error
-}
+type browserOpenFailed string
+
+func (e browserOpenFailed) Error() string { return string(e) }
 
 type DocsCmd struct {
 	Driver string `arg:"positional" help:"Driver to open documentation for"`
@@ -101,7 +101,7 @@ func (m docsModel) Init() tea.Cmd {
 func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 	return func() tea.Msg {
 		if err := m.openBrowser(url); err != nil {
-			return browserOpenFailed{err: err}
+			return browserOpenFailed(err.Error())
 		}
 		return tea.Quit()
 	}
@@ -144,7 +144,7 @@ func (m docsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.openBrowserCmd(m.urlToOpen)
 
 	case browserOpenFailed:
-		m.browserOpenError = msg.err
+		m.browserOpenError = error(msg)
 		return m, tea.Quit
 	default:
 		bm, cmd := m.baseModel.Update(msg)
