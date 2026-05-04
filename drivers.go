@@ -540,7 +540,7 @@ func GetDriverList() ([]Driver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return c.Search("")
+	return c.Search(context.Background(), "")
 }
 
 // Deprecated: Signature verification is now handled internally by Client.Install.

@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -99,7 +100,7 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	if err := initDBCClient(); err != nil {
 		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
-	return dbcClient.Search("")
+	return dbcClient.Search(context.Background(), "")
 }
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {

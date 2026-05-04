@@ -76,7 +76,7 @@ func TestClientSearch(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("empty pattern returns all drivers", func(t *testing.T) {
-		drivers, err := c.Search("")
+		drivers, err := c.Search(t.Context(), "")
 		require.NoError(t, err)
 		assert.NotEmpty(t, drivers)
 
@@ -89,7 +89,7 @@ func TestClientSearch(t *testing.T) {
 	})
 
 	t.Run("pattern matches by path", func(t *testing.T) {
-		drivers, err := c.Search("test-driver-1")
+		drivers, err := c.Search(t.Context(), "test-driver-1")
 		require.NoError(t, err)
 		require.NotEmpty(t, drivers)
 
@@ -102,7 +102,7 @@ func TestClientSearch(t *testing.T) {
 	})
 
 	t.Run("nonexistent pattern returns empty list", func(t *testing.T) {
-		drivers, err := c.Search("nonexistent-driver-xyz")
+		drivers, err := c.Search(t.Context(), "nonexistent-driver-xyz")
 		require.NoError(t, err)
 		assert.Empty(t, drivers)
 	})
@@ -119,7 +119,7 @@ func TestClientInstall(t *testing.T) {
 	}
 
 	t.Run("installs driver successfully", func(t *testing.T) {
-		manifest, err := c.Install(cfg, "test-driver-1")
+		manifest, err := c.Install(t.Context(), cfg, "test-driver-1")
 		require.NoError(t, err)
 		require.NotNil(t, manifest)
 		assert.Equal(t, "test-driver-1", manifest.DriverInfo.ID)
@@ -127,7 +127,7 @@ func TestClientInstall(t *testing.T) {
 	})
 
 	t.Run("returns error for nonexistent driver", func(t *testing.T) {
-		_, err := c.Install(cfg, "nonexistent-driver")
+		_, err := c.Install(t.Context(), cfg, "nonexistent-driver")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nonexistent-driver")
 	})
@@ -144,7 +144,7 @@ func TestClientUninstall(t *testing.T) {
 			Location: tmpDir,
 		}
 
-		_, err := c.Install(cfg, "test-driver-1")
+		_, err := c.Install(t.Context(), cfg, "test-driver-1")
 		require.NoError(t, err)
 
 		manifestPath := filepath.Join(tmpDir, "test-driver-1.toml")
@@ -182,7 +182,7 @@ func TestClientDownload(t *testing.T) {
 			Driver: dbc.Driver{Title: "test-driver-1"},
 			Path:   pkgURL,
 		}
-		body, err := c.Download(pkg)
+		body, err := c.Download(t.Context(), pkg)
 		require.NoError(t, err)
 		defer body.Close()
 
@@ -195,7 +195,7 @@ func TestClientDownload(t *testing.T) {
 		pkg := dbc.PkgInfo{
 			Driver: dbc.Driver{Title: "nil-path-driver"},
 		}
-		_, err := c.Download(pkg)
+		_, err := c.Download(t.Context(), pkg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no url set")
 		assert.Contains(t, err.Error(), "nil-path-driver")
@@ -216,7 +216,7 @@ func TestClientDownload(t *testing.T) {
 			Driver: dbc.Driver{Title: "error-driver"},
 			Path:   pkgURL,
 		}
-		_, err = errClient.Download(pkg)
+		_, err = errClient.Download(t.Context(), pkg)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "500")
 		assert.Contains(t, err.Error(), "package not found in storage backend")

@@ -32,7 +32,7 @@ import (
 	"github.com/go-faster/yaml"
 )
 
-func (c *Client) makeRequest(u string) (*http.Response, error) {
+func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, error) {
 	c.setup()
 
 	uri, err := url.Parse(u)
@@ -51,7 +51,7 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 	uri.RawQuery = q.Encode()
 
 	buildReq := func(token string) (*http.Request, error) {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, uri.String(), nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri.String(), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -109,8 +109,8 @@ func (c *Client) makeRequest(u string) (*http.Response, error) {
 	return resp, nil
 }
 
-func (c *Client) getDriverListFromIndex(index *Registry) ([]Driver, error) {
-	resp, err := c.makeRequest(index.BaseURL.JoinPath("/index.yaml").String())
+func (c *Client) getDriverListFromIndex(ctx context.Context, index *Registry) ([]Driver, error) {
+	resp, err := c.makeRequest(ctx, index.BaseURL.JoinPath("/index.yaml").String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch drivers: %w", err)
 	}
@@ -147,14 +147,14 @@ func (c *Client) getDriverListFromIndex(index *Registry) ([]Driver, error) {
 }
 
 // Search searches for drivers matching the given pattern across all registries.
-func (c *Client) Search(pattern string) ([]Driver, error) {
+func (c *Client) Search(ctx context.Context, pattern string) ([]Driver, error) {
 	var (
 		allDrivers []Driver
 		totalErr   error
 	)
 
 	for i := range c.registries {
-		drivers, err := c.getDriverListFromIndex(&c.registries[i])
+		drivers, err := c.getDriverListFromIndex(ctx, &c.registries[i])
 		if err != nil {
 			totalErr = errors.Join(totalErr, fmt.Errorf("registry %s: %w", c.registries[i].BaseURL, err))
 			continue
@@ -179,13 +179,13 @@ func (c *Client) Search(pattern string) ([]Driver, error) {
 	return filtered, totalErr
 }
 
-func (c *Client) downloadPackage(pkg PkgInfo) (*os.File, error) {
+func (c *Client) downloadPackage(ctx context.Context, pkg PkgInfo) (*os.File, error) {
 	if pkg.Path == nil {
 		return nil, fmt.Errorf("cannot download package for %s: no url set", pkg.Driver.Title)
 	}
 
 	location := pkg.Path.String()
-	rsp, err := c.makeRequest(location)
+	rsp, err := c.makeRequest(ctx, location)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver: %w", err)
 	}
@@ -227,11 +227,11 @@ func (c *Client) downloadPackage(pkg PkgInfo) (*os.File, error) {
 // io.ReadCloser. The caller is responsible for closing the returned body.
 // Auth credentials are resolved and injected automatically, including token
 // refresh on 401.
-func (c *Client) Download(pkg PkgInfo) (io.ReadCloser, error) {
+func (c *Client) Download(ctx context.Context, pkg PkgInfo) (io.ReadCloser, error) {
 	if pkg.Path == nil {
 		return nil, fmt.Errorf("cannot download package for %s: no url set", pkg.Driver.Title)
 	}
-	rsp, err := c.makeRequest(pkg.Path.String())
+	rsp, err := c.makeRequest(ctx, pkg.Path.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to download %s: %w", pkg.Path, err)
 	}
@@ -247,8 +247,8 @@ func (c *Client) Download(pkg PkgInfo) (io.ReadCloser, error) {
 }
 
 // Install installs a driver with the given name to the specified configuration.
-func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest, error) {
-	drivers, err := c.Search(driverName)
+func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string) (*config.Manifest, error) {
+	drivers, err := c.Search(ctx, driverName)
 	// Only fail if the driver wasn't found in any registry; partial registry errors
 	// are acceptable as long as we can still locate the target driver.
 	if err != nil && len(drivers) == 0 {
@@ -272,7 +272,7 @@ func (c *Client) Install(cfg config.Config, driverName string) (*config.Manifest
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}
 
-	f, err := c.downloadPackage(pkg)
+	f, err := c.downloadPackage(ctx, pkg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver %s: %w", driverName, err)
 	}
