@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/mattn/go-isatty"
 )
 
@@ -77,20 +79,82 @@ type NeedsRenderer interface {
 var (
 	dbcClient     *dbc.Client
 	dbcClientErr  error
-	dbcClientOnce sync.Once
+	dbcClientOnce = &sync.Once{}
+
+	// globalRegistryConfig is loaded once at startup and reused by every client
+	// built in this process, including clients rebuilt after reading a project's
+	// dbc.toml registry section.
+	globalRegistryConfig *dbc.GlobalConfig
 )
 
 func newDefaultClient() (*dbc.Client, error) {
+	return newDBCClient(nil, nil)
+}
+
+// authHTTPClient returns an *http.Client suitable for auth flows (device-code
+// login, license fetch, etc.) that do not need driver registries resolved.
+// It bypasses dbc.NewClient so registry misconfiguration — a valid state for
+// a user who is about to run `dbc auth login` to fix it — cannot break login.
+func authHTTPClient() *http.Client {
+	c, err := dbc.NewClient(dbc.WithBaseURL("https://placeholder.invalid"))
+	if err != nil {
+		// Impossible in practice: WithBaseURL short-circuits all registry
+		// validation. Fall back to http.DefaultClient so auth still works.
+		return http.DefaultClient
+	}
+	return c.HTTPClient()
+}
+
+// newDBCClient builds a client with the given project registry overrides.
+// Callers pass nil/nil for process-wide operations (search, info, install);
+// project commands (add, sync, remove) pass the values parsed from dbc.toml.
+func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
 	var opts []dbc.Option
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
+	} else {
+		if globalRegistryConfig != nil {
+			opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+		}
+		if projectRegs != nil || projectReplaceDefaults != nil {
+			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
+		}
 	}
 	return dbc.NewClient(opts...)
 }
 
+// setDBCClient swaps the process-wide client, so subsequent calls through
+// getDriverRegistry pick up the new registry list. Project commands call
+// this after parsing dbc.toml.
+//
+// This only swaps dbcClient, not dbcClientErr/dbcClientOnce. That's
+// safe because cmd/dbc is a single-command-per-process binary: one user
+// invocation is one Go process. resetClientState() at the top of
+// runStartup clears ALL cached state at the start of every run, so a
+// "stale dbcClientErr after setDBCClient" scenario across runs cannot
+// happen. In-process reuse is a test-only concern and is handled there.
+func setDBCClient(c *dbc.Client) {
+	dbcClient = c
+}
+
+// resetClientState returns the process-wide client and global config to
+// their pre-startup state. Called at the top of runStartup so each
+// invocation begins from a clean slate, and so repeated in-process startups
+// cannot leak configuration from one call to the next.
+func resetClientState() {
+	dbcClient = nil
+	dbcClientErr = nil
+	dbcClientOnce = &sync.Once{}
+	globalRegistryConfig = nil
+}
+
 func initDBCClient() error {
 	dbcClientOnce.Do(func() {
-		dbcClient, dbcClientErr = newDefaultClient()
+		// Re-check dbcClient — a project command may have already built one
+		// via applyProjectRegistries before the lazy path was first hit.
+		if dbcClient == nil {
+			dbcClient, dbcClientErr = newDefaultClient()
+		}
 	})
 	return dbcClientErr
 }
@@ -102,6 +166,7 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	}
 	return dbcClient.Search(context.Background(), "")
 }
+
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -233,64 +298,157 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 	os.Exit(2)
 }
 
-func main() {
-	var (
-		args cmds
-	)
-
-	if err := initDBCClient(); err != nil {
-		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", err)
-		os.Exit(1)
-	}
-
-	p, err := newParser(&args)
+// loadStartupRegistryConfig reads the user's global config.toml and stashes
+// it into globalRegistryConfig. Extracted from main() so tests can exercise
+// the same startup path. Returns an error message string for display (never
+// fatal — a missing or malformed config is reported as a warning and the
+// default registry set is preserved).
+func loadStartupRegistryConfig(configDir string) string {
+	cfg, err := dbc.LoadGlobalConfig(configDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", err)
-		os.Exit(1)
+		return fmt.Sprintf("warning: failed to load registry config: %v", err)
+	}
+	globalRegistryConfig = cfg
+	return ""
+}
+
+// startupKind names the terminal states of the startup sequence so main()
+// can react to each one without duplicating the dispatch logic the test
+// exercises.
+type startupKind int
+
+const (
+	// startupModel means startup resolved to a runnable bubbletea model.
+	startupModel startupKind = iota
+	// startupHelp means parsing completed but the user asked for help.
+	startupHelp
+	// startupVersion means the user asked for --version.
+	startupVersion
+	// startupParseError means argv parsing failed with a non-help error.
+	startupParseError
+	// startupNoSubcommand means the user provided no subcommand.
+	startupNoSubcommand
+	// startupHelpOnlyCmd is a subcommand that only prints its help text
+	// (AuthCmd, LicenseCmd, bare completions.Cmd).
+	startupHelpOnlyCmd
+	// startupCompletionShell means the user asked for a completion script.
+	startupCompletionShell
+	// startupUnknownSubcommand means parsing succeeded but the subcommand
+	// type isn't one we know how to dispatch. Indicates a programming error.
+	startupUnknownSubcommand
+)
+
+// startupResult is the outcome of runStartup.
+type startupResult struct {
+	kind        startupKind
+	parser      *arg.Parser
+	args        *cmds
+	parseErr    error
+	model       tea.Model
+	shellScript string
+}
+
+// runStartup executes the full startup sequence shared by main() and tests:
+//  1. load the global registry config (skipped when configDir is empty —
+//     callers use "" to signal that no user config directory could be
+//     located, which preserves pre-refactor behavior of leaving default
+//     registries untouched instead of reading ./config.toml from cwd),
+//  2. parse argv,
+//  3. select the subcommand and build its bubbletea model (for model commands).
+//
+// No dbcClient is constructed along the way — project commands' models
+// build it lazily via applyProjectRegistries once they decode dbc.toml.
+// Reintroducing an eager initDBCClient() anywhere between steps 1 and 3
+// would break the "global replace_defaults=true + project supplies
+// registries" scenario, which is why tests drive this helper end-to-end.
+func runStartup(configDir string, argv []string) startupResult {
+	// Reset all cached client state at the start of every startup so the
+	// same process can run multiple commands without one invocation's
+	// configuration leaking into the next (matters for tests and for any
+	// embedder that calls runStartup more than once).
+	resetClientState()
+
+	if configDir == "" {
+		// No user config directory available — leave globalRegistryConfig
+		// cleared by resetClientState so this invocation runs with
+		// default registries only.
+	} else if msg := loadStartupRegistryConfig(configDir); msg != "" {
+		fmt.Fprintln(os.Stderr, msg)
 	}
 
-	if err = p.Parse(os.Args[1:]); err != nil {
-		switch {
-		case err == arg.ErrHelp:
-			if d, ok := p.Subcommand().(arg.Described); ok {
-				fmt.Println(d.Description())
-			}
-			p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-			os.Exit(0)
-		case err == arg.ErrVersion:
-			fmt.Println(dbc.Version)
-			os.Exit(0)
+	args := &cmds{}
+	p, err := newParser(args)
+	if err != nil {
+		return startupResult{kind: startupParseError, parser: p, args: args, parseErr: err}
+	}
+
+	if err := p.Parse(argv); err != nil {
+		switch err {
+		case arg.ErrHelp:
+			return startupResult{kind: startupHelp, parser: p, args: args}
+		case arg.ErrVersion:
+			return startupResult{kind: startupVersion, parser: p, args: args}
 		default:
-			failSubcommandAndSuggest(p, err.Error(), p.SubcommandNames()...)
+			return startupResult{kind: startupParseError, parser: p, args: args, parseErr: err}
 		}
 	}
 
 	if p.Subcommand() == nil {
-		p.WriteHelp(os.Stdout)
-		os.Exit(1)
+		return startupResult{kind: startupNoSubcommand, parser: p, args: args}
 	}
 
-	var m tea.Model
-
 	switch sub := p.Subcommand().(type) {
-	case *AuthCmd:
-		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-		os.Exit(2)
-	case *LicenseCmd:
-		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-		os.Exit(2)
-	case *completions.Cmd: // "dbc completions" without specifying the shell type
-		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
-		os.Exit(2)
+	case *AuthCmd, *LicenseCmd, *completions.Cmd:
+		return startupResult{kind: startupHelpOnlyCmd, parser: p, args: args}
 	case completions.ShellImpl:
-		fmt.Print(sub.GetScript())
-		os.Exit(0)
+		return startupResult{kind: startupCompletionShell, parser: p, args: args, shellScript: sub.GetScript()}
 	case modelCmd:
-		m = sub.GetModel()
+		return startupResult{kind: startupModel, parser: p, args: args, model: sub.GetModel()}
 	default:
+		return startupResult{kind: startupUnknownSubcommand, parser: p, args: args}
+	}
+}
+
+func main() {
+	configDir, cfgErr := internal.GetUserConfigPath()
+	if cfgErr != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", cfgErr)
+	}
+
+	res := runStartup(configDir, os.Args[1:])
+	p, args := res.parser, res.args
+
+	switch res.kind {
+	case startupParseError:
+		if p == nil {
+			fmt.Fprintf(os.Stderr, "error creating argument parser: %v\n", res.parseErr)
+			os.Exit(1)
+		}
+		failSubcommandAndSuggest(p, res.parseErr.Error(), p.SubcommandNames()...)
+	case startupHelp:
+		if d, ok := p.Subcommand().(arg.Described); ok {
+			fmt.Println(d.Description())
+		}
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(0)
+	case startupVersion:
+		fmt.Println(dbc.Version)
+		os.Exit(0)
+	case startupNoSubcommand:
+		p.WriteHelp(os.Stdout)
+		os.Exit(1)
+	case startupHelpOnlyCmd:
+		p.WriteHelpForSubcommand(os.Stdout, p.SubcommandNames()...)
+		os.Exit(2)
+	case startupCompletionShell:
+		fmt.Print(res.shellScript)
+		os.Exit(0)
+	case startupUnknownSubcommand:
 		fmt.Fprintf(os.Stderr, "internal error: unrecognized subcommand %T\n", p.Subcommand())
 		os.Exit(1)
 	}
+
+	m := res.model
 
 	// f, err := tea.LogToFile("debug.log", "debug")
 	// if err != nil {
@@ -323,8 +481,9 @@ func main() {
 		}
 	}
 
-	if m, err = prog.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "Error running program:", err)
+	var runErr error
+	if m, runErr = prog.Run(); runErr != nil {
+		fmt.Fprintln(os.Stderr, "Error running program:", runErr)
 		os.Exit(1)
 	}
 

@@ -30,11 +30,22 @@ import (
 )
 
 type clientConfig struct {
-	httpClient         *http.Client
-	registries         []Registry
-	userAgent          string
-	baseURL            string
-	credentialResolver func(*url.URL) (*auth.Credential, error)
+	httpClient *http.Client
+	// registries holds the current registry list as options are applied.
+	// WithRegistries overwrites this; WithGlobalConfig/WithProjectRegistries
+	// consult it as the "defaults" slice in the merge, which means callers
+	// who pass WithRegistries retain full control over that baseline.
+	registries             []Registry
+	userAgent              string
+	baseURL                string
+	credentialResolver     func(*url.URL) (*auth.Credential, error)
+	globalConfig           *GlobalConfig
+	projectRegistries      []RegistryEntry
+	projectReplaceDefaults *bool
+	// explicitRegistries tracks whether the caller passed WithRegistries.
+	// When true, registry-config options (global/project) are ignored so
+	// the caller's explicit registry set is used as-is.
+	explicitRegistries bool
 }
 
 type Option func(*clientConfig)
@@ -76,6 +87,31 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	if cfg.baseURL != "" {
 		cfg.registries = []Registry{{BaseURL: mustParseURL(cfg.baseURL)}}
+	} else if cfg.explicitRegistries {
+		// WithRegistries was passed — use the caller's list verbatim and
+		// do not merge with global/project configuration.
+	} else if cfg.globalConfig != nil || cfg.projectRegistries != nil || cfg.projectReplaceDefaults != nil {
+		for _, e := range cfg.projectRegistries {
+			if err := validateRegistryEntry(e); err != nil {
+				return nil, err
+			}
+		}
+		var globalRegs []RegistryEntry
+		var globalReplace bool
+		if cfg.globalConfig != nil {
+			for _, e := range cfg.globalConfig.Registries {
+				if err := validateRegistryEntry(e); err != nil {
+					return nil, err
+				}
+			}
+			globalRegs = cfg.globalConfig.Registries
+			globalReplace = cfg.globalConfig.ReplaceDefaults
+		}
+		merged := mergeRegistries(cfg.projectRegistries, cfg.projectReplaceDefaults, globalRegs, globalReplace, cfg.registries)
+		if len(merged) == 0 {
+			return nil, fmt.Errorf("registry configuration produced an empty registry list; replace_defaults requires at least one [[registries]] entry")
+		}
+		cfg.registries = merged
 	}
 
 	credResolver := cfg.credentialResolver
@@ -131,9 +167,14 @@ func WithHTTPClient(hc *http.Client) Option {
 	return func(cfg *clientConfig) { cfg.httpClient = hc }
 }
 
-// WithRegistries sets the driver registries to use.
+// WithRegistries sets the driver registries to use. When passed, this takes
+// precedence over any WithGlobalConfig / WithProjectRegistries options: the
+// caller's explicit list is used as-is, not merged with configuration files.
 func WithRegistries(r []Registry) Option {
-	return func(cfg *clientConfig) { cfg.registries = append([]Registry(nil), r...) }
+	return func(cfg *clientConfig) {
+		cfg.registries = append([]Registry(nil), r...)
+		cfg.explicitRegistries = true
+	}
 }
 
 // WithBaseURL sets the base URL for the driver registry.
