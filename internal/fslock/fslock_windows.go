@@ -69,12 +69,12 @@ func (l Lock) Release() error {
 }
 
 func isBenignRemoveErr(err error) bool {
-	if errors.Is(err, os.ErrNotExist) {
-		return true
-	}
-	// Another handle is open without FILE_SHARE_DELETE — cleanup is simply
-	// deferred to whoever closes last. Any other filesystem error (ACLs,
-	// I/O failure, etc.) should propagate.
-	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) ||
-		errors.Is(err, windows.ERROR_ACCESS_DENIED)
+	// ERROR_SHARING_VIOLATION is the unambiguous "another handle is open
+	// without FILE_SHARE_DELETE" case — cleanup is simply deferred to
+	// whoever closes last. ERROR_ACCESS_DENIED is *not* safe to swallow:
+	// Windows returns it for read-only attributes, ACL changes, or when
+	// the path has been replaced with a directory, none of which should
+	// be reported as a successful Release.
+	return errors.Is(err, os.ErrNotExist) ||
+		errors.Is(err, windows.ERROR_SHARING_VIOLATION)
 }
