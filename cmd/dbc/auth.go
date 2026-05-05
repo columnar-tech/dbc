@@ -142,7 +142,7 @@ func (m loginModel) Init() tea.Cmd {
 
 func (m loginModel) authConfig() tea.Cmd {
 	return func() tea.Msg {
-		cfg, err := auth.GetOpenIDConfig(m.parsedURI)
+		cfg, err := auth.GetOpenIDConfig(context.TODO(), m.parsedURI)
 		if err != nil {
 			return fmt.Errorf("failed to get OpenID configuration: %w", err)
 		}
@@ -172,7 +172,7 @@ func (m loginModel) apiKeyToToken() tea.Cmd {
 			ApiKey:      m.apiKey,
 		}
 
-		if err := cred.Refresh(); err != nil {
+		if err := cred.Refresh(context.TODO()); err != nil {
 			return fmt.Errorf("failed to obtain access token using provided API key: %w", err)
 		}
 
@@ -244,7 +244,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.storedCred = &msg.cred
 		return m, func() tea.Msg {
 			if auth.IsColumnarPrivateRegistry((*url.URL)(&msg.cred.RegistryURL)) {
-				if err := auth.FetchColumnarLicense(&msg.cred); err != nil {
+				if err := auth.FetchColumnarLicense(context.TODO(), &msg.cred); err != nil {
 					return err
 				}
 			}
