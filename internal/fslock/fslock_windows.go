@@ -51,10 +51,11 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 }
 
 // Release releases the lock and removes the lock file. On Windows, Go opens
-// files without FILE_SHARE_DELETE, so os.Remove will fail with a sharing
-// violation (or access-denied) if another process still has the file open
-// — making the delete inherently safe. We close first so our own handle
-// doesn't block the remove, then swallow only sharing-related failures.
+// files without FILE_SHARE_DELETE, so os.Remove returns ERROR_SHARING_VIOLATION
+// if another process still has the file open — making the delete inherently
+// safe. We close first so our own handle doesn't block the remove, then
+// swallow only ERROR_SHARING_VIOLATION (deferred cleanup) and ErrNotExist.
+// Other errors, including ERROR_ACCESS_DENIED, propagate.
 func (l Lock) Release() error {
 	if l.f == nil {
 		return nil
