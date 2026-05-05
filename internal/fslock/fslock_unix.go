@@ -40,9 +40,13 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 		}
 		f.Close()
 		if errors.Is(err, errStaleInode) {
-			// Previous holder unlinked the file between our open and our
-			// flock; the path now refers to a different inode. Reopen.
-			continue
+			if time.Now().Before(deadline) {
+				// Previous holder unlinked the file between our open and
+				// our flock; the path now refers to a different inode.
+				// Reopen and try again within the remaining budget.
+				continue
+			}
+			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s: %w", path, timeout, err)
 		}
 		return Lock{}, err
 	}

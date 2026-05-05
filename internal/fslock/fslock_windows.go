@@ -51,9 +51,10 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 }
 
 // Release releases the lock and removes the lock file. On Windows, Go opens
-// files without FILE_SHARE_DELETE, so os.Remove will only succeed once no
-// other process holds the file open — making the delete inherently safe.
-// We close first so our own handle doesn't block the remove.
+// files without FILE_SHARE_DELETE, so os.Remove will fail with a sharing
+// violation (or access-denied) if another process still has the file open
+// — making the delete inherently safe. We close first so our own handle
+// doesn't block the remove, then swallow only sharing-related failures.
 func (l Lock) Release() error {
 	if l.f == nil {
 		return nil
@@ -61,10 +62,19 @@ func (l Lock) Release() error {
 	if err := l.f.Close(); err != nil {
 		return err
 	}
-	if err := os.Remove(l.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		// Another process is still holding (or racing to open) the file;
-		// that's safe — it just means we can't clean up right now.
-		return nil
+	if err := os.Remove(l.path); err != nil && !isBenignRemoveErr(err) {
+		return err
 	}
 	return nil
+}
+
+func isBenignRemoveErr(err error) bool {
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	// Another handle is open without FILE_SHARE_DELETE — cleanup is simply
+	// deferred to whoever closes last. Any other filesystem error (ACLs,
+	// I/O failure, etc.) should propagate.
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) ||
+		errors.Is(err, windows.ERROR_ACCESS_DENIED)
 }
