@@ -17,6 +17,7 @@
 package fslock
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -39,7 +40,7 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 			windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 			0, 1, 0, ol)
 		if err == nil {
-			return Lock{f: f}, nil
+			return Lock{f: f, path: path}, nil
 		}
 		if time.Now().After(deadline) {
 			f.Close()
@@ -47,4 +48,23 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// Release releases the lock and removes the lock file. On Windows, Go opens
+// files without FILE_SHARE_DELETE, so os.Remove will only succeed once no
+// other process holds the file open — making the delete inherently safe.
+// We close first so our own handle doesn't block the remove.
+func (l Lock) Release() error {
+	if l.f == nil {
+		return nil
+	}
+	if err := l.f.Close(); err != nil {
+		return err
+	}
+	if err := os.Remove(l.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		// Another process is still holding (or racing to open) the file;
+		// that's safe — it just means we can't clean up right now.
+		return nil
+	}
+	return nil
 }
