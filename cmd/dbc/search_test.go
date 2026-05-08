@@ -20,6 +20,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/columnar-tech/dbc"
@@ -413,4 +414,24 @@ func (suite *SubcommandTestSuite) TestSearch_JSON_CompleteRegistryFailure() {
 		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "search_failed")
+}
+
+func (suite *SubcommandTestSuite) TestSearchNoDriversEmptyRegistry() {
+	emptyRegistry := func() ([]dbc.Driver, error) { return nil, nil }
+	m := SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: emptyRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+	suite.Equal("No drivers found.", out)
+}
+
+func (suite *SubcommandTestSuite) TestSearchNoDriversPatternNotFound() {
+	m := SearchCmd{Pattern: regexp.MustCompile("no-such-driver")}.GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+	suite.Equal("No drivers matched your pattern `no-such-driver`.", out)
+}
+
+func (suite *SubcommandTestSuite) TestSearchOnlyPreReleaseDriversFound() {
+	m := SearchCmd{Pattern: regexp.MustCompile("only-pre")}.GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+	suite.Equal("Only one or more pre-release drivers matched your pattern `only-pre`. To include them, use: dbc search --pre only-pre", out)
 }
