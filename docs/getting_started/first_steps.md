@@ -104,6 +104,14 @@ Installed bigquery 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
 
 The BigQuery ADBC driver is now installed and usable by any driver manager.
 
+To confirm the driver is installed, run [`dbc list`](../reference/cli.md#list):
+
+```console
+$ dbc list
+DRIVER    VERSION  LEVEL  LOCATION
+bigquery  1.0.0    user   /Users/user/Library/Application Support/ADBC/Drivers
+```
+
 For more information on on how to find drivers, see the [Finding Drivers](../guides/finding_drivers.md) guide.
 
 ## Installing a Driver Manager

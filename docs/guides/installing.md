@@ -61,6 +61,14 @@ $ dbc install mysql
 Installed mysql 0.1.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
 
+To confirm the driver is installed, run [`dbc list`](../reference/cli.md#list):
+
+```console
+$ dbc list
+DRIVER  VERSION  LEVEL  LOCATION
+mysql   0.1.0    user   /Users/user/Library/Application Support/ADBC/Drivers
+```
+
 ## Version Constraints
 
 By default, dbc installs the latest version of the package you specify.
