@@ -21,7 +21,9 @@
     "dbc": "bin/dbc.js"
   },
   "files": [
-    "bin/"
+    "bin/",
+    "README.md",
+    "LICENSE"
   ],
   "optionalDependencies": {
     "@columnar-tech/dbc-darwin-arm64": "0.3.0",

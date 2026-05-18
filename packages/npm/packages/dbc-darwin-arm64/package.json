@@ -24,6 +24,8 @@
     "arm64"
   ],
   "files": [
-    "bin/"
+    "bin/",
+    "README.md",
+    "LICENSE"
   ]
 }

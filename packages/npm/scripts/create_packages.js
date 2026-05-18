@@ -49,8 +49,10 @@ function pkgDirFor(info) {
   return path.join(PACKAGES_DIR, info.npmPkg.replace(/^@[^/]+\//, ""));
 }
 
-const PACKAGES_DIR = path.resolve(__dirname, "..", "packages");
-const WRAPPER_DIR = path.resolve(__dirname, "..", "wrapper");
+const PACKAGES_DIR  = path.resolve(__dirname, "..", "packages");
+const WRAPPER_DIR   = path.resolve(__dirname, "..", "wrapper");
+const REPO_ROOT     = path.resolve(__dirname, "..", "..", "..");
+const PLATFORM_README_TEMPLATE = path.join(PACKAGES_DIR, "README.platform.md");
 
 function ghDownload(tag, pattern, destDir) {
   execFileSync(
@@ -126,7 +128,19 @@ function setWrapperVersion(version) {
     pkgJson.optionalDependencies[dep] = version;
   }
   fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+  fs.copyFileSync(path.join(REPO_ROOT, "LICENSE"), path.join(WRAPPER_DIR, "LICENSE"));
   console.log(`Updated wrapper package.json to version ${version}`);
+}
+
+function writePlatformDocs(info, pkgDir) {
+  // README: substitute PLATFORM placeholder with the unscoped package name
+  const unscoped = info.npmPkg.replace(/^@[^/]+\/dbc-/, ""); // e.g. "darwin-arm64"
+  const readme = fs.readFileSync(PLATFORM_README_TEMPLATE, "utf8")
+    .replaceAll("PLATFORM_SUFFIX", unscoped);
+  fs.writeFileSync(path.join(pkgDir, "README.md"), readme);
+
+  // LICENSE: copy from the repo root
+  fs.copyFileSync(path.join(REPO_ROOT, "LICENSE"), path.join(pkgDir, "LICENSE"));
 }
 
 function populatePlatform(goosArch, archivePath, version) {
@@ -149,6 +163,7 @@ function populatePlatform(goosArch, archivePath, version) {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
+  writePlatformDocs(info, pkgDir);
   setPackageVersion(pkgDir, version);
   console.log(`  → set ${info.npmPkg} version to ${version}`);
 }

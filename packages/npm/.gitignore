@@ -1,2 +1,7 @@
 node_modules/
+
+# Files populated by scripts/create_packages.js — not committed
 packages/*/bin/dbc*
+packages/*/README.md
+packages/*/LICENSE
+wrapper/LICENSE
