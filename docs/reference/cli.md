@@ -355,7 +355,7 @@ $ dbc docs <DRIVER>
 ```console
 $ dbc auth login
 $ dbc auth logout
-$ dbc auth license install
+$ dbc auth license install # New in v0.3.0
 ```
 
 <h3>Subcommands</h3>
@@ -401,6 +401,8 @@ $ dbc auth license install
 <h3>Subcommands</h3>
 
 #### install
+
+{{ since_version('v0.3.0') }}
 
 Install a license file to the dbc credentials directory.
 
