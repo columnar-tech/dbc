@@ -1,6 +1,6 @@
 {
   "name": "@columnar-tech/dbc",
-  "version": "0.3.0",
+  "version": "0.0.0",
   "description": "The CLI for installing and managing ADBC drivers",
   "keywords": [
     "adbc",
@@ -26,10 +26,10 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@columnar-tech/dbc-darwin-arm64": "0.3.0",
-    "@columnar-tech/dbc-darwin-x64": "0.3.0",
-    "@columnar-tech/dbc-linux-arm64": "0.3.0",
-    "@columnar-tech/dbc-linux-x64": "0.3.0",
-    "@columnar-tech/dbc-win32-x64": "0.3.0"
+    "@columnar-tech/dbc-darwin-arm64": "0.0.0",
+    "@columnar-tech/dbc-darwin-x64": "0.0.0",
+    "@columnar-tech/dbc-linux-arm64": "0.0.0",
+    "@columnar-tech/dbc-linux-x64": "0.0.0",
+    "@columnar-tech/dbc-win32-x64": "0.0.0"
   }
 }
