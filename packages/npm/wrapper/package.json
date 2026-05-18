@@ -1,0 +1,33 @@
+{
+  "name": "@columnar-tech/dbc",
+  "version": "0.3.0",
+  "description": "The CLI for installing and managing ADBC drivers",
+  "keywords": [
+    "adbc",
+    "arrow",
+    "database",
+    "drivers",
+    "dbc"
+  ],
+  "homepage": "https://columnar.tech/dbc",
+  "bugs": "https://github.com/columnar-tech/dbc/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/columnar-tech/dbc.git",
+    "directory": "packages/npm/wrapper"
+  },
+  "license": "Apache-2.0",
+  "bin": {
+    "dbc": "bin/dbc.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "optionalDependencies": {
+    "@columnar-tech/dbc-darwin-arm64": "0.3.0",
+    "@columnar-tech/dbc-darwin-x64": "0.3.0",
+    "@columnar-tech/dbc-linux-arm64": "0.3.0",
+    "@columnar-tech/dbc-linux-x64": "0.3.0",
+    "@columnar-tech/dbc-win32-x64": "0.3.0"
+  }
+}

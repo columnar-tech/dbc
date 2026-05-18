@@ -1,0 +1,29 @@
+{
+  "name": "@columnar-tech/dbc-darwin-arm64",
+  "version": "0.3.0",
+  "description": "macOS arm64 binary for dbc, the CLI for installing ADBC drivers",
+  "keywords": [
+    "adbc",
+    "arrow",
+    "database",
+    "drivers",
+    "dbc"
+  ],
+  "homepage": "https://columnar.tech/dbc",
+  "bugs": "https://github.com/columnar-tech/dbc/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/columnar-tech/dbc.git",
+    "directory": "packages/npm/packages/dbc-darwin-arm64"
+  },
+  "license": "Apache-2.0",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ]
+}
