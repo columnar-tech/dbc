@@ -18,7 +18,7 @@
 // Populates the per-platform npm packages with the dbc binary extracted from
 // a GoReleaser archive. Mirrors scripts/create_wheels.py in design.
 //
-// Requires: curl, tar, unzip (for .zip archives)
+// Requires: gh, tar, unzip (for .zip archives)
 //
 // Usage:
 //
@@ -35,8 +35,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 
-const GITHUB_ORG = "columnar-tech";
-const GITHUB_REPO = "dbc";
+const GITHUB_REPO = "columnar-tech/dbc";
 
 const { PLATFORMS } = require("../platforms.js");
 
@@ -53,36 +52,29 @@ function pkgDirFor(info) {
 const PACKAGES_DIR = path.resolve(__dirname, "..", "packages");
 const WRAPPER_DIR = path.resolve(__dirname, "..", "wrapper");
 
-function curlGet(url) {
-  return execFileSync("curl", [
-    "--silent",
-    "--show-error",
-    "--location",
-    "--fail",
-    url,
-  ]);
-}
-
-function curlDownload(url, destPath) {
+// Download a release asset by name pattern into destDir, with checksum
+// verification handled by gh itself.
+function ghDownload(tag, pattern, destDir) {
   execFileSync(
-    "curl",
-    ["--silent", "--show-error", "--location", "--fail", "-o", destPath, url],
-    {
-      stdio: ["ignore", "pipe", "inherit"],
-    },
+    "gh", ["release", "download", tag,
+      "--repo", GITHUB_REPO,
+      "--pattern", pattern,
+      "--dir", destDir,
+      "--clobber",
+    ],
+    { stdio: "inherit" },
   );
 }
 
-function getGithubRelease(version) {
-  const tag = version.startsWith("v") ? version : `v${version}`;
-  const url = `https://api.github.com/repos/${GITHUB_ORG}/${GITHUB_REPO}/releases/tags/${tag}`;
-  console.log(`Fetching release info for ${tag}...`);
-  const body = curlGet(url);
-  return JSON.parse(body.toString()).assets.map((a) => ({
-    name: a.name,
-    downloadUrl: a.browser_download_url,
-    digest: a.digest,
-  }));
+// Return the asset names for a release tag.
+function ghReleaseAssets(tag) {
+  const out = execFileSync(
+    "gh", ["release", "view", tag,
+      "--repo", GITHUB_REPO,
+      "--json", "assets",
+    ],
+  );
+  return JSON.parse(out.toString()).assets.map((a) => a.name);
 }
 
 function extractBinary(archivePath, binaryName, destDir) {
@@ -221,8 +213,11 @@ function main() {
     created.push(WRAPPER_DIR);
   } else {
     // Download from GitHub releases
-    const assets = getGithubRelease(version);
+    const tag = `v${version}`;
     const platforms = opts.platform ? [opts.platform] : PLATFORMS.map((p) => p.goosArch);
+
+    // Find the actual archive filename for each platform from the release
+    const assetNames = ghReleaseAssets(tag);
 
     for (const goosArch of platforms) {
       const info = findPlatform(goosArch);
@@ -232,41 +227,25 @@ function main() {
       }
 
       const [goos, goarch] = goosArch.split("-");
-      const asset = assets.find(
-        (a) =>
-          a.name.startsWith(`dbc-${goos}-${goarch}-`) &&
-          (a.name.endsWith(".tar.gz") || a.name.endsWith(".zip")),
+      const assetName = assetNames.find(
+        (n) =>
+          n.startsWith(`dbc-${goos}-${goarch}-`) &&
+          (n.endsWith(".tar.gz") || n.endsWith(".zip")),
       );
 
-      if (!asset) {
-        console.error(
-          `No archive asset found for ${goosArch} in release v${version}`,
-        );
+      if (!assetName) {
+        console.error(`No archive asset found for ${goosArch} in release ${tag}`);
         process.exit(1);
       }
 
-      const tmpArchive = path.join(os.tmpdir(), asset.name);
-      console.log(`Downloading ${asset.name}...`);
-      curlDownload(asset.downloadUrl, tmpArchive);
-
-      if (asset.digest) {
-        const expected = asset.digest.split(":")[1];
-        const actual = execFileSync("shasum", ["-a", "256", tmpArchive])
-          .toString()
-          .split(" ")[0];
-        if (actual !== expected) {
-          fs.unlinkSync(tmpArchive);
-          throw new Error(
-            `Hash mismatch for ${asset.name}: expected ${expected}, got ${actual}`,
-          );
-        }
-        console.log(`  ✓ checksum verified`);
-      }
-
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-npm-dl-"));
       try {
-        populatePlatform(goosArch, tmpArchive, version);
+        // gh verifies checksums automatically against the release's checksums file
+        console.log(`Downloading ${assetName}...`);
+        ghDownload(tag, assetName, tmpDir);
+        populatePlatform(goosArch, path.join(tmpDir, assetName), version);
       } finally {
-        fs.unlinkSync(tmpArchive);
+        fs.rmSync(tmpDir, { recursive: true, force: true });
       }
 
       created.push(pkgDirFor(info));
