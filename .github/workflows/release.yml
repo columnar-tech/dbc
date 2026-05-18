@@ -249,3 +249,47 @@ jobs:
             --value="${RELEASE_VERSION}"
         env:
           RELEASE_VERSION: ${{ fromJSON(steps.gorelease.outputs.metadata).version }}
+
+  publish_npm:
+    runs-on: ubuntu-latest
+    environment: production
+    needs: production_deploy
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      id-token: write # For npm provenance
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}" # strip leading 'v'
+
+          # Create packages for all platforms from the release we just published
+          node packages/npm/scripts/create_packages.js --version "$VERSION"
+
+          # Handle pre-releases: Prereleases (e.g. 0.3.0-rc1) publish under
+          # 'next' so they don't become the default for 'npm install
+          # @columnar-tech/dbc'
+          if echo "$VERSION" | grep -q '-'; then
+            NPM_TAG="next"
+          else
+            NPM_TAG="latest"
+          fi
+
+          # Make sure to upload the platform-specific packages before the
+          # wrapper since they're deps
+          for pkg in packages/npm/packages/*/; do
+            npm publish "$pkg" --provenance --access public --tag "$NPM_TAG"
+          done
+          npm publish packages/npm/wrapper --provenance --access public --tag "$NPM_TAG"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
