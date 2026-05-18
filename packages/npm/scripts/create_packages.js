@@ -52,14 +52,19 @@ function pkgDirFor(info) {
 const PACKAGES_DIR = path.resolve(__dirname, "..", "packages");
 const WRAPPER_DIR = path.resolve(__dirname, "..", "wrapper");
 
-// Download a release asset by name pattern into destDir, with checksum
-// verification handled by gh itself.
 function ghDownload(tag, pattern, destDir) {
   execFileSync(
-    "gh", ["release", "download", tag,
-      "--repo", GITHUB_REPO,
-      "--pattern", pattern,
-      "--dir", destDir,
+    "gh",
+    [
+      "release",
+      "download",
+      tag,
+      "--repo",
+      GITHUB_REPO,
+      "--pattern",
+      pattern,
+      "--dir",
+      destDir,
       "--clobber",
     ],
     { stdio: "inherit" },
@@ -68,12 +73,15 @@ function ghDownload(tag, pattern, destDir) {
 
 // Return the asset names for a release tag.
 function ghReleaseAssets(tag) {
-  const out = execFileSync(
-    "gh", ["release", "view", tag,
-      "--repo", GITHUB_REPO,
-      "--json", "assets",
-    ],
-  );
+  const out = execFileSync("gh", [
+    "release",
+    "view",
+    tag,
+    "--repo",
+    GITHUB_REPO,
+    "--json",
+    "assets",
+  ]);
   return JSON.parse(out.toString()).assets.map((a) => a.name);
 }
 
@@ -189,7 +197,9 @@ function main() {
   const created = [];
 
   if (opts.setVersionOnly) {
-    const platforms = opts.platform ? [opts.platform] : PLATFORMS.map((p) => p.goosArch);
+    const platforms = opts.platform
+      ? [opts.platform]
+      : PLATFORMS.map((p) => p.goosArch);
     for (const goosArch of platforms) {
       const info = findPlatform(goosArch);
       if (!info) {
@@ -214,7 +224,9 @@ function main() {
   } else {
     // Download from GitHub releases
     const tag = `v${version}`;
-    const platforms = opts.platform ? [opts.platform] : PLATFORMS.map((p) => p.goosArch);
+    const platforms = opts.platform
+      ? [opts.platform]
+      : PLATFORMS.map((p) => p.goosArch);
 
     // Find the actual archive filename for each platform from the release
     const assetNames = ghReleaseAssets(tag);
@@ -234,7 +246,9 @@ function main() {
       );
 
       if (!assetName) {
-        console.error(`No archive asset found for ${goosArch} in release ${tag}`);
+        console.error(
+          `No archive asset found for ${goosArch} in release ${tag}`,
+        );
         process.exit(1);
       }
 
