@@ -20,6 +20,7 @@ const PLATFORMS = [
   {
     goosArch: "darwin-arm64",
     npmPkg: "@columnar-tech/dbc-darwin-arm64",
+    description: "macOS arm64 binary for dbc, the CLI for installing ADBC drivers",
     binary: "dbc",
     os: "darwin",
     cpu: "arm64",
@@ -27,6 +28,7 @@ const PLATFORMS = [
   {
     goosArch: "darwin-amd64",
     npmPkg: "@columnar-tech/dbc-darwin-x64",
+    description: "macOS x64 binary for dbc, the CLI for installing ADBC drivers",
     binary: "dbc",
     os: "darwin",
     cpu: "x64",
@@ -34,6 +36,7 @@ const PLATFORMS = [
   {
     goosArch: "linux-arm64",
     npmPkg: "@columnar-tech/dbc-linux-arm64",
+    description: "Linux arm64 binary for dbc, the CLI for installing ADBC drivers",
     binary: "dbc",
     os: "linux",
     cpu: "arm64",
@@ -41,6 +44,7 @@ const PLATFORMS = [
   {
     goosArch: "linux-amd64",
     npmPkg: "@columnar-tech/dbc-linux-x64",
+    description: "Linux x64 binary for dbc, the CLI for installing ADBC drivers",
     binary: "dbc",
     os: "linux",
     cpu: "x64",
@@ -48,6 +52,7 @@ const PLATFORMS = [
   {
     goosArch: "windows-amd64",
     npmPkg: "@columnar-tech/dbc-win32-x64",
+    description: "Windows x64 binary for dbc, the CLI for installing ADBC drivers",
     binary: "dbc.exe",
     os: "win32",
     cpu: "x64",

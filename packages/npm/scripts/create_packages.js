@@ -52,7 +52,7 @@ function pkgDirFor(info) {
 const PACKAGES_DIR  = path.resolve(__dirname, "..", "packages");
 const WRAPPER_DIR   = path.resolve(__dirname, "..", "wrapper");
 const REPO_ROOT     = path.resolve(__dirname, "..", "..", "..");
-const PLATFORM_README_TEMPLATE = path.join(PACKAGES_DIR, "README.platform.md");
+const PLATFORM_README_TEMPLATE = path.join(PACKAGES_DIR, "README.template.md");
 
 function ghDownload(tag, pattern, destDir) {
   execFileSync(
@@ -113,23 +113,59 @@ function extractBinary(archivePath, binaryName, destDir) {
   return extracted;
 }
 
-function setPackageVersion(pkgDir, version) {
-  const pkgJsonPath = path.join(pkgDir, "package.json");
-  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
-  pkgJson.version = version;
-  fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+const COMMON_FIELDS = {
+  keywords: ["adbc", "arrow", "database", "drivers", "dbc"],
+  homepage: "https://columnar.tech/dbc",
+  bugs: "https://github.com/columnar-tech/dbc/issues",
+  license: "Apache-2.0",
+};
+
+function writePlatformPackageJson(info, pkgDir, version) {
+  const unscoped = info.npmPkg.replace(/^@[^/]+\//, ""); // e.g. "dbc-darwin-arm64"
+  const pkgJson = {
+    name: info.npmPkg,
+    version,
+    description: info.description,
+    ...COMMON_FIELDS,
+    repository: {
+      type: "git",
+      url: "https://github.com/columnar-tech/dbc.git",
+      directory: `packages/npm/packages/${unscoped}`,
+    },
+    os: [info.os],
+    cpu: [info.cpu],
+    files: ["bin/", "README.md", "LICENSE"],
+  };
+  fs.writeFileSync(
+    path.join(pkgDir, "package.json"),
+    JSON.stringify(pkgJson, null, 2) + "\n",
+  );
 }
 
-function setWrapperVersion(version) {
-  const pkgJsonPath = path.join(WRAPPER_DIR, "package.json");
-  const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
-  pkgJson.version = version;
-  for (const dep of Object.keys(pkgJson.optionalDependencies)) {
-    pkgJson.optionalDependencies[dep] = version;
-  }
-  fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
+function writeWrapperPackageJson(version) {
+  const optionalDependencies = Object.fromEntries(
+    PLATFORMS.map((p) => [p.npmPkg, version]),
+  );
+  const pkgJson = {
+    name: "@columnar-tech/dbc",
+    version,
+    description: "The CLI for installing and managing ADBC drivers",
+    ...COMMON_FIELDS,
+    repository: {
+      type: "git",
+      url: "https://github.com/columnar-tech/dbc.git",
+      directory: "packages/npm/wrapper",
+    },
+    bin: { dbc: "bin/dbc.js" },
+    files: ["bin/", "README.md", "LICENSE"],
+    optionalDependencies,
+  };
+  fs.writeFileSync(
+    path.join(WRAPPER_DIR, "package.json"),
+    JSON.stringify(pkgJson, null, 2) + "\n",
+  );
   fs.copyFileSync(path.join(REPO_ROOT, "LICENSE"), path.join(WRAPPER_DIR, "LICENSE"));
-  console.log(`Updated wrapper package.json to version ${version}`);
+  console.log(`Wrote wrapper package.json at version ${version}`);
 }
 
 function writePlatformDocs(info, pkgDir) {
@@ -164,8 +200,8 @@ function populatePlatform(goosArch, archivePath, version) {
   }
 
   writePlatformDocs(info, pkgDir);
-  setPackageVersion(pkgDir, version);
-  console.log(`  → set ${info.npmPkg} version to ${version}`);
+  writePlatformPackageJson(info, pkgDir, version);
+  console.log(`  → wrote ${info.npmPkg} package.json at version ${version}`);
 }
 
 function parseArgs() {
@@ -174,7 +210,6 @@ function parseArgs() {
     version: null,
     platform: null,
     archive: null,
-    setVersionOnly: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -187,9 +222,6 @@ function parseArgs() {
         break;
       case "--archive":
         opts.archive = args[++i];
-        break;
-      case "--set-version-only":
-        opts.setVersionOnly = true;
         break;
       default:
         console.error(`Unknown argument: ${args[i]}`);
@@ -211,29 +243,13 @@ function main() {
 
   const created = [];
 
-  if (opts.setVersionOnly) {
-    const platforms = opts.platform
-      ? [opts.platform]
-      : PLATFORMS.map((p) => p.goosArch);
-    for (const goosArch of platforms) {
-      const info = findPlatform(goosArch);
-      if (!info) {
-        console.error(`Unknown platform: ${goosArch}`);
-        process.exit(1);
-      }
-      const pkgDir = pkgDirFor(info);
-      setPackageVersion(pkgDir, version);
-      created.push(pkgDir);
-    }
-    setWrapperVersion(version);
-    created.push(WRAPPER_DIR);
-  } else if (opts.archive) {
+  if (opts.archive) {
     if (!opts.platform) {
       console.error("--platform is required when --archive is provided");
       process.exit(1);
     }
     populatePlatform(opts.platform, path.resolve(opts.archive), version);
-    setWrapperVersion(version);
+    writeWrapperPackageJson(version);
     created.push(pkgDirFor(findPlatform(opts.platform)));
     created.push(WRAPPER_DIR);
   } else {
@@ -280,7 +296,7 @@ function main() {
       created.push(pkgDirFor(info));
     }
 
-    setWrapperVersion(version);
+    writeWrapperPackageJson(version);
     created.push(WRAPPER_DIR);
   }
 
