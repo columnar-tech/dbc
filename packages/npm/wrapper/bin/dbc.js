@@ -32,7 +32,7 @@ try {
 } catch {
   console.error(
     `dbc: could not find the platform package ${entry.npmPkg}.\n` +
-    `  Try reinstalling: npm install -g @columnar-tech/dbc`
+      `  Try reinstalling: npm install -g @columnar-tech/dbc`,
   );
   process.exit(1);
 }
