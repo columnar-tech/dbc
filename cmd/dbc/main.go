@@ -238,6 +238,9 @@ func main() {
 		args cmds
 	)
 
+	// Attempt to enable VT processing or disable colors if we can't
+	initWindowsConsole()
+
 	if err := initDBCClient(); err != nil {
 		fmt.Fprintf(os.Stderr, "error initializing client: %v\n", err)
 		os.Exit(1)
