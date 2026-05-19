@@ -22,7 +22,9 @@ const { PLATFORMS } = require("../../platforms.js");
 const entry = PLATFORMS.find((p) => p.os === platform && p.cpu === arch);
 
 if (!entry) {
-  console.error(`dbc: unsupported platform: ${platform}/${arch}`);
+  console.error(
+    `dbc: unsupported platform: ${platform}/${arch}. Please file an issue at https://github.com/columnar-tech/dbc/issues`,
+  );
   process.exit(1);
 }
 
