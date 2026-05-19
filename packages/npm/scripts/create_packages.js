@@ -184,7 +184,9 @@ function populatePlatform(goosArch, archivePath, version) {
   if (!info) throw new Error(`Unknown platform: ${goosArch}`);
 
   const pkgDir = pkgDirFor(info);
-  const destPath = path.join(pkgDir, "bin", info.binary);
+  const binDir = path.join(pkgDir, "bin");
+  fs.mkdirSync(binDir, { recursive: true });
+  const destPath = path.join(binDir, info.binary);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-npm-"));
   try {
