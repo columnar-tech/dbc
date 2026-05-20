@@ -27,12 +27,7 @@ const (
 )
 
 func initWindowsConsole() {
-	if !enableVTProcessing(os.Stdout) {
-		disableColors()
-		return
-	}
-
-	if !enableVTProcessing(os.Stderr) {
+	if !enableVTProcessing(os.Stdout) || !enableVTProcessing(os.Stderr) {
 		disableColors()
 		return
 	}
