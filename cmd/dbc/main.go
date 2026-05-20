@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -163,7 +164,7 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	if err := initDBCClient(); err != nil {
 		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
-	return dbcClient.Search("")
+	return dbcClient.Search(context.Background(), "")
 }
 
 
@@ -231,16 +232,16 @@ func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type cmds struct {
+	Search     *SearchCmd       `arg:"subcommand" help:"Search for a driver"`
 	Install    *InstallCmd      `arg:"subcommand" help:"Install a driver"`
 	Uninstall  *UninstallCmd    `arg:"subcommand" help:"Uninstall a driver"`
 	List       *ListCmd         `arg:"subcommand" help:"List installed drivers"`
-	Init       *InitCmd         `arg:"subcommand" help:"Initialize a new dbc driver list"`
-	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
-	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
-	Search     *SearchCmd       `arg:"subcommand" help:"Search for a driver"`
 	Info       *InfoCmd         `arg:"subcommand" help:"Get information about a driver"`
 	Docs       *DocsCmd         `arg:"subcommand" help:"Open driver documentation in a web browser"`
+	Init       *InitCmd         `arg:"subcommand" help:"Initialize a new dbc driver list"`
+	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
+	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`

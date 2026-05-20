@@ -141,9 +141,9 @@ func (suite *SubcommandTestSuite) TestDocsBrowserOpenError() {
 		mockOpenBrowserError,
 		testFallbackUrls,
 	)
-	output := suite.runCmdErr(m)
+	output := suite.runCmd(m)
 
-	suite.Contains(output, "failed to open browser: browser not available")
+	suite.Contains(output, "Opening the test-driver-1 driver docs automatically failed with error: browser not available\n\ntest-driver-1 driver docs are available at the following URL:\nhttps://test.example.com/driver1")
 }
 
 func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocs() {

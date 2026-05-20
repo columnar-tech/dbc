@@ -333,6 +333,34 @@ homebrew_casks:
       token_type: "github"
       token: "{{ .Env.DBC_TAP_GITHUB_PAT }}" # we'll probably need a dedicated PAT or something?
 
+winget:
+  - name: dbc
+    publisher: Columnar
+    publisher_url: "https://columnar.tech/"
+    publisher_support_url: "https://github.com/columnar-tech/dbc/issues"
+    package_identifier: "Columnar.dbc"
+    short_description: "dbc is a command-line tool for installing and managing ADBC drivers."
+    description: "dbc is a command-line tool for installing and managing ADBC drivers."
+    homepage: "https://docs.columnar.tech/dbc/"
+    license: Apache-2.0
+    license_url: "https://github.com/columnar-tech/dbc/blob/HEAD/LICENSE"
+    release_notes_url: "https://github.com/columnar-tech/dbc/releases/tag/{{ .Tag }}"
+    tags:
+      - adbc
+      - apache
+      - apache-arrow
+      - cli
+      - database-connector
+      - open-source
+    skip_upload: auto
+    repository:
+      owner: columnar-tech
+      name: winget-pkgs
+      branch: "dbc-{{ .Version }}"
+      token: "{{ .Env.DBC_WINGET_GITHUB_PAT }}"
+      pull_request:
+        enabled: false
+
 release:
   ids:
     - archives

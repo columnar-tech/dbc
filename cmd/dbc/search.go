@@ -344,6 +344,22 @@ func (m searchModel) FinalOutput() string {
 		output = viewDriversJSON(m.finalDrivers, m.verbose, m.pre, m.registryErrors)
 	} else {
 		output = viewDrivers(m.finalDrivers, m.verbose, m.pre)
+		if output == "" {
+			// Some matched drivers exist but all are pre-release and --pre wasn't passed.
+			if !m.pre && len(m.finalDrivers) > 0 {
+				var preCmd string
+				if m.pattern != nil {
+					preCmd = "dbc search --pre " + m.pattern.String()
+				} else {
+					preCmd = "dbc search --pre"
+				}
+				return fmt.Sprintf("Only one or more pre-release drivers matched your pattern `%s`. To include them, use: %s", m.pattern.String(), preCmd)
+			}
+			if m.pattern != nil {
+				return "No drivers matched your pattern `" + m.pattern.String() + "`."
+			}
+			return "No drivers found."
+		}
 	}
 
 	// Display warning about registry errors after the driver list (only if we have some drivers to show)

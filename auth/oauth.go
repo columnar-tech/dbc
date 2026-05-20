@@ -60,8 +60,12 @@ type OpenIDConfig struct {
 	RequestParameterSupported         bool     `json:"request_parameter_supported"`
 }
 
-func fetch[T any](u *url.URL, dest *T) error {
-	resp, err := http.Get(u.String())
+func fetch[T any](ctx context.Context, u *url.URL, dest *T) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -74,11 +78,11 @@ func fetch[T any](u *url.URL, dest *T) error {
 	return json.NewDecoder(resp.Body).Decode(dest)
 }
 
-func GetOpenIDConfig(issuer *url.URL) (config OpenIDConfig, err error) {
+func GetOpenIDConfig(ctx context.Context, issuer *url.URL) (config OpenIDConfig, err error) {
 	for _, p := range []string{"openid-configuration", "oauth-authorization-server"} {
 		u, _ := issuer.Parse("/.well-known/" + p)
 
-		err = fetch(u, &config)
+		err = fetch(ctx, u, &config)
 		if err == nil {
 			return
 		}
@@ -87,8 +91,8 @@ func GetOpenIDConfig(issuer *url.URL) (config OpenIDConfig, err error) {
 	return config, err
 }
 
-func refreshOauth(cred *Credential) error {
-	cfg, err := GetOpenIDConfig((*url.URL)(&cred.AuthURI))
+func refreshOauth(ctx context.Context, cred *Credential) error {
+	cfg, err := GetOpenIDConfig(ctx, (*url.URL)(&cred.AuthURI))
 	if err != nil {
 		return err
 	}
@@ -100,7 +104,7 @@ func refreshOauth(cred *Credential) error {
 	}
 
 	payload := values.Encode()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, cfg.TokenEndpoint.String(),
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenEndpoint.String(),
 		strings.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("failed to build token request: %w", err)

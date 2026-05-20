@@ -53,7 +53,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		defer server.Close()
 
 		issuerURL, _ := url.Parse(server.URL)
-		config, err := GetOpenIDConfig(issuerURL)
+		config, err := GetOpenIDConfig(t.Context(), issuerURL)
 		require.NoError(t, err)
 
 		assert.Equal(t, "https://example.com", config.Issuer.String())
@@ -89,7 +89,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		defer server.Close()
 
 		issuerURL, _ := url.Parse(server.URL)
-		config, err := GetOpenIDConfig(issuerURL)
+		config, err := GetOpenIDConfig(t.Context(), issuerURL)
 		require.NoError(t, err)
 
 		assert.Equal(t, "https://example.com", config.Issuer.String())
@@ -104,7 +104,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		defer server.Close()
 
 		issuerURL, _ := url.Parse(server.URL)
-		_, err := GetOpenIDConfig(issuerURL)
+		_, err := GetOpenIDConfig(t.Context(), issuerURL)
 		assert.Error(t, err)
 	})
 
@@ -116,7 +116,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		defer server.Close()
 
 		issuerURL, _ := url.Parse(server.URL)
-		_, err := GetOpenIDConfig(issuerURL)
+		_, err := GetOpenIDConfig(t.Context(), issuerURL)
 		assert.Error(t, err)
 	})
 }
@@ -179,7 +179,7 @@ func TestRefreshOauth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		err := refreshOauth(cred)
+		err := refreshOauth(t.Context(), cred)
 		require.NoError(t, err)
 		assert.Equal(t, "new-access-token", cred.Token)
 	})
@@ -192,7 +192,7 @@ func TestRefreshOauth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		err := refreshOauth(cred)
+		err := refreshOauth(t.Context(), cred)
 		assert.Error(t, err)
 	})
 
@@ -224,7 +224,7 @@ func TestRefreshOauth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		err := refreshOauth(cred)
+		err := refreshOauth(t.Context(), cred)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "token endpoint returned status")
 	})
@@ -271,7 +271,7 @@ func TestRefreshOauth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		err := refreshOauth(cred)
+		err := refreshOauth(t.Context(), cred)
 		assert.Error(t, err)
 	})
 }
@@ -307,7 +307,7 @@ func TestCredential_Refresh_OAuth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		err := cred.Refresh()
+		err := cred.Refresh(t.Context())
 		assert.NoError(t, err)
 		assert.Equal(t, "refreshed-token", cred.Token)
 	})
@@ -321,7 +321,7 @@ func TestCredential_Refresh_OAuth(t *testing.T) {
 			RefreshToken: "test-refresh-token",
 		}
 
-		err := cred.Refresh()
+		err := cred.Refresh(t.Context())
 		assert.Error(t, err)
 	})
 }
@@ -336,7 +336,7 @@ func TestFetch(t *testing.T) {
 
 		serverURL, _ := url.Parse(server.URL)
 		var result map[string]string
-		err := fetch(serverURL, &result)
+		err := fetch(t.Context(), serverURL, &result)
 		require.NoError(t, err)
 		assert.Equal(t, "value", result["key"])
 	})
@@ -349,7 +349,7 @@ func TestFetch(t *testing.T) {
 
 		serverURL, _ := url.Parse(server.URL)
 		var result map[string]string
-		err := fetch(serverURL, &result)
+		err := fetch(t.Context(), serverURL, &result)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to fetch")
 	})
@@ -363,14 +363,14 @@ func TestFetch(t *testing.T) {
 
 		serverURL, _ := url.Parse(server.URL)
 		var result map[string]string
-		err := fetch(serverURL, &result)
+		err := fetch(t.Context(), serverURL, &result)
 		assert.Error(t, err)
 	})
 
 	t.Run("return error on connection failure", func(t *testing.T) {
 		u, _ := url.Parse("http://invalid-host-xyz-123.local")
 		var result map[string]string
-		err := fetch(u, &result)
+		err := fetch(t.Context(), u, &result)
 		assert.Error(t, err)
 	})
 }

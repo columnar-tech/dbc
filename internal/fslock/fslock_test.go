@@ -15,7 +15,9 @@
 package fslock_test
 
 import (
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +48,60 @@ func TestAcquireTwiceSequential(t *testing.T) {
 		t.Fatalf("second Acquire: %v", err)
 	}
 	lock2.Release()
+}
+
+func TestReleaseRemovesFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	lock, err := fslock.Acquire(path, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("lock file missing while held: %v", err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("lock file still on disk after Release: stat err=%v", err)
+	}
+}
+
+func TestConcurrentAcquireIsExclusive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	const workers = 8
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		holding int
+		maxSeen int
+	)
+	for range workers {
+		wg.Go(func() {
+			lock, err := fslock.Acquire(path, 10*time.Second)
+			if err != nil {
+				t.Errorf("Acquire: %v", err)
+				return
+			}
+			mu.Lock()
+			holding++
+			if holding > maxSeen {
+				maxSeen = holding
+			}
+			mu.Unlock()
+			time.Sleep(10 * time.Millisecond)
+			mu.Lock()
+			holding--
+			mu.Unlock()
+			if err := lock.Release(); err != nil {
+				t.Errorf("Release: %v", err)
+			}
+		})
+	}
+	wg.Wait()
+	if maxSeen != 1 {
+		t.Fatalf("mutual exclusion violated: saw %d concurrent holders", maxSeen)
+	}
 }
 
 func TestAcquireTimeout(t *testing.T) {

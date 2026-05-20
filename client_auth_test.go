@@ -56,7 +56,7 @@ func TestClientWithCredential(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _ = c.Search("")
+	_, _ = c.Search(t.Context(), "")
 
 	assert.Equal(t, "Bearer "+token, gotAuthHeader)
 }
@@ -82,7 +82,7 @@ func TestClientWithAuthFromFilesystem(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, _ = c.Search("")
+	_, _ = c.Search(t.Context(), "")
 
 	assert.Empty(t, gotAuthHeader)
 }

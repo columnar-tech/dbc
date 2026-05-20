@@ -54,7 +54,21 @@ dbc will automatically download your license if you:
 1. Have an active license
 2. Run `dbc install` with a private driver
 
-If you'd prefer to download the license manually, you can click **Download License File** and place the downloaded file in the appropriate location for your operating system:
+#### Manual Install with dbc
+
+{{ since_version('v0.3.0') }}
+
+If you'd prefer to install the license manually, click **Download License File** on the Licenses page, then run:
+
+```console
+$ dbc auth license install /path/to/columnar.lic
+```
+
+This installs the license to the correct location for your operating system automatically.
+
+#### Manual Install
+
+Alternatively, you can place the downloaded file directly in the appropriate location for your operating system:
 
 - Windows: `%LocalAppData%/dbc/credentials`
 - macOS:  `~/Library/Application Support/Columnar/dbc/credentials`

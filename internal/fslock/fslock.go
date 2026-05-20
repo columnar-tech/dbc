@@ -20,11 +20,6 @@ import "os"
 
 // Lock represents an acquired advisory file lock.
 type Lock struct {
-	f *os.File
-}
-
-// Release releases the lock and closes the file. The lock file is left on
-// disk so that concurrent waiters do not race on a deleted path.
-func (l Lock) Release() error {
-	return l.f.Close()
+	f    *os.File
+	path string
 }
