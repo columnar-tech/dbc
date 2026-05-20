@@ -15,10 +15,15 @@
 package dbc
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -222,6 +227,48 @@ func TestMergeRegistries(t *testing.T) {
 				"https://default-b.example.com",
 			},
 			wantFirstName: "project",
+		},
+		{
+			name:    "project URL collides with default URL — project wins, default URL dedup'd",
+			project: []RegistryEntry{{URL: "https://default-a.example.com", Name: "project-name"}},
+			defaults: defaults,
+			wantURLsInOrder: []string{
+				"https://default-a.example.com",
+				"https://default-b.example.com",
+			},
+			wantFirstName: "project-name",
+		},
+		{
+			name:     "global URL collides with default URL — global wins, default URL dedup'd",
+			global:   []RegistryEntry{{URL: "https://default-a.example.com", Name: "global-name"}},
+			defaults: defaults,
+			wantURLsInOrder: []string{
+				"https://default-a.example.com",
+				"https://default-b.example.com",
+			},
+			wantFirstName: "global-name",
+		},
+		{
+			name:     "all three tiers share a URL — project wins, others dedup'd",
+			project:  []RegistryEntry{{URL: "https://shared.example.com", Name: "p"}},
+			global:   []RegistryEntry{{URL: "https://shared.example.com", Name: "g"}},
+			defaults: []Registry{{Name: "d", BaseURL: mustParseURL("https://shared.example.com")}},
+			wantURLsInOrder: []string{
+				"https://shared.example.com",
+			},
+			wantFirstName: "p",
+		},
+		{
+			name:    "project URL matches second default — project wins, only that default URL dedup'd",
+			project: []RegistryEntry{{URL: "https://default-b.example.com", Name: "project-shadows-b"}},
+			global:  []RegistryEntry{{URL: "https://glob.example.com"}},
+			defaults: defaults,
+			wantURLsInOrder: []string{
+				"https://default-b.example.com",
+				"https://glob.example.com",
+				"https://default-a.example.com",
+			},
+			wantFirstName: "project-shadows-b",
 		},
 		{
 			name: "distinct queries not deduped (tenant selectors)",
@@ -439,4 +486,98 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSearchPriorityAcrossRegistryTiers pins the cross-tier driver-name
+// conflict resolution rule: when registries at different tiers (project,
+// global, default) all publish a driver with the same path, Client.Search
+// returns the entries in registry-priority order, so first-match-wins
+// semantics in cmd/dbc.findDriver and Client.Install resolve the conflict
+// to the highest-priority tier.
+//
+// The merge function itself is exhaustively covered in TestMergeRegistries
+// with arbitrary defaults; this test exercises Client.Search end-to-end
+// against three httptest servers acting as the three tiers. The tier
+// identity is encoded in the package URL so the resolved PkgInfo's Path
+// reveals which tier won.
+//
+// Going through NewClient + WithGlobalConfig + WithProjectRegistries would
+// require the real built-in defaults (which point at production servers)
+// to also be present in the merge, making this test flaky. Constructing
+// the Client directly with the merged registry list is the in-package
+// equivalent of "after merge succeeded".
+func TestSearchPriorityAcrossRegistryTiers(t *testing.T) {
+	const driverPath = "shared-driver"
+
+	indexFor := func(packageRelURL string) string {
+		platforms := []string{
+			"linux_amd64", "linux_arm64",
+			"macos_amd64", "macos_arm64",
+			"windows_amd64", "windows_arm64",
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "drivers:\n  - name: Shared\n    description: shared driver\n    license: MIT\n    path: %s\n    pkginfo:\n      - version: v1.0.0\n        packages:\n", driverPath)
+		for _, p := range platforms {
+			fmt.Fprintf(&b, "          - platform: %s\n            url: %s\n", p, packageRelURL)
+		}
+		return b.String()
+	}
+
+	makeServer := func(packageRelURL string) *httptest.Server {
+		body := indexFor(packageRelURL)
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+				w.Header().Set("Content-Type", "application/yaml")
+				_, _ = fmt.Fprint(w, body)
+				return
+			}
+			http.NotFound(w, r)
+		}))
+	}
+
+	projectTier := makeServer("project-pkg.tar.gz")
+	defer projectTier.Close()
+	globalTier := makeServer("global-pkg.tar.gz")
+	defer globalTier.Close()
+	defaultTier := makeServer("default-pkg.tar.gz")
+	defer defaultTier.Close()
+
+	c := &Client{
+		httpClient: http.DefaultClient,
+		registries: []Registry{
+			{Name: "tier-project", BaseURL: mustParseURL(projectTier.URL)},
+			{Name: "tier-global", BaseURL: mustParseURL(globalTier.URL)},
+			{Name: "tier-default", BaseURL: mustParseURL(defaultTier.URL)},
+		},
+	}
+
+	drivers, err := c.Search(t.Context(), "")
+	require.NoError(t, err)
+	require.Len(t, drivers, 3, "each tier should contribute one driver entry")
+
+	assert.Equal(t, projectTier.URL, drivers[0].Registry.BaseURL.String(),
+		"project-tier driver must come first in Search results")
+	assert.Equal(t, globalTier.URL, drivers[1].Registry.BaseURL.String(),
+		"global-tier driver must come second in Search results")
+	assert.Equal(t, defaultTier.URL, drivers[2].Registry.BaseURL.String(),
+		"default-tier driver must come last in Search results")
+
+	var first *Driver
+	for i := range drivers {
+		if drivers[i].Path == driverPath {
+			first = &drivers[i]
+			break
+		}
+	}
+	require.NotNil(t, first)
+	assert.Equal(t, projectTier.URL, first.Registry.BaseURL.String(),
+		"first-match-wins must resolve the cross-tier name conflict to the project tier")
+
+	pkg, err := first.GetPackage(nil, config.PlatformTuple(), false)
+	require.NoError(t, err)
+	require.NotNil(t, pkg.Path)
+	assert.Contains(t, pkg.Path.String(), "project-pkg.tar.gz",
+		"resolved package URL must come from the project tier; got %q", pkg.Path.String())
+	assert.True(t, strings.HasPrefix(pkg.Path.String(), projectTier.URL),
+		"resolved package URL must be rooted at the project tier; got %q", pkg.Path.String())
 }

@@ -1298,3 +1298,135 @@ func TestInstallCmdDBCBaseURLOverridesGlobalConfig(t *testing.T) {
 	assert.Contains(t, capturedPkg.Path.String(), "override-pkg.tar.gz",
 		"resolved package URL must come from the DBC_BASE_URL override's index, got %q", capturedPkg.Path.String())
 }
+
+// TestApplyProjectRegistriesPreservesAllThreeTiersInOrder pins that with
+// no replace_defaults set anywhere, the merged registry list visible to
+// the CLI is exactly: project entries, then global entries, then the
+// built-in defaults — all three tiers present in priority order. This is
+// the "default" mode of operation: the user opted into both project and
+// global config, and the built-in defaults remain available as a fallback.
+func TestApplyProjectRegistriesPreservesAllThreeTiersInOrder(t *testing.T) {
+	installRegistryTestSetup(t)
+
+	const projectURL = "https://project.example.invalid"
+	const globalURL = "https://global.example.invalid"
+
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{{URL: globalURL, Name: "global"}},
+	}
+	list := DriversList{
+		Registries: []dbc.RegistryEntry{{URL: projectURL, Name: "project"}},
+	}
+	require.NoError(t, applyProjectRegistries(list))
+	require.NotNil(t, dbcClient, "applyProjectRegistries must have built a client")
+
+	regs := dbcClient.Registries()
+	require.GreaterOrEqual(t, len(regs), 3,
+		"expected at least project + global + built-in defaults; got %d", len(regs))
+	assert.Equal(t, projectURL, regs[0].BaseURL.String(),
+		"project tier must come first")
+	assert.Equal(t, globalURL, regs[1].BaseURL.String(),
+		"global tier must come second")
+
+	tail := regs[2:]
+	for i, r := range tail {
+		u := r.BaseURL.String()
+		assert.NotEqual(t, projectURL, u,
+			"default tier entry %d must not be the project URL", i)
+		assert.NotEqual(t, globalURL, u,
+			"default tier entry %d must not be the global URL", i)
+	}
+	assert.NotEmpty(t, tail, "default tier must contribute at least one registry")
+}
+
+// TestApplyProjectRegistriesProjectReplaceDefaultsKeepsGlobal pins the
+// asymmetric semantics of project replace_defaults=true: it drops only
+// the built-in defaults from the merged list, NOT the global tier. A
+// project that opts out of defaults still inherits the user's global
+// registries — replace_defaults is not "use only my project entries".
+func TestApplyProjectRegistriesProjectReplaceDefaultsKeepsGlobal(t *testing.T) {
+	installRegistryTestSetup(t)
+
+	const projectURL = "https://project.example.invalid"
+	const globalURL = "https://global.example.invalid"
+
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{{URL: globalURL, Name: "global"}},
+	}
+	replace := true
+	list := DriversList{
+		Registries:      []dbc.RegistryEntry{{URL: projectURL, Name: "project"}},
+		ReplaceDefaults: &replace,
+	}
+	require.NoError(t, applyProjectRegistries(list))
+	require.NotNil(t, dbcClient)
+
+	regs := dbcClient.Registries()
+	require.Len(t, regs, 2,
+		"replace_defaults=true must drop built-in defaults but keep project + global; got %d entries", len(regs))
+	assert.Equal(t, projectURL, regs[0].BaseURL.String(),
+		"project tier must come first")
+	assert.Equal(t, globalURL, regs[1].BaseURL.String(),
+		"global tier must remain after replace_defaults drops only the built-in defaults")
+}
+
+// TestProjectRegistryShadowsGlobalOnDriverNameConflict pins driver-name
+// conflict resolution across the project and global tiers via the full
+// CLI wiring: applyProjectRegistries -> dbcClient.Search -> findDriver.
+// When both tiers publish a driver with the same path, the project tier
+// wins, and the resolved package URL comes from the project tier's index.
+//
+// replace_defaults=true is set on the project so the built-in defaults
+// stay out of the merge and don't introduce flakiness against the real
+// production registry. The default tier is exercised separately by
+// TestApplyProjectRegistriesPreservesAllThreeTiersInOrder.
+func TestProjectRegistryShadowsGlobalOnDriverNameConflict(t *testing.T) {
+	const driverPath = "shared-driver"
+
+	makeServer := func(packageRelURL string) *httptest.Server {
+		body := installRegistryDriverIndex(driverPath, "v1.0.0", packageRelURL)
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+				w.Header().Set("Content-Type", "application/yaml")
+				_, _ = fmt.Fprint(w, body)
+				return
+			}
+			http.NotFound(w, r)
+		}))
+	}
+
+	projectServer := makeServer("project-pkg.tar.gz")
+	defer projectServer.Close()
+	globalServer := makeServer("global-pkg.tar.gz")
+	defer globalServer.Close()
+
+	installRegistryTestSetup(t)
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{{URL: globalServer.URL, Name: "global"}},
+	}
+	replace := true
+	list := DriversList{
+		Registries:      []dbc.RegistryEntry{{URL: projectServer.URL, Name: "project"}},
+		ReplaceDefaults: &replace,
+	}
+	require.NoError(t, applyProjectRegistries(list))
+
+	drivers, err := dbcClient.Search(context.Background(), "")
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(drivers), 2,
+		"both tiers should contribute a driver entry for the conflict")
+
+	resolved, err := findDriver(driverPath, drivers)
+	require.NoError(t, err)
+	require.NotNil(t, resolved.Registry)
+	assert.Equal(t, projectServer.URL, resolved.Registry.BaseURL.String(),
+		"project tier must win the driver-name conflict against global")
+
+	pkg, err := resolved.GetPackage(nil, "linux_amd64", false)
+	require.NoError(t, err)
+	require.NotNil(t, pkg.Path)
+	assert.Contains(t, pkg.Path.String(), "project-pkg.tar.gz",
+		"resolved package URL must come from the project tier's index; got %q", pkg.Path.String())
+	assert.True(t, strings.HasPrefix(pkg.Path.String(), projectServer.URL),
+		"resolved package URL must be rooted at the project tier; got %q", pkg.Path.String())
+}
