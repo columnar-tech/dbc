@@ -15,8 +15,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,6 +31,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -981,4 +984,317 @@ func TestStartupEagerInitRejectsEmptyGlobal(t *testing.T) {
 
 	_, err := newDefaultClient()
 	assert.ErrorContains(t, err, "empty registry list")
+}
+
+// installRegistryTestSetup centralizes the boilerplate the install + registry
+// tests share: snapshot and reset all package-level client state, scope the
+// install location to a temp ADBC_DRIVER_PATH, and clear DBC_BASE_URL by
+// default. Tests that need DBC_BASE_URL set (e.g. precedence tests) call
+// t.Setenv themselves after this helper returns.
+func installRegistryTestSetup(t *testing.T) {
+	t.Helper()
+	t.Setenv("DBC_BASE_URL", "")
+	t.Setenv("ADBC_DRIVER_PATH", t.TempDir())
+
+	savedClient, savedErr, savedOnce := dbcClient, dbcClientErr, dbcClientOnce
+	savedGlobal := globalRegistryConfig
+	t.Cleanup(func() {
+		dbcClient = savedClient
+		dbcClientErr = savedErr
+		dbcClientOnce = savedOnce
+		globalRegistryConfig = savedGlobal
+	})
+	dbcClient = nil
+	dbcClientErr = nil
+	dbcClientOnce = &sync.Once{}
+	globalRegistryConfig = nil
+}
+
+// installRegistryDriverIndex returns a YAML index payload exposing one driver
+// at the given path/version with a single per-platform package URL. The
+// package URL is recorded as-relative so the driver's registry BaseURL
+// determines the effective download URL — which is exactly what the
+// precedence tests need to assert.
+func installRegistryDriverIndex(driverPath, version, packageRelURL string) string {
+	platforms := []string{
+		"linux_amd64", "linux_arm64",
+		"macos_amd64", "macos_arm64",
+		"windows_amd64", "windows_arm64",
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "drivers:\n  - name: %s\n    description: install registry e2e\n    license: MIT\n    path: %s\n    pkginfo:\n      - version: %s\n        packages:\n", driverPath, driverPath, version)
+	for _, p := range platforms {
+		fmt.Fprintf(&b, "          - platform: %s\n            url: %s\n", p, packageRelURL)
+	}
+	return b.String()
+}
+
+// realRegistryThroughClient builds a getDriverRegistry closure that goes
+// through the real package-global dbcClient — mirroring the production
+// closure in main.go. The install path stubs downloadPkg separately, so
+// using the real client here is what proves the global config wiring.
+func realRegistryThroughClient(t *testing.T) func() ([]dbc.Driver, error) {
+	t.Helper()
+	return func() ([]dbc.Driver, error) {
+		if err := initDBCClient(); err != nil {
+			return nil, err
+		}
+		return dbcClient.Search(context.Background(), "")
+	}
+}
+
+// runInstallModelToCompletion drives a progressiveInstallModel via the real
+// bubbletea event loop with a short context timeout. The simpler
+// runTeaCmdToCompletion helper assumes Init() returns a single tea.Cmd, but
+// install's Init() returns a tea.Batch (spinner.Tick + the lookup cmd) — so
+// we need a real program to dispatch the batch and pump messages until the
+// model quits, which happens as soon as the stubbed downloadPkg returns its
+// sentinel error.
+func runInstallModelToCompletion(t *testing.T, m tea.Model) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	savedProg := prog
+	t.Cleanup(func() { prog = savedProg })
+
+	var sink bytes.Buffer
+	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&sink),
+		tea.WithoutRenderer(), tea.WithContext(ctx))
+	_, err := prog.Run()
+	prog.Wait()
+	require.NoError(t, err, "tea program returned error")
+}
+
+// TestInstallCmdHonorsGlobalConfigRegistry pins that `dbc install` resolves
+// drivers through a registry declared in the global config.toml. install is
+// user-scope (it never reads dbc.toml), so the global config plus built-in
+// defaults are its only configurable registry sources. The wiring chain
+// being exercised is: globalRegistryConfig -> newDBCClient(WithGlobalConfig)
+// -> initDBCClient -> getDriverRegistry -> dbcClient.Search -> registry hit.
+func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
+	indexYAML := installRegistryDriverIndex("install-test-driver", "v1.0.0", "install-test-driver/1.0.0/x.tar.gz")
+
+	var indexHits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			atomic.AddInt32(&indexHits, 1)
+			w.Header().Set("Content-Type", "application/yaml")
+			_, _ = w.Write([]byte(indexYAML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	installRegistryTestSetup(t)
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries:      []dbc.RegistryEntry{{URL: server.URL, Name: "global-test"}},
+		ReplaceDefaults: true,
+	}
+
+	var capturedPkg dbc.PkgInfo
+	stubDownload := func(p dbc.PkgInfo) (*os.File, error) {
+		capturedPkg = p
+		return nil, errors.New("install_registry_test: download stubbed")
+	}
+
+	m := InstallCmd{Driver: "install-test-driver", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{
+			getDriverRegistry: realRegistryThroughClient(t),
+			downloadPkg:       stubDownload,
+		})
+
+	runInstallModelToCompletion(t, m)
+
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&indexHits), int32(1),
+		"global config registry should have been queried")
+	require.NotNil(t, capturedPkg.Driver.Registry,
+		"downloadPkg should have received a pkg with a Registry pointer")
+	assert.Equal(t, server.URL, capturedPkg.Driver.Registry.BaseURL.String(),
+		"install must resolve the driver from the global config registry")
+	require.NotNil(t, capturedPkg.Path)
+	assert.True(t, strings.HasPrefix(capturedPkg.Path.String(), server.URL),
+		"package URL must be rooted at the configured registry, got %q", capturedPkg.Path.String())
+}
+
+// TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry pins that
+// global `replace_defaults = true` actually drops the built-in default
+// registries from `dbc install`'s view — the merged client should hold
+// exactly the registries declared in the global config. Without this, a
+// user opting out of defaults would still see the defaults silently.
+func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T) {
+	indexYAML := installRegistryDriverIndex("only-driver", "v1.0.0", "only-driver/1.0.0/x.tar.gz")
+
+	var indexHits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			atomic.AddInt32(&indexHits, 1)
+			w.Header().Set("Content-Type", "application/yaml")
+			_, _ = w.Write([]byte(indexYAML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	installRegistryTestSetup(t)
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries:      []dbc.RegistryEntry{{URL: server.URL, Name: "only"}},
+		ReplaceDefaults: true,
+	}
+
+	stubDownload := func(p dbc.PkgInfo) (*os.File, error) {
+		return nil, errors.New("install_registry_test: download stubbed")
+	}
+
+	m := InstallCmd{Driver: "only-driver", Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{
+			getDriverRegistry: realRegistryThroughClient(t),
+			downloadPkg:       stubDownload,
+		})
+
+	runInstallModelToCompletion(t, m)
+
+	require.NotNil(t, dbcClient, "initDBCClient must have run via the registry closure")
+	regs := dbcClient.Registries()
+	require.Len(t, regs, 1,
+		"replace_defaults=true must drop built-in defaults — expected exactly the configured registry, got %d", len(regs))
+	assert.Equal(t, server.URL, regs[0].BaseURL.String(),
+		"the only remaining registry must be the configured one")
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&indexHits), int32(1),
+		"the configured registry must have been queried")
+}
+
+// TestInstallCmdRegistryPriorityFirstDeclaredWins pins driver-name conflict
+// resolution semantics across multiple registries: when two registries both
+// publish a driver with the same path, the FIRST registry in declaration
+// order wins. The merge order across the merged registry list is
+// project -> global -> defaults; within the global list, declaration order
+// is preserved, so this test isolates the in-list precedence by setting
+// replace_defaults=true and putting both entries in the global config.
+func TestInstallCmdRegistryPriorityFirstDeclaredWins(t *testing.T) {
+	const driverPath = "shared-driver"
+
+	makeServer := func(packageRelURL string) (*httptest.Server, *int32) {
+		var hits int32
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+				atomic.AddInt32(&hits, 1)
+				w.Header().Set("Content-Type", "application/yaml")
+				_, _ = fmt.Fprintf(w, "%s", installRegistryDriverIndex(driverPath, "v1.0.0", packageRelURL))
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		return s, &hits
+	}
+
+	primary, primaryHits := makeServer("primary-pkg.tar.gz")
+	defer primary.Close()
+	secondary, _ := makeServer("secondary-pkg.tar.gz")
+	defer secondary.Close()
+
+	installRegistryTestSetup(t)
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{
+			{URL: primary.URL, Name: "primary"},
+			{URL: secondary.URL, Name: "secondary"},
+		},
+		ReplaceDefaults: true,
+	}
+
+	var capturedPkg dbc.PkgInfo
+	stubDownload := func(p dbc.PkgInfo) (*os.File, error) {
+		capturedPkg = p
+		return nil, errors.New("install_registry_test: download stubbed")
+	}
+
+	m := InstallCmd{Driver: driverPath, Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{
+			getDriverRegistry: realRegistryThroughClient(t),
+			downloadPkg:       stubDownload,
+		})
+
+	runInstallModelToCompletion(t, m)
+
+	assert.GreaterOrEqual(t, atomic.LoadInt32(primaryHits), int32(1),
+		"first-declared registry must be queried")
+	require.NotNil(t, capturedPkg.Driver.Registry,
+		"downloadPkg should have received a pkg with a Registry pointer")
+	assert.Equal(t, primary.URL, capturedPkg.Driver.Registry.BaseURL.String(),
+		"first-declared registry must win the driver-name conflict")
+	require.NotNil(t, capturedPkg.Path)
+	assert.True(t, strings.HasPrefix(capturedPkg.Path.String(), primary.URL),
+		"resolved package URL must be rooted at the first-declared registry, got %q", capturedPkg.Path.String())
+	assert.Contains(t, capturedPkg.Path.String(), "primary-pkg.tar.gz",
+		"resolved package URL must come from the first-declared registry's index, got %q", capturedPkg.Path.String())
+}
+
+// TestInstallCmdDBCBaseURLOverridesGlobalConfig pins the documented
+// precedence of DBC_BASE_URL over the global config: when DBC_BASE_URL is
+// set, `dbc install` must short-circuit all global registry config and use
+// only the override, regardless of what config.toml declares. This is the
+// recovery path for users whose registry config is broken.
+func TestInstallCmdDBCBaseURLOverridesGlobalConfig(t *testing.T) {
+	const driverPath = "override-driver"
+
+	overrideYAML := installRegistryDriverIndex(driverPath, "v1.0.0", "override-pkg.tar.gz")
+	configYAML := installRegistryDriverIndex(driverPath, "v1.0.0", "config-pkg.tar.gz")
+
+	var overrideHits, configHits int32
+	override := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			atomic.AddInt32(&overrideHits, 1)
+			w.Header().Set("Content-Type", "application/yaml")
+			_, _ = w.Write([]byte(overrideYAML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer override.Close()
+
+	configServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			atomic.AddInt32(&configHits, 1)
+			w.Header().Set("Content-Type", "application/yaml")
+			_, _ = w.Write([]byte(configYAML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer configServer.Close()
+
+	installRegistryTestSetup(t)
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries:      []dbc.RegistryEntry{{URL: configServer.URL, Name: "config"}},
+		ReplaceDefaults: true,
+	}
+	t.Setenv("DBC_BASE_URL", override.URL)
+
+	var capturedPkg dbc.PkgInfo
+	stubDownload := func(p dbc.PkgInfo) (*os.File, error) {
+		capturedPkg = p
+		return nil, errors.New("install_registry_test: download stubbed")
+	}
+
+	m := InstallCmd{Driver: driverPath, Level: config.ConfigEnv}.
+		GetModelCustom(baseModel{
+			getDriverRegistry: realRegistryThroughClient(t),
+			downloadPkg:       stubDownload,
+		})
+
+	runInstallModelToCompletion(t, m)
+
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&overrideHits), int32(1),
+		"DBC_BASE_URL registry must be queried")
+	assert.Equal(t, int32(0), atomic.LoadInt32(&configHits),
+		"global config registry must NOT be queried when DBC_BASE_URL is set")
+	require.NotNil(t, capturedPkg.Driver.Registry,
+		"downloadPkg should have received a pkg with a Registry pointer")
+	assert.Equal(t, override.URL, capturedPkg.Driver.Registry.BaseURL.String(),
+		"install must resolve the driver from the DBC_BASE_URL override, not the global config")
+	require.NotNil(t, capturedPkg.Path)
+	assert.Contains(t, capturedPkg.Path.String(), "override-pkg.tar.gz",
+		"resolved package URL must come from the DBC_BASE_URL override's index, got %q", capturedPkg.Path.String())
 }
