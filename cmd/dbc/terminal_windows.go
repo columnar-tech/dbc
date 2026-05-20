@@ -1,5 +1,3 @@
-//go:build windows
-
 // Copyright 2026 Columnar Technologies Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build windows
+
 package main
 
 import (
@@ -26,7 +26,7 @@ const (
 	ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 )
 
-func initWindowsConsole() {
+func initVTProcessing() {
 	if !enableVTProcessing(os.Stdout) || !enableVTProcessing(os.Stderr) {
 		disableColors()
 		return
