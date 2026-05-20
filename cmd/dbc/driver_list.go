@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -152,7 +153,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}
-	drivers, err := client.Search("")
+	drivers, err := client.Search(context.Background(), "")
 	if err != nil {
 		return nil, err
 	}

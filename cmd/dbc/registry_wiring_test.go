@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -78,7 +79,7 @@ func TestApplyProjectRegistriesRoutesLookup(t *testing.T) {
 	// instead of the suite-wide getTestDriverRegistry stub.
 	getDriverRegistry = func() ([]dbc.Driver, error) {
 		require.NotNil(t, dbcClient, "applyProjectRegistries must have built a client")
-		return dbcClient.Search("")
+		return dbcClient.Search(context.Background(), "")
 	}
 
 	// Seed a client with empty-but-valid baseline state.
@@ -305,7 +306,7 @@ func TestAddCmdEndToEndThroughRealClient(t *testing.T) {
 		if err := initDBCClient(); err != nil {
 			return nil, err
 		}
-		return dbcClient.Search("")
+		return dbcClient.Search(context.Background(), "")
 	}
 
 	tempdir := t.TempDir()
@@ -546,7 +547,7 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 		if err := initDBCClient(); err != nil {
 			return nil, err
 		}
-		return dbcClient.Search("")
+		return dbcClient.Search(context.Background(), "")
 	}
 
 	// Run the real startup sequence end-to-end by invoking the shared
