@@ -410,6 +410,9 @@ func runStartup(configDir string, argv []string) startupResult {
 }
 
 func main() {
+	// Attempt to enable VT processing or disable colors if we can't
+	initVTProcessing()
+
 	configDir, cfgErr := internal.GetUserConfigPath()
 	if cfgErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to locate config directory: %v\n", cfgErr)
