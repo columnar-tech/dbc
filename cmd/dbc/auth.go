@@ -152,7 +152,7 @@ func (m loginModel) authConfig() tea.Cmd {
 
 func (m loginModel) requestDeviceCode(cfg auth.OpenIDConfig) tea.Cmd {
 	return func() tea.Msg {
-		rsp, err := device.RequestCode(dbcClient.HTTPClient(), cfg.DeviceAuthorizationEndpoint.String(),
+		rsp, err := device.RequestCode(authHTTPClient(), cfg.DeviceAuthorizationEndpoint.String(),
 			m.oauthClientID, []string{"openid", "offline_access"})
 		if err != nil {
 			return fmt.Errorf("failed to request device code: %w", err)
@@ -208,7 +208,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		waitCmd := func() tea.Msg {
 			browser.OpenURL(msg.VerificationURIComplete)
-			accessToken, err := device.Wait(context.TODO(), dbcClient.HTTPClient(), m.tokenURI.String(), device.WaitOptions{
+			accessToken, err := device.Wait(context.TODO(), authHTTPClient(), m.tokenURI.String(), device.WaitOptions{
 				ClientID:   m.oauthClientID,
 				DeviceCode: msg,
 			})

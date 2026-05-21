@@ -124,6 +124,42 @@ func (m addModel) Init() tea.Cmd {
 	}
 
 	return func() tea.Msg {
+		p, err := driverListPath(m.Path)
+		if err != nil {
+			return err
+		}
+
+		// Take the project lock briefly to read a consistent snapshot of
+		// dbc.toml, then release it before the registry lookup so a slow
+		// network fetch doesn't hold the lock. The lock is reacquired
+		// below for the final merge/write phase. Without this short-lock
+		// read, a concurrent writer using os.Create could expose partial
+		// contents to this decode path.
+		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
+		readLock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			readLock.Release()
+			if errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
+			}
+			return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
+		}
+		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
+			f.Close()
+			readLock.Release()
+			return err
+		}
+		f.Close()
+		readLock.Release()
+
+		if err := applyProjectRegistries(m.list); err != nil {
+			return err
+		}
+
 		drivers, registryErr := m.getDriverRegistry()
 		// If we have no drivers and there's an error, fail immediately
 		if len(drivers) == 0 && registryErr != nil {
@@ -132,32 +168,6 @@ func (m addModel) Init() tea.Cmd {
 		// Store registry errors to use later if driver is not found
 		// We continue processing if we have some drivers
 		var registryErrors error = registryErr
-
-		p, err := driverListPath(m.Path)
-		if err != nil {
-			return err
-		}
-
-		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
-		lock, err := fslock.Acquire(lockPath, 10*time.Second)
-		if err != nil {
-			return fmt.Errorf("another dbc operation is in progress: %w", err)
-		}
-		defer lock.Release()
-
-		f, err := os.Open(p)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return fmt.Errorf("error opening driver list: %s doesn't exist\nDid you run `dbc init`?", m.Path)
-			} else {
-				return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
-			}
-		}
-		defer f.Close()
-
-		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
-			return err
-		}
 
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)
@@ -227,13 +237,55 @@ func (m addModel) Init() tea.Cmd {
 			}
 		}
 
+		// Reacquire the project lock for the read-modify-write phase.
+		// Re-read the file under the lock so a concurrent
+		// `dbc add`/`dbc remove` that landed while we were doing the
+		// registry lookup above doesn't get clobbered.
+		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("another dbc operation is in progress: %w", err)
+		}
+		defer lock.Release()
+
+		var current DriversList
+		if rf, err := os.Open(p); err == nil {
+			if decodeErr := toml.NewDecoder(rf).Decode(&current); decodeErr != nil {
+				rf.Close()
+				return fmt.Errorf("error re-reading driver list under lock: %w", decodeErr)
+			}
+			rf.Close()
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("error re-reading driver list at %s: %w", m.Path, err)
+		}
+
+		// If the registry configuration changed while the (unlocked)
+		// registry lookup was in flight, the drivers we just validated
+		// may not exist under the new registry set. Abort so the caller
+		// can retry against the new configuration rather than write a
+		// potentially-inconsistent dbc.toml.
+		if registriesChanged(m.list, current) {
+			return fmt.Errorf("dbc.toml registry configuration changed while resolving drivers; please retry `dbc add`")
+		}
+
+		// Merge ONLY the driver entries this invocation actually added or
+		// replaced onto whatever is on disk. Leaving untouched drivers,
+		// registries, and replace_defaults alone preserves concurrent
+		// `dbc remove`/`dbc add` edits that landed while we were doing
+		// the unlocked registry lookup above.
+		if current.Drivers == nil {
+			current.Drivers = make(map[string]driverSpec)
+		}
+		for _, spec := range specs {
+			current.Drivers[spec.Name] = m.list.Drivers[spec.Name]
+		}
+
 		wf, err := os.Create(p)
 		if err != nil {
 			return fmt.Errorf("error creating file %s: %w", p, err)
 		}
 		defer wf.Close()
 
-		if err := toml.NewEncoder(wf).Encode(m.list); err != nil {
+		if err := toml.NewEncoder(wf).Encode(current); err != nil {
 			return err
 		}
 		result += "\nuse `dbc sync` to install the drivers in the list"
