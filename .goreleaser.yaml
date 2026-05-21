@@ -52,7 +52,9 @@ builds:
         goarch: arm64
     mod_timestamp: "{{ .CommitTimestamp }}"
     hooks:
-      post: # sign the windows binaries
+      post: # sign the windows binaries in-place with smctl, which is required
+            # for the Microsoft Store. We don't produce detached signatures for
+            # windows binaries since that's not really a thing on windows and smctl doesn't support it.
         - if: '{{ and (eq .Os "windows") (isEnvSet "SM_API_KEY") }}'
           cmd: >-
             smctl sign --keypair-alias "{{ .Env.SM_KEYPAIR_ALIAS }}" --input "{{ .Path }}" --config-file "{{ .Env.PKCS11_CONFIG }}"
