@@ -160,7 +160,11 @@ func viewDrivers(d []dbc.Driver, verbose bool, allowPre bool) string {
 
 		var regTag string
 		if driver.Registry.Name != "" {
-			regTag = registryStyle.Render("[" + driver.Registry.Name + "]")
+			name := driver.Registry.Name
+			if len(name) > 10 {
+				name = name[:7] + "..."
+			}
+			regTag = registryStyle.Render("[" + name + "]")
 		}
 
 		if !verbose {

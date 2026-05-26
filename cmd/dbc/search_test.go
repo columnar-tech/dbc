@@ -367,6 +367,33 @@ func (suite *SubcommandTestSuite) TestSearchCmdRegistryTagAlignment() {
 	suite.Equal(privateColumns[0], privateColumns[1], "[private] tags should be at the same column")
 }
 
+func (suite *SubcommandTestSuite) TestSearchCmdRegistryNameTruncation() {
+	longNameRegistry := &dbc.Registry{
+		Name:    "my-very-long-registry-name",
+		BaseURL: must(url.Parse("https://test-private-registry.example.com")),
+	}
+
+	registryWithLongName := func() ([]dbc.Driver, error) {
+		drivers, err := getTestDriverRegistry()
+		if err != nil {
+			return nil, err
+		}
+		for i := range drivers {
+			if drivers[i].Path == "test-driver-1" {
+				drivers[i].Registry = longNameRegistry
+			}
+		}
+		return drivers, nil
+	}
+
+	m := SearchCmd{}.GetModelCustom(
+		baseModel{getDriverRegistry: registryWithLongName, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "[my-very...]")
+	suite.NotContains(out, "[my-very-long-registry-name]")
+}
+
 func (suite *SubcommandTestSuite) TestSearch_JSON() {
 	m := SearchCmd{Json: true}.GetModelCustom(
 		baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
