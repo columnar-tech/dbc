@@ -99,6 +99,10 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
+	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
+		suite.T().Skip("Driver manifest is stored in the registry on Windows for User and System config levels, so the file-list assertion does not apply")
+	}
+
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
