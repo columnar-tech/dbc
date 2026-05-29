@@ -131,7 +131,7 @@ You can also download the latest installer using the following URL:
 On Windows, you can install dbc using [WinGet](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
 
 ```console
-$ winget install dbc
+$ winget install Columnar.dbc
 ```
 
 !!! note
@@ -140,7 +140,7 @@ $ winget install dbc
 
     ```console
     $ winget uninstall --id Columnar.dbc
-    $ winget install dbc
+    $ winget install Columnar.dbc
     ```
 
 ## Docker

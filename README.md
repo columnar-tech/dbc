@@ -57,7 +57,7 @@ powershell -ExecutionPolicy ByPass -c irm https://dbc.columnar.tech/install.ps1 
 ### WinGet
 
 ```
-winget install dbc
+winget install Columnar.dbc
 ```
 
 ### Windows MSI

@@ -43,7 +43,7 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 === "WinGet"
 
     ```console
-    $ winget install dbc
+    $ winget install Columnar.dbc
     ```
 
     !!! note
@@ -52,7 +52,7 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 
         ```console
         $ winget uninstall --id Columnar.dbc
-        $ winget install dbc
+        $ winget install Columnar.dbc
         ```
 
 === "uv"
