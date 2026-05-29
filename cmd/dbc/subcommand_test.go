@@ -122,8 +122,12 @@ func (suite *SubcommandTestSuite) TearDownSuite() {
 }
 
 func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
+	return suite.getFilesInDir(suite.tempdir)
+}
+
+func (suite *SubcommandTestSuite) getFilesInDir(dir string) []string {
 	var filelist []string
-	suite.NoError(fs.WalkDir(os.DirFS(suite.tempdir), ".", func(path string, d fs.DirEntry, err error) error {
+	suite.NoError(fs.WalkDir(os.DirFS(dir), ".", func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return nil
 		}

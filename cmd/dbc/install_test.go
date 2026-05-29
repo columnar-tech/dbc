@@ -99,20 +99,20 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
-	m := InstallCmd{Driver: "test-driver-1"}.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), suite.runCmd(m))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
 
-	m = InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+	m = InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.tempdir,
+		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
 	suite.Equal([]string{"test-driver-1/test-driver-1-not-valid.so",
-		"test-driver-1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+		"test-driver-1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInDir(suite.Dir()))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
 }
 
