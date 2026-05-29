@@ -293,16 +293,28 @@ func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode s
 	}
 }
 
-func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {
+func (suite *SubcommandTestSuite) getInstalledDriver(path string) config.DriverInfo {
 	cfg := config.Get()[suite.configLevel]
-
 	driver, err := config.GetDriver(cfg, path)
 	suite.Require().NoError(err, "driver manifest should exist for driver `%s`", path)
+	return driver
+}
 
+func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {
+	driver := suite.getInstalledDriver(path)
 	if checkShared {
 		sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
 		suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
 	}
+}
+
+func (suite *SubcommandTestSuite) driverIsInstalledWithVersion(path, version string, checkShared bool) {
+	driver := suite.getInstalledDriver(path)
+	if checkShared {
+		sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
+		suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
+	}
+	suite.Equal(version, driver.Version.String(), "installed version of driver `%s` should be %s", path, version)
 }
 
 func (suite *SubcommandTestSuite) driverIsNotInstalled(path string) {

@@ -103,6 +103,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir, suite.runCmd(m))
+	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
 
 	m = InstallCmd{Driver: "test-driver-1<=1.0.0"}.
 		GetModelCustom(testBaseModel())
@@ -112,6 +113,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 
 	suite.Equal([]string{"test-driver-1/test-driver-1-not-valid.so",
 		"test-driver-1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
