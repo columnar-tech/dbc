@@ -98,6 +98,22 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
+func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
+	m := InstallCmd{Driver: "test-driver-1"}.
+		GetModelCustom(testBaseModel())
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+suite.tempdir, suite.runCmd(m))
+
+	m = InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+		GetModelCustom(testBaseModel())
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.tempdir,
+		suite.runCmd(m))
+
+	suite.Equal([]string{"test-driver-1/test-driver-1-not-valid.so",
+		"test-driver-1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+}
+
 func (suite *SubcommandTestSuite) TestInstallVenv() {
 	suite.T().Setenv("ADBC_DRIVER_PATH", "")
 	suite.T().Setenv("VIRTUAL_ENV", suite.tempdir)
