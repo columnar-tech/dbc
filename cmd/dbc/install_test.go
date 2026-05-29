@@ -99,10 +99,6 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
-	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
-		suite.T().Skip("Driver manifest is stored in the registry on Windows for User and System config levels, so the file-list assertion does not apply")
-	}
-
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
@@ -115,8 +111,10 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
-	suite.Equal([]string{"test-driver-1/test-driver-1-not-valid.so",
-		"test-driver-1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInDir(suite.Dir()))
+	files := suite.getFilesInDir(suite.Dir())
+	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so")
+	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so.sig")
+	suite.NotContains(files, "test-driver-1.1/test-driver-1-not-valid.so")
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
 }
 
