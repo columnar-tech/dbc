@@ -122,8 +122,12 @@ func (suite *SubcommandTestSuite) TearDownSuite() {
 }
 
 func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
+	return suite.getFilesInDir(suite.tempdir)
+}
+
+func (suite *SubcommandTestSuite) getFilesInDir(dir string) []string {
 	var filelist []string
-	suite.NoError(fs.WalkDir(os.DirFS(suite.tempdir), ".", func(path string, d fs.DirEntry, err error) error {
+	suite.NoError(fs.WalkDir(os.DirFS(dir), ".", func(path string, d fs.DirEntry, err error) error {
 		if d.IsDir() {
 			return nil
 		}
@@ -293,16 +297,28 @@ func (suite *SubcommandTestSuite) assertJSONErrorEnvelope(output, expectedCode s
 	}
 }
 
-func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {
+func (suite *SubcommandTestSuite) getInstalledDriver(path string) config.DriverInfo {
 	cfg := config.Get()[suite.configLevel]
-
 	driver, err := config.GetDriver(cfg, path)
 	suite.Require().NoError(err, "driver manifest should exist for driver `%s`", path)
+	return driver
+}
 
+func (suite *SubcommandTestSuite) driverIsInstalled(path string, checkShared bool) {
+	driver := suite.getInstalledDriver(path)
 	if checkShared {
 		sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
 		suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
 	}
+}
+
+func (suite *SubcommandTestSuite) driverIsInstalledWithVersion(path, version string, checkShared bool) {
+	driver := suite.getInstalledDriver(path)
+	if checkShared {
+		sharedPath := driver.Driver.Shared.Get(config.PlatformTuple())
+		suite.FileExists(sharedPath, "driver shared library should exist for driver `%s`", path)
+	}
+	suite.Equal(version, driver.Version.String(), "installed version of driver `%s` should be %s", path, version)
 }
 
 func (suite *SubcommandTestSuite) driverIsNotInstalled(path string) {

@@ -98,6 +98,26 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
+func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(testBaseModel())
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), suite.runCmd(m))
+	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
+
+	m = InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
+		GetModelCustom(testBaseModel())
+	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
+		suite.runCmd(m))
+
+	files := suite.getFilesInDir(suite.Dir())
+	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so")
+	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so.sig")
+	suite.NotContains(files, "test-driver-1.1/test-driver-1-not-valid.so")
+	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
+}
+
 func (suite *SubcommandTestSuite) TestInstallVenv() {
 	suite.T().Setenv("ADBC_DRIVER_PATH", "")
 	suite.T().Setenv("VIRTUAL_ENV", suite.tempdir)
