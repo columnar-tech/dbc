@@ -22,6 +22,7 @@ You can list the available drivers by running `dbc search`:
 $ dbc search
 bigquery           An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
 databricks         An ADBC Driver for Databricks developed by the ADBC Driver Foundry
+datafusion         An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
 duckdb             An ADBC driver for DuckDB developed by the DuckDB Foundation
 exasol             An ADBC driver for Exasol developed by Exasol Labs
 flightsql          An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -100,14 +101,20 @@ $ dbc search --verbose
     ├── 1.4.2
     ├── 1.4.3
     ├── 1.4.4
-    ╰── 1.5.0
+    ├── 1.5.0
+    ├── 1.5.1
+    ├── 1.5.2
+    ╰── 1.5.3
 • exasol
    Title: Exasol Driver
    Description: An ADBC driver for Exasol developed by Exasol Labs
    License: MIT
    Available Versions:
     ├── 0.6.3
-    ╰── 0.7.0
+    ├── 0.7.0
+    ├── 0.9.0
+    ├── 0.12.0
+    ╰── 0.12.6
 • flightsql
    Title: ASF Apache Arrow Flight SQL Driver
    Description: An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -115,7 +122,8 @@ $ dbc search --verbose
    Available Versions:
     ├── 1.8.0
     ├── 1.9.0
-    ╰── 1.10.0
+    ├── 1.10.0
+    ╰── 1.11.0
 • mssql
    Title: Columnar Microsoft SQL Server Driver
    Description: An ADBC driver for Microsoft SQL Server developed by Columnar
@@ -125,7 +133,9 @@ $ dbc search --verbose
     ├── 1.1.0
     ├── 1.2.0
     ├── 1.3.0
-    ╰── 1.3.1
+    ├── 1.3.1
+    ├── 1.4.0
+    ╰── 1.4.1
 • mysql
    Title: ADBC Driver Foundry Driver for MySQL
    Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
@@ -142,7 +152,8 @@ $ dbc search --verbose
    Available Versions:
     ├── 1.8.0
     ├── 1.9.0
-    ╰── 1.10.0
+    ├── 1.10.0
+    ╰── 1.11.0
 • redshift
    Title: Columnar ADBC Driver for Amazon Redshift
    Description: An ADBC driver for Amazon Redshift developed by Columnar
@@ -150,7 +161,8 @@ $ dbc search --verbose
    Available Versions:
     ├── 1.0.0
     ├── 1.1.0
-    ╰── 1.2.1
+    ├── 1.2.1
+    ╰── 1.3.0
 • snowflake
    Title: ASF Snowflake Driver
    Description: An ADBC driver for Snowflake developed under the Apache Software Foundation
@@ -169,7 +181,8 @@ $ dbc search --verbose
     ├── 1.7.0
     ├── 1.8.0
     ├── 1.9.0
-    ╰── 1.10.0
+    ├── 1.10.0
+    ╰── 1.11.0
 • trino
    Title: ADBC Driver Foundry Driver for Trino
    Description: An ADBC Driver for Trino developed by the ADBC Driver Foundry
