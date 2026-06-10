@@ -51,6 +51,9 @@ type infoModel struct {
 
 func (m infoModel) Init() tea.Cmd {
 	return func() tea.Msg {
+		if err := applyProjectRegistriesFromCWD(); err != nil {
+			return err
+		}
 		drivers, registryErr := m.getDriverRegistry()
 		// If we have no drivers and there's an error, fail immediately
 		if len(drivers) == 0 && registryErr != nil {

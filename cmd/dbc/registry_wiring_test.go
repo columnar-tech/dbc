@@ -1430,3 +1430,196 @@ func TestProjectRegistryShadowsGlobalOnDriverNameConflict(t *testing.T) {
 	assert.True(t, strings.HasPrefix(pkg.Path.String(), projectServer.URL),
 		"resolved package URL must be rooted at the project tier; got %q", pkg.Path.String())
 }
+
+// startProjectRegistryServer spins up an httptest registry serving a single
+// driver and returns the server plus a counter of index.yaml hits.
+func startProjectRegistryServer(t *testing.T, driverPath string) (*httptest.Server, *int32) {
+	t.Helper()
+	indexYAML := installRegistryDriverIndex(driverPath, "v1.0.0", driverPath+"/1.0.0/x.tar.gz")
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			atomic.AddInt32(&hits, 1)
+			w.Header().Set("Content-Type", "application/yaml")
+			_, _ = w.Write([]byte(indexYAML))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return server, &hits
+}
+
+// chdirToProjectRegistry writes a dbc.toml declaring a single project registry
+// (with replace_defaults=true so only it remains) into a temp dir and switches
+// the working directory to it, so the cwd-based discovery helper finds it.
+func chdirToProjectRegistry(t *testing.T, registryURL string) {
+	t.Helper()
+	dir := t.TempDir()
+	content := "replace_defaults = true\n\n" +
+		"[[registries]]\nurl = '" + registryURL + "'\nname = 'project'\n\n" +
+		"[drivers]\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"), []byte(content), 0o644))
+	t.Chdir(dir)
+}
+
+// TestApplyProjectRegistriesFromCWD pins the contract of the helper that makes
+// the read-only discovery commands (search/info/docs) project-aware: a present
+// dbc.toml rewires the client, a missing one is a no-op, a registry-less one is
+// a no-op, and a malformed one is a hard error naming the file.
+func TestApplyProjectRegistriesFromCWD(t *testing.T) {
+	t.Run("applies project registries when dbc.toml present", func(t *testing.T) {
+		installRegistryTestSetup(t)
+		const projectURL = "https://project.example.invalid"
+		dir := t.TempDir()
+		content := "replace_defaults = true\n\n" +
+			"[[registries]]\nurl = '" + projectURL + "'\nname = 'project'\n\n[drivers]\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"), []byte(content), 0o644))
+		t.Chdir(dir)
+
+		require.NoError(t, applyProjectRegistriesFromCWD())
+		require.NotNil(t, dbcClient, "helper must build a client when dbc.toml declares registries")
+		regs := dbcClient.Registries()
+		require.Len(t, regs, 1, "replace_defaults=true must drop built-in defaults")
+		assert.Equal(t, projectURL, regs[0].BaseURL.String())
+	})
+
+	t.Run("no-op when dbc.toml is absent", func(t *testing.T) {
+		installRegistryTestSetup(t)
+		t.Chdir(t.TempDir())
+		require.NoError(t, applyProjectRegistriesFromCWD())
+		assert.Nil(t, dbcClient, "absent dbc.toml must leave the client untouched (global+defaults)")
+	})
+
+	t.Run("no-op when dbc.toml declares no registries", func(t *testing.T) {
+		installRegistryTestSetup(t)
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"),
+			[]byte("[drivers]\n[drivers.foo]\n"), 0o644))
+		t.Chdir(dir)
+		require.NoError(t, applyProjectRegistriesFromCWD())
+		assert.Nil(t, dbcClient, "a dbc.toml without registries must not rebuild the client")
+	})
+
+	t.Run("hard error when dbc.toml is malformed", func(t *testing.T) {
+		installRegistryTestSetup(t)
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"),
+			[]byte("this is ::: not [[ valid toml"), 0o644))
+		t.Chdir(dir)
+		err := applyProjectRegistriesFromCWD()
+		require.Error(t, err, "a malformed dbc.toml must be a hard error, not a silent fallback")
+		assert.Contains(t, err.Error(), "dbc.toml", "error must name the offending file")
+	})
+}
+
+// TestSearchCmdHonorsProjectRegistries proves the reviewer's core ask: a driver
+// that only exists in a project dbc.toml registry shows up in `dbc search`,
+// resolved through the real client built from that dbc.toml.
+func TestSearchCmdHonorsProjectRegistries(t *testing.T) {
+	server, hits := startProjectRegistryServer(t, "project-only-driver")
+
+	installRegistryTestSetup(t)
+	chdirToProjectRegistry(t, server.URL)
+
+	m := SearchCmd{}.GetModelCustom(baseModel{
+		getDriverRegistry: realRegistryThroughClient(t),
+		downloadPkg:       downloadTestPkg,
+	})
+
+	msg := m.Init()()
+	if err, ok := msg.(error); ok {
+		t.Fatalf("search failed: %v", err)
+	}
+	result, ok := msg.(driversWithErrorMsg)
+	require.True(t, ok, "expected driversWithErrorMsg, got %T", msg)
+	require.NoError(t, result.err)
+
+	_, err := findDriver("project-only-driver", result.drivers)
+	require.NoError(t, err, "search must surface the project registry's driver")
+	assert.GreaterOrEqual(t, atomic.LoadInt32(hits), int32(1),
+		"dbc search should have queried the project-declared registry")
+}
+
+// TestInfoCmdHonorsProjectRegistries proves `dbc info` resolves a driver that
+// only exists in the project dbc.toml registry, keeping it consistent with
+// search/add/sync.
+func TestInfoCmdHonorsProjectRegistries(t *testing.T) {
+	server, hits := startProjectRegistryServer(t, "project-only-driver")
+
+	installRegistryTestSetup(t)
+	chdirToProjectRegistry(t, server.URL)
+
+	m := InfoCmd{Driver: "project-only-driver"}.GetModelCustom(baseModel{
+		getDriverRegistry: realRegistryThroughClient(t),
+		downloadPkg:       downloadTestPkg,
+	})
+
+	msg := m.Init()()
+	drv, ok := msg.(dbc.Driver)
+	require.True(t, ok, "expected info to resolve the project driver, got %T: %v", msg, msg)
+	assert.Equal(t, "project-only-driver", drv.Path)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(hits), int32(1),
+		"dbc info should have queried the project-declared registry")
+}
+
+// TestDocsCmdHonorsProjectRegistries proves `dbc docs` resolves a driver that
+// only exists in the project dbc.toml registry before computing its docs URL.
+func TestDocsCmdHonorsProjectRegistries(t *testing.T) {
+	server, hits := startProjectRegistryServer(t, "project-only-driver")
+
+	installRegistryTestSetup(t)
+	chdirToProjectRegistry(t, server.URL)
+
+	m := DocsCmd{Driver: "project-only-driver"}.GetModelCustom(
+		baseModel{getDriverRegistry: realRegistryThroughClient(t), downloadPkg: downloadTestPkg},
+		true,
+		func(string) error { return nil },
+		map[string]string{},
+	)
+
+	msg := m.Init()()
+	drv, ok := msg.(dbc.Driver)
+	require.True(t, ok, "expected docs to resolve the project driver, got %T: %v", msg, msg)
+	assert.Equal(t, "project-only-driver", drv.Path)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(hits), int32(1),
+		"dbc docs should have queried the project-declared registry")
+}
+
+// TestInstallCmdIgnoresProjectRegistries pins the deliberate boundary: unlike
+// search/info/docs, `dbc install` is user-scope and must NOT read the project
+// dbc.toml. With a project registry and a different global registry both
+// publishing the same driver, install must resolve through the global one and
+// never touch the project registry.
+func TestInstallCmdIgnoresProjectRegistries(t *testing.T) {
+	const driverPath = "shared-driver"
+	projectServer, projectHits := startProjectRegistryServer(t, driverPath)
+	globalServer, globalHits := startProjectRegistryServer(t, driverPath)
+
+	installRegistryTestSetup(t)
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries:      []dbc.RegistryEntry{{URL: globalServer.URL, Name: "global"}},
+		ReplaceDefaults: true,
+	}
+	chdirToProjectRegistry(t, projectServer.URL)
+
+	var capturedPkg dbc.PkgInfo
+	stubDownload := func(p dbc.PkgInfo) (*os.File, error) {
+		capturedPkg = p
+		return nil, errors.New("install_registry_test: download stubbed")
+	}
+
+	m := InstallCmd{Driver: driverPath, Level: config.ConfigEnv}.GetModelCustom(baseModel{
+		getDriverRegistry: realRegistryThroughClient(t),
+		downloadPkg:       stubDownload,
+	})
+	runInstallModelToCompletion(t, m)
+
+	assert.GreaterOrEqual(t, atomic.LoadInt32(globalHits), int32(1),
+		"install must resolve through the global config registry")
+	assert.Equal(t, int32(0), atomic.LoadInt32(projectHits),
+		"install must NOT read the project dbc.toml registry (stays user-scope)")
+	require.NotNil(t, capturedPkg.Driver.Registry)
+	assert.Equal(t, globalServer.URL, capturedPkg.Driver.Registry.BaseURL.String(),
+		"install must resolve the driver from the global registry, not the project one")
+}

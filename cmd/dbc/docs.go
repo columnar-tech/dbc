@@ -83,6 +83,10 @@ func (m docsModel) Init() tea.Cmd {
 			return docsUrlFound(dbcDocsUrl)
 		}
 
+		if err := applyProjectRegistriesFromCWD(); err != nil {
+			return err
+		}
+
 		drivers, registryErr := m.getDriverRegistry()
 		// If we have no drivers and there's an error, fail immediately
 		if len(drivers) == 0 && registryErr != nil {

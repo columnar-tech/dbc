@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -126,6 +127,42 @@ func applyProjectRegistries(list DriversList) error {
 	}
 	setDBCClient(c)
 	return nil
+}
+
+// applyProjectRegistriesFromCWD loads the registry overrides from a dbc.toml in
+// the current working directory (if present) and applies them to the
+// process-wide client, so read-only discovery commands (search, info, docs)
+// resolve drivers against the same registry set that `dbc add`/`dbc sync` use
+// in the same project. This keeps behavior consistent between project-level and
+// global config: a project that adds registries or sets replace_defaults
+// affects what those commands can see, not just add/sync.
+//
+// A missing dbc.toml is not an error — these commands must still work outside a
+// project, falling back to the global + built-in default registries. A dbc.toml
+// that exists but can't be decoded is a hard error (with its path) so the user
+// isn't silently shown the wrong registry set. Unlike add/sync, this read is
+// not taken under the project lock: these commands never mutate dbc.toml, so a
+// best-effort snapshot is acceptable.
+func applyProjectRegistriesFromCWD() error {
+	p, err := driverListPath("./dbc.toml")
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Open(p)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("error opening driver list at %s: %w", p, err)
+	}
+	defer f.Close()
+
+	var list DriversList
+	if err := toml.NewDecoder(f).Decode(&list); err != nil {
+		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
+	}
+	return applyProjectRegistries(list)
 }
 
 type driverSpec struct {

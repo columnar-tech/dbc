@@ -76,6 +76,9 @@ type driversWithErrorMsg struct {
 
 func (m searchModel) Init() tea.Cmd {
 	return func() tea.Msg {
+		if err := applyProjectRegistriesFromCWD(); err != nil {
+			return err
+		}
 		drivers, err := m.getDriverRegistry()
 		// Don't fail completely if we have some drivers - return them with the error
 		// This allows graceful degradation when some registries fail
