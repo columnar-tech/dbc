@@ -1511,6 +1511,18 @@ func TestApplyProjectRegistriesFromCWD(t *testing.T) {
 		require.Error(t, err, "a malformed dbc.toml must be a hard error, not a silent fallback")
 		assert.Contains(t, err.Error(), "dbc.toml", "error must name the offending file")
 	})
+
+	t.Run("no-op when DBC_BASE_URL set even with a malformed dbc.toml", func(t *testing.T) {
+		installRegistryTestSetup(t)
+		t.Setenv("DBC_BASE_URL", "https://envvar.example.com")
+		dir := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"),
+			[]byte("this is ::: not [[ valid toml"), 0o644))
+		t.Chdir(dir)
+		require.NoError(t, applyProjectRegistriesFromCWD(),
+			"DBC_BASE_URL must bypass dbc.toml entirely so a broken project file can't block the escape hatch")
+		assert.Nil(t, dbcClient, "helper must not build a client when DBC_BASE_URL short-circuits")
+	})
 }
 
 // TestSearchCmdHonorsProjectRegistries proves the reviewer's core ask: a driver

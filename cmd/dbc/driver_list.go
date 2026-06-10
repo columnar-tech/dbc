@@ -143,7 +143,16 @@ func applyProjectRegistries(list DriversList) error {
 // isn't silently shown the wrong registry set. Unlike add/sync, this read is
 // not taken under the project lock: these commands never mutate dbc.toml, so a
 // best-effort snapshot is acceptable.
+//
+// DBC_BASE_URL overrides all registry configuration, so when it's set this is a
+// no-op that never touches dbc.toml — otherwise a malformed project file would
+// block these commands even though DBC_BASE_URL is the documented escape hatch
+// for recovering from broken registry config.
 func applyProjectRegistriesFromCWD() error {
+	if os.Getenv("DBC_BASE_URL") != "" {
+		return nil
+	}
+
 	p, err := driverListPath("./dbc.toml")
 	if err != nil {
 		return err
