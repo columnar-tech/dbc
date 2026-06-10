@@ -27,6 +27,7 @@ To find out what drivers are available, use `dbc search`:
 $ dbc search
 bigquery           An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
 databricks         An ADBC Driver for Databricks developed by the ADBC Driver Foundry
+datafusion         An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
 duckdb             An ADBC driver for DuckDB developed by the DuckDB Foundation
 exasol             An ADBC driver for Exasol developed by Exasol Labs
 flightsql          An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation

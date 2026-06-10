@@ -129,3 +129,27 @@ The best place to find detailed information on driver manager installation is al
     ```
 
     Note that with the above you'll also need to set an `adbc.version` property to an appropriate version.
+
+=== "JS/TS"
+
+    ```console
+    $ npm install @apache-arrow/adbc-driver-manager apache-arrow
+    ```
+
+    !!! note
+
+        The JavaScript/TypeScript ADBC driver manager is for server-side runtimes like Node.js, Deno, and Bun. It does not run in the browser.
+
+=== "Kotlin"
+
+    To use the ADBC driver manager in a Gradle Kotlin project, add the driver manager and JNI driver packages:
+
+    ```kotlin
+    dependencies {
+        implementation("org.apache.arrow.adbc:adbc-core:$adbcVersion")
+        implementation("org.apache.arrow.adbc:adbc-driver-manager:$adbcVersion")
+        implementation("org.apache.arrow.adbc:adbc-driver-jni:$adbcVersion")
+    }
+    ```
+
+    Note that with the above you'll also need to set an `adbcVersion` property to an appropriate version.
