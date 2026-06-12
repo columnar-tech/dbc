@@ -370,6 +370,9 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.Path = msg.path
 		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
 		s.list = msg.list
+		if err := applyProjectRegistries(s.list); err != nil {
+			return s, errCmd("%v", err)
+		}
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()
 			// Return both drivers and error - we'll decide how to handle based on whether

@@ -15,8 +15,12 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
@@ -25,7 +29,149 @@ import (
 )
 
 type DriversList struct {
-	Drivers map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	Registries []dbc.RegistryEntry `toml:"registries,omitempty"`
+	// ReplaceDefaults is a tri-state: nil means "inherit from global config",
+	// &true replaces both global and built-in default registries, &false forces
+	// defaults back on even when the global config set replace_defaults = true.
+	ReplaceDefaults *bool                 `toml:"replace_defaults,omitempty"`
+	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+}
+
+// registriesChanged reports whether two DriversList values would produce
+// a different EFFECTIVE registry resolution when combined with the
+// current process-wide globalRegistryConfig and built-in defaults. This
+// is what the client actually uses to resolve drivers, so changes that
+// the merge would collapse (e.g. flipping nil → &false when defaults
+// were already inherited, or removing an exact duplicate entry) are
+// correctly NOT treated as drift.
+//
+// Implemented by running both lists through the same newDBCClient merge
+// path and comparing the resulting normalized URL sets. Display-only
+// fields like RegistryEntry.Name are ignored because they don't appear
+// in the merged URL comparison.
+func registriesChanged(a, b DriversList) bool {
+	urlsA, errA := effectiveRegistryURLs(a)
+	urlsB, errB := effectiveRegistryURLs(b)
+	// If either side fails to produce a merged set (e.g. invalid config),
+	// treat as changed so the command aborts rather than writing against
+	// a config we can't analyze.
+	if errA != nil || errB != nil {
+		return errA != errB
+	}
+	if len(urlsA) != len(urlsB) {
+		return true
+	}
+	for i := range urlsA {
+		if urlsA[i] != urlsB[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// effectiveRegistryURLs returns the normalized URL list the client would
+// use after merging the given DriversList with the current global config
+// and built-in defaults. It builds a throwaway client via newDBCClient
+// so merge semantics stay in sync with what NewClient actually uses.
+func effectiveRegistryURLs(list DriversList) ([]string, error) {
+	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	if err != nil {
+		return nil, err
+	}
+	regs := c.Registries()
+	out := make([]string, len(regs))
+	for i, r := range regs {
+		if r.BaseURL != nil {
+			out[i] = normalizeRegistryURL(r.BaseURL.String())
+		}
+	}
+	return out, nil
+}
+
+// normalizeRegistryURL returns a canonical form of a registry URL for
+// equality comparisons. Only truly no-op differences are collapsed:
+//
+//   - scheme and host are lowercased (case-insensitive per RFC 3986)
+//   - a trailing slash on the path is stripped
+//   - fragments are dropped (not sent on HTTP requests)
+//
+// Query, userinfo, and path segments are preserved because they can
+// change the effective registry endpoint (tenant selector in query,
+// credential-bearing userinfo, path-addressed registry mount points).
+// A concurrent edit that flips any of those MUST still trigger the
+// config-drift abort in dbc add.
+func normalizeRegistryURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	u.Path = strings.TrimRight(u.Path, "/")
+	u.Fragment = ""
+	u.RawFragment = ""
+	return u.String()
+}
+
+// applyProjectRegistries rebuilds the process-wide dbc client with the
+// registry overrides declared in the project's dbc.toml, so subsequent calls
+// through getDriverRegistry see the merged registry list. No-op when neither
+// registries nor replace_defaults are set.
+func applyProjectRegistries(list DriversList) error {
+	if len(list.Registries) == 0 && list.ReplaceDefaults == nil {
+		return nil
+	}
+	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	if err != nil {
+		return fmt.Errorf("error configuring project registries: %w", err)
+	}
+	setDBCClient(c)
+	return nil
+}
+
+// applyProjectRegistriesFromCWD loads the registry overrides from a dbc.toml in
+// the current working directory (if present) and applies them to the
+// process-wide client, so read-only discovery commands (search, info, docs)
+// resolve drivers against the same registry set that `dbc add`/`dbc sync` use
+// in the same project. This keeps behavior consistent between project-level and
+// global config: a project that adds registries or sets replace_defaults
+// affects what those commands can see, not just add/sync.
+//
+// A missing dbc.toml is not an error — these commands must still work outside a
+// project, falling back to the global + built-in default registries. A dbc.toml
+// that exists but can't be decoded is a hard error (with its path) so the user
+// isn't silently shown the wrong registry set. Unlike add/sync, this read is
+// not taken under the project lock: these commands never mutate dbc.toml, so a
+// best-effort snapshot is acceptable.
+//
+// DBC_BASE_URL overrides all registry configuration, so when it's set this is a
+// no-op that never touches dbc.toml — otherwise a malformed project file would
+// block these commands even though DBC_BASE_URL is the documented escape hatch
+// for recovering from broken registry config.
+func applyProjectRegistriesFromCWD() error {
+	if os.Getenv("DBC_BASE_URL") != "" {
+		return nil
+	}
+
+	p, err := driverListPath("./dbc.toml")
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Open(p)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("error opening driver list at %s: %w", p, err)
+	}
+	defer f.Close()
+
+	var list DriversList
+	if err := toml.NewDecoder(f).Decode(&list); err != nil {
+		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
+	}
+	return applyProjectRegistries(list)
 }
 
 type driverSpec struct {
@@ -44,7 +190,16 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
-	drivers, err := getDriverRegistry()
+	// Build a per-call client scoped to this list's registry overrides so
+	// repeated calls in the same process don't leak configuration from one
+	// dbc.toml to another. Unlike add/sync (which own the process for one
+	// command), GetDriverList is a library helper that may be called
+	// multiple times.
+	client, err := newDBCClient(m.Registries, m.ReplaceDefaults)
+	if err != nil {
+		return nil, fmt.Errorf("error configuring project registries: %w", err)
+	}
+	drivers, err := client.Search(context.Background(), "")
 	if err != nil {
 		return nil, err
 	}

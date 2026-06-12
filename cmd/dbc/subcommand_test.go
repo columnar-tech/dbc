@@ -113,6 +113,7 @@ func (suite *SubcommandTestSuite) SetupSuite() {
 func (suite *SubcommandTestSuite) SetupTest() {
 	suite.tempdir = suite.T().TempDir()
 	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir)
+	dbcClient = nil
 }
 
 func (suite *SubcommandTestSuite) TearDownSuite() {
