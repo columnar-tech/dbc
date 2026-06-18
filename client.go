@@ -26,7 +26,6 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
 	"github.com/google/uuid"
-	machineid "github.com/zeroshade/machine-id"
 )
 
 type clientConfig struct {
@@ -129,7 +128,7 @@ func NewClient(opts ...Option) (*Client, error) {
 
 func (c *Client) setup() {
 	c.setupOnce.Do(func() {
-		c.mid, _ = machineid.ProtectedID()
+		c.mid, _ = telemetryMachineID()
 
 		userdir, err := internal.GetUserConfigPath()
 		if err != nil {
@@ -165,6 +164,13 @@ func (c *Client) UserAgent() string { return c.userAgent }
 // WithHTTPClient sets the HTTP client to use for requests.
 func WithHTTPClient(hc *http.Client) Option {
 	return func(cfg *clientConfig) { cfg.httpClient = hc }
+}
+
+// WithCredentialResolver sets the resolver used to look up credentials for a
+// registry URL, overriding the default on-disk resolver. Useful where there is
+// no credential file (e.g. WASM hosts injecting a token).
+func WithCredentialResolver(resolver func(*url.URL) (*auth.Credential, error)) Option {
+	return func(cfg *clientConfig) { cfg.credentialResolver = resolver }
 }
 
 // WithRegistries sets the driver registries to use. When passed, this takes

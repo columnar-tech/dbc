@@ -38,7 +38,6 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
 	"github.com/google/uuid"
-	machineid "github.com/zeroshade/machine-id"
 )
 
 var (
@@ -113,7 +112,7 @@ func ensureSetup() {
 			},
 		}
 
-		mid, _ = machineid.ProtectedID()
+		mid, _ = telemetryMachineID()
 
 		userdir, err := internal.GetUserConfigPath()
 		if err != nil {
