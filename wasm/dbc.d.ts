@@ -10,6 +10,11 @@ export interface Driver {
   description: string;
 }
 
+export interface SearchResult {
+  drivers: Driver[];
+  warning?: string;
+}
+
 export interface ResolveResult {
   path: string;
   platform: string;
@@ -47,7 +52,7 @@ export interface DbcOptions {
 }
 
 export interface Dbc {
-  search(pattern?: string): Promise<Driver[]>;
+  search(pattern?: string): Promise<SearchResult>;
   resolve(name: string, platform?: string): Promise<ResolveResult>;
   verifySignature(lib: Uint8Array, sig: Uint8Array): Promise<boolean>;
 

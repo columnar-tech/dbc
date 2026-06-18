@@ -108,7 +108,7 @@ async function main() {
 
   // concurrency / deadlock check: fire several searches at once
   const concurrent = await Promise.all(
-    Array.from({ length: 5 }, () => globalThis.dbcSearch("test-driver-1").then((s) => JSON.parse(s).length))
+    Array.from({ length: 5 }, () => globalThis.dbcSearch("test-driver-1").then((s) => JSON.parse(s).drivers.length))
   );
   out.concurrentSearchCounts = concurrent;
   out.tarballRequests = tarballRequests;

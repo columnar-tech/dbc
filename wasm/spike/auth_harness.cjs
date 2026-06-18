@@ -61,7 +61,7 @@ async function main() {
   const out = {};
   try {
     const drivers = JSON.parse(await globalThis.dbcSearch(""));
-    out.searchOK = drivers.length;
+    out.searchOK = drivers.drivers.length;
   } catch (e) {
     out.searchError = e.message;
   }

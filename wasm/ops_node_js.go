@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"syscall/js"
 
 	"github.com/columnar-tech/dbc/config"
@@ -74,8 +73,7 @@ type driverInfoDTO struct {
 func jsList(args []js.Value) func() (any, error) {
 	location := args[0].String()
 	return func() (any, error) {
-		os.Setenv("ADBC_DRIVER_PATH", location)
-		drivers := config.FindDriverConfigs(config.ConfigEnv)
+		drivers := config.FindDriverConfigsIn(location)
 		out := make([]driverInfoDTO, 0, len(drivers))
 		for _, d := range drivers {
 			version := ""

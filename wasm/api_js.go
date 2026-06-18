@@ -114,6 +114,11 @@ type driverDTO struct {
 	Description string `json:"description"`
 }
 
+type searchResultDTO struct {
+	Drivers []driverDTO `json:"drivers"`
+	Warning string      `json:"warning,omitempty"`
+}
+
 func jsSearch(args []js.Value) func() (any, error) {
 	pattern := ""
 	if len(args) > 0 {
@@ -124,13 +129,16 @@ func jsSearch(args []js.Value) func() (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		drivers, err := c.Search(context.Background(), pattern)
-		if err != nil {
-			return nil, err
+		drivers, searchErr := c.Search(context.Background(), pattern)
+		if searchErr != nil && len(drivers) == 0 {
+			return nil, searchErr
 		}
-		out := make([]driverDTO, 0, len(drivers))
+		out := searchResultDTO{Drivers: make([]driverDTO, 0, len(drivers))}
 		for _, d := range drivers {
-			out = append(out, driverDTO{Path: d.Path, Title: d.Title, License: d.License, Description: d.Desc})
+			out.Drivers = append(out.Drivers, driverDTO{Path: d.Path, Title: d.Title, License: d.License, Description: d.Desc})
+		}
+		if searchErr != nil {
+			out.Warning = searchErr.Error()
 		}
 		return toJSONValue(out)
 	}
@@ -160,9 +168,9 @@ func jsResolve(args []js.Value) func() (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		drivers, err := c.Search(context.Background(), name)
-		if err != nil {
-			return nil, err
+		drivers, searchErr := c.Search(context.Background(), name)
+		if searchErr != nil && len(drivers) == 0 {
+			return nil, searchErr
 		}
 		for _, d := range drivers {
 			if d.Path != name {
