@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build js && dbcnode
+//go:build js && !dbcnode
 
 package main
 
@@ -20,7 +20,6 @@ import "syscall/js"
 
 func main() {
 	registerCommon()
-	registerNodeOps()
-	js.Global().Get("console").Call("log", "dbc-wasm (node) ready")
+	js.Global().Get("console").Call("log", "dbc-wasm (browser) ready")
 	select {}
 }
