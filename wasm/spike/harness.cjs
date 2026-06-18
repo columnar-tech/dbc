@@ -67,6 +67,9 @@ async function main() {
   // search over HTTP via the fetch RoundTripper
   out.search = JSON.parse(await globalThis.dbcSearch(""));
 
+  // resolve versions + latest package URL for a driver/platform
+  out.resolve = JSON.parse(await globalThis.dbcResolve("test-driver-1", "linux_amd64"));
+
   // install to disk (download -> temp -> extract -> manifest + symlink)
   const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-install-"));
   out.install = JSON.parse(await globalThis.dbcInstall("test-driver-1", installDir));
