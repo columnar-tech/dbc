@@ -1,0 +1,93 @@
+// Copyright 2026 Columnar Technologies Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+"use strict";
+
+const fs = require("fs");
+const path = require("path");
+
+const PLATFORM_MAP = { linux: "linux", darwin: "macos", win32: "windows", freebsd: "freebsd" };
+const ARCH_MAP = { x64: "amd64", arm64: "arm64", ia32: "x86" };
+
+function hostPlatformTuple() {
+  const os = PLATFORM_MAP[process.platform];
+  const arch = ARCH_MAP[process.arch];
+  if (!os || !arch) {
+    throw new Error(`dbc-wasm: unsupported host platform ${process.platform}/${process.arch}`);
+  }
+  return `${os}_${arch}`;
+}
+
+let runtimePromise;
+
+function ensureRuntime() {
+  if (runtimePromise) return runtimePromise;
+  runtimePromise = (async () => {
+    // The upstream wasm_exec.js is browser-oriented. Under Node we must supply
+    // the real fs/process (and webcrypto on Node 18) BEFORE loading it, or Go's
+    // filesystem syscalls return "not implemented on js".
+    if (!globalThis.crypto) globalThis.crypto = require("crypto").webcrypto;
+    if (!globalThis.fs) globalThis.fs = fs;
+    if (!globalThis.process) globalThis.process = process;
+
+    require("./wasm_exec.js"); // defines globalThis.Go
+
+    const go = new globalThis.Go();
+    go.env = process.env; // Go's js/wasm environment is empty by default ($HOME, $XDG_*)
+
+    const bytes = fs.readFileSync(path.join(__dirname, "dbc.wasm"));
+    const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
+    go.run(instance); // registers the dbc* globals, then parks on select{}
+    await new Promise((resolve) => setImmediate(resolve));
+
+    if (typeof globalThis.dbcSearch !== "function") {
+      throw new Error("dbc-wasm: runtime did not register its API");
+    }
+  })();
+  return runtimePromise;
+}
+
+async function loadDbc(opts = {}) {
+  await ensureRuntime();
+
+  globalThis.dbcSetPlatform(opts.platform || hostPlatformTuple());
+  if (opts.baseURL) globalThis.dbcSetBaseURL(opts.baseURL);
+  if (opts.credential) {
+    const c = opts.credential;
+    globalThis.dbcSetOAuthCredential(
+      c.registryURL,
+      c.authURI,
+      c.token || "",
+      c.refreshToken || "",
+      c.clientID || "",
+    );
+  }
+
+  const parse = (s) => JSON.parse(s);
+  const api = {
+    search: async (pattern = "") => parse(await globalThis.dbcSearch(pattern)),
+    resolve: async (name, platform) => parse(await globalThis.dbcResolve(name, platform)),
+    verifySignature: (lib, sig) => globalThis.dbcVerify(lib, sig),
+  };
+  if (typeof globalThis.dbcInstall === "function") {
+    api.install = async (name, location) => parse(await globalThis.dbcInstall(name, location));
+    api.uninstall = async (name, location) => {
+      await globalThis.dbcUninstall(name, location);
+    };
+    api.listInstalled = async (location) => parse(await globalThis.dbcList(location));
+  }
+  return api;
+}
+
+module.exports = { loadDbc, hostPlatformTuple };
