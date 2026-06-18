@@ -189,6 +189,9 @@ func jsResolve(args []js.Value) func() (any, error) {
 			}
 			return toJSONValue(dto)
 		}
+		if searchErr != nil {
+			return nil, fmt.Errorf("driver %q not found in reachable registries; some registries failed: %w", name, searchErr)
+		}
 		return nil, fmt.Errorf("driver %q not found", name)
 	}
 }
