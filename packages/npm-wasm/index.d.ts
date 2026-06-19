@@ -61,7 +61,11 @@ export interface OAuthCredential {
 }
 
 export interface DbcOptions {
-  /** Driver registry base URL. Per-instance: isolated between `loadDbc` calls. */
+  /**
+   * Driver registry base URL. Per-instance: isolated between `loadDbc` calls.
+   * Defaults to Columnar's public driver CDN (`https://dbc-cdn.columnar.tech`)
+   * when omitted; set it to point at a private or self-hosted registry instead.
+   */
   baseURL?: string;
   /**
    * Host platform tuple (e.g. "linux_amd64"). Defaults to the detected Node host.
