@@ -67,6 +67,8 @@ export interface Dbc {
   search(pattern?: string): Promise<SearchResult>;
   resolve(name: string, platform?: string): Promise<ResolveResult>;
   verifySignature(lib: Uint8Array, sig: Uint8Array): Promise<boolean>;
+  /** Release the underlying client handle. Optional; also auto-released on GC. */
+  close(): void;
 
   /** Node-only (requires a filesystem). */
   install?(name: string, location: string): Promise<Manifest>;

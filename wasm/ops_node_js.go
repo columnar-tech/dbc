@@ -38,11 +38,11 @@ type manifestDTO struct {
 }
 
 func jsInstall(args []js.Value) func() (any, error) {
-	cfgJSON := args[0].String()
+	handle := args[0].Int()
 	name := args[1].String()
 	location := args[2].String()
 	return func() (any, error) {
-		c, err := clientFromConfig(cfgJSON)
+		c, err := clientByHandle(handle)
 		if err != nil {
 			return nil, err
 		}

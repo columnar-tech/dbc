@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sync"
 	"syscall/js"
 
 	"github.com/columnar-tech/dbc"
@@ -53,10 +54,11 @@ func init() {
 	dbc.DefaultClient = client
 }
 
-// clientFromConfig builds a per-call dbc.Client from a JSON config string
-// ({baseURL, credential}). Config is passed on each network call rather than
-// stored in a shared global so multiple clients in one process cannot clobber
-// each other's registry/credentials. An empty string yields a bare client.
+// clientFromConfig builds a dbc.Client from a JSON config string ({baseURL,
+// credential}). Each loadDbc instance gets its own client (stored by handle),
+// so instances stay isolated AND a client's credential pointer persists across
+// calls — refreshed access tokens are retained instead of being rebuilt from
+// the original (possibly stale) token. An empty string yields a bare client.
 func clientFromConfig(cfgJSON string) (*dbc.Client, error) {
 	opts := []dbc.Option{dbc.WithHTTPClient(&http.Client{Transport: fetchRoundTripper{}})}
 	if cfgJSON == "" {
@@ -97,11 +99,60 @@ func clientFromConfig(cfgJSON string) (*dbc.Client, error) {
 	return dbc.NewClient(opts...)
 }
 
+var (
+	clientsMu  sync.Mutex
+	clients    = map[int]*dbc.Client{}
+	nextClient int
+)
+
+func registerClient(cfgJSON string) (int, error) {
+	c, err := clientFromConfig(cfgJSON)
+	if err != nil {
+		return 0, err
+	}
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	nextClient++
+	clients[nextClient] = c
+	return nextClient, nil
+}
+
+func clientByHandle(h int) (*dbc.Client, error) {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	if c, ok := clients[h]; ok {
+		return c, nil
+	}
+	return nil, fmt.Errorf("invalid client handle %d", h)
+}
+
+func releaseClient(h int) {
+	clientsMu.Lock()
+	delete(clients, h)
+	clientsMu.Unlock()
+}
+
+func jsNewClient(args []js.Value) func() (any, error) {
+	cfgJSON := args[0].String()
+	return func() (any, error) {
+		h, err := registerClient(cfgJSON)
+		if err != nil {
+			return nil, err
+		}
+		return h, nil
+	}
+}
+
 // registerCommon registers the API surface shared by the Node and browser
 // builds: configuration hooks plus search/resolve/verify.
 func registerCommon() {
 	js.Global().Set("dbcSetPlatform", js.FuncOf(func(_ js.Value, a []js.Value) any {
 		config.SetPlatformTupleOverride(a[0].String())
+		return nil
+	}))
+	js.Global().Set("dbcNewClient", promisify(jsNewClient))
+	js.Global().Set("dbcCloseClient", js.FuncOf(func(_ js.Value, a []js.Value) any {
+		releaseClient(a[0].Int())
 		return nil
 	}))
 	js.Global().Set("dbcDebugPaths", promisify(jsDebugPaths))
@@ -138,13 +189,13 @@ type searchResultDTO struct {
 }
 
 func jsSearch(args []js.Value) func() (any, error) {
-	cfgJSON := args[0].String()
+	handle := args[0].Int()
 	pattern := ""
 	if len(args) > 1 {
 		pattern = args[1].String()
 	}
 	return func() (any, error) {
-		c, err := clientFromConfig(cfgJSON)
+		c, err := clientByHandle(handle)
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +225,7 @@ type resolveDTO struct {
 }
 
 func jsResolve(args []js.Value) func() (any, error) {
-	cfgJSON := args[0].String()
+	handle := args[0].Int()
 	name := args[1].String()
 	platform := ""
 	if len(args) > 2 && args[2].Type() == js.TypeString {
@@ -184,7 +235,7 @@ func jsResolve(args []js.Value) func() (any, error) {
 		if platform == "" {
 			platform = config.PlatformTuple()
 		}
-		c, err := clientFromConfig(cfgJSON)
+		c, err := clientByHandle(handle)
 		if err != nil {
 			return nil, err
 		}

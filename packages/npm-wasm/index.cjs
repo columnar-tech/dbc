@@ -64,32 +64,46 @@ function ensureRuntime() {
   return runtimePromise;
 }
 
+const clientFinalizer =
+  typeof FinalizationRegistry !== "undefined"
+    ? new FinalizationRegistry((handle) => {
+        try {
+          globalThis.dbcCloseClient(handle);
+        } catch {
+          // runtime already torn down; nothing to release
+        }
+      })
+    : null;
+
 async function loadDbc(opts = {}) {
   await ensureRuntime();
 
   // platform is a process-global host constant; only override when explicit.
   if (opts.platform) globalThis.dbcSetPlatform(opts.platform);
 
-  // baseURL + credential are captured per instance and passed to each network
-  // call, so multiple clients in one process never share mutable global config.
+  // Each instance gets its own Go-side client handle, so baseURL/credentials are
+  // isolated between instances and refreshed tokens persist across calls.
   const cfg = JSON.stringify({
     baseURL: opts.baseURL || "",
     credential: opts.credential || null,
   });
+  const handle = await globalThis.dbcNewClient(cfg);
 
   const parse = (s) => JSON.parse(s);
   const api = {
-    search: async (pattern = "") => parse(await globalThis.dbcSearch(cfg, pattern)),
-    resolve: async (name, platform) => parse(await globalThis.dbcResolve(cfg, name, platform)),
+    search: async (pattern = "") => parse(await globalThis.dbcSearch(handle, pattern)),
+    resolve: async (name, platform) => parse(await globalThis.dbcResolve(handle, name, platform)),
     verifySignature: (lib, sig) => globalThis.dbcVerify(lib, sig),
+    close: () => globalThis.dbcCloseClient(handle),
   };
   if (typeof globalThis.dbcInstall === "function") {
-    api.install = async (name, location) => parse(await globalThis.dbcInstall(cfg, name, location));
+    api.install = async (name, location) => parse(await globalThis.dbcInstall(handle, name, location));
     api.uninstall = async (name, location) => {
       await globalThis.dbcUninstall(name, location);
     };
     api.listInstalled = async (location) => parse(await globalThis.dbcList(location));
   }
+  if (clientFinalizer) clientFinalizer.register(api, handle);
   return api;
 }
 

@@ -60,17 +60,21 @@ async function main() {
     credential: { registryURL: base, authURI: base, token: "stale-token", refreshToken: "refresh-1", clientID: "client-1" },
   });
 
+  const handle = await globalThis.dbcNewClient(cfg);
   const out = {};
   try {
-    const drivers = JSON.parse(await globalThis.dbcSearch(cfg, ""));
-    out.searchOK = drivers.drivers.length;
+    const first = JSON.parse(await globalThis.dbcSearch(handle, ""));
+    const second = JSON.parse(await globalThis.dbcSearch(handle, ""));
+    out.searchOK = first.drivers.length;
+    out.secondOK = second.drivers.length;
+    out.tokenRefreshes = seen.filter((l) => l.startsWith("POST /token")).length;
   } catch (e) {
     out.searchError = e.message;
   }
   out.serverLog = seen;
   console.log(JSON.stringify(out, null, 2));
   server.close();
-  process.exit(out.searchOK ? 0 : 1);
+  process.exit(out.searchOK && out.tokenRefreshes === 1 ? 0 : 1);
 }
 
 main().catch((e) => {
