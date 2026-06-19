@@ -107,18 +107,32 @@ async function loadDbcWorker(opts) {
     if (msg.ok) p.resolve(msg.value);
     else p.reject(new Error(msg.error));
   });
-  worker.on("error", (e) => {
-    readyReject(e);
-    for (const p of pending.values()) p.reject(e);
+  let closed = false;
+  const rejectAll = (err) => {
+    for (const p of pending.values()) p.reject(err);
     pending.clear();
+  };
+  worker.on("error", (e) => {
+    closed = true;
+    readyReject(e);
+    rejectAll(e);
+  });
+  worker.on("exit", (code) => {
+    if (closed) return; // expected (close() already tore down)
+    closed = true;
+    const err = new Error(`dbc-wasm: worker exited unexpectedly (code ${code})`);
+    readyReject(err);
+    rejectAll(err);
   });
 
-  const call = (fn, args) =>
-    new Promise((resolve, reject) => {
+  const call = (fn, args) => {
+    if (closed) return Promise.reject(new Error("dbc-wasm: client is closed"));
+    return new Promise((resolve, reject) => {
       const id = ++nextId;
       pending.set(id, { resolve, reject });
       worker.postMessage({ id, fn, args });
     });
+  };
 
   await ready;
   await call("dbcSetPlatform", [opts.platform || hostPlatformTuple()]);
@@ -136,11 +150,10 @@ async function loadDbcWorker(opts) {
     },
     listInstalled: async (location) => parse(await call("dbcList", [normalizeLocation(location)])),
     close: async () => {
-      try {
-        await call("dbcCloseClient", [handle]);
-      } finally {
-        await worker.terminate();
-      }
+      if (closed) return;
+      closed = true;
+      rejectAll(new Error("dbc-wasm: client is closed"));
+      await worker.terminate();
     },
   };
 }

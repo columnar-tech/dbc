@@ -72,6 +72,18 @@ async function main() {
   assert((await dbc.listInstalled(installDir)).length === 0, "driver still listed after uninstall");
 
   await dbc.close();
+
+  // Regression guard (roborev 6533): after close() the worker is terminated, so
+  // calls must reject promptly via the `closed` state instead of posting to a
+  // dead worker and hanging forever (which would surface here as a CI timeout).
+  let rejectedAfterClose = false;
+  try {
+    await dbc.search("");
+  } catch {
+    rejectedAfterClose = true;
+  }
+  assert(rejectedAfterClose, "search() after close() should reject, not hang");
+
   fs.rmSync(installDir, { recursive: true, force: true });
   server.close();
   console.log("WORKER SMOKE PASS:", { drivers: search.drivers.length, installed: manifest.id, verified: ok });
