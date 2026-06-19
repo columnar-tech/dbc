@@ -64,7 +64,10 @@ async function main() {
   assert(manifest.driverPath && fs.existsSync(manifest.driverPath), "installed driver missing on disk");
 
   const installed = await dbc.listInstalled(installDir);
-  assert(installed.length === 1 && installed[0].id === "test-driver-1", "listInstalled mismatch");
+  assert(
+    installed.length === 1 && installed[0].id === "test-driver-1",
+    `listInstalled mismatch: got ${JSON.stringify(installed)}; installDir entries: ${JSON.stringify(fs.readdirSync(installDir, { recursive: true }))}`
+  );
 
   const so = findFile(installDir, ".so");
   const sig = findFile(installDir, ".sig");
