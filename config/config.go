@@ -155,16 +155,21 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 
 	ret := make(map[string]DriverInfo)
 
-	fsys := os.DirFS(dir)
-	matches, _ := fs.Glob(fsys, "*.toml")
-	for _, m := range matches {
-		p := filepath.Join(dir, m)
-		di, err := loadDriverFromManifest(filepath.Dir(p), filepath.Base(p))
+	// Enumerate manifests with os.ReadDir rather than fs.Glob(os.DirFS(dir), ...):
+	// under GOOS=js an os.DirFS rooted at a Windows drive path (e.g. "C:/drivers")
+	// matches nothing, so driver discovery silently returned no drivers on Windows
+	// hosts even when the manifests were present on disk.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		di, err := loadDriverFromManifest(dir, e.Name())
 		if err != nil {
 			continue
 		}
 
-		di.FilePath = filepath.Dir(p)
+		di.FilePath = dir
 		ret[di.ID] = di
 	}
 	return ret, nil
