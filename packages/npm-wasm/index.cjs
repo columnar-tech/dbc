@@ -30,9 +30,11 @@ function hostPlatformTuple() {
 }
 
 function normalizeLocation(loc) {
-  // On a Windows host, convert backslashes to forward slashes (Go's js/wasm
-  // filepath uses Unix semantics and Node fs accepts forward-slash drive paths)
-  // and make a drive-relative path absolute ("C:" / "C:foo" -> "C:/" / "C:/foo").
+  // Only on Windows: backslash is a legal filename character on POSIX, so POSIX
+  // locations must pass through untouched. On Windows, convert backslashes to
+  // forward slashes (Go's js/wasm filepath uses Unix semantics; Node fs accepts
+  // forward-slash drive paths) and make a drive-relative path absolute.
+  if (process.platform !== "win32") return String(loc);
   let p = String(loc).replace(/\\/g, "/");
   p = p.replace(/^([A-Za-z]:)(?![/])/, "$1/");
   return p;

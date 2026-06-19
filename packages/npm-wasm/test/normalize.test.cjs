@@ -17,19 +17,38 @@
 const assert = require("assert");
 const { normalizeLocation } = require("../index.cjs");
 
-const cases = [
-  ["/tmp/drivers", "/tmp/drivers"],
-  ["/etc/adbc/drivers", "/etc/adbc/drivers"],
-  ["C:\\drivers", "C:/drivers"],
-  ["C:/drivers", "C:/drivers"],
-  ["C:\\a\\b\\c", "C:/a/b/c"],
-  ["C:drivers", "C:/drivers"],
-  ["C:", "C:/"],
-  ["d:\\Lower", "d:/Lower"],
-];
-
-for (const [input, want] of cases) {
-  assert.strictEqual(normalizeLocation(input), want, `normalizeLocation(${JSON.stringify(input)})`);
+function withPlatform(platform, fn) {
+  const orig = Object.getOwnPropertyDescriptor(process, "platform");
+  Object.defineProperty(process, "platform", { value: platform, configurable: true });
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(process, "platform", orig);
+  }
 }
 
-console.log(`normalizeLocation: ${cases.length} cases passed`);
+// POSIX: backslash is a legal filename character, so locations pass through
+// unchanged (regression guard for roborev 6527).
+withPlatform("linux", () => {
+  for (const p of ["/tmp/drivers", "/tmp/adbc\\drivers", "drivers\\test", "C:\\drivers"]) {
+    assert.strictEqual(normalizeLocation(p), p, `posix passthrough ${JSON.stringify(p)}`);
+  }
+});
+
+// Windows: backslashes -> forward slashes; drive-relative -> absolute.
+withPlatform("win32", () => {
+  const cases = [
+    ["/tmp/drivers", "/tmp/drivers"],
+    ["C:\\drivers", "C:/drivers"],
+    ["C:/drivers", "C:/drivers"],
+    ["C:\\a\\b\\c", "C:/a/b/c"],
+    ["C:drivers", "C:/drivers"],
+    ["C:", "C:/"],
+    ["d:\\Lower", "d:/Lower"],
+  ];
+  for (const [input, want] of cases) {
+    assert.strictEqual(normalizeLocation(input), want, `win32 ${JSON.stringify(input)}`);
+  }
+});
+
+console.log("normalizeLocation: POSIX passthrough + Windows transform passed");
