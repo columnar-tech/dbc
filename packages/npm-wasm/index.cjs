@@ -97,14 +97,18 @@ async function loadDbcWorker(opts) {
 
   let closed = false;
   let hasInstall = false;
-  // Idempotently mark the client closed and drain every pending RPC with `err`.
-  // Returns false if it was already closed, so the first teardown wins and later
-  // events (e.g. an `exit` after an explicit `close()`) become no-ops. Folding
-  // the `closed` toggle and the pending-rejection into one helper removes the
-  // "did I guard `closed` here?" class of bug across the handlers below.
+  // Idempotently mark the client closed, failing both the init gate (`ready`) and
+  // every in-flight RPC with `err`. Returns false if it was already closed, so the
+  // first teardown wins and later events (e.g. an `exit` after an explicit
+  // `close()`) become no-ops. Routing the single `closed` toggle, the `readyReject`
+  // init gate, and the pending-rejection through one helper means every failure
+  // path settles the same two channels at once: a failing worker can never hang
+  // (something always rejects) nor double-settle (already-settled promises ignore
+  // later rejects, and the `closed` guard short-circuits repeat calls).
   const markClosed = (err) => {
     if (closed) return false;
     closed = true;
+    readyReject(err); // no-op if `ready` already resolved/rejected
     for (const p of pending.values()) p.reject(err);
     pending.clear();
     return true;
@@ -116,12 +120,10 @@ async function loadDbcWorker(opts) {
       return readyResolve();
     }
     if (msg.type === "fatal") {
-      // The worker runtime failed to initialize. Surface it through `ready` and
-      // clear any pending work; the init try/catch below terminates the worker
-      // so it cannot park on parentPort and keep the process alive.
-      const err = new Error("dbc-wasm: " + msg.error);
-      readyReject(err);
-      markClosed(err);
+      // The worker runtime failed to initialize. markClosed surfaces it through
+      // `ready`; the init try/catch below terminates the worker so it cannot park
+      // on parentPort and keep the process alive.
+      markClosed(new Error("dbc-wasm: " + msg.error));
       return;
     }
     const p = pending.get(msg.id);
@@ -131,15 +133,12 @@ async function loadDbcWorker(opts) {
     else p.reject(prefixError(new Error(msg.error)));
   });
   worker.on("error", (e) => {
-    const err = prefixError(e);
-    readyReject(err);
-    markClosed(err);
+    markClosed(prefixError(e));
   });
   worker.on("exit", (code) => {
-    // markClosed returns false when close()/init-failure already tore down; in
-    // that expected case there is nothing left to reject and `ready` has settled.
-    const err = new Error(`dbc-wasm: worker exited unexpectedly (code ${code})`);
-    if (markClosed(err)) readyReject(err);
+    // markClosed no-ops when close()/init-failure already tore down; in that
+    // expected case `ready` has settled and there is nothing left to reject.
+    markClosed(new Error(`dbc-wasm: worker exited unexpectedly (code ${code})`));
   });
 
   const call = (fn, args) => {
