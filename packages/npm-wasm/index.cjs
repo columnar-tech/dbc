@@ -14,8 +14,8 @@
 
 "use strict";
 
-const fs = require("fs");
 const path = require("path");
+const bootRuntime = require("./boot.cjs");
 
 const PLATFORM_MAP = { linux: "linux", darwin: "macos", win32: "windows", freebsd: "freebsd" };
 const ARCH_MAP = { x64: "amd64", arm64: "arm64", ia32: "x86" };
@@ -56,25 +56,11 @@ let runtimePromise;
 function ensureRuntime() {
   if (runtimePromise) return runtimePromise;
   runtimePromise = (async () => {
-    // The upstream wasm_exec.js is browser-oriented. Under Node we must supply
-    // the real fs/process (and webcrypto on Node 18) BEFORE loading it, or Go's
-    // filesystem syscalls return "not implemented on js".
-    if (!globalThis.crypto) globalThis.crypto = require("crypto").webcrypto;
-    if (!globalThis.fs) globalThis.fs = fs;
-    if (!globalThis.process) globalThis.process = process;
-
-    require("./wasm_exec.js"); // defines globalThis.Go
-
-    const go = new globalThis.Go();
-    go.env = process.env; // Go's js/wasm environment is empty by default ($HOME, $XDG_*)
-
-    const bytes = fs.readFileSync(path.join(__dirname, "dbc.wasm"));
-    const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
-    go.run(instance); // registers the dbc* globals, then parks on select{}
-    await new Promise((resolve) => setImmediate(resolve));
-
-    if (typeof globalThis.dbcSearch !== "function") {
-      throw new Error("dbc-wasm: runtime did not register its API");
+    try {
+      await bootRuntime();
+    } catch (e) {
+      // Namespace the boot failure like every other error this layer surfaces.
+      throw prefixError(e);
     }
     // Platform is a process-global host constant; set it once at init.
     try {

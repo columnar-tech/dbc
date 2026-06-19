@@ -18,26 +18,16 @@
 // in this worker thread and answers {id, fn, args} RPC messages from the main
 // thread, so heavy tar/PGP/install work doesn't block the host event loop.
 
-const fs = require("fs");
-const path = require("path");
 const { parentPort } = require("worker_threads");
+const bootRuntime = require("./boot.cjs");
 
 (async () => {
-  if (!globalThis.crypto) globalThis.crypto = require("crypto").webcrypto;
-  if (!globalThis.fs) globalThis.fs = fs;
-  if (!globalThis.process) globalThis.process = process;
-
-  require("./wasm_exec.js"); // defines globalThis.Go
-
-  const go = new globalThis.Go();
-  go.env = process.env;
-  const bytes = fs.readFileSync(path.join(__dirname, "dbc.wasm"));
-  const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
-  go.run(instance);
-  await new Promise((r) => setImmediate(r));
-
-  if (typeof globalThis.dbcSearch !== "function") {
-    parentPort.postMessage({ type: "fatal", error: "runtime did not register its API" });
+  try {
+    await bootRuntime();
+  } catch (e) {
+    // The main thread surfaces this through `ready` and tears the worker down;
+    // report it instead of letting the rejection crash the worker silently.
+    parentPort.postMessage({ type: "fatal", error: e && e.message ? e.message : String(e) });
     return;
   }
 
