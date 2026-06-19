@@ -217,7 +217,15 @@ async function loadDbc(opts = {}) {
     baseURL: opts.baseURL || "",
     credential: opts.credential || null,
   });
-  const handle = await globalThis.dbcNewClient(cfg);
+  let handle;
+  try {
+    handle = await globalThis.dbcNewClient(cfg);
+  } catch (e) {
+    // Prefix load-time client construction failures (e.g. an invalid credential
+    // registryURL) so the in-process backend attributes errors the same way the
+    // worker backend and the rest of this layer do.
+    throw prefixError(e);
+  }
 
   let closed = false;
   // In-process dispatcher: invoke the Go-registered global directly, prefixing
