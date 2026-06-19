@@ -86,7 +86,67 @@ const clientFinalizer =
       })
     : null;
 
+async function loadDbcWorker(opts) {
+  const { Worker } = require("worker_threads");
+  const worker = new Worker(path.join(__dirname, "worker.cjs"));
+
+  const pending = new Map();
+  let nextId = 0;
+  let readyResolve, readyReject;
+  const ready = new Promise((res, rej) => {
+    readyResolve = res;
+    readyReject = rej;
+  });
+
+  worker.on("message", (msg) => {
+    if (msg.type === "ready") return readyResolve();
+    if (msg.type === "fatal") return readyReject(new Error("dbc-wasm: " + msg.error));
+    const p = pending.get(msg.id);
+    if (!p) return;
+    pending.delete(msg.id);
+    if (msg.ok) p.resolve(msg.value);
+    else p.reject(new Error(msg.error));
+  });
+  worker.on("error", (e) => {
+    readyReject(e);
+    for (const p of pending.values()) p.reject(e);
+    pending.clear();
+  });
+
+  const call = (fn, args) =>
+    new Promise((resolve, reject) => {
+      const id = ++nextId;
+      pending.set(id, { resolve, reject });
+      worker.postMessage({ id, fn, args });
+    });
+
+  await ready;
+  await call("dbcSetPlatform", [opts.platform || hostPlatformTuple()]);
+  const cfg = JSON.stringify({ baseURL: opts.baseURL || "", credential: opts.credential || null });
+  const handle = await call("dbcNewClient", [cfg]);
+
+  const parse = (s) => JSON.parse(s);
+  return {
+    search: async (pattern = "") => parse(await call("dbcSearch", [handle, pattern])),
+    resolve: async (name, platform) => parse(await call("dbcResolve", [handle, name, platform])),
+    verifySignature: (lib, sig) => call("dbcVerify", [lib, sig]),
+    install: async (name, location) => parse(await call("dbcInstall", [handle, name, normalizeLocation(location)])),
+    uninstall: async (name, location) => {
+      await call("dbcUninstall", [name, normalizeLocation(location)]);
+    },
+    listInstalled: async (location) => parse(await call("dbcList", [normalizeLocation(location)])),
+    close: async () => {
+      try {
+        await call("dbcCloseClient", [handle]);
+      } finally {
+        await worker.terminate();
+      }
+    },
+  };
+}
+
 async function loadDbc(opts = {}) {
+  if (opts.worker) return loadDbcWorker(opts);
   await ensureRuntime();
 
   // platform is a process-global host constant; only override when explicit.

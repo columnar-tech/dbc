@@ -77,3 +77,5 @@ jobs:
       # Windows-host gate that cannot be exercised on Linux/macOS.
       - name: Smoke test
         run: node packages/npm-wasm/test/smoke.cjs
+      - name: Worker smoke test
+        run: node packages/npm-wasm/test/worker.test.cjs

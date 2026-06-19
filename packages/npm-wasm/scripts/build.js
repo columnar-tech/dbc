@@ -81,7 +81,7 @@ function writePackageJson(version) {
       },
     },
     engines: { node: ">=18" },
-    files: ["index.cjs", "index.mjs", "index.d.ts", "wasm_exec.js", "dbc.wasm", "README.md", "LICENSE"],
+    files: ["index.cjs", "index.mjs", "index.d.ts", "worker.cjs", "wasm_exec.js", "dbc.wasm", "README.md", "LICENSE"],
   };
   fs.writeFileSync(path.join(PKG_DIR, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   console.log(`  -> wrote package.json at version ${version}`);

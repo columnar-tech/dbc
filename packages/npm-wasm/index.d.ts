@@ -61,6 +61,9 @@ export interface DbcOptions {
   platform?: string;
   /** Credentials for a private registry, injected at runtime. */
   credential?: OAuthCredential;
+  /** Run the wasm runtime in a Node worker_threads Worker so heavy
+   *  install/PGP work stays off the host event loop. Node-only. */
+  worker?: boolean;
 }
 
 export interface Dbc {

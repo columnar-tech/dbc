@@ -82,8 +82,13 @@ await loadDbc({
     refreshToken: "...",
     clientID: "...",
   },
+  worker: true,                               // run the wasm in a Node Worker Thread
 });
 ```
+
+Pass `worker: true` to run the runtime in a Node `worker_threads` Worker, so large
+installs and signature verification stay off your app's event loop. Call
+`dbc.close()` when done to terminate the worker (it also releases the client handle).
 
 For OAuth device-flow login, run the native `@columnar-tech/dbc` CLI
 (`dbc auth login`) once; the WASM build reads and refreshes the stored
