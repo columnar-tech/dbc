@@ -20,11 +20,22 @@ const path = require("path");
 const PLATFORM_MAP = { linux: "linux", darwin: "macos", win32: "windows", freebsd: "freebsd" };
 const ARCH_MAP = { x64: "amd64", arm64: "arm64", ia32: "x86" };
 
+const ERROR_PREFIX = "dbc-wasm: ";
+
+// Every error this layer surfaces is namespaced with `dbc-wasm:` so consumers
+// can attribute and string-match failures regardless of which backend (in-process
+// or worker) or which Go-side call produced them.
+function prefixError(e) {
+  const msg = e && e.message ? e.message : String(e);
+  if (msg.startsWith(ERROR_PREFIX)) return e instanceof Error ? e : new Error(msg);
+  return new Error(ERROR_PREFIX + msg);
+}
+
 function hostPlatformTuple() {
   const os = PLATFORM_MAP[process.platform];
   const arch = ARCH_MAP[process.arch];
   if (!os || !arch) {
-    throw new Error(`dbc-wasm: unsupported host platform ${process.platform}/${process.arch}`);
+    throw new Error(`${ERROR_PREFIX}unsupported host platform ${process.platform}/${process.arch}`);
   }
   return `${os}_${arch}`;
 }
@@ -99,13 +110,17 @@ async function loadDbcWorker(opts) {
   });
 
   let closed = false;
+  let hasInstall = false;
   const rejectAll = (err) => {
     for (const p of pending.values()) p.reject(err);
     pending.clear();
   };
 
   worker.on("message", (msg) => {
-    if (msg.type === "ready") return readyResolve();
+    if (msg.type === "ready") {
+      hasInstall = msg.hasInstall === true;
+      return readyResolve();
+    }
     if (msg.type === "fatal") {
       // The worker runtime failed to initialize. Surface it through `ready` and
       // clear any pending work; the init try/catch below terminates the worker
@@ -120,12 +135,13 @@ async function loadDbcWorker(opts) {
     if (!p) return;
     pending.delete(msg.id);
     if (msg.ok) p.resolve(msg.value);
-    else p.reject(new Error(msg.error));
+    else p.reject(prefixError(new Error(msg.error)));
   });
   worker.on("error", (e) => {
     closed = true;
-    readyReject(e);
-    rejectAll(e);
+    const err = prefixError(e);
+    readyReject(err);
+    rejectAll(err);
   });
   worker.on("exit", (code) => {
     if (closed) return; // expected: close()/init-failure already tore down
@@ -163,23 +179,44 @@ async function loadDbcWorker(opts) {
     throw e;
   }
 
-  const parse = (s) => JSON.parse(s);
-  return {
-    search: async (pattern = "") => parse(await call("dbcSearch", [handle, pattern])),
-    resolve: async (name, platform) => parse(await call("dbcResolve", [handle, name, platform])),
-    verifySignature: (lib, sig) => call("dbcVerify", [lib, sig]),
-    install: async (name, location) => parse(await call("dbcInstall", [handle, name, normalizeLocation(location)])),
-    uninstall: async (name, location) => {
-      await call("dbcUninstall", [name, normalizeLocation(location)]);
-    },
-    listInstalled: async (location) => parse(await call("dbcList", [normalizeLocation(location)])),
+  return buildClient({
+    call,
+    handle,
+    hasInstall,
     close: async () => {
       if (closed) return;
       closed = true;
-      rejectAll(new Error("dbc-wasm: client is closed"));
+      rejectAll(new Error(`${ERROR_PREFIX}client is closed`));
       await worker.terminate();
     },
+  });
+}
+
+// Single source of truth for the public client shape. Both backends supply a
+// `call(fn, args)` dispatcher and a `close()`; the object literal lives here only
+// once so the two paths can never drift (consistent method set, error prefixing,
+// and Promise<void> close semantics by construction).
+function buildClient({ call, handle, hasInstall, close }) {
+  const parse = async (fn, args) => JSON.parse(await call(fn, args));
+  const api = {
+    search: (pattern = "") => parse("dbcSearch", [handle, pattern]),
+    resolve: (name, platform) => parse("dbcResolve", [handle, name, platform]),
+    verifySignature: (lib, sig) => call("dbcVerify", [lib, sig]),
+    close,
   };
+  // install/uninstall/listInstalled require a filesystem-capable build; both
+  // backends feature-detect identically so the surface is symmetric.
+  if (hasInstall) {
+    // dbcInstall takes the client handle (it needs the instance's registry
+    // config); dbcUninstall/dbcList are pure filesystem ops and intentionally
+    // do not — per-instance config does not apply to them.
+    api.install = (name, location) => parse("dbcInstall", [handle, name, normalizeLocation(location)]);
+    api.uninstall = async (name, location) => {
+      await call("dbcUninstall", [name, normalizeLocation(location)]);
+    };
+    api.listInstalled = (location) => parse("dbcList", [normalizeLocation(location)]);
+  }
+  return api;
 }
 
 async function loadDbc(opts = {}) {
@@ -197,23 +234,34 @@ async function loadDbc(opts = {}) {
   });
   const handle = await globalThis.dbcNewClient(cfg);
 
-  const parse = (s) => JSON.parse(s);
-  const api = {
-    search: async (pattern = "") => parse(await globalThis.dbcSearch(handle, pattern)),
-    resolve: async (name, platform) => parse(await globalThis.dbcResolve(handle, name, platform)),
-    verifySignature: (lib, sig) => globalThis.dbcVerify(lib, sig),
-    close: () => globalThis.dbcCloseClient(handle),
+  let closed = false;
+  // In-process dispatcher: invoke the Go-registered global directly, prefixing
+  // any thrown error so attribution matches the worker backend.
+  const call = async (fn, args) => {
+    if (closed) throw new Error(`${ERROR_PREFIX}client is closed`);
+    const f = globalThis[fn];
+    if (typeof f !== "function") throw new Error(`${ERROR_PREFIX}unknown wasm function: ${fn}`);
+    try {
+      return await f(...args);
+    } catch (e) {
+      throw prefixError(e);
+    }
   };
-  if (typeof globalThis.dbcInstall === "function") {
-    api.install = async (name, location) =>
-      parse(await globalThis.dbcInstall(handle, name, normalizeLocation(location)));
-    api.uninstall = async (name, location) => {
-      await globalThis.dbcUninstall(name, normalizeLocation(location));
-    };
-    api.listInstalled = async (location) =>
-      parse(await globalThis.dbcList(normalizeLocation(location)));
-  }
-  if (clientFinalizer) clientFinalizer.register(api, handle);
+
+  const api = buildClient({
+    call,
+    handle,
+    hasInstall: typeof globalThis.dbcInstall === "function",
+    // Guard against a double-free: a second close() (or one racing the
+    // finalizer) must not call dbcCloseClient on an already-released handle.
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      if (clientFinalizer) clientFinalizer.unregister(api);
+      globalThis.dbcCloseClient(handle);
+    },
+  });
+  if (clientFinalizer) clientFinalizer.register(api, handle, api);
   return api;
 }
 

@@ -52,5 +52,7 @@ const { parentPort } = require("worker_threads");
     }
   });
 
-  parentPort.postMessage({ type: "ready" });
+  // Report optional-method availability so the main thread feature-detects the
+  // worker backend exactly as it does the in-process one (symmetric API surface).
+  parentPort.postMessage({ type: "ready", hasInstall: typeof globalThis.dbcInstall === "function" });
 })();

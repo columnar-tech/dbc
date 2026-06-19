@@ -86,9 +86,19 @@ await loadDbc({
 });
 ```
 
+`baseURL` and `credential` are **per-instance**: separate `loadDbc()` clients are
+isolated and don't share registry config. `platform`, however, is applied
+**process-globally** by the in-process backend (the last `loadDbc({ platform })`
+wins), so concurrent in-process clients can't each pin a different default
+platform. For per-call platform behavior, pass `platform` to `resolve(name,
+platform)`, which takes precedence over the load-time default.
+
 Pass `worker: true` to run the runtime in a Node `worker_threads` Worker, so large
-installs and signature verification stay off your app's event loop. Call
-`dbc.close()` when done to terminate the worker (it also releases the client handle).
+installs and signature verification stay off your app's event loop. **Always
+`await dbc.close()` when done** under `worker: true` — the worker thread is not
+garbage-collected, so a missing `close()` leaks the thread and keeps the Node
+process alive. (In the default in-process backend `close()` is optional; the
+handle is also released on GC.)
 
 For OAuth device-flow login, run the native `@columnar-tech/dbc` CLI
 (`dbc auth login`) once; the WASM build reads and refreshes the stored

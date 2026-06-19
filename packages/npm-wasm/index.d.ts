@@ -21,6 +21,12 @@ export interface Driver {
 
 export interface SearchResult {
   drivers: Driver[];
+  /**
+   * Soft-failure channel: set when some registries were unreachable but a
+   * partial result is still returned. `search` aggregates across all configured
+   * registries, so a partial answer is meaningful; `resolve` targets a single
+   * named driver and has no equivalent — it either resolves or rejects.
+   */
   warning?: string;
 }
 
@@ -55,23 +61,44 @@ export interface OAuthCredential {
 }
 
 export interface DbcOptions {
-  /** Driver registry base URL. Defaults to the public Columnar CDN + private registry. */
+  /** Driver registry base URL. Per-instance: isolated between `loadDbc` calls. */
   baseURL?: string;
-  /** Host platform tuple (e.g. "linux_amd64"). Defaults to the detected Node host. */
+  /**
+   * Host platform tuple (e.g. "linux_amd64"). Defaults to the detected Node host.
+   *
+   * NOTE: unlike `baseURL`/`credential`, the in-process backend applies this
+   * **process-globally** (it is the last value passed to any `loadDbc` wins).
+   * Concurrent in-process instances with different platforms clobber each other.
+   * For per-call platform behavior, pass `platform` to `resolve()` instead, which
+   * takes precedence over this global default.
+   */
   platform?: string;
-  /** Credentials for a private registry, injected at runtime. */
+  /** Credentials for a private registry, injected at runtime. Per-instance. */
   credential?: OAuthCredential;
   /** Run the wasm runtime in a Node worker_threads Worker so heavy
-   *  install/PGP work stays off the host event loop. Node-only. */
+   *  install/PGP work stays off the host event loop. Node-only.
+   *  When `true`, `close()` is **mandatory** — the worker thread is not GC-managed,
+   *  so a missing `close()` leaks the thread and keeps the Node process alive. */
   worker?: boolean;
 }
 
 export interface Dbc {
   search(pattern?: string): Promise<SearchResult>;
+  /**
+   * Resolve versions + the latest package URL for a driver.
+   * @param platform Optional per-call platform tuple. When provided it takes
+   *   precedence over `loadDbc({ platform })`; when omitted, the default
+   *   platform set at load time is used.
+   */
   resolve(name: string, platform?: string): Promise<ResolveResult>;
-  verifySignature(lib: Uint8Array, sig: Uint8Array): Promise<boolean>;
-  /** Release the underlying client handle. Optional; also auto-released on GC. */
-  close(): void;
+  verifySignature(library: Uint8Array, signature: Uint8Array): Promise<boolean>;
+  /**
+   * Release the underlying client handle (and, in worker mode, terminate the
+   * worker thread). Idempotent. In the in-process backend the handle is also
+   * auto-released on GC, so `close()` is optional there; under `worker: true`
+   * it is **required** to avoid leaking the worker thread.
+   */
+  close(): Promise<void>;
 
   /** Node-only (requires a filesystem). */
   install?(name: string, location: string): Promise<Manifest>;
@@ -79,6 +106,22 @@ export interface Dbc {
   listInstalled?(location: string): Promise<InstalledDriver[]>;
 }
 
+/** Alias for {@link Dbc} that better signals the handle/lifecycle this object owns. */
+export type DbcClient = Dbc;
+
 export function loadDbc(opts?: DbcOptions): Promise<Dbc>;
+/**
+ * The detected host platform tuple (e.g. "linux_amd64").
+ * @throws if `process.platform`/`process.arch` is unsupported.
+ */
 export function hostPlatformTuple(): string;
+/**
+ * Low-level path normalizer applied internally to every `location` argument.
+ * On non-Windows hosts it is the identity function; on Windows it converts
+ * backslashes to forward slashes and makes drive-relative paths absolute.
+ *
+ * Exposed only for tooling/tests — do NOT pre-normalize a `location` before
+ * passing it to `install`/`uninstall`/`listInstalled`, as those already
+ * normalize internally (double-normalizing is harmless but pointless).
+ */
 export function normalizeLocation(loc: string): string;
