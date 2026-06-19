@@ -12,9 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import cjs from "./index.cjs";
+"use strict";
 
-export const loadDbc = cjs.loadDbc;
-export const hostPlatformTuple = cjs.hostPlatformTuple;
-export const normalizeLocation = cjs.normalizeLocation;
-export default cjs;
+const assert = require("assert");
+const { normalizeLocation } = require("../index.cjs");
+
+const cases = [
+  ["/tmp/drivers", "/tmp/drivers"],
+  ["/etc/adbc/drivers", "/etc/adbc/drivers"],
+  ["C:\\drivers", "C:/drivers"],
+  ["C:/drivers", "C:/drivers"],
+  ["C:\\a\\b\\c", "C:/a/b/c"],
+  ["C:drivers", "C:/drivers"],
+  ["C:", "C:/"],
+  ["d:\\Lower", "d:/Lower"],
+];
+
+for (const [input, want] of cases) {
+  assert.strictEqual(normalizeLocation(input), want, `normalizeLocation(${JSON.stringify(input)})`);
+}
+
+console.log(`normalizeLocation: ${cases.length} cases passed`);

@@ -78,3 +78,4 @@ export interface Dbc {
 
 export function loadDbc(opts?: DbcOptions): Promise<Dbc>;
 export function hostPlatformTuple(): string;
+export function normalizeLocation(loc: string): string;

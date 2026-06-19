@@ -118,4 +118,4 @@ async function loadDbc(opts = {}) {
   return api;
 }
 
-module.exports = { loadDbc, hostPlatformTuple };
+module.exports = { loadDbc, hostPlatformTuple, normalizeLocation };
