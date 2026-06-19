@@ -27,6 +27,20 @@ a subprocess.
 
 - Node.js >= 18 (uses global `fetch`; the loader wires Node's `fs`/`process`/`webcrypto` into the wasm runtime automatically).
 
+## Platform support
+
+Linux and macOS are validated. **Windows host support is experimental and not yet
+verified on a Windows runtime.** The loader normalizes Windows paths (backslashes
+to forward slashes; drive-relative to absolute), and the Go config layer no longer
+splits a drive-lettered `location` on `:`. Known Windows caveats:
+
+- Pass an explicit `location` (the npm API already does). Registry-backed
+  user/system config levels are unavailable under WASM.
+- The manifest-symlink compatibility shim (for the ADBC Python driver-manager
+  <= 1.8.0) is inactive without Developer Mode; use driver-manager >= 1.8.1.
+- Not yet verified on a Windows runtime: `os.MkdirAll`/`os.OpenRoot` over a drive
+  root through Node's `fs`. Validate on a Windows runner before relying on it.
+
 ## Usage
 
 ```js

@@ -120,7 +120,7 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 func EnsureLocation(cfg Config) (string, error) {
 	loc := cfg.Location
 	if cfg.Level == ConfigEnv {
-		list := filepath.SplitList(loc)
+		list := splitConfigList(loc)
 		if len(list) == 0 {
 			return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
 		}
@@ -212,7 +212,7 @@ func FindDriverConfigsIn(location string) []DriverInfo {
 	if location == "" {
 		return nil
 	}
-	paths := filepath.SplitList(location)
+	paths := splitConfigList(location)
 	slices.Reverse(paths)
 	merged := make(map[string]DriverInfo)
 	for _, p := range paths {

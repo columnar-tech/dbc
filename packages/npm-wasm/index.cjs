@@ -29,6 +29,15 @@ function hostPlatformTuple() {
   return `${os}_${arch}`;
 }
 
+function normalizeLocation(loc) {
+  // On a Windows host, convert backslashes to forward slashes (Go's js/wasm
+  // filepath uses Unix semantics and Node fs accepts forward-slash drive paths)
+  // and make a drive-relative path absolute ("C:" / "C:foo" -> "C:/" / "C:/foo").
+  let p = String(loc).replace(/\\/g, "/");
+  p = p.replace(/^([A-Za-z]:)(?![/])/, "$1/");
+  return p;
+}
+
 let runtimePromise;
 
 function ensureRuntime() {
@@ -97,11 +106,13 @@ async function loadDbc(opts = {}) {
     close: () => globalThis.dbcCloseClient(handle),
   };
   if (typeof globalThis.dbcInstall === "function") {
-    api.install = async (name, location) => parse(await globalThis.dbcInstall(handle, name, location));
+    api.install = async (name, location) =>
+      parse(await globalThis.dbcInstall(handle, name, normalizeLocation(location)));
     api.uninstall = async (name, location) => {
-      await globalThis.dbcUninstall(name, location);
+      await globalThis.dbcUninstall(name, normalizeLocation(location));
     };
-    api.listInstalled = async (location) => parse(await globalThis.dbcList(location));
+    api.listInstalled = async (location) =>
+      parse(await globalThis.dbcList(normalizeLocation(location)));
   }
   if (clientFinalizer) clientFinalizer.register(api, handle);
   return api;
