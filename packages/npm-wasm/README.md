@@ -32,8 +32,9 @@ a subprocess.
 Validated on **Node.js >= 18** and **Deno** (`deno run -A`). **Bun is not currently
 supported**: Bun's WebAssembly ↔ `node:fs` bridge mishandles the values Go's
 `GOOS=js` runtime passes to fs callbacks, so file-writing operations
-(`install`/`uninstall`) fail with `ERR_OUT_OF_RANGE`. This is an upstream Bun bug,
-not a limitation of this package; read-only `search`/`resolve` may still work.
+(`install`/`uninstall`) fail with `ERR_OUT_OF_RANGE`. This is an upstream Bun bug
+([oven-sh/bun#32505](https://github.com/oven-sh/bun/issues/32505)), not a
+limitation of this package; read-only `search`/`resolve` may still work.
 
 ## Platform support
 
