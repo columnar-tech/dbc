@@ -97,9 +97,17 @@ async function loadDbcWorker(opts) {
 
   let closed = false;
   let hasInstall = false;
-  const rejectAll = (err) => {
+  // Idempotently mark the client closed and drain every pending RPC with `err`.
+  // Returns false if it was already closed, so the first teardown wins and later
+  // events (e.g. an `exit` after an explicit `close()`) become no-ops. Folding
+  // the `closed` toggle and the pending-rejection into one helper removes the
+  // "did I guard `closed` here?" class of bug across the handlers below.
+  const markClosed = (err) => {
+    if (closed) return false;
+    closed = true;
     for (const p of pending.values()) p.reject(err);
     pending.clear();
+    return true;
   };
 
   worker.on("message", (msg) => {
@@ -111,10 +119,9 @@ async function loadDbcWorker(opts) {
       // The worker runtime failed to initialize. Surface it through `ready` and
       // clear any pending work; the init try/catch below terminates the worker
       // so it cannot park on parentPort and keep the process alive.
-      closed = true;
       const err = new Error("dbc-wasm: " + msg.error);
       readyReject(err);
-      rejectAll(err);
+      markClosed(err);
       return;
     }
     const p = pending.get(msg.id);
@@ -124,17 +131,15 @@ async function loadDbcWorker(opts) {
     else p.reject(prefixError(new Error(msg.error)));
   });
   worker.on("error", (e) => {
-    closed = true;
     const err = prefixError(e);
     readyReject(err);
-    rejectAll(err);
+    markClosed(err);
   });
   worker.on("exit", (code) => {
-    if (closed) return; // expected: close()/init-failure already tore down
-    closed = true;
+    // markClosed returns false when close()/init-failure already tore down; in
+    // that expected case there is nothing left to reject and `ready` has settled.
     const err = new Error(`dbc-wasm: worker exited unexpectedly (code ${code})`);
-    readyReject(err);
-    rejectAll(err);
+    if (markClosed(err)) readyReject(err);
   });
 
   const call = (fn, args) => {
@@ -157,10 +162,7 @@ async function loadDbcWorker(opts) {
     // platform, rejected dbcNewClient, or a worker fatal/error/exit). Terminate
     // the worker before propagating so a failed loadDbc() never leaves a live
     // wasm worker behind keeping the Node process alive.
-    if (!closed) {
-      closed = true;
-      rejectAll(e);
-    }
+    markClosed(e);
     await worker.terminate();
     throw e;
   }
@@ -170,9 +172,7 @@ async function loadDbcWorker(opts) {
     handle,
     hasInstall,
     close: async () => {
-      if (closed) return;
-      closed = true;
-      rejectAll(new Error(`${ERROR_PREFIX}client is closed`));
+      if (!markClosed(new Error(`${ERROR_PREFIX}client is closed`))) return;
       await worker.terminate();
     },
   });
