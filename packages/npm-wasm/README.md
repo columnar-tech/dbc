@@ -27,6 +27,14 @@ a subprocess.
 
 - Node.js >= 18 (uses global `fetch`; the loader wires Node's `fs`/`process`/`webcrypto` into the wasm runtime automatically).
 
+## Runtime support
+
+Validated on **Node.js >= 18** and **Deno** (`deno run -A`). **Bun is not currently
+supported**: Bun's WebAssembly ↔ `node:fs` bridge mishandles the values Go's
+`GOOS=js` runtime passes to fs callbacks, so file-writing operations
+(`install`/`uninstall`) fail with `ERR_OUT_OF_RANGE`. This is an upstream Bun bug,
+not a limitation of this package; read-only `search`/`resolve` may still work.
+
 ## Platform support
 
 Linux and macOS are validated in CI. **Windows host support is experimental and
