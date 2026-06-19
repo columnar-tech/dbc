@@ -75,6 +75,22 @@ async function main() {
   const after = await dbc.listInstalled(installDir);
   assert(after.length === 0, "driver still listed after uninstall");
 
+  // Regression guard (roborev 6562): in-process loadDbc() must namespace
+  // load-time client-construction failures with `dbc-wasm:`, matching the worker
+  // backend. An invalid credential registryURL (NUL byte) makes the underlying
+  // dbcNewClient reject; the error must surface through prefixError().
+  let initErrorPrefixed = false;
+  try {
+    await loadDbc({
+      baseURL: base,
+      platform: "linux_amd64",
+      credential: { registryURL: "http://\u0000", authURI: "http://example.test", token: "t" },
+    });
+  } catch (e) {
+    initErrorPrefixed = String(e && e.message ? e.message : e).startsWith("dbc-wasm:");
+  }
+  assert(initErrorPrefixed, "in-process loadDbc() init failure should reject with a dbc-wasm:-prefixed error");
+
   fs.rmSync(installDir, { recursive: true, force: true });
   server.close();
   console.log("SMOKE PASS:", {
