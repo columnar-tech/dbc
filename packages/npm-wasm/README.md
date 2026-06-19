@@ -29,14 +29,14 @@ a subprocess.
 
 ## Platform support
 
-Linux and macOS are validated. **Windows host support is experimental.** The
-loader normalizes Windows paths (backslashes to forward slashes; drive-relative
-to absolute), and the Go config layer no longer splits a drive-lettered
-`location` on `:`. The `windows-latest` CI job runs the full smoke test —
-including the drive-root `os.MkdirAll`/`os.OpenRoot` round-trip through Node's
-`fs` — and is **not** marked `continue-on-error`, so its result is a real
-signal: a green run exercises the Windows path end-to-end, and a red run is a
-regression to investigate, not an expected failure. Known Windows caveats:
+Linux and macOS are validated in CI. **Windows host support is experimental and
+not yet exercised in CI** — `windows-latest` is excluded from the WASM workflow
+while driver discovery under `GOOS=js` is finished (tracked in
+[#396](https://github.com/columnar-tech/dbc/issues/396)). The loader normalizes
+Windows paths (backslashes to forward slashes; drive-relative to absolute) and
+the Go config layer no longer splits a drive-lettered `location` on `:`, but the
+end-to-end install/list round-trip is not yet validated on a Windows runtime.
+Known Windows caveats:
 
 - Pass an explicit `location` (the npm API already does). Registry-backed
   user/system config levels are unavailable under WASM.
