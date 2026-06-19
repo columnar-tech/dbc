@@ -31,10 +31,18 @@ import (
 	"github.com/columnar-tech/dbc/config"
 )
 
-var (
-	baseURL      string
-	credResolver func(*url.URL) (*auth.Credential, error)
-)
+type clientCredentialJSON struct {
+	RegistryURL  string `json:"registryURL"`
+	AuthURI      string `json:"authURI"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refreshToken"`
+	ClientID     string `json:"clientID"`
+}
+
+type clientConfigJSON struct {
+	BaseURL    string                `json:"baseURL"`
+	Credential *clientCredentialJSON `json:"credential"`
+}
 
 func init() {
 	// Route auth-internal HTTP (oauth/api-key refresh, license fetch use
@@ -45,13 +53,46 @@ func init() {
 	dbc.DefaultClient = client
 }
 
-func newClient() (*dbc.Client, error) {
+// clientFromConfig builds a per-call dbc.Client from a JSON config string
+// ({baseURL, credential}). Config is passed on each network call rather than
+// stored in a shared global so multiple clients in one process cannot clobber
+// each other's registry/credentials. An empty string yields a bare client.
+func clientFromConfig(cfgJSON string) (*dbc.Client, error) {
 	opts := []dbc.Option{dbc.WithHTTPClient(&http.Client{Transport: fetchRoundTripper{}})}
-	if baseURL != "" {
-		opts = append(opts, dbc.WithBaseURL(baseURL))
+	if cfgJSON == "" {
+		return dbc.NewClient(opts...)
 	}
-	if credResolver != nil {
-		opts = append(opts, dbc.WithCredentialResolver(credResolver))
+	var cc clientConfigJSON
+	if err := json.Unmarshal([]byte(cfgJSON), &cc); err != nil {
+		return nil, fmt.Errorf("invalid client config: %w", err)
+	}
+	if cc.BaseURL != "" {
+		opts = append(opts, dbc.WithBaseURL(cc.BaseURL))
+	}
+	if cc.Credential != nil {
+		regURL, err := url.Parse(cc.Credential.RegistryURL)
+		if err != nil {
+			return nil, fmt.Errorf("invalid credential registryURL: %w", err)
+		}
+		authURI, err := url.Parse(cc.Credential.AuthURI)
+		if err != nil {
+			return nil, fmt.Errorf("invalid credential authURI: %w", err)
+		}
+		cred := &auth.Credential{
+			Type:         auth.TypeToken,
+			AuthURI:      auth.Uri(*authURI),
+			RegistryURL:  auth.Uri(*regURL),
+			Token:        cc.Credential.Token,
+			RefreshToken: cc.Credential.RefreshToken,
+			ClientID:     cc.Credential.ClientID,
+		}
+		host := regURL.Host
+		opts = append(opts, dbc.WithCredentialResolver(func(u *url.URL) (*auth.Credential, error) {
+			if u.Host == host {
+				return cred, nil
+			}
+			return nil, nil
+		}))
 	}
 	return dbc.NewClient(opts...)
 }
@@ -59,31 +100,8 @@ func newClient() (*dbc.Client, error) {
 // registerCommon registers the API surface shared by the Node and browser
 // builds: configuration hooks plus search/resolve/verify.
 func registerCommon() {
-	js.Global().Set("dbcSetBaseURL", js.FuncOf(func(_ js.Value, a []js.Value) any {
-		baseURL = a[0].String()
-		return nil
-	}))
 	js.Global().Set("dbcSetPlatform", js.FuncOf(func(_ js.Value, a []js.Value) any {
 		config.SetPlatformTupleOverride(a[0].String())
-		return nil
-	}))
-	js.Global().Set("dbcSetOAuthCredential", js.FuncOf(func(_ js.Value, a []js.Value) any {
-		regURL, _ := url.Parse(a[0].String())
-		authURI, _ := url.Parse(a[1].String())
-		cred := &auth.Credential{
-			Type:         auth.TypeToken,
-			AuthURI:      auth.Uri(*authURI),
-			RegistryURL:  auth.Uri(*regURL),
-			Token:        a[2].String(),
-			RefreshToken: a[3].String(),
-			ClientID:     a[4].String(),
-		}
-		credResolver = func(u *url.URL) (*auth.Credential, error) {
-			if u.Host == regURL.Host {
-				return cred, nil
-			}
-			return nil, nil
-		}
 		return nil
 	}))
 	js.Global().Set("dbcDebugPaths", promisify(jsDebugPaths))
@@ -120,12 +138,13 @@ type searchResultDTO struct {
 }
 
 func jsSearch(args []js.Value) func() (any, error) {
+	cfgJSON := args[0].String()
 	pattern := ""
-	if len(args) > 0 {
-		pattern = args[0].String()
+	if len(args) > 1 {
+		pattern = args[1].String()
 	}
 	return func() (any, error) {
-		c, err := newClient()
+		c, err := clientFromConfig(cfgJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -155,16 +174,17 @@ type resolveDTO struct {
 }
 
 func jsResolve(args []js.Value) func() (any, error) {
-	name := args[0].String()
+	cfgJSON := args[0].String()
+	name := args[1].String()
 	platform := ""
-	if len(args) > 1 && args[1].Type() == js.TypeString {
-		platform = args[1].String()
+	if len(args) > 2 && args[2].Type() == js.TypeString {
+		platform = args[2].String()
 	}
 	return func() (any, error) {
 		if platform == "" {
 			platform = config.PlatformTuple()
 		}
-		c, err := newClient()
+		c, err := clientFromConfig(cfgJSON)
 		if err != nil {
 			return nil, err
 		}

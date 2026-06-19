@@ -56,8 +56,8 @@ async function main() {
 
   if (typeof globalThis.dbcSearch !== "function") throw new Error("globals not registered");
 
-  globalThis.dbcSetBaseURL(base);
   globalThis.dbcSetPlatform("linux_amd64");
+  const cfg = JSON.stringify({ baseURL: base });
 
   const out = {};
 
@@ -65,14 +65,14 @@ async function main() {
   out.debugPaths = JSON.parse(await globalThis.dbcDebugPaths());
 
   // search over HTTP via the fetch RoundTripper
-  out.search = JSON.parse(await globalThis.dbcSearch(""));
+  out.search = JSON.parse(await globalThis.dbcSearch(cfg, ""));
 
   // resolve versions + latest package URL for a driver/platform
-  out.resolve = JSON.parse(await globalThis.dbcResolve("test-driver-1", "linux_amd64"));
+  out.resolve = JSON.parse(await globalThis.dbcResolve(cfg, "test-driver-1", "linux_amd64"));
 
   // install to disk (download -> temp -> extract -> manifest + symlink)
   const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-install-"));
-  out.install = JSON.parse(await globalThis.dbcInstall("test-driver-1", installDir));
+  out.install = JSON.parse(await globalThis.dbcInstall(cfg, "test-driver-1", installDir));
 
   // list installed
   out.list = JSON.parse(await globalThis.dbcList(installDir));
@@ -108,7 +108,7 @@ async function main() {
 
   // concurrency / deadlock check: fire several searches at once
   const concurrent = await Promise.all(
-    Array.from({ length: 5 }, () => globalThis.dbcSearch("test-driver-1").then((s) => JSON.parse(s).drivers.length))
+    Array.from({ length: 5 }, () => globalThis.dbcSearch(cfg, "test-driver-1").then((s) => JSON.parse(s).drivers.length))
   );
   out.concurrentSearchCounts = concurrent;
   out.tarballRequests = tarballRequests;

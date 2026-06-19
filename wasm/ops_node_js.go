@@ -38,10 +38,11 @@ type manifestDTO struct {
 }
 
 func jsInstall(args []js.Value) func() (any, error) {
-	name := args[0].String()
-	location := args[1].String()
+	cfgJSON := args[0].String()
+	name := args[1].String()
+	location := args[2].String()
 	return func() (any, error) {
-		c, err := newClient()
+		c, err := clientFromConfig(cfgJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -90,7 +91,7 @@ func jsUninstall(args []js.Value) func() (any, error) {
 	name := args[0].String()
 	location := args[1].String()
 	return func() (any, error) {
-		c, err := newClient()
+		c, err := clientFromConfig("")
 		if err != nil {
 			return nil, err
 		}

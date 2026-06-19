@@ -54,13 +54,15 @@ async function main() {
   go.run(instance);
   await new Promise((r) => setTimeout(r, 0));
 
-  globalThis.dbcSetBaseURL(base);
   globalThis.dbcSetPlatform("linux_amd64");
-  globalThis.dbcSetOAuthCredential(base, base, "stale-token", "refresh-1", "client-1");
+  const cfg = JSON.stringify({
+    baseURL: base,
+    credential: { registryURL: base, authURI: base, token: "stale-token", refreshToken: "refresh-1", clientID: "client-1" },
+  });
 
   const out = {};
   try {
-    const drivers = JSON.parse(await globalThis.dbcSearch(""));
+    const drivers = JSON.parse(await globalThis.dbcSearch(cfg, ""));
     out.searchOK = drivers.drivers.length;
   } catch (e) {
     out.searchError = e.message;

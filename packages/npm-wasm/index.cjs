@@ -54,6 +54,12 @@ function ensureRuntime() {
     if (typeof globalThis.dbcSearch !== "function") {
       throw new Error("dbc-wasm: runtime did not register its API");
     }
+    // Platform is a process-global host constant; set it once at init.
+    try {
+      globalThis.dbcSetPlatform(hostPlatformTuple());
+    } catch {
+      // Unsupported host: install/resolve default platform must be set via loadDbc({ platform }).
+    }
   })();
   return runtimePromise;
 }
@@ -61,27 +67,24 @@ function ensureRuntime() {
 async function loadDbc(opts = {}) {
   await ensureRuntime();
 
-  globalThis.dbcSetPlatform(opts.platform || hostPlatformTuple());
-  if (opts.baseURL) globalThis.dbcSetBaseURL(opts.baseURL);
-  if (opts.credential) {
-    const c = opts.credential;
-    globalThis.dbcSetOAuthCredential(
-      c.registryURL,
-      c.authURI,
-      c.token || "",
-      c.refreshToken || "",
-      c.clientID || "",
-    );
-  }
+  // platform is a process-global host constant; only override when explicit.
+  if (opts.platform) globalThis.dbcSetPlatform(opts.platform);
+
+  // baseURL + credential are captured per instance and passed to each network
+  // call, so multiple clients in one process never share mutable global config.
+  const cfg = JSON.stringify({
+    baseURL: opts.baseURL || "",
+    credential: opts.credential || null,
+  });
 
   const parse = (s) => JSON.parse(s);
   const api = {
-    search: async (pattern = "") => parse(await globalThis.dbcSearch(pattern)),
-    resolve: async (name, platform) => parse(await globalThis.dbcResolve(name, platform)),
+    search: async (pattern = "") => parse(await globalThis.dbcSearch(cfg, pattern)),
+    resolve: async (name, platform) => parse(await globalThis.dbcResolve(cfg, name, platform)),
     verifySignature: (lib, sig) => globalThis.dbcVerify(lib, sig),
   };
   if (typeof globalThis.dbcInstall === "function") {
-    api.install = async (name, location) => parse(await globalThis.dbcInstall(name, location));
+    api.install = async (name, location) => parse(await globalThis.dbcInstall(cfg, name, location));
     api.uninstall = async (name, location) => {
       await globalThis.dbcUninstall(name, location);
     };
