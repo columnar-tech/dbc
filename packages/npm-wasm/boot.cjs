@@ -37,7 +37,19 @@ module.exports = async function bootRuntime() {
   require("./wasm_exec.js"); // defines globalThis.Go
 
   const go = new globalThis.Go();
-  go.env = process.env; // Go's js/wasm environment is empty by default ($HOME, $XDG_*)
+  // Go's js/wasm env starts empty, but the runtime (GOOS=js) resolves
+  // os.UserHomeDir/UserConfigDir/UserCacheDir from $HOME and $XDG_*, and install
+  // staging uses the temp dir. Forward only those: wasm_exec.js caps the combined
+  // argv+env size, and a full process.env — notably on Windows CI runners, whose
+  // environment is large — overflows that cap, making go.run() throw before the
+  // runtime starts. Windows exposes the home dir as %USERPROFILE%, so map it to
+  // $HOME for the GOOS=js home-dir lookup.
+  go.env = {};
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (home !== undefined) go.env.HOME = home;
+  for (const k of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR", "TEMP", "TMP"]) {
+    if (process.env[k] !== undefined) go.env[k] = process.env[k];
+  }
 
   const bytes = fs.readFileSync(path.join(__dirname, "dbc.wasm"));
   const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
