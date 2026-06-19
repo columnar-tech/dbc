@@ -17,10 +17,10 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"syscall/js"
 )
@@ -56,14 +56,6 @@ func (fetchRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("fetch %s: %w", req.URL, err)
 	}
 
-	bufVal, err := await(respVal.Call("arrayBuffer"))
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-	arr := js.Global().Get("Uint8Array").New(bufVal)
-	data := make([]byte, arr.Get("length").Int())
-	js.CopyBytesToGo(data, arr)
-
 	header := http.Header{}
 	collect := js.FuncOf(func(_ js.Value, a []js.Value) any {
 		header.Add(a[1].String(), a[0].String())
@@ -73,12 +65,72 @@ func (fetchRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	collect.Release()
 
 	status := respVal.Get("status").Int()
-	return &http.Response{
+	resp := &http.Response{
 		StatusCode:    status,
 		Status:        fmt.Sprintf("%d %s", status, respVal.Get("statusText").String()),
 		Header:        header,
-		Body:          io.NopCloser(bytes.NewReader(data)),
-		ContentLength: int64(len(data)),
+		ContentLength: parseContentLength(header),
 		Request:       req,
-	}, nil
+	}
+
+	// Stream the body via the ReadableStream reader rather than buffering the
+	// whole response, so large driver tarballs are copied to disk chunk-by-chunk
+	// instead of being held in wasm linear memory.
+	body := respVal.Get("body")
+	if body.IsNull() || body.IsUndefined() {
+		resp.Body = http.NoBody
+	} else {
+		resp.Body = &jsStreamBody{reader: body.Call("getReader")}
+	}
+	return resp, nil
+}
+
+func parseContentLength(h http.Header) int64 {
+	if cl := h.Get("Content-Length"); cl != "" {
+		if n, err := strconv.ParseInt(cl, 10, 64); err == nil {
+			return n
+		}
+	}
+	return -1
+}
+
+// jsStreamBody adapts a JS ReadableStreamDefaultReader to an io.ReadCloser. Read
+// awaits, so it must run on a goroutine (not a js.FuncOf callback).
+type jsStreamBody struct {
+	reader js.Value
+	buf    []byte
+	done   bool
+}
+
+func (b *jsStreamBody) Read(p []byte) (int, error) {
+	for len(b.buf) == 0 {
+		if b.done {
+			return 0, io.EOF
+		}
+		res, err := await(b.reader.Call("read"))
+		if err != nil {
+			return 0, err
+		}
+		if res.Get("done").Bool() {
+			b.done = true
+			continue
+		}
+		chunk := res.Get("value")
+		n := chunk.Get("length").Int()
+		if n == 0 {
+			continue
+		}
+		b.buf = make([]byte, n)
+		js.CopyBytesToGo(b.buf, chunk)
+	}
+	n := copy(p, b.buf)
+	b.buf = b.buf[n:]
+	return n, nil
+}
+
+func (b *jsStreamBody) Close() error {
+	if !b.done {
+		_, _ = await(b.reader.Call("cancel"))
+	}
+	return nil
 }
