@@ -98,27 +98,37 @@ async function loadDbcWorker(opts) {
     readyReject = rej;
   });
 
+  let closed = false;
+  const rejectAll = (err) => {
+    for (const p of pending.values()) p.reject(err);
+    pending.clear();
+  };
+
   worker.on("message", (msg) => {
     if (msg.type === "ready") return readyResolve();
-    if (msg.type === "fatal") return readyReject(new Error("dbc-wasm: " + msg.error));
+    if (msg.type === "fatal") {
+      // The worker runtime failed to initialize. Surface it through `ready` and
+      // clear any pending work; the init try/catch below terminates the worker
+      // so it cannot park on parentPort and keep the process alive.
+      closed = true;
+      const err = new Error("dbc-wasm: " + msg.error);
+      readyReject(err);
+      rejectAll(err);
+      return;
+    }
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
     if (msg.ok) p.resolve(msg.value);
     else p.reject(new Error(msg.error));
   });
-  let closed = false;
-  const rejectAll = (err) => {
-    for (const p of pending.values()) p.reject(err);
-    pending.clear();
-  };
   worker.on("error", (e) => {
     closed = true;
     readyReject(e);
     rejectAll(e);
   });
   worker.on("exit", (code) => {
-    if (closed) return; // expected (close() already tore down)
+    if (closed) return; // expected: close()/init-failure already tore down
     closed = true;
     const err = new Error(`dbc-wasm: worker exited unexpectedly (code ${code})`);
     readyReject(err);
@@ -134,10 +144,24 @@ async function loadDbcWorker(opts) {
     });
   };
 
-  await ready;
-  await call("dbcSetPlatform", [opts.platform || hostPlatformTuple()]);
-  const cfg = JSON.stringify({ baseURL: opts.baseURL || "", credential: opts.credential || null });
-  const handle = await call("dbcNewClient", [cfg]);
+  let handle;
+  try {
+    await ready;
+    await call("dbcSetPlatform", [opts.platform || hostPlatformTuple()]);
+    const cfg = JSON.stringify({ baseURL: opts.baseURL || "", credential: opts.credential || null });
+    handle = await call("dbcNewClient", [cfg]);
+  } catch (e) {
+    // Initialization failed after the Worker was created (unsupported host
+    // platform, rejected dbcNewClient, or a worker fatal/error/exit). Terminate
+    // the worker before propagating so a failed loadDbc() never leaves a live
+    // wasm worker behind keeping the Node process alive.
+    if (!closed) {
+      closed = true;
+      rejectAll(e);
+    }
+    await worker.terminate();
+    throw e;
+  }
 
   const parse = (s) => JSON.parse(s);
   return {

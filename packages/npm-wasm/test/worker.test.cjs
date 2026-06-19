@@ -84,6 +84,24 @@ async function main() {
   }
   assert(rejectedAfterClose, "search() after close() should reject, not hang");
 
+  // Regression guard (roborev 6537): when a setup RPC rejects after the Worker
+  // is created (here an invalid credential registryURL makes dbcNewClient
+  // reject), loadDbc must reject AND terminate the worker instead of leaving a
+  // live wasm worker behind. A leaked worker keeps the event loop alive and
+  // would hang this process on exit (surfacing as a CI timeout).
+  let initRejected = false;
+  try {
+    await loadDbc({
+      worker: true,
+      baseURL: base,
+      platform: "linux_amd64",
+      credential: { registryURL: "http://\u0000", authURI: "http://example.test", token: "t" },
+    });
+  } catch {
+    initRejected = true;
+  }
+  assert(initRejected, "loadDbc({worker:true}) with an invalid credential should reject");
+
   fs.rmSync(installDir, { recursive: true, force: true });
   server.close();
   console.log("WORKER SMOKE PASS:", { drivers: search.drivers.length, installed: manifest.id, verified: ok });
