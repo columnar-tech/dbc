@@ -73,9 +73,21 @@ jobs:
         run: node --version
       - name: Build @columnar-tech/dbc-wasm
         run: node packages/npm-wasm/scripts/build.js
-      - name: Loader unit tests
+      - name: Node loader unit tests
         run: node packages/npm-wasm/test/normalize.test.cjs
-      - name: Smoke test
+      - name: Node smoke test
         run: node packages/npm-wasm/test/smoke.cjs
-      - name: Worker smoke test
+      - name: Node worker smoke test
         run: node packages/npm-wasm/test/worker.test.cjs
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+      - name: Deno version
+        run: deno --version
+      - name: Deno loader unit tests
+        run: deno run -A packages/npm-wasm/test/normalize.test.cjs
+      - name: Deno smoke test
+        run: deno run -A packages/npm-wasm/test/smoke.cjs
+      - name: Deno worker smoke test
+        run: deno run -A packages/npm-wasm/test/worker.test.cjs
