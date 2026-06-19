@@ -91,6 +91,11 @@ export interface Dbc {
    *   platform set at load time is used.
    */
   resolve(name: string, platform?: string): Promise<ResolveResult>;
+  /**
+   * Verify a driver library's detached signature. Trust is anchored solely to
+   * the Columnar signing key (`SignedByColumnar`); per-registry or caller-supplied
+   * trust anchors are a deliberate non-goal of this build.
+   */
   verifySignature(library: Uint8Array, signature: Uint8Array): Promise<boolean>;
   /**
    * Release the underlying client handle (and, in worker mode, terminate the
@@ -100,7 +105,15 @@ export interface Dbc {
    */
   close(): Promise<void>;
 
-  /** Node-only (requires a filesystem). */
+  /**
+   * Node-only (requires a filesystem).
+   *
+   * NOTE: `install`/`listInstalled` resolve the package via the **process-global**
+   * platform (see `DbcOptions.platform`) and have no per-call platform override.
+   * Concurrent in-process clients pinned to different platforms can therefore
+   * install or list the wrong platform's artifact; use the worker backend for
+   * multi-platform concurrency.
+   */
   install?(name: string, location: string): Promise<Manifest>;
   uninstall?(name: string, location: string): Promise<void>;
   listInstalled?(location: string): Promise<InstalledDriver[]>;

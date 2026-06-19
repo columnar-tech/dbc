@@ -1,6 +1,6 @@
 # Phase 0 De-Risk Spike — Report
 
-**Result: PASS.** All Phase 0 acceptance criteria are green on Linux (Node v24.11.1, Go 1.26.4). The architecture in `.sisyphus/plans/wasm-js-interface.md` is confirmed; proceed to Phase 1/2.
+**Result: PASS.** All Phase 0 acceptance criteria are green on Linux (Node v24.11.1, Go 1.26.4 at spike time; CI now pins Go 1.25 — see `.github/workflows/wasm.yml`). The architecture in `.sisyphus/plans/wasm-js-interface.md` is confirmed; proceed to Phase 1/2.
 
 ## Acceptance criteria
 
@@ -42,6 +42,12 @@ This confirms the `http.DefaultClient`/`dbc.DefaultClient` override in the entry
 
 ## Change set
 
+> **Note (superseded):** this records the Phase 0 spike layout. The shipped
+> implementation split the single `wasm/main_node.go` API surface across
+> `wasm/api_js.go`, `wasm/ops_node_js.go`, `wasm/bridge_js.go`, and
+> `wasm/roundtripper_js.go`; `wasm/main_node.go` is now a thin entrypoint. Use
+> the current tree (not this list) to navigate the code.
+
 - `client.go` — telemetry call swap; removed direct `machine-id` import; added exported `WithCredentialResolver`.
 - `drivers.go` — telemetry call swap; removed direct `machine-id` import.
 - `telemetry_other.go` (`//go:build !js`), `telemetry_wasm.go` (`//go:build js`) — `telemetryMachineID()` seam.
@@ -62,6 +68,13 @@ bash wasm/spike/run.sh
 ```
 
 ## Next (Phase 1/2)
+
+> **Status update:** Phases 1–2 were folded into the Phase 3 npm-package work and
+> Phase 4 (worker backend, Windows-host groundwork) rather than shipped as
+> separately labeled phases. The `main_browser.go` browser seam was added but is
+> **not yet delivered** (no loader, npm entry, or smoke test); it remains a
+> tracked future phase. The single canonical type declaration is
+> `packages/npm-wasm/index.d.ts`.
 
 - Productionize: unit-test `WithCredentialResolver`; add `main_browser.go` (`//go:build js && !dbcnode`) for the browser seam; JSON DTOs + `.d.ts`.
 - Add `resolve` (versions/URLs) to the API.
