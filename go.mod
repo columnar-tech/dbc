@@ -14,9 +14,9 @@
 
 module github.com/columnar-tech/dbc
 
-go 1.25.0
+go 1.26
 
-toolchain go1.25.6
+toolchain go1.26.4
 
 require (
 	charm.land/bubbles/v2 v2.0.0
@@ -25,6 +25,8 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/ProtonMail/gopenpgp/v3 v3.3.0
 	github.com/alexflint/go-arg v1.6.1
+	github.com/charmbracelet/x/ansi v0.11.6
+	github.com/charmbracelet/x/term v0.2.2
 	github.com/cli/browser v1.3.0
 	github.com/cli/oauth v1.2.1
 	github.com/go-faster/yaml v0.4.6
@@ -44,8 +46,6 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.2 // indirect
 	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/ultraviolet v0.0.0-20260205113103-524a6607adb8 // indirect
-	github.com/charmbracelet/x/ansi v0.11.6 // indirect
-	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
