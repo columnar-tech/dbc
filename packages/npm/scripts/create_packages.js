@@ -37,7 +37,7 @@ const { execFileSync } = require("child_process");
 
 const GITHUB_REPO = "columnar-tech/dbc";
 
-const { PLATFORMS } = require("../platforms.js");
+const { PLATFORMS } = require("../wrapper/platforms.js");
 
 function findPlatform(goosArch) {
   return PLATFORMS.find((p) => p.goosArch === goosArch);
@@ -157,7 +157,7 @@ function writeWrapperPackageJson(version) {
       directory: "packages/npm/wrapper",
     },
     bin: { dbc: "bin/dbc.js" },
-    files: ["bin/", "README.md", "LICENSE"],
+    files: ["bin/", "platforms.js", "README.md", "LICENSE"],
     optionalDependencies,
   };
   fs.writeFileSync(

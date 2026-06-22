@@ -17,7 +17,7 @@
 
 const { execFileSync } = require("child_process");
 const { platform, arch } = process;
-const { PLATFORMS } = require("../../platforms.js");
+const { PLATFORMS } = require("../platforms.js");
 
 const entry = PLATFORMS.find((p) => p.os === platform && p.cpu === arch);
 
