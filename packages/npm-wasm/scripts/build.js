@@ -59,7 +59,7 @@ function writePackageJson(version) {
   const pkg = {
     name: "@columnar-tech/dbc-wasm",
     version,
-    description: "WebAssembly build of dbc for Node.js and Node.js compatible runtimes: search, install, and manage ADBC drivers,
+    description: "WebAssembly build of dbc for Node.js and Node.js-compatible runtimes: search, install, and manage ADBC drivers",
     keywords: ["adbc", "arrow", "database", "drivers", "dbc", "wasm", "webassembly"],
     homepage: "https://columnar.tech/dbc",
     bugs: "https://github.com/columnar-tech/dbc/issues",
