@@ -93,7 +93,7 @@ func FindDriverConfigs(lvl ConfigLevel) []DriverInfo {
 
 func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 	if cfg.Level == ConfigEnv {
-		for _, prefix := range filepath.SplitList(cfg.Location) {
+		for _, prefix := range splitConfigList(cfg.Location) {
 			if di, err := loadDriverFromManifest(prefix, driverName); err == nil {
 				return di, nil
 			}

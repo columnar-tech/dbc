@@ -120,7 +120,7 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 func EnsureLocation(cfg Config) (string, error) {
 	loc := cfg.Location
 	if cfg.Level == ConfigEnv {
-		list := filepath.SplitList(loc)
+		list := splitConfigList(loc)
 		if len(list) == 0 {
 			return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
 		}
@@ -202,6 +202,30 @@ func loadConfig(lvl ConfigLevel) Config {
 
 	cfg.Exists, cfg.Drivers = true, drivers
 	return cfg
+}
+
+// FindDriverConfigsIn lists installed drivers from an explicit location without
+// consulting environment variables, so it is safe for request-scoped concurrent
+// callers. A location containing the OS list separator is treated as a path list
+// (matching the env config level).
+func FindDriverConfigsIn(location string) []DriverInfo {
+	if location == "" {
+		return nil
+	}
+	paths := splitConfigList(location)
+	slices.Reverse(paths)
+	merged := make(map[string]DriverInfo)
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		drivers, err := loadDir(p)
+		if err != nil {
+			continue
+		}
+		maps.Copy(merged, drivers)
+	}
+	return slices.Collect(maps.Values(merged))
 }
 
 func getEnvConfigDir() string {

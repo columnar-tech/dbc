@@ -1,0 +1,93 @@
+# Copyright 2026 Columnar Technologies Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Wasm
+on:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - '**/*.go'
+      - 'auth/**'
+      - 'config/**'
+      - 'internal/**'
+      - 'wasm/**'
+      - 'packages/npm-wasm/**'
+      - 'cmd/dbc/testdata/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/wasm.yml'
+  pull_request:
+    paths:
+      - '**/*.go'
+      - 'auth/**'
+      - 'config/**'
+      - 'internal/**'
+      - 'wasm/**'
+      - 'packages/npm-wasm/**'
+      - 'cmd/dbc/testdata/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/wasm.yml'
+
+concurrency:
+  group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # windows-latest is intentionally excluded: the WASM Windows-host path is
+        # experimental and not yet passing (driver discovery under GOOS=js — see
+        # https://github.com/columnar-tech/dbc/issues/396). Re-add when fixed.
+        os: [ 'ubuntu-latest', 'macos-latest' ]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Node version
+        run: node --version
+      - name: Build @columnar-tech/dbc-wasm
+        run: node packages/npm-wasm/scripts/build.js
+      - name: Node loader unit tests
+        run: node packages/npm-wasm/test/normalize.test.cjs
+      - name: Node smoke test
+        run: node packages/npm-wasm/test/smoke.cjs
+      - name: Node worker smoke test
+        run: node packages/npm-wasm/test/worker.test.cjs
+      - name: Setup Deno
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
+        with:
+          deno-version: v2.x
+      - name: Deno version
+        run: deno --version
+      - name: Deno loader unit tests
+        run: deno run -A packages/npm-wasm/test/normalize.test.cjs
+      - name: Deno smoke test
+        run: deno run -A packages/npm-wasm/test/smoke.cjs
+      - name: Deno worker smoke test
+        run: deno run -A packages/npm-wasm/test/worker.test.cjs
