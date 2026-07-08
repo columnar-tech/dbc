@@ -73,6 +73,7 @@ Let's use dbc to install the BigQuery ADBC driver.
 
 First, run `dbc search` to find the exact name of the driver:
 
+<!-- dbc-output: search -->
 ```console
 $ dbc search
 bigquery             An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
@@ -92,6 +93,7 @@ trino                An ADBC Driver for Trino developed by the ADBC Driver Found
 oracle     [private] An ADBC driver for Oracle Database developed by Columnar
 teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
+<!-- /dbc-output -->
 
 From the output, you can see that the name you'll need is `"bigquery"`.
 Now install it:

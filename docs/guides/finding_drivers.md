@@ -18,6 +18,7 @@ limitations under the License.
 
 You can list the available drivers by running `dbc search`:
 
+<!-- dbc-output: search -->
 ```console
 $ dbc search
 bigquery             An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
@@ -37,6 +38,7 @@ trino                An ADBC Driver for Trino developed by the ADBC Driver Found
 oracle     [private] An ADBC driver for Oracle Database developed by Columnar
 teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
+<!-- /dbc-output -->
 
 !!! note
 
