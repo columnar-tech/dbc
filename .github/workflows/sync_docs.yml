@@ -18,6 +18,11 @@ on:
   schedule:
     - cron: "23 14 * * *"  # 14:23 UTC daily
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: sync docs but do not open a PR"
+        type: boolean
+        default: false
 
 concurrency:
   group: sync-docs
@@ -57,7 +62,7 @@ jobs:
           fi
 
       - name: Push branch and open PR
-        if: steps.diff.outputs.changed == 'true'
+        if: steps.diff.outputs.changed == 'true' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ github.token }}
           PR_BODY: |
