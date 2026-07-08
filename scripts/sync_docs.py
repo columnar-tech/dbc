@@ -161,7 +161,7 @@ def main() -> int:
 
     if not shutil.which("dbc"):
         print(
-            "error: `dbc` not found in PATH — install with: pip install dbc",
+            "error: `dbc` not found in PATH — install with: uv tool install dbc",
             file=sys.stderr,
         )
         return 1
