@@ -1,0 +1,91 @@
+# Copyright 2026 Columnar Technologies Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Sync Docs
+
+on:
+  schedule:
+    - cron: "23 14 * * *"  # 14:23 UTC daily
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: sync docs but do not open a PR"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sync-docs
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: true
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dbc
+        run: pip install dbc
+
+      - name: Run sync
+        run: python scripts/sync_docs.py
+
+      - name: Check for changes
+        id: diff
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push branch and open PR
+        if: steps.diff.outputs.changed == 'true' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_BODY: |
+            Automated update of `dbc` command output in docs.
+
+            This PR was opened by the [Sync Docs](../actions/workflows/sync_docs.yml) workflow after detecting that one or more annotated output blocks no longer match the output of the currently released `dbc`.
+
+            **Review the diff before merging** to confirm the changes look correct and there are no unexpected formatting regressions.
+        run: |
+          BRANCH="docs/sync-output-$(date +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add docs/
+          git commit -m "docs: sync dbc command output"
+          git push --force origin "$BRANCH"
+
+          # Open a PR only if one doesn't already exist for this branch.
+          if ! gh pr view "$BRANCH" --json number -q .number 2>/dev/null; then
+            gh pr create \
+              --title "docs: sync dbc command output" \
+              --body "$PR_BODY" \
+              --head "$BRANCH" \
+              --base main \
+              --label "documentation"
+          fi
