@@ -32,7 +32,7 @@ require (
 	github.com/go-faster/yaml v0.4.6
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/mattn/go-isatty v0.0.20
+	github.com/mattn/go-isatty v0.0.22
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.11.1
 	github.com/zeroshade/machine-id v0.0.0-20251223181436-930511047eef
