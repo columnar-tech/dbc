@@ -150,7 +150,6 @@ func TestMarshalDriverListEmptyTableSection(t *testing.T) {
 	assert.Equal(t, `# dbc driver list
 [drivers]
 [drivers.test-driver-1]
-
 [drivers.test-driver-2]
 version = '>=1.0.0'
 `, string(data))
