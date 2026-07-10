@@ -30,12 +30,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: './go.mod'
 
@@ -68,22 +68,22 @@ jobs:
           gpg-connect-agent "PRESET_PASSPHRASE $KEYGRIP -1 $(echo -n '${{ secrets.SIGNING_PASSWORD }}' | od -An -t x1 | tr -d ' ')"
 
       - name: "Set up Python"
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
       - name: Install Wheel
         run: pip install wheel
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Run GoReleaser Snapshot
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         id: gorelease-snapshot
         with:
           distribution: goreleaser-pro
@@ -119,7 +119,7 @@ jobs:
           node bin/dbc.js --version
 
       - name: Upload Snapshot Artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: snapshot-artifacts
           path: |
@@ -142,12 +142,12 @@ jobs:
       contents: write
       id-token: write # For AWS auth
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: './go.mod'
           cache: false
@@ -181,17 +181,17 @@ jobs:
           gpg-connect-agent "PRESET_PASSPHRASE $KEYGRIP -1 $(echo -n '${{ secrets.SIGNING_PASSWORD }}' | od -An -t x1 | tr -d ' ')"
 
       - name: AWS Login
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a  # v4.3.1
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b  # v6.2.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE }}
           role-session-name: deploy-production-${{ github.run_id }}-${{ github.run_attempt }}
           aws-region: ${{ vars.AWS_REGION }}
 
       - name: "Set up Python"
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
 
@@ -199,16 +199,16 @@ jobs:
         run: pip install wheel
 
       - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           username: "columnar"
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       # cross-platform macos notarization/signing
       - name: Install anchore/quill
@@ -216,7 +216,7 @@ jobs:
           curl -sSfL https://get.anchore.io/quill | sudo sh -s -- -b /usr/local/bin
 
       # setup digicert signing
-      - uses: digicert/ssm-code-signing@fb61e357690ad6aaa11c372000c37fb74d35c000  # v1.1.1
+      - uses: digicert/ssm-code-signing@1d820463733701cf1484c7eb5d7d24a15ca2c454  # v1.2.1
         id: digicert
 
       - name: Setup Certificate and Env
@@ -240,7 +240,7 @@ jobs:
           PKCS11_CONFIG: ${{ steps.digicert.outputs.PKCS11_CONFIG }}
 
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         id: gorelease
         with:
           distribution: goreleaser-pro
@@ -260,7 +260,7 @@ jobs:
           DBC_WINGET_GITHUB_PAT: ${{ secrets.DBC_WINGET_GITHUB_PAT }}
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc # 1.12.4
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # 1.14.0
         with:
           packages-dir: dist/python/
 
@@ -286,7 +286,7 @@ jobs:
       contents: read
       id-token: write # For npm provenance
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
