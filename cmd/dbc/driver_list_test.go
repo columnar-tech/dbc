@@ -15,12 +15,16 @@
 package main
 
 import (
+	"bytes"
 	"cmp"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/pelletier/go-toml/v2"
@@ -96,6 +100,59 @@ func TestMarshalDriverManifestList(t *testing.T) {
 [drivers]
 [drivers.flightsql]
 version = '>=1.6.0'
+`, string(data))
+}
+
+func TestMarshalDriverListEmptyTableSection(t *testing.T) {
+	// Regression test for go-toml v2.2 → v2.4 upgrade: v2.4 drops the
+	// blank line after an empty table section, which changes dbc.toml output.
+	//
+	// Runs
+	// $ dbc init
+	// $ dbc add test-driver-1 "test-driver-2>=1.0.0"
+	//
+	// and asserts on the TOML output
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "dbc.toml")
+
+	{
+		m := InitCmd{Path: tomlPath}.GetModel()
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		var out bytes.Buffer
+		p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out), tea.WithContext(ctx))
+		_, err := p.Run()
+		require.NoError(t, err)
+	}
+
+	{
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(testBaseModel())
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		var out bytes.Buffer
+		p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out), tea.WithContext(ctx))
+		_, err := p.Run()
+		require.NoError(t, err)
+	}
+
+	{
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-2>=1.0.0"}}.GetModelCustom(testBaseModel())
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		var out bytes.Buffer
+		p := tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out), tea.WithContext(ctx))
+		_, err := p.Run()
+		require.NoError(t, err)
+	}
+
+	data, err := os.ReadFile(tomlPath)
+	require.NoError(t, err)
+	assert.Equal(t, `# dbc driver list
+[drivers]
+[drivers.test-driver-1]
+
+[drivers.test-driver-2]
+version = '>=1.0.0'
 `, string(data))
 }
 
