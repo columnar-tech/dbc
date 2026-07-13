@@ -28,7 +28,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/cli/browser v1.3.0
-	github.com/cli/oauth v1.2.1
+	github.com/cli/oauth v1.2.2
 	github.com/go-faster/yaml v0.4.6
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
