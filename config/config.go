@@ -148,28 +148,6 @@ func EnsureLocation(cfg Config) (string, error) {
 	return loc, nil
 }
 
-func loadDir(dir string) (map[string]DriverInfo, error) {
-	if _, err := os.Stat(dir); err != nil {
-		return nil, err
-	}
-
-	ret := make(map[string]DriverInfo)
-
-	fsys := os.DirFS(dir)
-	matches, _ := fs.Glob(fsys, "*.toml")
-	for _, m := range matches {
-		p := filepath.Join(dir, m)
-		di, err := loadDriverFromManifest(filepath.Dir(p), filepath.Base(p))
-		if err != nil {
-			continue
-		}
-
-		di.FilePath = filepath.Dir(p)
-		ret[di.ID] = di
-	}
-	return ret, nil
-}
-
 func loadConfig(lvl ConfigLevel) Config {
 	cfg := Config{Level: lvl, Location: lvl.ConfigLocation()}
 	if cfg.Location == "" {
