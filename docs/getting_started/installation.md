@@ -167,13 +167,8 @@ The following distroless images are available for Linux-based `amd64` and `arm64
 You can install dbc from our Homebrew tap by running:
 
 ```console
-$ brew install columnar-tech/tap/dbc
-```
-
-This will automatically configure our tap and install dbc from it. If you'd rather do this as two separate commands, you can run:
-
-```console
 $ brew tap columnar-tech/tap
+$ brew trust columnar-tech/tap
 $ brew install dbc
 ```
 
