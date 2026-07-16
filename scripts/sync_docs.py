@@ -100,7 +100,7 @@ def run_dbc(args_str: str) -> str:
         raise RuntimeError("`dbc` not found in PATH — install with: pip install dbc")
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"exited {result.returncode}")
-    return result.stdout
+    return "\n".join(line.rstrip() for line in result.stdout.splitlines())
 
 
 def make_block(args_str: str, output: str) -> str:
