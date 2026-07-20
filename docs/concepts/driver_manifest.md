@@ -16,7 +16,7 @@ limitations under the License.
 
 # Driver Manifest
 
-The term "driver manifest" refers to an [ADBC Driver Manfifest](https://arrow.apache.org/adbc/current/format/driver_manifests.html).
+The term "driver manifest" refers to an [ADBC Driver Manifest](https://arrow.apache.org/adbc/current/format/driver_manifests.html).
 
 In short, a driver manifest is a metadata file that stores key information about a driver, including the information a [Driver Manager](./driver_manager.md) needs to load it.
 
