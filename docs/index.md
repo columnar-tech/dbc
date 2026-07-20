@@ -1527,17 +1527,17 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         let mut driver = ManagedDriver::load_from_name("trino", ... )
         ```
 
-<br/>For a more detailed walkthrough on how to use dbc, check out our [First steps](./getting_started/first_steps.md) page or any of our [Guides](./guides/index.md).
+<br/>For a more detailed walkthrough on how to use dbc, check out our [First Steps](./getting_started/first_steps.md) page or any of our [Guides](./guides/index.md).
 
 ## Features
 
 - Install pre-built [ADBC](https://arrow.apache.org/adbc) drivers with a single command
-- Manage numerous drivers without conflicts
-- Install drivers just for your user or system-wide
 - Create reproducible environments with [driver list](concepts/driver_list.md) files
-- Cross-platform: Runs on macOS, Linux, and Windows
 - Installable with pip, Docker, and more (See [Installation](./getting_started/installation.md))
 - Works great in CI/CD environments (See [Continuous Integration](./guides/continuous_integration.md))
+- Manage numerous [drivers](./concepts/driver.md) without conflicts using [driver manifests](./concepts/driver_manifest.md)
+- Install drivers just for your user or [system-wide](./reference/config_level.md)
+- Cross-platform: Runs on [macOS, Linux, and Windows](./reference/supported_platforms.md)
 
 ## Help
 

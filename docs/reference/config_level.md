@@ -16,12 +16,12 @@ limitations under the License.
 
 # Config Level Reference
 
-Various dbc subcommands (like [install](cli.md#install), [sync](cli.md#sync), [list](cli.md#list)) take a `--level` argument which gives you control over where dbc installs or looks for drivers.
+Various [dbc](../index.md) subcommands (like [install](cli.md#install), [sync](cli.md#sync), [list](cli.md#list)) take a `--level` argument which gives you control over where dbc installs or looks for [drivers](../concepts/driver.md).
 
 ## Default Behavior
 
 When the `--level` argument is not explicitly set for the command you are running, dbc first searches a list of environment variables, before defaulting to the [User](#user) level.
-When `--level` is explicitly set, dbc installs drivers in that level and ignores any environment variables that might be set.
+When `--level` is explicitly set, dbc [installs drivers](../guides/installing.md) in that level and ignores any environment variables that might be set.
 
 dbc searches the following environment variables, in order:
 
@@ -54,4 +54,4 @@ For example, if you are in a Python virtual environment, you can still override 
 
 ## More Info
 
-See [ADBC Driver Manager and Manifests](https://arrow.apache.org/adbc/main/format/driver_manifests.html) for more detail.
+See [ADBC Driver Manager and Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) for more detail. For information on installing the ADBC driver manager for your language, see the [Installing a Driver Manager](../guides/driver_manager.md) guide.

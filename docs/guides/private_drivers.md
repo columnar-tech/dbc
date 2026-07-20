@@ -18,7 +18,7 @@ limitations under the License.
 
 {{ since_version('v0.2.0') }}
 
-Most drivers available with dbc are hosted on Columnar's public [driver registry](../concepts/driver_registry.md). However, some of the drivers you see when you run `dbc search` may be marked with a `[private]` label.
+Most [drivers](../concepts/driver.md) available with [dbc](../index.md) are hosted on Columnar's public [driver registry](../concepts/driver_registry.md). However, some of the drivers you see when you run [`dbc search`](../reference/cli.md#search) may be marked with a `[private]` label.
 
 To install and use these drivers, you must:
 
@@ -29,7 +29,7 @@ Continue reading to learn how to log in and start a trial.
 
 ## Logging In
 
-To log into Columnar's private driver registry, run `dbc auth login`. This will automatically create an account for you the first time you log in.
+To log into Columnar's private [driver registry](../concepts/driver_registry.md), run [`dbc auth login`](../reference/cli.md#auth-login). This will automatically create an account for you the first time you log in.
 
 You will see the following in your terminal and your default web browser will be opened:
 
@@ -52,7 +52,7 @@ Licenses can be obtained from the [Licenses](https://console.columnar.tech/licen
 dbc will automatically download your license if you:
 
 1. Have an active license
-2. Run `dbc install` with a private driver
+2. Run [`dbc install`](../reference/cli.md#install) with a private driver
 
 #### Manual Install with dbc
 
@@ -78,7 +78,7 @@ You may also use a custom location by setting the environment variable `XDG_DATA
 
 ## Logging Out
 
-To log out, run `dbc auth logout`.
+To log out, run [`dbc auth logout`](../reference/cli.md#auth-logout).
 
 By default, the `logout` command doesn't purge any driver licenses from your system and only removes your login credentials. If you wish remove the local copy of your license run:
 
@@ -97,7 +97,7 @@ $ dbc auth logout --purge
 
 ## API Keys
 
-dbc also supports logging in to private driver registries via API key. This is primarily intended for use in [Continuous Integration](https://en.wikipedia.org/wiki/Continuous_integration) systems or any system where logging in with a web browser is not possible.
+dbc also supports logging in to private [driver registries](../concepts/driver_registry.md) via API key. This is primarily intended for use in [continuous integration](./continuous_integration.md) systems or any system where logging in with a web browser is not possible.
 
 To create an API key, open a web browser to your [API keys](https://console.columnar.tech/apikeys) page.
 

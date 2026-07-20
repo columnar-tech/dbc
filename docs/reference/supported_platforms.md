@@ -16,7 +16,7 @@ limitations under the License.
 
 # Supported Platforms
 
-dbc is supported on the following platforms:
+[dbc](../index.md) is supported on the following platforms:
 
 - macOS (Apple Silicon)
 - macOS (Intel)
@@ -28,8 +28,8 @@ dbc is developed, tested, and packaged for these platforms. If you find any prob
 
 ## Driver Support
 
-Drivers that you can install with dbc are generally available for all of the above platforms.
-When dbc [installs](../guides/installing.md) a driver, it tries to find a driver matching the platform it's being run on and will return an error if one isn't found.
+[Drivers](../concepts/driver.md) that you can [install](../guides/installing.md) with dbc are generally available for all of the above platforms.
+When dbc installs a driver, it automatically detects your platform and tries to find a [driver package](../concepts/driver_manifest.md) matching your system. If a driver isn't available for your platform, you'll receive an error.
 
 For example, on arm64 Windows you would get this error:
 

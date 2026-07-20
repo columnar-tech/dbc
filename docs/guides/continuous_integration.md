@@ -16,13 +16,13 @@ limitations under the License.
 
 # Continuous Integration
 
-dbc works well in non-interactive environments such as on continuous integration (CI) platforms. You may also want to read through our [Version Control](./version_control.md) guide as these two concepts are related.
+[dbc](../index.md) works well in non-interactive environments such as on continuous integration (CI) platforms. You may also want to read through our [Version Control](./version_control.md) guide as these two concepts are related. For more information on installing dbc, see the [Installation](../getting_started/installation.md) guide.
 
 ## GitHub Actions
 
 We recommend using the [columnar-tech/setup-dbc](https://github.com/columnar-tech/setup-dbc) action if you're using [GitHub Actions](https://docs.github.com/en/actions) for CI.
 
-As an example, here's a workflow that automatically installs all drivers listed in your [driver list](../concepts/driver_list.md) before running your tests:
+As an example, here's a workflow that automatically [installs](./installing.md) all [drivers](../concepts/driver.md) listed in your [driver list](../concepts/driver_list.md) before running your tests:
 
 ```yaml
 name: Test
@@ -45,7 +45,7 @@ See the [columnar-tech/setup-dbc README](https://github.com/columnar-tech/setup-
 
 ## Other CI Systems
 
-To use dbc with other CI systems, we recommend using our command line installers because they will always install the latest version of dbc for whatever platform you run them on.
+To use dbc with other CI systems, we recommend using our [command line installers](../getting_started/installation.md) because they will always install the latest version of dbc for whatever [platform](../reference/supported_platforms.md) you run them on.
 
 As an example for you to adapt to your system, here's a GitHub Actions workflow that installs and makes dbc available without using [columnar-tech/setup-dbc](https://github.com/columnar-tech/setup-dbc):
 

@@ -24,12 +24,12 @@ In the context of dbc, "driver" means "ADBC driver." It's ADBC drivers that dbc 
 
 ## What Is an ADBC Driver?
 
-At a high level, an ADBC driver is a library that wraps the client for the database you want to use and exposes that database to you with a consistent API: the [ADBC API](https://arrow.apache.org/adbc/main/format/specification.html).
+At a high level, an ADBC driver is a library that wraps the client for the database you want to use and exposes that database to you with a consistent API: the [ADBC API](https://arrow.apache.org/adbc/current/format/specification.html).
 
-For example, if you're using the [ADBC SQLite Driver](https://arrow.apache.org/adbc/main/driver/sqlite.html) in C++ code and you want to run a SQL query, you'd call two functions (in order):
+For example, if you're using the [ADBC SQLite Driver](https://arrow.apache.org/adbc/current/driver/sqlite.html) in C++ code and you want to run a SQL query, you'd call two functions (in order):
 
-- [`AdbcStatementSetSqlQuery`](https://arrow.apache.org/adbc/main/cpp/api/group__adbc-statement-sql.html#ga40254bb2c39711f5d2772cb78f349e4a)
-- [`AdbcStatementExecuteQuery`](https://arrow.apache.org/adbc/main/cpp/api/group__adbc-statement.html#ga1f653045678d9d5d51780e37e3b644a6)
+- [`AdbcStatementSetSqlQuery`](https://arrow.apache.org/adbc/current/cpp/api/group__adbc-statement-sql.html#ga40254bb2c39711f5d2772cb78f349e4a)
+- [`AdbcStatementExecuteQuery`](https://arrow.apache.org/adbc/current/cpp/api/group__adbc-statement.html#ga1f653045678d9d5d51780e37e3b644a6)
 
 Inside the driver, these two functions call corresponding functions in the [SQLite API](https://www.sqlite.org/cintro.html):
 
@@ -42,5 +42,5 @@ While there's no hard requirement for a driver to have a 1:1 correspondence like
 
 If you're interested in learning more about ADBC drivers or ADBC, check out these two pages:
 
-- [How Drivers and the Driver Manager Work Together](https://arrow.apache.org/adbc/main/format/how_manager.html)
-- [ADBC Frequently Asked Questions](https://arrow.apache.org/adbc/main/faq.html)
+- [How Drivers and the Driver Manager Work Together](https://arrow.apache.org/adbc/current/format/how_manager.html)
+- [ADBC Frequently Asked Questions](https://arrow.apache.org/adbc/current/faq.html)
