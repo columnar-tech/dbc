@@ -20,58 +20,6 @@ In order to use any of the drivers you [install](./installing.md) with dbc, you 
 
 The best place to find detailed information on driver manager installation is always the [ADBC docs](https://arrow.apache.org/adbc/) but we've included concise steps for a variety of languages here for convenience:
 
-=== "Python"
-
-    === "uv"
-
-        ```console
-        $ uv pip install adbc_driver_manager pyarrow
-        ```
-
-    === "pip"
-
-        ```console
-        $ pip install adbc_driver_manager pyarrow
-        ```
-
-    === "conda"
-
-        ```console
-        $ conda install -c conda-forge adbc-driver-manager pyarrow
-        ```
-
-=== "R"
-
-    ```r
-    install.packages("adbcdrivermanager")
-    ```
-
-=== "Go"
-
-    ```console
-    $ go get github.com/apache/arrow-adbc/go/adbc/drivermgr
-    ```
-
-=== "Ruby"
-
-    === "Bundler"
-
-        ```console
-        $ bundle add red-adbc
-        ```
-
-    === "gem"
-
-        ```console
-        $ gem install red-adbc
-        ```
-
-=== "Rust"
-
-    ```console
-    $ cargo add adbc_core adbc_driver_manager
-    ```
-
 === "C++"
 
     === "conda"
@@ -110,6 +58,12 @@ The best place to find detailed information on driver manager installation is al
         $ sudo dnf install adbc-driver-manager-devel
 
         ```
+
+=== "Go"
+
+    ```console
+    $ go get github.com/apache/arrow-adbc/go/adbc/drivermgr
+    ```
 
 === "Java"
 
@@ -153,3 +107,49 @@ The best place to find detailed information on driver manager installation is al
     ```
 
     Note that with the above you'll also need to set an `adbcVersion` property to an appropriate version.
+
+===+ "Python"
+
+    === "uv"
+
+        ```console
+        $ uv pip install adbc_driver_manager pyarrow
+        ```
+
+    === "pip"
+
+        ```console
+        $ pip install adbc_driver_manager pyarrow
+        ```
+
+    === "conda"
+
+        ```console
+        $ conda install -c conda-forge adbc-driver-manager pyarrow
+        ```
+
+=== "R"
+
+    ```r
+    install.packages("adbcdrivermanager")
+    ```
+
+=== "Ruby"
+
+    === "Bundler"
+
+        ```console
+        $ bundle add red-adbc
+        ```
+
+    === "gem"
+
+        ```console
+        $ gem install red-adbc
+        ```
+
+=== "Rust"
+
+    ```console
+    $ cargo add adbc_core adbc_driver_manager
+    ```
