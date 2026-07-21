@@ -154,7 +154,7 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 === "ClickHouse"
 
     ```console
-    $ dbc install --pre clickhouse
+    $ dbc install clickhouse
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
