@@ -143,6 +143,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("bigquery")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "bigquery")
+        ```
+
     === "Rust"
 
         ```rust
@@ -217,6 +225,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("clickhouse")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "clickhouse")
         ```
 
     === "Rust"
@@ -295,6 +311,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("databricks")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "databricks")
+        ```
+
     === "Rust"
 
         ```rust
@@ -369,6 +393,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("datafusion")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "datafusion")
         ```
 
     === "Rust"
@@ -447,6 +479,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("duckdb")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "duckdb")
+        ```
+
     === "Rust"
 
         ```rust
@@ -521,6 +561,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("exasol")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "exasol")
         ```
 
     === "Rust"
@@ -599,6 +647,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("flightsql")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "flightsql")
+        ```
+
     === "Rust"
 
         ```rust
@@ -675,6 +731,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("mssql")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "mssql")
+        ```
+
     === "Rust"
 
         ```rust
@@ -749,6 +813,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("mysql")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "mysql")
         ```
 
     === "Rust"
@@ -831,6 +903,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("oracle")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "oracle")
+        ```
+
     === "Rust"
 
         ```rust
@@ -905,6 +985,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("postgresql")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "postgresql")
         ```
 
     === "Rust"
@@ -983,6 +1071,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("quack")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "quack")
+        ```
+
     === "Rust"
 
         ```rust
@@ -1057,6 +1153,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("redshift")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "redshift")
         ```
 
     === "Rust"
@@ -1135,6 +1239,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("singlestore")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "singlestore")
+        ```
+
     === "Rust"
 
         ```rust
@@ -1209,6 +1321,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("snowflake")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "snowflake")
         ```
 
     === "Rust"
@@ -1287,6 +1407,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("spark")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "spark")
+        ```
+
     === "Rust"
 
         ```rust
@@ -1361,6 +1489,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("sqlite")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "sqlite")
         ```
 
     === "Rust"
@@ -1443,6 +1579,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         drv <- adbc_driver("teradata")
         ```
 
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "teradata")
+        ```
+
     === "Rust"
 
         ```rust
@@ -1517,6 +1661,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         library(adbcdrivermanager)
 
         drv <- adbc_driver("trino")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "trino")
         ```
 
     === "Rust"
