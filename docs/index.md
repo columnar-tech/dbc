@@ -1222,7 +1222,7 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 === "Spark"
 
     ```console
-    $ dbc install --pre spark
+    $ dbc install spark
     ```
 
     <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
