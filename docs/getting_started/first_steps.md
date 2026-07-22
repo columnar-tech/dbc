@@ -88,6 +88,7 @@ mysql                An ADBC Driver for MySQL developed by the ADBC Driver Found
 postgresql           An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 redshift             An ADBC driver for Amazon Redshift developed by Columnar
 snowflake            An ADBC driver for Snowflake developed under the Apache Software Foundation
+spark                An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
 sqlite               An ADBC driver for SQLite developed under the Apache Software Foundation
 trino                An ADBC Driver for Trino developed by the ADBC Driver Foundry
 oracle     [private] An ADBC driver for Oracle Database developed by Columnar
