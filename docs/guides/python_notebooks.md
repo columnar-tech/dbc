@@ -16,7 +16,7 @@ limitations under the License.
 
 # Python Notebooks
 
-dbc can be installed and used directly in Python notebooks (such as [Jupyter](https://jupyter.org) or [Google Colab](https://colab.google)).
+[dbc](../index.md) can be [installed](../getting_started/installation.md) and used directly in Python notebooks (such as [Jupyter](https://jupyter.org) or [Google Colab](https://colab.google)).
 Each of the following code blocks is designed to be executed as an individual cell in your notebook.
 
 Install the `dbc`, `adbc-driver-manager`, and `pyarrow` packages:
@@ -25,7 +25,7 @@ Install the `dbc`, `adbc-driver-manager`, and `pyarrow` packages:
 %pip install dbc adbc_driver_manager pyarrow
 ```
 
-Install the `duckdb` driver:
+Install the `duckdb` [driver](../concepts/driver.md):
 
 ```python
 !dbc install duckdb
@@ -33,16 +33,16 @@ Install the `duckdb` driver:
 
 !!! note
 
-    This guide uses the DuckDB driver for simplicity.
-    To list all available drivers, run `!dbc search`.
+    This guide uses the [DuckDB driver](https://arrow.apache.org/adbc/current/driver/duckdb.html) for simplicity.
+    To list all available drivers, run `!dbc search`. See the [Finding Drivers](./finding_drivers.md) guide for more information.
 
-Import the `dbapi` module:
+Import the `dbapi` module from the [ADBC driver manager](../concepts/driver_manager.md):
 
 ```python
 from adbc_driver_manager import dbapi
 ```
 
-Connect to a database via ADBC, create a cursor, execute queries, and fetch the result as a PyArrow Table:
+Connect to a database via [ADBC](https://arrow.apache.org/adbc/), create a cursor, execute queries, and fetch the result as a [PyArrow](https://arrow.apache.org/docs/python/) Table:
 
 ```python
 with (

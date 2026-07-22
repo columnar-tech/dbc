@@ -16,12 +16,12 @@ limitations under the License.
 
 # Installing Drivers
 
-Once you've [installed dbc](../getting_started/installation.md), the first thing you'll probably want to do is install a driver.
+Once you've [installed dbc](../getting_started/installation.md), the first thing you'll probably want to do is install a [driver](../concepts/driver.md).
 But before you can install a driver, you need to know what drivers are available and how to refer to them.
 
 ## Finding a Driver
 
-To find out what drivers are available, use `dbc search`:
+To find out what [drivers](../concepts/driver.md) are available, use [`dbc search`](../reference/cli.md#search). For more details, see the [Finding Drivers](./finding_drivers.md) guide:
 
 <!-- dbc-output: search -->
 ```console
@@ -45,11 +45,11 @@ teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 <!-- /dbc-output -->
 
-The short names in lowercase on the left of the output are the names you need to pass to `dbc install`.
+The short names in lowercase on the left of the output are the names you need to pass to [`dbc install`](../reference/cli.md#install). These drivers are available from Columnar's [driver registry](../concepts/driver_registry.md).
 
 !!! note
 
-    The drivers listed above with the  `[private]` label require a license to use. See [Private Drivers](./private_drivers.md) to learn how to use these drivers.
+    The drivers listed above with the `[private]` label require a license to use. See [Private Drivers](./private_drivers.md) to learn how to use these drivers.
 
 ## Installing a Driver
 
@@ -166,7 +166,7 @@ Where this installs depends on your operating system:
 
 !!! note
 
-    See [Manifest Location and Discovery](https://arrow.apache.org/adbc/main/format/driver_manifests.html#manifest-location-and-discovery) for complete documentation of where the ADBC driver managers will search for drivers. dbc has the same behavior.
+    See [Manifest Location and Discovery](https://arrow.apache.org/adbc/current/format/driver_manifests.html#manifest-location-and-discovery) for complete documentation of where the [ADBC driver managers](../concepts/driver_manager.md) will search for [drivers](../concepts/driver.md). dbc has the same behavior.
 
 
 !!! note

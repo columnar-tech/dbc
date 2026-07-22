@@ -24,7 +24,7 @@ On this page, we'll break down using dbc into three steps:
 2. Loading the driver with an ADBC driver manager
 3. Using the driver to run queries
 
-The process will be similar no matter which ADBC driver you are using but, for the purposes of this guide, we'll be using the BigQuery ADBC driver.
+The process will be similar no matter which ADBC driver you are using but, for the purposes of this guide, we'll be using the [BigQuery ADBC driver](https://docs.adbc-drivers.org/drivers/bigquery).
 
 Once you're finished, you will have successfully installed, loaded, and used the BigQuery ADBC driver to query a [BigQuery public dataset](https://cloud.google.com/bigquery/public-data).
 
@@ -32,7 +32,7 @@ Once you're finished, you will have successfully installed, loaded, and used the
 
 To run through the steps on this page, you'll need at a minimum,
 
-- dbc (See [Installation](./installation.md))
+- [dbc](../index.md) (See [Installation](./installation.md))
 - A recent Python installation with pip
 - The [Google Cloud CLI](https://cloud.google.com/cli) and a Google account to use it with
 
@@ -69,9 +69,9 @@ If all went well, your credentials are now saved locally and the BigQuery driver
 
 ## Installing a Driver
 
-Let's use dbc to install the BigQuery ADBC driver.
+Let's use dbc to [install](../guides/installing.md) the BigQuery ADBC driver.
 
-First, run `dbc search` to find the exact name of the driver:
+First, run [`dbc search`](../reference/cli.md#search) to find the exact name of the driver:
 
 <!-- dbc-output: search -->
 ```console
@@ -108,13 +108,13 @@ $ dbc install bigquery
 Installed bigquery 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
 
-The BigQuery ADBC driver is now installed and usable by any driver manager.
+The BigQuery ADBC driver is now installed and usable by any [driver manager](../concepts/driver_manager.md).
 
-For more information on on how to find drivers, see the [Finding Drivers](../guides/finding_drivers.md) guide.
+For more information on how to find drivers, see the [Finding Drivers](../guides/finding_drivers.md) guide. To learn more about what happens when you install a driver, see the [Installing Drivers](../guides/installing.md) guide.
 
 ## Installing a Driver Manager
 
-To load any driver you install with dbc, you'll need an ADBC driver manager.
+To load any driver you [install](../guides/installing.md) with dbc, you'll need an [ADBC driver manager](../concepts/driver_manager.md).
 Let's install the driver manager for Python.
 To learn about how to install driver managers for other languages, see the [Installing a Driver Manager](../guides/driver_manager.md) guide.
 
@@ -140,7 +140,7 @@ You're now ready to load the BigQuery driver and run some queries.
 
 ## Loading & Using a Driver
 
-The `adbc_driver_manager` package provides a high-level [DBAPI-style](https://peps.python.org/pep-0249/) interface that may be familiar to you if you've connected to databases using Python before.
+The `adbc_driver_manager` package provides a high-level [DBAPI-style](https://peps.python.org/pep-0249/) interface that may be familiar to you if you've connected to databases using Python before. For more details about the Python ADBC API, see the [Python ADBC documentation](https://arrow.apache.org/adbc/current/python/index.html).
 
 Import it like this:
 
@@ -293,4 +293,8 @@ Now you've run through a complete example of the process outlined at the start o
 
 As mentioned above, the process will be similar for any driver so hopefully you can adapt the steps here to another database.
 
-dbc can do a lot more than just install drivers. If you're interested in learning everything dbc can do, visit the [dbc CLI](../reference/cli.md) reference.
+If you're interested in learning everything can do with ADBC and dbc, check out these guides:
+
+- [Managing drivers with driver lists](../guides/driver_list.md)
+- [Using dbc in Python notebooks](../guides/python_notebooks.md)
+- [Using dbc in continuous integration](../guides/continuous_integration.md)

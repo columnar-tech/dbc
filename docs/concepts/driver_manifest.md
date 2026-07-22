@@ -18,9 +18,9 @@ limitations under the License.
 
 The term "driver manifest" refers to an [ADBC Driver Manifest](https://arrow.apache.org/adbc/current/format/driver_manifests.html).
 
-In short, a driver manifest is a metadata file that stores key information about a driver, including the information a [Driver Manager](./driver_manager.md) needs to load it.
+In short, a driver manifest is a metadata file that stores key information about a [driver](./driver.md), including the information a [driver manager](./driver_manager.md) needs to load it.
 
-For example, here's an example driver manifest for the MySQL ADBC driver:
+For example, here's an example driver manifest for the [MySQL ADBC driver](https://docs.adbc-drivers.org/drivers/mysql):
 
 ```toml
 manifest_version = 1
@@ -38,4 +38,4 @@ version = '1.1.0'
 macos_arm64 = '/Users/user/Library/Application Support/ADBC/Drivers/mysql_macos_arm64_v0.1.0'
 ```
 
-Many details about how driver manifests work are outlined in the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) documentation.
+Many details about how driver manifests work are outlined in the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) documentation. When you [install a driver](../guides/installing.md) with dbc, it creates and manages driver manifests for you automatically.
