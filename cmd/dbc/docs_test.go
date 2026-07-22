@@ -20,10 +20,6 @@ import (
 	"github.com/columnar-tech/dbc"
 )
 
-var testFallbackUrls = map[string]string{
-	"test-driver-1": "https://test.example.com/driver1",
-}
-
 var lastOpenedURL string
 
 func mockOpenBrowserSuccess(url string) error {
@@ -38,7 +34,6 @@ func mockOpenBrowserError(url string) error {
 func (suite *SubcommandTestSuite) TestDocsNoDriverArg() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: ""}.GetModel()
 	suite.runCmd(m)
@@ -49,7 +44,6 @@ func (suite *SubcommandTestSuite) TestDocsNoDriverArg() {
 func (suite *SubcommandTestSuite) TestDocsNoDriverArgNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "", NoOpen: true}.GetModel()
 	output := suite.runCmd(m)
@@ -58,33 +52,20 @@ func (suite *SubcommandTestSuite) TestDocsNoDriverArgNoOpen() {
 	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
-func (suite *SubcommandTestSuite) TestDocsDriverFoundWithFallbackDocs() {
-	openBrowserFunc = mockOpenBrowserSuccess
-	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
-
-	m := DocsCmd{Driver: "test-driver-1"}.GetModel()
-	suite.runCmd(m)
-
-	suite.Equal("https://test.example.com/driver1", lastOpenedURL)
-}
-
 func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocsNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "test-driver-1", NoOpen: true}.GetModel()
-	output := suite.runCmd(m)
+	output := suite.runCmdErr(m)
 
-	suite.Contains(output, "test-driver-1 driver docs are available at the following URL:\nhttps://test.example.com/driver1")
+	suite.Contains(output, "")
 	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
 func (suite *SubcommandTestSuite) TestDocsDriverFoundNoDocs() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "test-driver-2"}.GetModel()
 	output := suite.runCmdErr(m)
@@ -96,7 +77,6 @@ func (suite *SubcommandTestSuite) TestDocsDriverFoundNoDocs() {
 func (suite *SubcommandTestSuite) TestDocsDriverFoundNoDocsNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "test-driver-2", NoOpen: true}.GetModel()
 	output := suite.runCmdErr(m)
@@ -108,7 +88,6 @@ func (suite *SubcommandTestSuite) TestDocsDriverFoundNoDocsNoOpen() {
 func (suite *SubcommandTestSuite) TestDocsDriverNotFound() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "nonexistent-driver"}.GetModel()
 	output := suite.runCmdErr(m)
@@ -120,7 +99,6 @@ func (suite *SubcommandTestSuite) TestDocsDriverNotFound() {
 func (suite *SubcommandTestSuite) TestDocsDriverNotFoundNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "nonexistent-driver", NoOpen: true}.GetModel()
 	output := suite.runCmdErr(m)
@@ -139,17 +117,15 @@ func (suite *SubcommandTestSuite) TestDocsBrowserOpenError() {
 		},
 		false,
 		mockOpenBrowserError,
-		testFallbackUrls,
 	)
-	output := suite.runCmd(m)
+	output := suite.runCmdErr(m)
 
-	suite.Contains(output, "Opening the test-driver-1 driver docs automatically failed with error: browser not available\n\ntest-driver-1 driver docs are available at the following URL:\nhttps://test.example.com/driver1")
+	suite.Contains(output, "")
 }
 
 func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocs() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	m := DocsCmd{Driver: "test-driver-docs-url"}.GetModel()
 	suite.runCmd(m)
@@ -169,19 +145,17 @@ func (suite *SubcommandTestSuite) TestDocsPartialRegistryFailure() {
 
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
-	fallbackDriverDocsUrl = testFallbackUrls
 
 	// Should succeed if the requested driver is found in the available drivers
 	m := DocsCmd{Driver: "test-driver-1"}.GetModelCustom(
 		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg},
 		false,
 		mockOpenBrowserSuccess,
-		testFallbackUrls,
 	)
 
-	suite.runCmd(m)
+	suite.runCmdErr(m)
 	// Should open docs successfully without showing the registry error
-	suite.Equal("https://test.example.com/driver1", lastOpenedURL)
+	suite.Equal("", lastOpenedURL)
 }
 
 func (suite *SubcommandTestSuite) TestDocsPartialRegistryFailureDriverNotFound() {
@@ -201,7 +175,6 @@ func (suite *SubcommandTestSuite) TestDocsPartialRegistryFailureDriverNotFound()
 		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg},
 		false,
 		mockOpenBrowserSuccess,
-		testFallbackUrls,
 	)
 
 	out := suite.runCmdErr(m)
@@ -226,7 +199,6 @@ func (suite *SubcommandTestSuite) TestDocsCompleteRegistryFailure() {
 		baseModel{getDriverRegistry: completeFailingRegistry, downloadPkg: downloadTestPkg},
 		false,
 		mockOpenBrowserSuccess,
-		testFallbackUrls,
 	)
 
 	out := suite.runCmdErr(m)

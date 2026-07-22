@@ -91,10 +91,9 @@ func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 type SubcommandTestSuite struct {
 	suite.Suite
 
-	getDriverRegistryFn   func() ([]dbc.Driver, error)
-	openBrowserFn         func(string) error
-	fallbackDriverDocsUrl map[string]string
-	tempdir               string
+	getDriverRegistryFn func() ([]dbc.Driver, error)
+	openBrowserFn       func(string) error
+	tempdir             string
 
 	configLevel config.ConfigLevel
 }
@@ -103,7 +102,6 @@ func (suite *SubcommandTestSuite) SetupSuite() {
 	suite.getDriverRegistryFn = getDriverRegistry
 	getDriverRegistry = getTestDriverRegistry
 	suite.openBrowserFn = openBrowserFunc
-	suite.fallbackDriverDocsUrl = fallbackDriverDocsUrl
 
 	if suite.configLevel == config.ConfigUnknown {
 		suite.configLevel = config.ConfigEnv
@@ -119,7 +117,6 @@ func (suite *SubcommandTestSuite) SetupTest() {
 func (suite *SubcommandTestSuite) TearDownSuite() {
 	getDriverRegistry = suite.getDriverRegistryFn
 	openBrowserFunc = suite.openBrowserFn
-	fallbackDriverDocsUrl = suite.fallbackDriverDocsUrl
 }
 
 func (suite *SubcommandTestSuite) getFilesInTempDir() []string {
