@@ -77,6 +77,8 @@ These drivers can be [installed](./installing.md) and added to [driver lists](..
 ### Verbose
 
 You can use the `--verbose` flag to show detailed information about each driver, including all versions that are available and which are installed.
+
+<!-- dbc-output: search --verbose -->
 ```console
 $ dbc search --verbose
 • bigquery
@@ -209,6 +211,7 @@ $ dbc search --verbose
    Available Versions:
     ╰── 0.1.1
 ```
+<!-- /dbc-output -->
 
 ### Pre-release Versions
 
