@@ -52,6 +52,7 @@ The pattern is treated as a regular expression using Go's [regexp/syntax](https:
 
 For example, you can find drivers with 'sql' in their name by running,
 
+<!-- dbc-output: search sql -->
 ```console
 $ dbc search sql
 flightsql  An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -60,6 +61,7 @@ mysql      An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 postgresql An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 sqlite     An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
+<!-- /dbc-output -->
 
 ## Private Drivers
 
@@ -274,6 +276,7 @@ With `--pre`, `dbc search` will:
 
 For example, with `--pre --verbose`:
 
+<!-- dbc-output: search --pre --verbose mysql -->
 ```console
 $ dbc search --pre --verbose mysql
 • mysql
@@ -282,9 +285,13 @@ $ dbc search --pre --verbose mysql
    License: Apache-2.0
    Available Versions:
     ├── 0.1.0
-    ├── 0.2.0-beta.1
-    ╰── 0.2.0
+    ├── 0.2.0
+    ├── 0.3.0
+    ├── 0.3.1
+    ├── 0.4.0
+    ╰── 0.5.0
 ```
+<!-- /dbc-output -->
 
 !!! note
     Using the `--pre` flag with `dbc search` only affects the visibility of pre-release versions in search results. To actually install a pre-release version, you need to either use `--pre` with `dbc install` or use a version constraint that unambiguously references a pre-release (by including a pre-release suffix like `-beta.1`).
