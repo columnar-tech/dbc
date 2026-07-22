@@ -78,7 +78,7 @@ You may also use a custom location by setting the environment variable `XDG_DATA
 
 ## Logging Out
 
-To log out, run [`dbc auth logout`](../reference/cli.md#auth-logout).
+To log out, run [`dbc auth logout`](../reference/cli.md#logout).
 
 By default, the `logout` command doesn't purge any driver licenses from your system and only removes your login credentials. If you wish remove the local copy of your license run:
 
