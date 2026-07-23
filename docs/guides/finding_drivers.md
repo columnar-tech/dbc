@@ -33,6 +33,7 @@ mysql                An ADBC Driver for MySQL developed by the ADBC Driver Found
 postgresql           An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 redshift             An ADBC driver for Amazon Redshift developed by Columnar
 snowflake            An ADBC driver for Snowflake developed under the Apache Software Foundation
+spark                An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
 sqlite               An ADBC driver for SQLite developed under the Apache Software Foundation
 trino                An ADBC Driver for Trino developed by the ADBC Driver Foundry
 oracle     [private] An ADBC driver for Oracle Database developed by Columnar
@@ -51,6 +52,7 @@ The pattern is treated as a regular expression using Go's [regexp/syntax](https:
 
 For example, you can find drivers with 'sql' in their name by running,
 
+<!-- dbc-output: search sql -->
 ```console
 $ dbc search sql
 flightsql  An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -59,6 +61,7 @@ mysql      An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 postgresql An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 sqlite     An ADBC driver for SQLite developed under the Apache Software Foundation
 ```
+<!-- /dbc-output -->
 
 ## Private Drivers
 
@@ -77,6 +80,8 @@ These drivers can be [installed](./installing.md) and added to [driver lists](..
 ### Verbose
 
 You can use the `--verbose` flag to show detailed information about each driver, including all versions that are available and which are installed.
+
+<!-- dbc-output: search --verbose -->
 ```console
 $ dbc search --verbose
 • bigquery
@@ -87,13 +92,30 @@ $ dbc search --verbose
     ├── 1.0.0
     ├── 1.10.0
     ├── 1.11.0
-    ╰── 1.11.2
+    ├── 1.11.2
+    ├── 1.12.0
+    ╰── 1.12.1
+• clickhouse
+   Title: ClickHouse Driver
+   Description: An ADBC driver for ClickHouse developed by ClickHouse, Inc.
+   License: MIT OR Apache-2.0
+   Available Versions:
+    ╰── 0.1.0
 • databricks
    Title: ADBC Driver Foundry Driver for Databricks
    Description: An ADBC Driver for Databricks developed by the ADBC Driver Foundry
    License: Apache-2.0
    Available Versions:
-    ╰── 0.1.2
+    ├── 0.1.2
+    ╰── 0.1.3
+• datafusion
+   Title: ADBC Driver Foundry Driver for Apache DataFusion
+   Description: An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
+   License: Apache-2.0
+   Available Versions:
+    ├── 0.24.1
+    ├── 0.25.0
+    ╰── 0.26.0
 • duckdb
    Title: DuckDB Driver
    Description: An ADBC driver for DuckDB developed by the DuckDB Foundation
@@ -104,10 +126,12 @@ $ dbc search --verbose
     ├── 1.4.2
     ├── 1.4.3
     ├── 1.4.4
+    ├── 1.4.5
     ├── 1.5.0
     ├── 1.5.1
     ├── 1.5.2
-    ╰── 1.5.3
+    ├── 1.5.3
+    ╰── 1.5.4
 • exasol
    Title: Exasol Driver
    Description: An ADBC driver for Exasol developed by Exasol Labs
@@ -117,7 +141,9 @@ $ dbc search --verbose
     ├── 0.7.0
     ├── 0.9.0
     ├── 0.12.0
-    ╰── 0.12.6
+    ├── 0.12.6
+    ├── 0.12.7
+    ╰── 0.13.0
 • flightsql
    Title: ASF Apache Arrow Flight SQL Driver
    Description: An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -138,7 +164,8 @@ $ dbc search --verbose
     ├── 1.3.0
     ├── 1.3.1
     ├── 1.4.0
-    ╰── 1.4.1
+    ├── 1.4.1
+    ╰── 1.5.0
 • mysql
    Title: ADBC Driver Foundry Driver for MySQL
    Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
@@ -147,7 +174,9 @@ $ dbc search --verbose
     ├── 0.1.0
     ├── 0.2.0
     ├── 0.3.0
-    ╰── 0.3.1
+    ├── 0.3.1
+    ├── 0.4.0
+    ╰── 0.5.0
 • postgresql
    Title: ASF PostgreSQL Driver
    Description: An ADBC driver for PostgreSQL developed under the Apache Software Foundation
@@ -165,7 +194,8 @@ $ dbc search --verbose
     ├── 1.0.0
     ├── 1.1.0
     ├── 1.2.1
-    ╰── 1.3.0
+    ├── 1.3.0
+    ╰── 1.4.0
 • snowflake
    Title: ASF Snowflake Driver
    Description: An ADBC driver for Snowflake developed under the Apache Software Foundation
@@ -175,7 +205,14 @@ $ dbc search --verbose
     ├── 1.9.0
     ├── 1.10.0
     ├── 1.10.1
-    ╰── 1.10.3
+    ├── 1.10.3
+    ╰── 1.11.0
+• spark
+   Title: ADBC Driver Foundry Driver for Apache Spark
+   Description: An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
+   License: Apache-2.0
+   Available Versions:
+    ╰── 0.1.0
 • sqlite
    Title: ASF SQLite Driver
    Description: An ADBC driver for SQLite developed under the Apache Software Foundation
@@ -194,21 +231,26 @@ $ dbc search --verbose
     ├── 0.1.0
     ├── 0.2.0
     ├── 0.3.0
-    ╰── 0.3.1
+    ├── 0.3.1
+    ├── 0.4.0
+    ╰── 0.5.0
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
-   License: LicenseRef-PBL
+   License: LicenseRef-Columnar-Commercial
    Available Versions:
     ├── 0.4.4
-    ╰── 0.5.1
+    ├── 0.5.1
+    ├── 0.6.0
+    ╰── 0.6.1
 • teradata [private]
    Title: Columnar ADBC Driver for Teradata
    Description: An ADBC driver for Teradata developed by Columnar
-   License: LicenseRef-PBL
+   License: LicenseRef-Columnar-Commercial
    Available Versions:
     ╰── 0.1.1
 ```
+<!-- /dbc-output -->
 
 ### Pre-release Versions
 
@@ -234,6 +276,7 @@ With `--pre`, `dbc search` will:
 
 For example, with `--pre --verbose`:
 
+<!-- dbc-output: search --pre --verbose mysql -->
 ```console
 $ dbc search --pre --verbose mysql
 • mysql
@@ -242,9 +285,13 @@ $ dbc search --pre --verbose mysql
    License: Apache-2.0
    Available Versions:
     ├── 0.1.0
-    ├── 0.2.0-beta.1
-    ╰── 0.2.0
+    ├── 0.2.0
+    ├── 0.3.0
+    ├── 0.3.1
+    ├── 0.4.0
+    ╰── 0.5.0
 ```
+<!-- /dbc-output -->
 
 !!! note
     Using the `--pre` flag with `dbc search` only affects the visibility of pre-release versions in search results. To actually install a pre-release version, you need to either use `--pre` with `dbc install` or use a version constraint that unambiguously references a pre-release (by including a pre-release suffix like `-beta.1`).
