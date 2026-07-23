@@ -24,20 +24,6 @@ import (
 
 var dbcDocsUrl = "https://docs.columnar.tech/dbc/"
 
-// Support drivers without a docs URL defined in the index
-var fallbackDriverDocsUrl = map[string]string{
-	"bigquery":   "https://adbc-drivers.org/drivers/bigquery/",
-	"duckdb":     "https://duckdb.org/docs/stable/clients/adbc",
-	"flightsql":  "https://arrow.apache.org/adbc/current/driver/flight_sql.html",
-	"mssql":      "https://adbc-drivers.org/drivers/mssql/",
-	"mysql":      "https://adbc-drivers.org/drivers/mysql/",
-	"postgresql": "https://arrow.apache.org/adbc/current/driver/postgresql.html",
-	"redshift":   "https://adbc-drivers.org/drivers/redshift",
-	"snowflake":  "https://arrow.apache.org/adbc/current/driver/snowflake.html",
-	"sqlite":     "https://arrow.apache.org/adbc/current/driver/sqlite.html",
-	"trino":      "https://adbc-drivers.org/drivers/trino/",
-}
-
 var openBrowserFunc = browser.OpenURL
 
 type docsUrlFound string
@@ -51,18 +37,17 @@ type DocsCmd struct {
 	NoOpen bool   `arg:"--no-open" help:"Print the documentation URL instead of opening it in a web browser"`
 }
 
-func (c DocsCmd) GetModelCustom(baseModel baseModel, noOpen bool, openBrowserFunc func(string) error, fallbackUrls map[string]string) tea.Model {
+func (c DocsCmd) GetModelCustom(baseModel baseModel, noOpen bool, openBrowserFunc func(string) error) tea.Model {
 	return docsModel{
-		baseModel:    baseModel,
-		driver:       c.Driver,
-		noOpen:       noOpen,
-		fallbackUrls: fallbackUrls,
-		openBrowser:  openBrowserFunc,
+		baseModel:   baseModel,
+		driver:      c.Driver,
+		noOpen:      noOpen,
+		openBrowser: openBrowserFunc,
 	}
 }
 
 func (c DocsCmd) GetModel() tea.Model {
-	return c.GetModelCustom(defaultBaseModel(), c.NoOpen, openBrowserFunc, fallbackDriverDocsUrl)
+	return c.GetModelCustom(defaultBaseModel(), c.NoOpen, openBrowserFunc)
 }
 
 type docsModel struct {
@@ -73,7 +58,6 @@ type docsModel struct {
 	urlToOpen        string
 	browserOpenError error
 	noOpen           bool
-	fallbackUrls     map[string]string
 	openBrowser      func(string) error
 }
 
@@ -114,10 +98,6 @@ func (m docsModel) openBrowserCmd(url string) tea.Cmd {
 func (m docsModel) getDocsUrlFor(driver *dbc.Driver) string {
 	if driver.DocsURL != "" {
 		return driver.DocsURL
-	}
-	fallbackUrl, keyExists := m.fallbackUrls[driver.Path]
-	if keyExists && fallbackUrl != "" {
-		return fallbackUrl
 	}
 
 	return ""

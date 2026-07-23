@@ -1587,7 +1587,6 @@ func TestDocsCmdHonorsProjectRegistries(t *testing.T) {
 		baseModel{getDriverRegistry: realRegistryThroughClient(t), downloadPkg: downloadTestPkg},
 		true,
 		func(string) error { return nil },
-		map[string]string{},
 	)
 
 	msg := m.Init()()
