@@ -31,7 +31,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
-	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -157,9 +156,9 @@ func (s syncModel) Init() tea.Cmd {
 		}
 
 		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
-		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		lock, err := acquireLock(lockPath, 10*time.Second)
 		if err != nil {
-			return fmt.Errorf("another dbc operation is in progress: %w", err)
+			return err
 		}
 		defer lock.Release()
 

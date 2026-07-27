@@ -27,7 +27,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
-	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -136,9 +135,9 @@ func (m addModel) Init() tea.Cmd {
 		// read, a concurrent writer using os.Create could expose partial
 		// contents to this decode path.
 		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
-		readLock, err := fslock.Acquire(lockPath, 10*time.Second)
+		readLock, err := acquireLock(lockPath, 10*time.Second)
 		if err != nil {
-			return fmt.Errorf("another dbc operation is in progress: %w", err)
+			return err
 		}
 		f, err := os.Open(p)
 		if err != nil {
@@ -241,9 +240,9 @@ func (m addModel) Init() tea.Cmd {
 		// Re-read the file under the lock so a concurrent
 		// `dbc add`/`dbc remove` that landed while we were doing the
 		// registry lookup above doesn't get clobbered.
-		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		lock, err := acquireLock(lockPath, 10*time.Second)
 		if err != nil {
-			return fmt.Errorf("another dbc operation is in progress: %w", err)
+			return err
 		}
 		defer lock.Release()
 

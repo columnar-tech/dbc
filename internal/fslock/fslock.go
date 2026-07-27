@@ -16,10 +16,15 @@
 // access to shared resources across processes.
 package fslock
 
-import "os"
+import (
+	"errors"
+	"os"
+)
 
 // Lock represents an acquired advisory file lock.
 type Lock struct {
 	f    *os.File
 	path string
 }
+
+var ErrLockContended = errors.New("lock is held by another process")
