@@ -18,9 +18,37 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"time"
 
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/pelletier/go-toml/v2"
 )
+
+// elevationHint names the privilege-escalation mechanism for the host platform.
+func elevationHint() string {
+	if runtime.GOOS == "windows" {
+		return "re-running from an Administrator terminal"
+	}
+	return "re-running with sudo"
+}
+
+func acquireLock(lockPath string, timeout time.Duration) (fslock.Lock, error) {
+	lock, err := fslock.Acquire(lockPath, timeout)
+	if err == nil {
+		return lock, nil
+	}
+	if errors.Is(err, fslock.ErrLockContended) {
+		return fslock.Lock{}, fmt.Errorf("another dbc operation is in progress: %w", err)
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return fslock.Lock{}, fmt.Errorf(
+			"cannot write to %s: permission denied.\nThis command requires elevated privileges; try %s.",
+			filepath.Dir(lockPath), elevationHint())
+	}
+	return fslock.Lock{}, fmt.Errorf("could not acquire lock in %s: %w", filepath.Dir(lockPath), err)
+}
 
 func wrapWithRegistryContext(err, registryErr error) error {
 	if registryErr != nil {

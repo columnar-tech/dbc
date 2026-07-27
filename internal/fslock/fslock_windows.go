@@ -44,7 +44,8 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 		}
 		if time.Now().After(deadline) {
 			f.Close()
-			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s: %w", path, timeout, err)
+			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
+				path, timeout, err, ErrLockContended)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

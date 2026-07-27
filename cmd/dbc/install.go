@@ -32,7 +32,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
-	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -274,9 +273,9 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 			lockDir = parent
 		}
 		lockPath := filepath.Join(lockDir, ".dbc.install.lock")
-		lock, err := fslock.Acquire(lockPath, 10*time.Second)
+		lock, err := acquireLock(lockPath, 10*time.Second)
 		if err != nil {
-			return fmt.Errorf("another dbc operation is in progress: %w", err)
+			return err
 		}
 		defer lock.Release()
 

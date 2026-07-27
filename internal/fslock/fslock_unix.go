@@ -46,7 +46,8 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 				// Reopen and try again within the remaining budget.
 				continue
 			}
-			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s: %w", path, timeout, err)
+			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
+				path, timeout, err, ErrLockContended)
 		}
 		return Lock{}, err
 	}
@@ -73,7 +74,8 @@ func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
 			return Lock{f: f, path: path}, nil
 		}
 		if time.Now().After(deadline) {
-			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s: %w", path, err)
+			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s (%v): %w",
+				path, err, ErrLockContended)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
