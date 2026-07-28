@@ -77,7 +77,7 @@ Note: If/when we start publishing dbc binaries to WinGet for arm64, we'll probab
 
 ```sh
 komac update \
-      --version ${VERSION}
+      --version ${VERSION} \
       --urls https://github.com/columnar-tech/dbc/releases/download/v${VERSION}/dbc-${VERSION}-x64.msi \
       -- \
       Columnar.dbc
