@@ -34,7 +34,7 @@ $ git push --tags
 
 The automation will take over from the tag being pushed.
 
-## Release Checklist
+## Release Pre-Flight Checklist
 
 Before creating and pushing the tags, please consult the following
 checklist of steps:
@@ -54,3 +54,31 @@ checklist of steps:
 
 Once the above checklist is completed, just push the new tag to
 kick off the release process.
+Then, continue to the [Post-Release Checklist](#post-release-checklist).
+
+## Post-Release Checklist
+
+- [ ] Use [komac](https://github.com/russellbanks/Komac) to update our WinGet package. See [winget](#winget) for details.
+
+### Details
+
+You can find detailed steps for items in the post-release checklist here.
+
+#### winget
+
+Updating our WinGet package isn't automated (yet) so we use a tool called [komac](https://github.com/russellbanks/Komac) that automatically creates a pull request to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) for us. See https://github.com/microsoft/winget-pkgs/pull/371685 for an example.
+
+Follow these steps:
+
+1. Set up komac
+2. Modify the command below as needed for the version we're releasing and run:
+
+Note: If/when we start publishing dbc binaries to WinGet for arm64, we'll probably want to use a different command.
+
+```sh
+komac update \
+      --version ${VERSION}
+      --urls https://github.com/columnar-tech/dbc/releases/download/v${VERSION}/dbc-${VERSION}-x64.msi \
+      -- \
+      Columnar.dbc
+```
