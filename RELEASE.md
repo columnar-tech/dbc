@@ -58,7 +58,7 @@ Then, continue to the [Post-Release Checklist](#post-release-checklist).
 
 ## Post-Release Checklist
 
-- [ ] Use [komac](https://github.com/russellbanks/Komac) to update our WinGet package. See [winget](#winget) for details.
+- [ ] Create a pull request against [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) from [our fork](https://github.com/columnar-tech/winget-pkgs). See [winget](#winget) for details.
 
 ### Details
 
@@ -66,19 +66,10 @@ You can find detailed steps for items in the post-release checklist here.
 
 #### winget
 
-Updating our WinGet package isn't automated (yet) so we use a tool called [komac](https://github.com/russellbanks/Komac) that automatically creates a pull request to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) for us. See https://github.com/microsoft/winget-pkgs/pull/371685 for an example.
+Updating our WinGet package is only partially automated. goreleaser automatically creates a branch at https://github.com/columnar-tech/winget-pkgs but then someone needs to manually create a pull request against upstream with the change.
 
 Follow these steps:
 
-1. Set up komac
-2. Modify the command below as needed for the version we're releasing and run:
-
-Note: If/when we start publishing dbc binaries to WinGet for arm64, we'll probably want to use a different command.
-
-```sh
-komac update \
-      --version ${VERSION} \
-      --urls https://github.com/columnar-tech/dbc/releases/download/v${VERSION}/dbc-${VERSION}-x64.msi \
-      -- \
-      Columnar.dbc
-```
+1. Wait for the release workflow to finish.
+1. Find the branch at https://github.com/columnar-tech/winget-pkgs. It should be called `dbc-$VERSION`.
+1. Create a pull request
