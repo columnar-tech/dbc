@@ -34,7 +34,7 @@ $ git push --tags
 
 The automation will take over from the tag being pushed.
 
-## Release Checklist
+## Release Pre-Flight Checklist
 
 Before creating and pushing the tags, please consult the following
 checklist of steps:
@@ -54,3 +54,22 @@ checklist of steps:
 
 Once the above checklist is completed, just push the new tag to
 kick off the release process.
+Then, continue to the [Post-Release Checklist](#post-release-checklist).
+
+## Post-Release Checklist
+
+- [ ] Create a pull request against [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) from [our fork](https://github.com/columnar-tech/winget-pkgs). See [winget](#winget) for details.
+
+### Details
+
+You can find detailed steps for items in the post-release checklist here.
+
+#### winget
+
+Updating our WinGet package is only partially automated. goreleaser automatically creates a branch at https://github.com/columnar-tech/winget-pkgs but then someone needs to manually create a pull request against upstream with the change.
+
+Follow these steps:
+
+1. Wait for the release workflow to finish.
+1. Find the branch at https://github.com/columnar-tech/winget-pkgs. It should be called `dbc-$VERSION`.
+1. Create a pull request
