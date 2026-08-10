@@ -199,7 +199,7 @@ jobs:
         run: pip install wheel
 
       - name: Login to Docker Hub
-        uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: "columnar"
           password: ${{ secrets.DOCKER_TOKEN }}
@@ -260,7 +260,7 @@ jobs:
           DBC_WINGET_GITHUB_PAT: ${{ secrets.DBC_WINGET_GITHUB_PAT }}
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # 1.14.1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # 1.14.2
         with:
           packages-dir: dist/python/
 
