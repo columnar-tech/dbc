@@ -22,6 +22,7 @@ You can list the available drivers by running `dbc search`:
 ```console
 $ dbc search
 bigquery             An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+chdb                 An embedded ADBC driver powered by ClickHouse
 clickhouse           An ADBC driver for ClickHouse developed by ClickHouse, Inc.
 databricks           An ADBC Driver for Databricks developed by the ADBC Driver Foundry
 datafusion           An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
@@ -95,6 +96,12 @@ $ dbc search --verbose
     ├── 1.11.2
     ├── 1.12.0
     ╰── 1.12.1
+• chdb
+   Title: chDB Driver
+   Description: An embedded ADBC driver powered by ClickHouse
+   License: Apache-2.0
+   Available Versions:
+    ╰── 26.7.0
 • clickhouse
    Title: ClickHouse Driver
    Description: An ADBC driver for ClickHouse developed by ClickHouse, Inc.

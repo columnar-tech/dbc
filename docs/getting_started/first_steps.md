@@ -77,6 +77,7 @@ First, run [`dbc search`](../reference/cli.md#search) to find the exact name of 
 ```console
 $ dbc search
 bigquery             An ADBC driver for Google BigQuery developed by the ADBC Driver Foundry
+chdb                 An embedded ADBC driver powered by ClickHouse
 clickhouse           An ADBC driver for ClickHouse developed by ClickHouse, Inc.
 databricks           An ADBC Driver for Databricks developed by the ADBC Driver Foundry
 datafusion           An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
