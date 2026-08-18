@@ -159,6 +159,90 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         let mut driver = ManagedDriver::load_from_name("bigquery", ... )
         ```
 
+=== "chDB"
+
+    ```console
+    $ dbc install chdb
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "chdb", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "chdb", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "chdb");
+        ```
+
+    === "JS/TS"
+
+        ```javascript
+        import { AdbcDatabase } from "@apache-arrow/adbc-driver-manager";
+
+        const db = new AdbcDatabase({driver: "chdb", ... });
+        ```
+
+        !!! note
+
+            The JavaScript/TypeScript ADBC driver manager is for server-side runtimes like Node.js, Deno, and Bun. It does not run in the browser.
+
+    === "Kotlin"
+
+        ```kotlin
+        import org.apache.arrow.adbc.driver.jni.JniDriver
+
+        JniDriver.PARAM_DRIVER.set(params, "chdb")
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="chdb", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("chdb")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "chdb")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("chdb", ... )
+        ```
+
 === "ClickHouse"
 
     ```console
