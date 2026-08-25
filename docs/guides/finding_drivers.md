@@ -161,7 +161,8 @@ $ dbc search --verbose
     ├── 1.9.0
     ├── 1.10.0
     ├── 1.11.0
-    ╰── 1.12.0
+    ├── 1.12.0
+    ╰── 1.12.1
 • mssql
    Title: Columnar Microsoft SQL Server Driver
    Description: An ADBC driver for Microsoft SQL Server developed by Columnar
@@ -263,7 +264,8 @@ $ dbc search --verbose
     ├── 0.4.4
     ├── 0.5.1
     ├── 0.6.0
-    ╰── 0.6.1
+    ├── 0.6.1
+    ╰── 0.6.2
 • teradata [private]
    Title: Columnar ADBC Driver for Teradata
    Description: An ADBC driver for Teradata developed by Columnar
