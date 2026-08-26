@@ -25,7 +25,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/ProtonMail/gopenpgp/v3 v3.4.1
 	github.com/alexflint/go-arg v1.6.1
-	github.com/charmbracelet/x/ansi v0.11.7
+	github.com/charmbracelet/x/ansi v0.11.8
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/cli/browser v1.3.0
 	github.com/cli/oauth v1.2.2
