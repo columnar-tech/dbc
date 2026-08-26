@@ -159,6 +159,90 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         let mut driver = ManagedDriver::load_from_name("bigquery", ... )
         ```
 
+=== "Cassandra"
+
+    ```console
+    $ dbc install --pre cassandra
+    ```
+
+    <br/>3. [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "cassandra", &error)
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "cassandra", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "cassandra");
+        ```
+
+    === "JS/TS"
+
+        ```javascript
+        import { AdbcDatabase } from "@apache-arrow/adbc-driver-manager";
+
+        const db = new AdbcDatabase({driver: "cassandra", ... });
+        ```
+
+        !!! note
+
+            The JavaScript/TypeScript ADBC driver manager is for server-side runtimes like Node.js, Deno, and Bun. It does not run in the browser.
+
+    === "Kotlin"
+
+        ```kotlin
+        import org.apache.arrow.adbc.driver.jni.JniDriver
+
+        JniDriver.PARAM_DRIVER.set(params, "cassandra")
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="cassandra", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("cassandra")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "cassandra")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("cassandra", ... )
+        ```
+
 === "chDB"
 
     ```console
