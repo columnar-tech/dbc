@@ -95,7 +95,8 @@ $ dbc search --verbose
     ├── 1.11.0
     ├── 1.11.2
     ├── 1.12.0
-    ╰── 1.12.1
+    ├── 1.12.1
+    ╰── 1.12.2
 • chdb
    Title: chDB Driver
    Description: An embedded ADBC driver powered by ClickHouse
