@@ -1,6 +1,91 @@
+[data-md-color-scheme="default"] {
+  --dbc-quickstart-bg-color: rgb(249, 250, 251);
+  --dbc-quickstart-border-color: rgb(229, 231, 235);
+  --dbc-quickstart-code-bg-color: rgb(236, 239, 242);
+}
+
 [data-md-color-scheme="slate"] {
   --md-default-bg-color: rgb(33, 33, 33);
   --md-code-bg-color: rgb(45, 45, 45);
+  --dbc-quickstart-bg-color: rgb(38, 38, 38);
+  --dbc-quickstart-border-color: rgb(57, 57, 57);
+  --dbc-quickstart-code-bg-color: rgb(52, 52, 52);
+}
+
+.quickstart-panel {
+  --dbc-quickstart-inline-padding: 1.1rem;
+  --dbc-quickstart-step-content-inset: 0rem;
+  --md-code-bg-color: var(--dbc-quickstart-code-bg-color);
+  background-color: var(--dbc-quickstart-bg-color);
+  border: 0.05rem solid var(--dbc-quickstart-border-color);
+  border-radius: 0.3rem;
+  margin: 1.4rem 0 1.8rem;
+  padding: 1rem var(--dbc-quickstart-inline-padding) 1.1rem;
+}
+
+.quickstart-panel > :first-child {
+  margin-top: 0;
+}
+
+.quickstart-panel > :last-child {
+  margin-bottom: 0;
+}
+
+.quickstart-panel p > br:first-child {
+  display: none;
+}
+
+.quickstart-panel .tabbed-control {
+  background: linear-gradient(
+    to right,
+    var(--dbc-quickstart-bg-color) 60%,
+    transparent
+  );
+}
+
+.quickstart-panel .tabbed-control--next {
+  background: linear-gradient(
+    to left,
+    var(--dbc-quickstart-bg-color) 60%,
+    transparent
+  );
+}
+
+.quickstart-panel > .tabbed-set + p,
+.quickstart-panel > .tabbed-set:last-child > .tabbed-content > .tabbed-block > p {
+  --dbc-quickstart-step-content-inset: var(--dbc-quickstart-inline-padding);
+  border-top: 0.05rem solid var(--dbc-quickstart-border-color);
+  margin-inline: calc(0rem - var(--dbc-quickstart-inline-padding));
+  margin-top: 0.8rem;
+  padding-inline: var(--dbc-quickstart-inline-padding);
+  padding-top: 0.8rem;
+}
+
+.quickstart-panel > p:first-child,
+.quickstart-panel > .tabbed-set + p,
+.quickstart-panel > .tabbed-set:last-child > .tabbed-content > .tabbed-block > p {
+  font-weight: 400;
+  padding-inline-start: calc(
+    var(--dbc-quickstart-step-content-inset) + 1.75rem
+  );
+}
+
+.quickstart-step-number {
+  align-items: center;
+  background-color: var(--dbc-quickstart-border-color);
+  border-radius: 50%;
+  color: var(--md-default-fg-color);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 700;
+  height: 1.2rem;
+  justify-content: center;
+  line-height: 1;
+  margin-inline-end: 0.35rem;
+  margin-inline-start: -1.75rem;
+  transform: translateY(-0.05rem);
+  vertical-align: middle;
+  width: 1.2rem;
 }
 
 /* since_version badge styling. see macros.py */
