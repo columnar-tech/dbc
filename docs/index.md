@@ -91,6 +91,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "bigquery", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("bigquery");
+        ```
+
     === "Go"
 
         ```go
@@ -173,6 +181,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "cassandra", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("cassandra");
         ```
 
     === "Go"
@@ -259,6 +275,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "chdb", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("chdb");
+        ```
+
     === "Go"
 
         ```go
@@ -341,6 +365,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "clickhouse", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("clickhouse");
         ```
 
     === "Go"
@@ -427,6 +459,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "databricks", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("databricks");
+        ```
+
     === "Go"
 
         ```go
@@ -509,6 +549,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "datafusion", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("datafusion");
         ```
 
     === "Go"
@@ -595,6 +643,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "duckdb", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("duckdb");
+        ```
+
     === "Go"
 
         ```go
@@ -677,6 +733,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "exasol", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("exasol");
         ```
 
     === "Go"
@@ -763,6 +827,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "flightsql", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("flightsql");
+        ```
+
     === "Go"
 
         ```go
@@ -847,6 +919,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "mssql", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("mssql");
+        ```
+
     === "Go"
 
         ```go
@@ -929,6 +1009,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "mysql", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("mysql");
         ```
 
     === "Go"
@@ -1019,6 +1107,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "oracle", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("oracle");
+        ```
+
     === "Go"
 
         ```go
@@ -1101,6 +1197,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "postgresql", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("postgresql");
         ```
 
     === "Go"
@@ -1187,6 +1291,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "presto", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("presto");
+        ```
+
     === "Go"
 
         ```go
@@ -1269,6 +1381,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "quack", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("quack");
         ```
 
     === "Go"
@@ -1355,6 +1475,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "redshift", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("redshift");
+        ```
+
     === "Go"
 
         ```go
@@ -1437,6 +1565,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "singlestore", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("singlestore");
         ```
 
     === "Go"
@@ -1523,6 +1659,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "snowflake", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("snowflake");
+        ```
+
     === "Go"
 
         ```go
@@ -1607,6 +1751,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "spark", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("spark");
+        ```
+
     === "Go"
 
         ```go
@@ -1689,6 +1841,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "sqlite", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("sqlite");
         ```
 
     === "Go"
@@ -1779,6 +1939,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         AdbcDatabaseSetOption(&database, "driver", "teradata", &error)
         ```
 
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("teradata");
+        ```
+
     === "Go"
 
         ```go
@@ -1861,6 +2029,14 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         #include <arrow-adbc/adbc.h>
 
         AdbcDatabaseSetOption(&database, "driver", "trino", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("trino");
         ```
 
     === "Go"
