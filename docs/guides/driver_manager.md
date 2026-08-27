@@ -59,6 +59,20 @@ The best place to find detailed information on driver manager installation is al
 
         ```
 
+=== "C#/.NET"
+
+    ===+ ".NET ≤ 9"
+
+        ```console
+        $ dotnet add package Apache.Arrow.Adbc
+        ```
+
+    === ".NET ≥ 10"
+
+        ```console
+        $ dotnet package add Apache.Arrow.Adbc
+        ```
+
 === "Go"
 
     ```console

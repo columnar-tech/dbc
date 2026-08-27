@@ -22,6 +22,7 @@ copyright: Copyright &copy; <a href="https://columnar.tech">2026 Columnar Techno
 markdown_extensions:
   - admonition
   - def_list
+  - md_in_html
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
