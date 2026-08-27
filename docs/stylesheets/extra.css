@@ -31,6 +31,36 @@ and won't show up highlighted as purple. */
   color: inherit;
 }
 
+/* Material for MkDocs only ships tab selectors for the first 20 tabs. The
+driver picker has 22, so extend the theme rules for Teradata and Trino. */
+@media screen {
+  .md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
+  .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22) {
+    color: var(--md-default-fg-color);
+  }
+
+  .md-typeset .no-js .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
+  .md-typeset .no-js .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
+  .md-typeset [role="dialog"] .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
+  .md-typeset [role="dialog"] .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
+  .no-js .md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
+  .no-js .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
+  [role="dialog"] .md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
+  [role="dialog"] .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22) {
+    border-color: var(--md-default-fg-color);
+  }
+}
+
+.md-typeset .tabbed-set > input:nth-child(21).focus-visible ~ .tabbed-labels > :nth-child(21),
+.md-typeset .tabbed-set > input:nth-child(22).focus-visible ~ .tabbed-labels > :nth-child(22) {
+  color: var(--md-accent-fg-color);
+}
+
+.md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-content > :nth-child(21),
+.md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-content > :nth-child(22) {
+  display: block;
+}
+
 /* Hide the site name in the header... */
 .md-header__title .md-header__topic:first-of-type {
   display: none !important;
