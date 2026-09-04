@@ -46,7 +46,7 @@ func jsInstall(args []js.Value) func() (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		m, err := c.Install(context.Background(), config.Config{Level: config.ConfigEnv, Location: location}, name)
+		m, err := c.Install(context.Background(), config.Config{Level: config.ConfigEnv, Location: location}, name, "")
 		if err != nil {
 			return nil, err
 		}
