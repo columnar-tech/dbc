@@ -108,7 +108,8 @@ $ dbc search --verbose
    Description: An ADBC driver for ClickHouse developed by ClickHouse, Inc.
    License: MIT OR Apache-2.0
    Available Versions:
-    ╰── 0.1.0
+    ├── 0.1.0
+    ╰── 0.1.1
 • databricks
    Title: ADBC Driver Foundry Driver for Databricks
    Description: An ADBC Driver for Databricks developed by the ADBC Driver Foundry
@@ -123,7 +124,8 @@ $ dbc search --verbose
    Available Versions:
     ├── 0.24.1
     ├── 0.25.0
-    ╰── 0.26.0
+    ├── 0.26.0
+    ╰── 0.27.0
 • duckdb
    Title: DuckDB Driver
    Description: An ADBC driver for DuckDB developed by the DuckDB Foundation
@@ -163,7 +165,8 @@ $ dbc search --verbose
     ├── 1.10.0
     ├── 1.11.0
     ├── 1.12.0
-    ╰── 1.12.1
+    ├── 1.12.1
+    ╰── 1.12.2
 • mssql
    Title: Columnar Microsoft SQL Server Driver
    Description: An ADBC driver for Microsoft SQL Server developed by Columnar
