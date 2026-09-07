@@ -301,7 +301,7 @@ notarize:
         key: "{{ .Env.MACOS_NOTARY_KEY }}"
         key_id: "{{ .Env.MACOS_NOTARY_KEY_ID }}"
         wait: true
-        timeout: 30m
+        timeout: 20m
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
