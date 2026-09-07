@@ -242,7 +242,8 @@ snapcrafts:
     icon: ./resources/dbc.png
     hooks:
       install:
-        - network
+        plugs:
+          - network
     base: bare
     confinement: classic
     publish: false
