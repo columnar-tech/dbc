@@ -72,16 +72,32 @@ jobs:
 
             **Review the diff before merging** to confirm the changes look correct and there are no unexpected formatting regressions.
         run: |
-          BRANCH="docs/sync-output-$(date +%Y-%m-%d)"
+          BRANCH="docs/sync-output"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+
+          # Fetch the remote branch so we can compare docs/ against it.
+          git fetch origin "$BRANCH" 2>/dev/null || true
+
+          # Stage the changes so we can compare against the remote branch.
           git add docs/
+
+          # If the remote branch already has identical docs/ content, the
+          # open PR is already up to date — skip the push to avoid noise.
+          if git rev-parse "origin/$BRANCH" >/dev/null 2>&1 && \
+             git diff --cached --quiet "origin/$BRANCH" -- docs/; then
+            echo "Remote branch already up to date, nothing to push."
+            exit 0
+          fi
+
+          git checkout -b "$BRANCH"
           git commit -m "docs: sync dbc command output"
           git push --force origin "$BRANCH"
 
-          # Open a PR only if one doesn't already exist for this branch.
-          if ! gh pr view "$BRANCH" --json number -q .number 2>/dev/null; then
+          # Open a PR only if there isn't already an open one for this branch.
+          # If there is, the force-push above has already updated it.
+          OPEN_PR_COUNT="$(gh pr list --head "$BRANCH" --base main --state open --limit 1 --json number --jq 'length')"
+          if [ "$OPEN_PR_COUNT" -eq 0 ]; then
             gh pr create \
               --title "docs: sync dbc command output" \
               --body "$PR_BODY" \
