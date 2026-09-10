@@ -193,7 +193,8 @@ $ dbc search --verbose
     ├── 0.3.1
     ├── 0.4.0
     ├── 0.5.0
-    ╰── 0.6.0
+    ├── 0.6.0
+    ╰── 0.6.1
 • postgresql
    Title: ASF PostgreSQL Driver
    Description: An ADBC driver for PostgreSQL developed under the Apache Software Foundation
@@ -259,7 +260,8 @@ $ dbc search --verbose
     ├── 0.4.0
     ├── 0.5.0
     ├── 0.5.1
-    ╰── 0.5.2
+    ├── 0.5.2
+    ╰── 0.5.3
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
@@ -317,7 +319,8 @@ $ dbc search --pre --verbose mysql
     ├── 0.3.1
     ├── 0.4.0
     ├── 0.5.0
-    ╰── 0.6.0
+    ├── 0.6.0
+    ╰── 0.6.1
 ```
 <!-- /dbc-output -->
 
