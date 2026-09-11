@@ -136,6 +136,19 @@ func TestInstallHelpMentionsVersionConstraints(t *testing.T) {
 	require.Contains(t, out, `dbc install "mysql=0.1.0"`)
 	require.Contains(t, out, `dbc install "mysql>=1,<2"`)
 	require.Contains(t, out, "https://docs.columnar.tech/dbc/guides/installing/#version-constraints")
+	require.Contains(t, out, "--platform")
+}
+
+func TestInstallInvalidPlatformRejectedAtParse(t *testing.T) {
+	args := &cmds{}
+	p, err := newParser(args)
+	require.NoError(t, err)
+
+	err = p.Parse([]string{"install", "--platform", "noos_noarch", "mysql"})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, arg.ErrHelp)
+	require.Contains(t, err.Error(), "unknown platform")
+	require.Contains(t, err.Error(), "valid values are:")
 }
 
 func TestSubcommandSuggestions(t *testing.T) {

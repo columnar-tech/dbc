@@ -321,7 +321,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 			manifest.DriverInfo.Source = "dbc"
 			manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
 
-			if err := verifySignature(manifest, s.NoVerify); err != nil {
+			if err := verifySignature(manifest, config.PlatformTuple(), s.NoVerify); err != nil {
 				_ = os.RemoveAll(finalDir)
 				prog.Send(fmt.Errorf("failed to verify signature: %w", err))
 				return
