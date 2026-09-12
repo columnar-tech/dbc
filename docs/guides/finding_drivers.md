@@ -181,7 +181,8 @@ $ dbc search --verbose
     ├── 1.4.1
     ├── 1.5.0
     ├── 1.6.0
-    ╰── 1.6.1
+    ├── 1.6.1
+    ╰── 1.6.2
 • mysql
    Title: ADBC Driver Foundry Driver for MySQL
    Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
