@@ -154,7 +154,7 @@ func TestInstallDriver(t *testing.T) {
 		f, err := os.Open(filepath.Join("..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
 		require.NoError(t, err)
 
-		manifest, err := config.InstallDriver(cfg, "test-driver-1", f)
+		manifest, err := config.InstallDriver(cfg, "test-driver-1", f, config.PlatformTuple())
 		require.NoError(t, err)
 
 		assert.Equal(t, "test-driver-1", manifest.DriverInfo.ID)
@@ -166,6 +166,30 @@ func TestInstallDriver(t *testing.T) {
 		sharedPath := manifest.DriverInfo.Driver.Shared.Get(platformTuple)
 		assert.NotEmpty(t, sharedPath)
 		assert.FileExists(t, sharedPath)
+	})
+
+	t.Run("records explicit platform in manifest", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		t.Setenv("ADBC_DRIVER_PATH", tmpDir)
+
+		cfg := config.Config{
+			Level:    config.ConfigEnv,
+			Location: tmpDir,
+		}
+
+		f, err := os.Open(filepath.Join("..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+		require.NoError(t, err)
+
+		const platform = "linux_amd64"
+		manifest, err := config.InstallDriver(cfg, "test-driver-1", f, platform)
+		require.NoError(t, err)
+
+		sharedPath := manifest.DriverInfo.Driver.Shared.Get(platform)
+		assert.NotEmpty(t, sharedPath)
+		assert.FileExists(t, sharedPath)
+		if platform != config.PlatformTuple() {
+			assert.Empty(t, manifest.DriverInfo.Driver.Shared.Get(config.PlatformTuple()))
+		}
 	})
 
 	t.Run("invalid_tarball", func(t *testing.T) {
@@ -180,7 +204,7 @@ func TestInstallDriver(t *testing.T) {
 		_, _ = f.Write([]byte("not a tarball"))
 		_, _ = f.Seek(0, io.SeekStart)
 
-		_, err = config.InstallDriver(cfg, "bad-driver", f)
+		_, err = config.InstallDriver(cfg, "bad-driver", f, config.PlatformTuple())
 		assert.Error(t, err)
 	})
 }
