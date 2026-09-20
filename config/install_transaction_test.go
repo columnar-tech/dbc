@@ -202,6 +202,76 @@ func TestInstallPackageMetadataFailuresPreserveOldGeneration(t *testing.T) {
 	}
 }
 
+func TestInstallPackageReceiptHashesLibraryAfterVerification(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("archive library"))
+	file := writeInstallArchive(t, archive, "rewrite")
+	rewritten := []byte("verified replacement library")
+	installed, err := InstallPackage(cfg, "example", file, installExpected("example", "rewrite-source", archive), InstallOptions{
+		Verify: func(stagingDir string, manifest Manifest) error {
+			return os.WriteFile(filepath.Join(stagingDir, manifest.Files.Driver), rewritten, 0o644)
+		},
+	})
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	libraryPath := installed.Driver.Shared.Get(PlatformTuple())
+	gotLibrary, err := os.ReadFile(libraryPath)
+	if err != nil || !bytes.Equal(gotLibrary, rewritten) {
+		t.Fatalf("installed library = %q, want verifier output %q: %v", gotLibrary, rewritten, err)
+	}
+	receiptData, err := os.ReadFile(filepath.Join(filepath.Dir(libraryPath), installReceiptName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt InstallReceipt
+	if err := json.Unmarshal(receiptData, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(rewritten)
+	wantHash := "sha256:" + hex.EncodeToString(digest[:])
+	if receipt.InstalledLibraryHash != wantHash {
+		t.Fatalf("receipt library hash = %q, want %q", receipt.InstalledLibraryHash, wantHash)
+	}
+}
+
+func TestInstallPackageRejectsVerifierDeletedLibraryAndPreservesOldGeneration(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	firstArchive := makeInstallArchive(t, "example", "1.0.0", "old-library.so", []byte("old library"))
+	firstFile := writeInstallArchive(t, firstArchive, "initial")
+	first, err := InstallPackage(cfg, "example", firstFile, installExpected("example", "source-one", firstArchive), InstallOptions{})
+	_ = firstFile.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := first.Driver.Shared.Get(PlatformTuple())
+	oldManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondArchive := makeInstallArchive(t, "example", "1.0.0", "new-library.so", []byte("new library"))
+	secondFile := writeInstallArchive(t, secondArchive, "delete")
+	_, err = InstallPackage(cfg, "example", secondFile, installExpected("example", "source-two", secondArchive), InstallOptions{
+		Verify: func(stagingDir string, manifest Manifest) error {
+			return os.Remove(filepath.Join(stagingDir, manifest.Files.Driver))
+		},
+	})
+	_ = secondFile.Close()
+	if err == nil {
+		t.Fatal("InstallPackage succeeded after verifier deleted the driver library")
+	}
+	currentManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	if err != nil || !bytes.Equal(currentManifest, oldManifest) {
+		t.Fatalf("runtime manifest changed after verifier deleted the staged library: %v", err)
+	}
+	if got, err := os.ReadFile(oldPath); err != nil || string(got) != "old library" {
+		t.Fatalf("old library unavailable after verifier deleted the staged library: %q, %v", got, err)
+	}
+}
+
 func TestInstallPackageRegistrationFailurePreservesOldGeneration(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}

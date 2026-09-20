@@ -718,17 +718,35 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 
 	manifest.DriverInfo.ID = runtimeID
 	manifest.DriverInfo.Source = "dbc"
-	installedHash := ""
 	installedLibrary := ""
 	if manifest.Files.Driver != "" {
 		manifest.DriverInfo.Driver.Shared.Set(platform, filepath.Join(finalDir, manifest.Files.Driver))
 		installedLibrary = manifest.Files.Driver
-		installedHash, err = hashFile(filepath.Join(payloadDir, manifest.Files.Driver))
-		if err != nil {
-			return result, "", fmt.Errorf("could not hash installed driver file: %w", err)
-		}
 	} else if !hasRuntimeSharedPath(manifest.DriverInfo.Driver.Shared) {
 		manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
+	}
+	if err := os.Chmod(payloadDir, 0o755); err != nil {
+		return result, "", fmt.Errorf("could not prepare package directory for publication: %w", err)
+	}
+	if verify != nil {
+		if err := verify(payloadDir, manifest); err != nil {
+			return result, "", fmt.Errorf("package verification failed: %w", err)
+		}
+	}
+	installedHash := ""
+	if installedLibrary != "" {
+		libraryPath := filepath.Join(payloadDir, installedLibrary)
+		libraryInfo, err := os.Lstat(libraryPath)
+		if err != nil {
+			return result, "", fmt.Errorf("could not inspect verified driver file: %w", err)
+		}
+		if !libraryInfo.Mode().IsRegular() {
+			return result, "", errors.New("verified driver file is not a regular file")
+		}
+		installedHash, err = hashFile(libraryPath)
+		if err != nil {
+			return result, "", fmt.Errorf("could not hash verified driver file: %w", err)
+		}
 	}
 	receipt := InstallReceipt{
 		SourceType: expected.SourceType, SourceIdentity: expected.SourceIdentity,
@@ -738,14 +756,6 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 	}
 	if err := writeInstallReceipt(payloadDir, receipt); err != nil {
 		return result, "", fmt.Errorf("could not write installation receipt: %w", err)
-	}
-	if err := os.Chmod(payloadDir, 0o755); err != nil {
-		return result, "", fmt.Errorf("could not prepare package directory for publication: %w", err)
-	}
-	if verify != nil {
-		if err := verify(payloadDir, manifest); err != nil {
-			return result, "", fmt.Errorf("package verification failed: %w", err)
-		}
 	}
 	return manifest, payloadDir, nil
 }
