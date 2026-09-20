@@ -472,7 +472,7 @@ func normalizedRegistrationPath(path string) string {
 }
 
 func managedPackageDirectory(location, runtimeID string, info DriverInfo) (string, bool) {
-	if info.Source != "dbc" {
+	if info.Source != "dbc" || info.ID != runtimeID || info.Version == nil {
 		return "", false
 	}
 	for sharedPath := range info.Driver.Shared.Paths() {
@@ -482,9 +482,12 @@ func managedPackageDirectory(location, runtimeID string, info DriverInfo) (strin
 		if !filepath.IsAbs(sharedPath) {
 			sharedPath = filepath.Join(location, sharedPath)
 		}
-		dir := filepath.Clean(filepath.Dir(sharedPath))
-		receipt, ok := readManagedPackageReceipt(location, runtimeID, dir)
-		if !ok || receipt.InstalledLibrary == "" || info.ID != runtimeID || info.Version == nil || receipt.DriverVersion != info.Version.String() {
+		dir, err := filepath.Abs(filepath.Dir(sharedPath))
+		if err != nil {
+			continue
+		}
+		receipt, ok := readPackageReceipt(location, runtimeID, dir)
+		if !ok || receipt.InstalledLibrary == "" || receipt.DriverVersion != info.Version.String() {
 			continue
 		}
 		registeredPath := info.Driver.Shared.defaultPath
@@ -514,17 +517,27 @@ func cleanupOwnedPackageDirectories(location, runtimeID string, previous *Driver
 	if validateFlatName(runtimeID) != nil {
 		return
 	}
+	ownedReceiptDirectory := ""
+	if previous != nil {
+		if directory, ok := managedPackageDirectory(location, runtimeID, *previous); ok && !packageDirectoryIsCurrent(location, currentDir, current, directory) {
+			ownedReceiptDirectory = filepath.Clean(directory)
+			_ = os.RemoveAll(ownedReceiptDirectory)
+		}
+	}
 	entries, err := os.ReadDir(location)
 	if err != nil {
 		return
 	}
-	currentDir = filepath.Clean(currentDir)
 	for _, entry := range entries {
 		if !strings.HasPrefix(entry.Name(), ".dbc-package-"+runtimeID+"-") {
 			continue
 		}
 		dir := filepath.Join(location, entry.Name())
-		if (currentDir != "." && filepath.Clean(dir) == currentDir) || runtimeReferencesPackageDirectory(current, location, dir) {
+		absDir, err := filepath.Abs(dir)
+		if err != nil || (ownedReceiptDirectory != "" && filepath.Clean(absDir) == ownedReceiptDirectory) {
+			continue
+		}
+		if packageDirectoryIsCurrent(location, currentDir, current, absDir) {
 			continue
 		}
 		if _, ok := readManagedPackageReceipt(location, runtimeID, dir); !ok {
@@ -533,6 +546,17 @@ func cleanupOwnedPackageDirectories(location, runtimeID string, previous *Driver
 		_ = os.RemoveAll(dir)
 	}
 	cleanupLegacyPackageDirectory(location, runtimeID, previous, current)
+}
+
+func packageDirectoryIsCurrent(location, currentDir string, current DriverInfo, directory string) bool {
+	if currentDir != "" {
+		absCurrent, currentErr := filepath.Abs(currentDir)
+		absDirectory, directoryErr := filepath.Abs(directory)
+		if currentErr == nil && directoryErr == nil && filepath.Clean(absCurrent) == filepath.Clean(absDirectory) {
+			return true
+		}
+	}
+	return runtimeReferencesPackageDirectory(current, location, directory)
 }
 
 // cleanupLegacyPackageDirectory removes a pre-receipt package generation only
@@ -638,6 +662,13 @@ func runtimeReferencesPackageDirectory(info DriverInfo, location, directory stri
 }
 
 func readManagedPackageReceipt(location, runtimeID, directory string) (InstallReceipt, bool) {
+	if validateFlatName(runtimeID) != nil || !strings.HasPrefix(filepath.Base(filepath.Clean(directory)), ".dbc-package-"+runtimeID+"-") {
+		return InstallReceipt{}, false
+	}
+	return readPackageReceipt(location, runtimeID, directory)
+}
+
+func readPackageReceipt(location, runtimeID, directory string) (InstallReceipt, bool) {
 	var receipt InstallReceipt
 	absLocation, err := filepath.Abs(location)
 	if err != nil {
@@ -649,9 +680,6 @@ func readManagedPackageReceipt(location, runtimeID, directory string) (InstallRe
 	}
 	rel, err := filepath.Rel(absLocation, absDirectory)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
-		return receipt, false
-	}
-	if !strings.HasPrefix(filepath.Base(absDirectory), ".dbc-package-"+runtimeID+"-") {
 		return receipt, false
 	}
 	dirInfo, err := os.Lstat(absDirectory)

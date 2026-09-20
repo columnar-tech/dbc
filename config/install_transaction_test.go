@@ -890,6 +890,70 @@ func TestRelativeNestedEnvironmentInstallUpdateUninstall(t *testing.T) {
 	}
 }
 
+func installArchiveBasenamePackage(t *testing.T, root string) (Manifest, string) {
+	t.Helper()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("installed library"))
+	file := writeInstallArchive(t, archive, "release-bundle")
+	installed, err := InstallDriver(cfg, "example", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packageDirectory := filepath.Dir(installed.Driver.Shared.Get(PlatformTuple()))
+	if err := CreateManifest(cfg, installed.DriverInfo); err != nil {
+		t.Fatal(err)
+	}
+	return installed, packageDirectory
+}
+
+func TestUninstallDriverUsesReceiptForArchiveBasenameDirectory(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	_, packageDirectory := installArchiveBasenamePackage(t, root)
+	base := filepath.Base(packageDirectory)
+	if strings.HasPrefix(base, ".dbc-package-example-") || base == "example_"+PlatformTuple()+"_v1.0.0" {
+		t.Fatalf("test package directory unexpectedly uses a managed name: %q", base)
+	}
+	info, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := managedPackageDirectory(root, "example", info); !ok || filepath.Clean(got) != filepath.Clean(packageDirectory) {
+		t.Fatalf("registered shared path did not prove receipt-owned directory: %q, %v", got, ok)
+	}
+	if err := UninstallDriver(cfg, info); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(packageDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("receipt-owned archive basename directory remains after uninstall: %v", err)
+	}
+}
+
+func TestUninstallDriverRetainsInvalidReceiptAtArchiveBasenameDirectory(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installed, packageDirectory := installArchiveBasenamePackage(t, root)
+	if err := os.WriteFile(filepath.Join(packageDirectory, installReceiptName), []byte("broken receipt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := managedPackageDirectory(root, "example", info); ok {
+		t.Fatal("invalid receipt proved ownership of an archive basename directory")
+	}
+	if err := UninstallDriver(cfg, info); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(packageDirectory); err != nil {
+		t.Fatalf("invalid receipt directory was removed: %v", err)
+	}
+	if data, err := os.ReadFile(installed.Driver.Shared.Get(PlatformTuple())); err != nil || string(data) != "installed library" {
+		t.Fatalf("invalid receipt library was removed or changed: %q, %v", data, err)
+	}
+}
+
 func TestManagedPackageDirectoryRequiresReceiptLibraryRelationship(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
