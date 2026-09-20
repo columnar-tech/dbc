@@ -47,7 +47,7 @@ type lockInfo struct {
 	Name      string              `toml:"name"`
 	Version   *semver.Version     `toml:"version"`
 	Source    lockSource          `toml:"source"`
-	Evidence  lockEvidence        `toml:"evidence,omitempty"`
+	Evidence  []lockEvidence      `toml:"evidence,omitempty"`
 	Artifacts []lockArtifact      `toml:"artifacts,omitempty"`
 	Legacy    *legacyLibraryProof `toml:"legacy,omitempty"`
 	// These fields are transient adapters for the current sync pipeline. They
@@ -64,10 +64,15 @@ type lockSource struct {
 }
 
 type lockEvidence struct {
-	BundleURL       string `toml:"bundle_url,omitempty"`
-	BundleHash      string `toml:"bundle_hash,omitempty"`
-	ReleaseListURL  string `toml:"release_list_url,omitempty"`
-	ReleaseListHash string `toml:"release_list_hash,omitempty"`
+	Kind     resolution.EvidenceKind     `toml:"kind"`
+	Location resolution.ArtifactLocation `toml:"location"`
+	Hash     string                      `toml:"hash"`
+	// These fields detect the source-specific evidence shape used by the
+	// unreleased single-table lock representation.
+	LegacyBundleURL       *string `toml:"bundle_url,omitempty"`
+	LegacyBundleHash      *string `toml:"bundle_hash,omitempty"`
+	LegacyReleaseListURL  *string `toml:"release_list_url,omitempty"`
+	LegacyReleaseListHash *string `toml:"release_list_hash,omitempty"`
 }
 
 type lockArtifact struct {

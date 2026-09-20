@@ -330,6 +330,9 @@ func (r *nativeResolver) verifyReleaseBundle(ctx context.Context, bundleBytes []
 }
 
 func (r *nativeResolver) finishResolved(ctx context.Context, project string, request Request, observedList listObservation, acceptedList *listAcceptance, verified *verifiedRelease, bundleURL string, bundleBytes []byte, listURL, listHash string, assets []githubAsset) (resolution.ResolvedRelease, error) {
+	if (listURL == "") != (listHash == "") {
+		return resolution.ResolvedRelease{}, errors.New("release-index evidence requires both a URL and hash")
+	}
 	if err := validateSupportedArtifactSet(verified.statement); err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
@@ -346,14 +349,23 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 		return resolution.ResolvedRelease{}, err
 	}
 	checksum := digestBytes(bundleBytes)
+	evidence := []resolution.Evidence{{
+		Kind:     resolution.EvidenceKindReleaseMetadata,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: bundleURL},
+		Hash:     checksum,
+	}}
+	if listURL != "" && listHash != "" {
+		evidence = append(evidence, resolution.Evidence{
+			Kind:     resolution.EvidenceKindReleaseIndex,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: listURL},
+			Hash:     listHash,
+		})
+	}
 	result := resolution.ResolvedRelease{
-		DriverID: request.DriverID,
-		Version:  verified.statement.predicate.Version,
-		Source:   resolution.SourceSpec{Type: "packslip", Reference: project},
-		Evidence: resolution.Evidence{
-			BundleURL: bundleURL, BundleHash: checksum,
-			ReleaseListURL: listURL, ReleaseListHash: listHash,
-		},
+		DriverID:  request.DriverID,
+		Version:   verified.statement.predicate.Version,
+		Source:    resolution.SourceSpec{Type: "packslip", Reference: project},
+		Evidence:  evidence,
 		Artifacts: []resolution.Artifact{artifact},
 	}
 	if err := resolution.ValidateResolvedRelease(result); err != nil {

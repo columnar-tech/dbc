@@ -31,10 +31,11 @@ func TestValidateResolvedRelease(t *testing.T) {
 			Type:      "packslip",
 			Reference: "github.com/example/example-driver",
 		},
-		Evidence: Evidence{
-			BundleURL:  "https://example.test/release.sigstore.json",
-			BundleHash: "sha256:" + strings.Repeat("a", 64),
-		},
+		Evidence: []Evidence{{
+			Kind:     EvidenceKindReleaseMetadata,
+			Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/release.sigstore.json"},
+			Hash:     "sha256:" + strings.Repeat("a", 64),
+		}},
 		Artifacts: []Artifact{{
 			Target:   Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
 			Format:   "tar.gz",
@@ -52,8 +53,54 @@ func TestValidateResolvedRelease(t *testing.T) {
 
 	require.NoError(t, ValidateResolvedRelease(complete))
 	assert.Equal(t, "packslip", complete.Source.Type)
-	assert.Equal(t, "https://example.test/release.sigstore.json", complete.Evidence.BundleURL)
+	assert.Equal(t, "https://example.test/release.sigstore.json", complete.Evidence[0].Location.Value)
 	assert.Equal(t, "2.17", complete.Artifacts[0].HostRequirements.GLibCMin)
+}
+
+func TestValidateEvidence(t *testing.T) {
+	metadata := Evidence{
+		Kind:     EvidenceKindReleaseMetadata,
+		Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/metadata"},
+		Hash:     "sha256:" + strings.Repeat("a", 64),
+	}
+	index := Evidence{
+		Kind:     EvidenceKindReleaseIndex,
+		Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/index"},
+		Hash:     "sha256:" + strings.Repeat("b", 64),
+	}
+	pathEvidence := Evidence{
+		Kind:     EvidenceKindReleaseIndex,
+		Location: ArtifactLocation{Kind: ArtifactLocationPath, Value: "./cache/release-index.json"},
+		Hash:     "sha256:" + strings.Repeat("c", 64),
+	}
+	assert.NoError(t, ValidateEvidence(nil), "sources without separate evidence may use an empty slice")
+	assert.NoError(t, ValidateEvidence([]Evidence{metadata, index}))
+	assert.NoError(t, ValidateEvidence([]Evidence{pathEvidence}), "evidence locations may be local paths")
+
+	tests := []struct {
+		name     string
+		evidence []Evidence
+		wantErr  string
+	}{
+		{name: "empty kind", evidence: []Evidence{{Location: metadata.Location, Hash: metadata.Hash}}, wantErr: "unsupported kind"},
+		{name: "unknown kind", evidence: []Evidence{{Kind: "signature", Location: metadata.Location, Hash: metadata.Hash}}, wantErr: "unsupported kind"},
+		{name: "empty location kind", evidence: []Evidence{{Kind: metadata.Kind, Location: ArtifactLocation{Value: metadata.Location.Value}, Hash: metadata.Hash}}, wantErr: "invalid location"},
+		{name: "empty location value", evidence: []Evidence{{Kind: metadata.Kind, Location: ArtifactLocation{Kind: ArtifactLocationURL}, Hash: metadata.Hash}}, wantErr: "invalid location"},
+		{name: "invalid location", evidence: []Evidence{{Kind: metadata.Kind, Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "file:///tmp/evidence"}, Hash: metadata.Hash}}, wantErr: "invalid location"},
+		{name: "missing hash", evidence: []Evidence{{Kind: metadata.Kind, Location: metadata.Location}}, wantErr: "no hash"},
+		{name: "invalid hash", evidence: []Evidence{{Kind: metadata.Kind, Location: metadata.Location, Hash: "sha512:abcd"}}, wantErr: "invalid hash"},
+		{name: "duplicate exact", evidence: []Evidence{metadata, metadata}, wantErr: "duplicate kind and location"},
+		{name: "duplicate conflicting hash", evidence: []Evidence{metadata, {Kind: metadata.Kind, Location: metadata.Location, Hash: index.Hash}}, wantErr: "duplicate kind and location"},
+		{name: "same location conflicting across kinds", evidence: []Evidence{metadata, {Kind: index.Kind, Location: metadata.Location, Hash: index.Hash}}, wantErr: "conflicting hashes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.ErrorContains(t, ValidateEvidence(test.evidence), test.wantErr)
+		})
+	}
+	assert.NoError(t, ValidateEvidence([]Evidence{metadata, {
+		Kind: EvidenceKindReleaseIndex, Location: metadata.Location, Hash: metadata.Hash,
+	}}), "different kinds may share a typed location when their hashes agree")
 }
 
 func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {

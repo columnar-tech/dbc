@@ -89,12 +89,7 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 		Source: lockSource{
 			Type: release.Source.Type,
 		},
-		Evidence: lockEvidence{
-			BundleURL:       release.Evidence.BundleURL,
-			BundleHash:      release.Evidence.BundleHash,
-			ReleaseListURL:  release.Evidence.ReleaseListURL,
-			ReleaseListHash: release.Evidence.ReleaseListHash,
-		},
+		Evidence: lockEvidenceFromResolution(release.Evidence),
 	}
 	switch release.Source.Type {
 	case "packslip":
@@ -147,12 +142,7 @@ func (d lockInfo) resolvedRelease() resolution.ResolvedRelease {
 	release := resolution.ResolvedRelease{
 		DriverID: d.Name,
 		Source:   resolution.SourceSpec{Type: d.Source.Type, Reference: sourceReference},
-		Evidence: resolution.Evidence{
-			BundleURL:       d.Evidence.BundleURL,
-			BundleHash:      d.Evidence.BundleHash,
-			ReleaseListURL:  d.Evidence.ReleaseListURL,
-			ReleaseListHash: d.Evidence.ReleaseListHash,
-		},
+		Evidence: resolutionEvidenceFromLock(d.Evidence),
 	}
 	if d.Version != nil {
 		release.Version = d.Version.String()
@@ -196,28 +186,14 @@ func validateLockInfo(entry lockInfo) error {
 	if err := validateLockSource(entry.Source); err != nil {
 		return fmt.Errorf("driver %q source: %w", entry.Name, err)
 	}
-	if (entry.Evidence.BundleURL == "") != (entry.Evidence.BundleHash == "") {
-		return fmt.Errorf("driver %q evidence must include both bundle URL and hash", entry.Name)
-	}
-	if entry.Evidence.BundleURL != "" {
-		if err := validateHTTPURL("bundle URL", entry.Evidence.BundleURL); err != nil {
-			return fmt.Errorf("driver %q evidence: %w", entry.Name, err)
+	for i, evidence := range entry.Evidence {
+		if evidence.LegacyBundleURL != nil || evidence.LegacyBundleHash != nil ||
+			evidence.LegacyReleaseListURL != nil || evidence.LegacyReleaseListHash != nil {
+			return fmt.Errorf("driver %q evidence %d uses obsolete source-specific fields", entry.Name, i)
 		}
 	}
-	if (entry.Evidence.ReleaseListURL == "") != (entry.Evidence.ReleaseListHash == "") {
-		return fmt.Errorf("driver %q evidence must include both release-list URL and hash", entry.Name)
-	}
-	if entry.Evidence.ReleaseListURL != "" {
-		if err := validateHTTPURL("release-list URL", entry.Evidence.ReleaseListURL); err != nil {
-			return fmt.Errorf("driver %q evidence: %w", entry.Name, err)
-		}
-	}
-	for _, hash := range []string{entry.Evidence.BundleHash, entry.Evidence.ReleaseListHash} {
-		if hash != "" {
-			if err := validateLockHash(hash); err != nil {
-				return fmt.Errorf("driver %q evidence: %w", entry.Name, err)
-			}
-		}
+	if err := resolution.ValidateEvidence(resolutionEvidenceFromLock(entry.Evidence)); err != nil {
+		return fmt.Errorf("driver %q evidence: %w", entry.Name, err)
 	}
 	if len(entry.Artifacts) == 0 {
 		return fmt.Errorf("driver %q has no locked artifacts", entry.Name)
@@ -231,6 +207,28 @@ func cloneInt64(value *int64) *int64 {
 	}
 	copy := *value
 	return &copy
+}
+
+func lockEvidenceFromResolution(evidence []resolution.Evidence) []lockEvidence {
+	if len(evidence) == 0 {
+		return nil
+	}
+	result := make([]lockEvidence, len(evidence))
+	for i, item := range evidence {
+		result[i] = lockEvidence{Kind: item.Kind, Location: item.Location, Hash: item.Hash}
+	}
+	return result
+}
+
+func resolutionEvidenceFromLock(evidence []lockEvidence) []resolution.Evidence {
+	if len(evidence) == 0 {
+		return nil
+	}
+	result := make([]resolution.Evidence, len(evidence))
+	for i, item := range evidence {
+		result[i] = resolution.Evidence{Kind: item.Kind, Location: item.Location, Hash: item.Hash}
+	}
+	return result
 }
 
 // migrateV1Entry upgrades metadata without changing the resolved version.
@@ -308,7 +306,7 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 			merged.Artifacts = append(merged.Artifacts, candidate)
 		}
 	}
-	merged.Evidence = refreshed.Evidence
+	merged.Evidence = canonicalLockEvidence(refreshed.Evidence)
 	if existing.Legacy != nil {
 		proof := *existing.Legacy
 		merged.Legacy = &proof
@@ -408,6 +406,7 @@ func canonicalLockFile(lock LockFile) LockFile {
 	result.lockinfo = nil
 	sort.Slice(result.Drivers, func(i, j int) bool { return result.Drivers[i].Name < result.Drivers[j].Name })
 	for i := range result.Drivers {
+		result.Drivers[i].Evidence = canonicalLockEvidence(result.Drivers[i].Evidence)
 		result.Drivers[i].Artifacts = append([]lockArtifact(nil), result.Drivers[i].Artifacts...)
 		sort.Slice(result.Drivers[i].Artifacts, func(a, b int) bool {
 			return artifactSelectorIdentity(result.Drivers[i].Artifacts[a]) < artifactSelectorIdentity(result.Drivers[i].Artifacts[b])
@@ -425,5 +424,23 @@ func canonicalLockFile(lock LockFile) LockFile {
 			})
 		}
 	}
+	return result
+}
+
+func canonicalLockEvidence(evidence []lockEvidence) []lockEvidence {
+	result := append([]lockEvidence(nil), evidence...)
+	sort.Slice(result, func(i, j int) bool {
+		left, right := result[i], result[j]
+		if left.Kind != right.Kind {
+			return left.Kind < right.Kind
+		}
+		if left.Location.Kind != right.Location.Kind {
+			return left.Location.Kind < right.Location.Kind
+		}
+		if left.Location.Value != right.Location.Value {
+			return left.Location.Value < right.Location.Value
+		}
+		return left.Hash < right.Hash
+	})
 	return result
 }

@@ -57,10 +57,11 @@ func testLockEntry() lockInfo {
 		Name:    "example",
 		Version: version,
 		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
-		Evidence: lockEvidence{
-			BundleURL:  "https://example.test/release.packslip",
-			BundleHash: "sha256:" + strings.Repeat("e", 64),
-		},
+		Evidence: []lockEvidence{{
+			Kind:     resolution.EvidenceKindReleaseMetadata,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/release.packslip"},
+			Hash:     "sha256:" + strings.Repeat("e", 64),
+		}},
 		Artifacts: []lockArtifact{
 			{
 				Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
@@ -84,6 +85,12 @@ func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T)
 	dir := t.TempDir()
 	entry := testLockEntry()
 	entry.Artifacts[0].Location.Value = "HTTPS://Example.test/a%2Fb?token=x%2Fy"
+	entry.Evidence = []lockEvidence{
+		{Kind: resolution.EvidenceKindReleaseMetadata, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/z-metadata"}, Hash: "sha256:" + strings.Repeat("a", 64)},
+		{Kind: resolution.EvidenceKindReleaseIndex, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/a-index"}, Hash: "sha256:" + strings.Repeat("b", 64)},
+		{Kind: resolution.EvidenceKindReleaseIndex, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./b-index"}, Hash: "sha256:" + strings.Repeat("c", 64)},
+	}
+	originalEvidence := append([]lockEvidence(nil), entry.Evidence...)
 	lock := LockFile{Version: lockFileVersion, Revision: 0, Drivers: []lockInfo{entry, {
 		Name: "local", Version: semver.MustParse("0.1.0"),
 		Source: lockSource{Type: "path", Path: "./packages/local.tar.gz"},
@@ -97,12 +104,18 @@ func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T)
 	require.NoError(t, writeLockFileAtomic(firstPath, lock))
 	first, err := os.ReadFile(firstPath)
 	require.NoError(t, err)
+	assert.Equal(t, originalEvidence, lock.Drivers[0].Evidence, "canonical serialization must not reorder caller evidence")
 
 	lock.Drivers[0].Artifacts[0], lock.Drivers[0].Artifacts[1] = lock.Drivers[0].Artifacts[1], lock.Drivers[0].Artifacts[0]
+	for i, j := 0, len(lock.Drivers[0].Evidence)-1; i < j; i, j = i+1, j-1 {
+		lock.Drivers[0].Evidence[i], lock.Drivers[0].Evidence[j] = lock.Drivers[0].Evidence[j], lock.Drivers[0].Evidence[i]
+	}
+	reversedEvidence := append([]lockEvidence(nil), lock.Drivers[0].Evidence...)
 	secondPath := filepath.Join(dir, "second.lock")
 	require.NoError(t, writeLockFileAtomic(secondPath, lock))
 	second, err := os.ReadFile(secondPath)
 	require.NoError(t, err)
+	assert.Equal(t, reversedEvidence, lock.Drivers[0].Evidence, "canonical serialization must preserve caller evidence order")
 	assert.Equal(t, string(first), string(second), "serialization should be canonical regardless of input order")
 
 	loaded, err := loadLockFile(firstPath)
@@ -117,6 +130,11 @@ func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T)
 	assert.Equal(t, []string{"libc.so.6", "libssl.so.3"}, linux.HostRequirements.Libs)
 	assert.Equal(t, "2.17", linux.HostRequirements.GLibCMin)
 	assert.Equal(t, []lockNamedRequirement{{Name: "git", Min: "2.40"}}, linux.HostRequirements.Bins)
+	assert.Equal(t, []lockEvidence{
+		{Kind: resolution.EvidenceKindReleaseIndex, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./b-index"}, Hash: "sha256:" + strings.Repeat("c", 64)},
+		{Kind: resolution.EvidenceKindReleaseIndex, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/a-index"}, Hash: "sha256:" + strings.Repeat("b", 64)},
+		{Kind: resolution.EvidenceKindReleaseMetadata, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/z-metadata"}, Hash: "sha256:" + strings.Repeat("a", 64)},
+	}, loaded.lockinfo["example"].Evidence)
 	locations := []resolution.ArtifactLocation{
 		loaded.lockinfo["local"].Artifacts[0].Location,
 		loaded.lockinfo["local"].Artifacts[1].Location,
@@ -206,12 +224,55 @@ func TestLockFileV2UsesTypedSourceFieldsAndRequiresEvidencePairs(t *testing.T) {
 	assert.Contains(t, string(data), "project = 'github.com/example/driver'")
 	assert.NotContains(t, string(data), "reference =")
 	assert.Contains(t, string(data), "revision = 0")
+	assert.Contains(t, string(data), "[[drivers.evidence]]")
+	assert.Contains(t, string(data), "[drivers.evidence.location]")
+	assert.Contains(t, string(data), "kind = 'release-metadata'")
+	assert.NotContains(t, string(data), "bundle_url =")
 
 	entry := testLockEntry()
-	entry.Evidence.BundleHash = ""
+	entry.Evidence[0].Hash = ""
 	err = validateLockInfo(entry)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "both bundle URL and hash")
+	assert.Contains(t, err.Error(), "no hash")
+}
+
+func TestLockFileV2RejectsLegacyEvidenceWireForms(t *testing.T) {
+	base := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n"
+	artifact := "\n[[drivers.artifacts]]\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n[drivers.artifacts.target]\nos = 'linux'\narch = 'amd64'\nlibc = 'gnu'\n[drivers.artifacts.location]\nkind = 'url'\nvalue = 'https://assets.example.test/archive.tar.gz'\n"
+	tests := []struct {
+		name     string
+		evidence string
+		wantErr  string
+	}{
+		{
+			name:     "old single table",
+			evidence: "\n[drivers.evidence]\nbundle_url = 'https://example.test/bundle'\nbundle_hash = 'sha256:" + strings.Repeat("e", 64) + "'\n",
+			wantErr:  "obsolete source-specific fields",
+		},
+		{
+			name:     "old fields in new evidence array",
+			evidence: "\n[[drivers.evidence]]\nbundle_url = 'https://example.test/bundle'\nbundle_hash = 'sha256:" + strings.Repeat("e", 64) + "'\n",
+			wantErr:  "obsolete source-specific fields",
+		},
+		{
+			name:     "old field alongside valid new evidence",
+			evidence: "\n[[drivers.evidence]]\nkind = 'release-metadata'\nhash = 'sha256:" + strings.Repeat("e", 64) + "'\nbundle_url = 'https://example.test/bundle'\n[drivers.evidence.location]\nkind = 'url'\nvalue = 'https://example.test/bundle'\n",
+			wantErr:  "obsolete source-specific fields",
+		},
+		{
+			name:     "empty old field alongside valid new evidence",
+			evidence: "\n[[drivers.evidence]]\nkind = 'release-metadata'\nhash = 'sha256:" + strings.Repeat("e", 64) + "'\nbundle_url = ''\n[drivers.evidence.location]\nkind = 'url'\nvalue = 'https://example.test/bundle'\n",
+			wantErr:  "obsolete source-specific fields",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "dbc.lock")
+			require.NoError(t, os.WriteFile(path, []byte(base+test.evidence+artifact), 0o600))
+			_, err := loadLockFile(path)
+			assert.ErrorContains(t, err, test.wantErr)
+		})
+	}
 }
 
 func TestLockFileV2RejectsObsoleteArtifactSelectorFields(t *testing.T) {
@@ -323,6 +384,46 @@ func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	merged, err := refreshLockEntry(existing, refreshed)
 	require.NoError(t, err)
 	assert.Len(t, merged.Artifacts, 3)
+}
+
+func TestRefreshReplacesEvidenceWithLatestCanonicalSnapshot(t *testing.T) {
+	oldIndex := lockEvidence{
+		Kind:     resolution.EvidenceKindReleaseIndex,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/index"},
+		Hash:     "sha256:" + strings.Repeat("a", 64),
+	}
+	oldMetadata := lockEvidence{
+		Kind:     resolution.EvidenceKindReleaseMetadata,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/old"},
+		Hash:     "sha256:" + strings.Repeat("b", 64),
+	}
+	existing := testLockEntry()
+	existing.Evidence = []lockEvidence{oldMetadata, oldIndex}
+
+	newIndex := oldIndex
+	newIndex.Hash = "sha256:" + strings.Repeat("c", 64)
+	newMetadata := lockEvidence{
+		Kind:     resolution.EvidenceKindReleaseMetadata,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/new"},
+		Hash:     "sha256:" + strings.Repeat("d", 64),
+	}
+	refreshed := testLockEntry()
+	refreshed.Evidence = []lockEvidence{newMetadata, newIndex}
+	want := canonicalLockEvidence(refreshed.Evidence)
+
+	merged, err := refreshLockEntry(existing, refreshed)
+	require.NoError(t, err, "an index's observed hash may change across refresh snapshots")
+	assert.Equal(t, want, merged.Evidence)
+	assert.NotContains(t, merged.Evidence, oldMetadata, "refresh replaces stale evidence entries")
+
+	refreshed.Evidence[0].Hash = "sha256:" + strings.Repeat("f", 64)
+	assert.Equal(t, want, merged.Evidence, "the merged snapshot must not alias the refreshed evidence slice")
+
+	refreshed.Evidence = []lockEvidence{newMetadata}
+	latestOnly, err := refreshLockEntry(existing, refreshed)
+	require.NoError(t, err)
+	assert.Equal(t, []lockEvidence{newMetadata}, latestOnly.Evidence,
+		"refresh replaces the full evidence set rather than retaining omitted records")
 }
 
 func TestRefreshCannotReplaceSameTargetArtifactMetadata(t *testing.T) {
@@ -720,6 +821,29 @@ func TestLockResolvedReleaseRoundTripPreservesEvidenceAndSelectors(t *testing.T)
 	require.NoError(t, err)
 	got := entry.resolvedRelease()
 	assert.Equal(t, release, got)
+	release.Evidence[0].Hash = "sha256:" + strings.Repeat("f", 64)
+	assert.NotEqual(t, release.Evidence[0].Hash, entry.Evidence[0].Hash,
+		"lock conversion must copy the evidence slice")
+	entry.Evidence[0].Hash = "sha256:" + strings.Repeat("0", 64)
+	assert.NotEqual(t, entry.Evidence[0].Hash, got.Evidence[0].Hash,
+		"resolved release conversion must copy the evidence slice")
+}
+
+func TestRegistryAndPathSourcesDoNotFabricateEvidence(t *testing.T) {
+	for _, source := range []resolution.SourceSpec{
+		{Type: "registry", Reference: "https://registry.example.test"},
+		{Type: "path", Reference: "./driver"},
+	} {
+		t.Run(source.Type, func(t *testing.T) {
+			release := testResolvedRelease()
+			release.Source = source
+			release.Evidence = nil
+			entry, err := lockInfoFromResolvedRelease("example", release)
+			require.NoError(t, err)
+			assert.Empty(t, entry.Evidence)
+			assert.Empty(t, entry.resolvedRelease().Evidence)
+		})
+	}
 }
 
 func testResolvedRelease() resolution.ResolvedRelease {
@@ -728,9 +852,11 @@ func testResolvedRelease() resolution.ResolvedRelease {
 		DriverID: "example",
 		Version:  "1.2.3",
 		Source:   resolution.SourceSpec{Type: "packslip", Reference: "github.com/example/driver"},
-		Evidence: resolution.Evidence{
-			BundleURL: "https://example.test/bundle", BundleHash: "sha256:" + strings.Repeat("e", 64),
-		},
+		Evidence: []resolution.Evidence{{
+			Kind:     resolution.EvidenceKindReleaseMetadata,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/bundle"},
+			Hash:     "sha256:" + strings.Repeat("e", 64),
+		}},
 		Artifacts: []resolution.Artifact{{
 			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,

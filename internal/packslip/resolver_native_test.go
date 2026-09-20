@@ -200,10 +200,18 @@ func TestResolverUsesSignedListDigestAndBuildsResolvedRelease(t *testing.T) {
 	require.Equal(t, "1.0.0", resolved.Version)
 	require.Equal(t, "packslip", resolved.Source.Type)
 	require.Equal(t, testProject, resolved.Source.Reference)
-	require.Equal(t, "sha256:"+digestHex(releaseBytes), resolved.Evidence.BundleHash)
-	require.Equal(t, "sha256:"+digestHex(listBytes), resolved.Evidence.ReleaseListHash)
-	require.Equal(t, server.URL+"/acme/driver/HEAD/.well-known/packslip.json", resolved.Evidence.ReleaseListURL)
-	require.Equal(t, server.URL+"/assets/release.json", resolved.Evidence.BundleURL)
+	require.Equal(t, []resolution.Evidence{
+		{
+			Kind:     resolution.EvidenceKindReleaseMetadata,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: server.URL + "/assets/release.json"},
+			Hash:     "sha256:" + digestHex(releaseBytes),
+		},
+		{
+			Kind:     resolution.EvidenceKindReleaseIndex,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: server.URL + "/acme/driver/HEAD/.well-known/packslip.json"},
+			Hash:     "sha256:" + digestHex(listBytes),
+		},
+	}, resolved.Evidence)
 	require.Len(t, resolved.Artifacts, 1, "a resolution contains the artifact selected for its requested target")
 	require.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://downloads.example/driver-linux.tar.gz"}, resolved.Artifacts[0].Location)
 	require.Equal(t, "sha256:"+strings.Repeat("a", 64), resolved.Artifacts[0].Hash)
@@ -225,8 +233,42 @@ func TestResolverRetainsSignedListEvidenceWhenReleaseIsAbsentFromList(t *testing
 	fixture.list = makeSignedList(t, testProject, 1, "2026-10-01T00:00:00Z", server.URL+"/assets/release.json", releaseBytes, fakeSigner, "0.9.0", "v0.9.0", "")
 	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "iceberg", Version: "1.0.0", Target: Target{OS: "linux", Arch: "x86_64", LibC: "gnu"}})
 	require.NoError(t, err)
-	require.NotEmpty(t, resolved.Evidence.ReleaseListURL)
-	require.Equal(t, "sha256:"+digestHex(fixture.list), resolved.Evidence.ReleaseListHash)
+	require.Len(t, resolved.Evidence, 2)
+	require.Equal(t, resolution.EvidenceKindReleaseIndex, resolved.Evidence[1].Kind)
+	require.Equal(t, server.URL+"/acme/driver/HEAD/.well-known/packslip.json", resolved.Evidence[1].Location.Value)
+	require.Equal(t, "sha256:"+digestHex(fixture.list), resolved.Evidence[1].Hash)
+}
+
+func TestResolverOmitsReleaseIndexEvidenceWhenNoListIsObserved(t *testing.T) {
+	releaseBytes := makeBundle(setSignerAndTag(t, validRelease("1.0.0"), testProject, "1.0.0", fakeSigner, "v1.0.0"))
+	server, resolver, _ := newResolverTestServer(t, testProject, "v1.0.0", nil, releaseBytes, "https://downloads.example/driver.tar.gz")
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "iceberg", Version: "1.0.0", Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []resolution.Evidence{{
+		Kind:     resolution.EvidenceKindReleaseMetadata,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: server.URL + "/assets/release.json"},
+		Hash:     "sha256:" + digestHex(releaseBytes),
+	}}, resolved.Evidence)
+}
+
+func TestFinishResolvedRejectsPartialReleaseIndexEvidence(t *testing.T) {
+	resolver := &nativeResolver{}
+	for _, pair := range []struct {
+		name     string
+		listURL  string
+		listHash string
+	}{
+		{name: "URL without hash", listURL: "https://example.test/index"},
+		{name: "hash without URL", listHash: "sha256:" + strings.Repeat("a", 64)},
+	} {
+		t.Run(pair.name, func(t *testing.T) {
+			_, err := resolver.finishResolved(context.Background(), "", Request{}, listObservation{}, nil, nil,
+				"", nil, pair.listURL, pair.listHash, nil)
+			require.ErrorContains(t, err, "requires both a URL and hash")
+		})
+	}
 }
 
 func TestResolverPersistsSequenceBeforeYankAndRejectsRollback(t *testing.T) {

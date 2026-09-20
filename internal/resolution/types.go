@@ -206,24 +206,31 @@ type SourceSpec struct {
 	Reference string
 }
 
+// EvidenceKind identifies the kind of immutable metadata observed while
+// resolving a release.
+type EvidenceKind string
+
+const (
+	EvidenceKindReleaseMetadata EvidenceKind = "release-metadata"
+	EvidenceKindReleaseIndex    EvidenceKind = "release-index"
+)
+
+// Evidence records one content-addressed source document observed during a
+// resolution. Its location is typed independently from source identity.
+type Evidence struct {
+	Kind     EvidenceKind     `toml:"kind" json:"kind"`
+	Location ArtifactLocation `toml:"location" json:"location"`
+	Hash     string           `toml:"hash" json:"hash"`
+}
+
 // ResolvedRelease is a source-independent release snapshot. Artifacts may be a
 // partial target set; callers must not infer that omitted targets exist.
 type ResolvedRelease struct {
 	DriverID  string
 	Version   string
 	Source    SourceSpec
-	Evidence  Evidence
+	Evidence  []Evidence
 	Artifacts []Artifact
-}
-
-// Evidence records the immutable metadata used to resolve a source. It is
-// separate from SourceSpec because evidence describes one resolution event,
-// while source identity remains stable across resolutions.
-type Evidence struct {
-	BundleURL       string
-	BundleHash      string
-	ReleaseListURL  string
-	ReleaseListHash string
 }
 
 // Artifact describes one downloadable archive for one concrete target. Hash and
@@ -279,10 +286,48 @@ func ValidateArtifactMetadata(hash string, size *int64) error {
 	return nil
 }
 
+// ValidateEvidence checks that evidence records are typed, content-addressed,
+// and unambiguous within one resolution snapshot.
+func ValidateEvidence(evidence []Evidence) error {
+	type evidenceKey struct {
+		kind     EvidenceKind
+		location ArtifactLocation
+	}
+	seen := make(map[evidenceKey]struct{}, len(evidence))
+	hashesByLocation := make(map[ArtifactLocation]string, len(evidence))
+	for i, item := range evidence {
+		if item.Kind != EvidenceKindReleaseMetadata && item.Kind != EvidenceKindReleaseIndex {
+			return fmt.Errorf("evidence %d has unsupported kind %q", i, item.Kind)
+		}
+		if err := ValidateArtifactLocation(item.Location); err != nil {
+			return fmt.Errorf("evidence %d has invalid location: %w", i, err)
+		}
+		if item.Hash == "" {
+			return fmt.Errorf("evidence %d has no hash", i)
+		}
+		if err := ValidateArtifactMetadata(item.Hash, nil); err != nil {
+			return fmt.Errorf("evidence %d has invalid hash: %w", i, err)
+		}
+		key := evidenceKey{kind: item.Kind, location: item.Location}
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("evidence contains a duplicate kind and location")
+		}
+		seen[key] = struct{}{}
+		if hash, ok := hashesByLocation[item.Location]; ok && hash != item.Hash {
+			return fmt.Errorf("evidence records sharing a location have conflicting hashes")
+		}
+		hashesByLocation[item.Location] = item.Hash
+	}
+	return nil
+}
+
 // ValidateResolvedRelease checks the contract required before a release can
 // become a lockfile snapshot. Registry candidates may omit hashes or sizes;
 // only the snapshot boundary requires them to be finalized.
 func ValidateResolvedRelease(release ResolvedRelease) error {
+	if err := ValidateEvidence(release.Evidence); err != nil {
+		return fmt.Errorf("invalid evidence: %w", err)
+	}
 	if len(release.Artifacts) == 0 {
 		return fmt.Errorf("resolved release must contain at least one artifact")
 	}
