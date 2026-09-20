@@ -108,6 +108,36 @@ linux_amd64 = '/path/to/driver.so'
 `, string(data))
 }
 
+func TestRemoveManifestSymlinkOnlyRemovesTargetRegistration(t *testing.T) {
+	parent := t.TempDir()
+	registered := filepath.Join(parent, "registered")
+	other := filepath.Join(parent, "other")
+	require.NoError(t, os.MkdirAll(registered, 0755))
+	require.NoError(t, os.MkdirAll(other, 0755))
+	registeredManifest := filepath.Join(registered, "example.toml")
+	otherManifest := filepath.Join(other, "example.toml")
+	require.NoError(t, os.WriteFile(registeredManifest, []byte("registered"), 0644))
+	require.NoError(t, os.WriteFile(otherManifest, []byte("other"), 0644))
+
+	link := filepath.Join(parent, "example.toml")
+	if err := os.Symlink(registeredManifest, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	removeManifestSymlink(registered, "example")
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("symlink to the requested manifest was not removed: %v", err)
+	}
+
+	require.NoError(t, os.Symlink(otherManifest, link))
+	removeManifestSymlink(registered, "example")
+	linkInfo, err := os.Lstat(link)
+	require.NoError(t, err, "symlink to a different manifest should be retained")
+	assert.NotZero(t, linkInfo.Mode()&os.ModeSymlink, "retained entry should still be a symlink")
+	target, err := os.Readlink(link)
+	require.NoError(t, err)
+	assert.Equal(t, otherManifest, target)
+}
+
 func TestLoadDriverFromUnsupportedManifest(t *testing.T) {
 	prefix := t.TempDir()
 	driverName := "test_driver"

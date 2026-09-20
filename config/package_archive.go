@@ -26,6 +26,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -320,7 +321,8 @@ func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 	}
 	defer releaseLock()
 
-	if _, err := loadInstalledDriver(cfg, loc, runtimeID); err != nil {
+	previous, err := loadInstalledDriver(cfg, loc, runtimeID)
+	if err != nil {
 		return Manifest{}, fmt.Errorf("could not inspect existing driver registration: %w", err)
 	}
 	workDir, err := os.MkdirTemp(loc, ".dbc-install-")
@@ -357,6 +359,7 @@ func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 	}
 
 	cleanupManagedPackageDirectories(loc, runtimeID, finalDir, manifest.DriverInfo)
+	cleanupLegacyPackageDirectory(loc, runtimeID, previous, manifest.DriverInfo)
 	return manifest, nil
 }
 
@@ -386,13 +389,10 @@ func acquireDriverInstallLock(location, runtimeID string) (func(), error) {
 func driverInstallLockLocation(cfg Config, info DriverInfo) (string, error) {
 	location := info.FilePath
 	registryPath := strings.HasPrefix(strings.ToUpper(location), "HKCU\\") || strings.HasPrefix(strings.ToUpper(location), "HKLM\\")
-	if cfg.Level == ConfigEnv {
-		paths := splitConfigList(cfg.Location)
-		if len(paths) == 0 {
-			return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
-		}
-		location = paths[0]
-	} else if registryPath || location == "" {
+	if cfg.Level == ConfigEnv && location == "" {
+		return "", errors.New("driver registration location is empty")
+	}
+	if cfg.Level != ConfigEnv && (registryPath || location == "") {
 		location = cfg.Location
 		if location == "" {
 			location = cfg.Level.ConfigLocation()
@@ -436,7 +436,40 @@ func uninstallDriverWithInstallLock(cfg Config, info DriverInfo, uninstall func(
 		return fmt.Errorf("could not lock driver installation: %w", err)
 	}
 	defer releaseLock()
+
+	var current DriverInfo
+	if cfg.Level == ConfigEnv {
+		current, err = loadDriverFromManifest(info.FilePath, info.ID)
+	} else {
+		current, err = GetDriver(cfg, info.ID)
+	}
+	if err != nil {
+		return fmt.Errorf("driver registration changed before uninstall: could not reload current registration: %w", err)
+	}
+	if !sameDriverRegistration(info, current) {
+		return errors.New("driver registration changed before uninstall; refusing to remove files from a stale registration")
+	}
 	return uninstall()
+}
+
+func sameDriverRegistration(first, second DriverInfo) bool {
+	first.FilePath = normalizedRegistrationPath(first.FilePath)
+	second.FilePath = normalizedRegistrationPath(second.FilePath)
+	return reflect.DeepEqual(first, second)
+}
+
+func normalizedRegistrationPath(path string) string {
+	if strings.HasPrefix(strings.ToUpper(path), "HKCU\\") || strings.HasPrefix(strings.ToUpper(path), "HKLM\\") {
+		return strings.ToUpper(filepath.Clean(path))
+	}
+	if path == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(abs)
 }
 
 func managedPackageDirectory(location, runtimeID string, info DriverInfo) (string, bool) {
@@ -493,6 +526,108 @@ func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, cu
 		}
 		_ = os.RemoveAll(dir)
 	}
+}
+
+// cleanupLegacyPackageDirectory removes a pre-receipt package generation only
+// when the previous runtime registration and its on-disk layout jointly prove
+// ownership. Ambiguous or externally managed paths are deliberately retained.
+func cleanupLegacyPackageDirectory(location, runtimeID string, previous *DriverInfo, current DriverInfo) {
+	if previous == nil || previous.Source != "dbc" || previous.ID != runtimeID || previous.Version == nil {
+		return
+	}
+	if validateFlatName(runtimeID) != nil {
+		return
+	}
+	root, err := filepath.Abs(location)
+	if err != nil {
+		return
+	}
+	rootInfo, err := os.Stat(root)
+	if err != nil || !rootInfo.IsDir() {
+		return
+	}
+
+	platformPaths := make(map[string]string)
+	if previous.Driver.Shared.defaultPath != "" {
+		platformPaths[PlatformTuple()] = previous.Driver.Shared.defaultPath
+	} else {
+		for platform, path := range previous.Driver.Shared.platformMap {
+			platformPaths[platform] = path
+		}
+	}
+
+	removed := make(map[string]struct{})
+	for platform, sharedPath := range platformPaths {
+		if sharedPath == "" || validatePlatformIdentifier(platform) != nil {
+			continue
+		}
+		name := runtimeID + "_" + platform + "_v" + previous.Version.String()
+		if validateFlatName(name) != nil {
+			continue
+		}
+		candidate := filepath.Join(root, name)
+		candidateAbs, err := filepath.Abs(candidate)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(root, candidateAbs)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
+			continue
+		}
+		if _, alreadyRemoved := removed[candidateAbs]; alreadyRemoved {
+			continue
+		}
+		candidateInfo, err := os.Lstat(candidateAbs)
+		if err != nil || !candidateInfo.IsDir() || candidateInfo.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		// Any receipt means this directory follows the newer ownership protocol,
+		// including malformed receipts that cannot be used to prove ownership.
+		if _, err := os.Lstat(filepath.Join(candidateAbs, installReceiptName)); !errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if runtimeReferencesPackageDirectory(current, root, candidateAbs) {
+			continue
+		}
+		if !legacySharedFileIsOwned(root, candidateAbs, sharedPath) {
+			continue
+		}
+		if err := os.RemoveAll(candidateAbs); err == nil {
+			removed[candidateAbs] = struct{}{}
+		}
+	}
+}
+
+func legacySharedFileIsOwned(location, candidate, sharedPath string) bool {
+	if !filepath.IsAbs(sharedPath) {
+		sharedPath = filepath.Join(location, sharedPath)
+	}
+	sharedPath, err := filepath.Abs(sharedPath)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(candidate, sharedPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
+		return false
+	}
+	info, err := os.Lstat(sharedPath)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func runtimeReferencesPackageDirectory(info DriverInfo, location, directory string) bool {
+	for sharedPath := range info.Driver.Shared.Paths() {
+		if sharedPath == "" {
+			continue
+		}
+		if !filepath.IsAbs(sharedPath) {
+			sharedPath = filepath.Join(location, sharedPath)
+		}
+		sharedPath = filepath.Clean(sharedPath)
+		if sharedPath == filepath.Clean(directory) || filepath.Dir(sharedPath) == filepath.Clean(directory) {
+			return true
+		}
+	}
+	return false
 }
 
 func cleanupUninstalledManagedPackageDirectories(location, runtimeID string) {

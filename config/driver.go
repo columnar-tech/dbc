@@ -190,8 +190,24 @@ func removeManifestSymlink(filePath, driverID string) {
 	safeDriverID := filepath.Base(driverID)
 	symlink := filepath.Join(parentDir, safeDriverID+".toml")
 
-	if filepath.Dir(symlink) == parentDir {
-		os.Remove(symlink)
+	if filepath.Dir(symlink) != parentDir {
+		return
+	}
+	linkInfo, err := os.Lstat(symlink)
+	if err != nil || linkInfo.Mode()&os.ModeSymlink == 0 {
+		return
+	}
+	target, err := os.Readlink(symlink)
+	if err != nil {
+		return
+	}
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(parentDir, target)
+	}
+	expected, expectedErr := filepath.Abs(filepath.Join(filePath, safeDriverID+".toml"))
+	actual, actualErr := filepath.Abs(target)
+	if expectedErr == nil && actualErr == nil && filepath.Clean(actual) == filepath.Clean(expected) {
+		_ = os.Remove(symlink)
 	}
 }
 
