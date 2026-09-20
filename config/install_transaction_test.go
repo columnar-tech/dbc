@@ -865,6 +865,52 @@ func TestUninstallPackageCleanupReturnsProvenRemovalFailures(t *testing.T) {
 	}
 }
 
+func TestUninstallPackageCleanupSkipsNonDBCDrivers(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("managed library"))
+	file := writeInstallArchive(t, archive, "managed")
+	if _, err := InstallPackage(cfg, "example", file, installExpected("example", "source", archive), InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	info, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managedDirectory := filepath.Dir(info.Driver.Shared.Get(PlatformTuple()))
+	info.Source = "external"
+	var removeCalls int
+	err = cleanupUninstalledDriverPackagesWithRemoveAll(cfg, info, func(string) error {
+		removeCalls++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("non-dbc cleanup returned an error: %v", err)
+	}
+	if removeCalls != 0 {
+		t.Fatalf("non-dbc cleanup called removeAll %d times, want 0", removeCalls)
+	}
+	if _, err := os.Stat(managedDirectory); err != nil {
+		t.Fatalf("non-dbc cleanup removed a same-ID managed generation: %v", err)
+	}
+
+	filePath := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(filePath, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info = DriverInfo{ID: "external", Source: "external"}
+	if err := cleanupUninstalledDriverPackagesWithRemoveAll(Config{Level: ConfigEnv, Location: filePath}, info, func(string) error {
+		removeCalls++
+		return nil
+	}); err != nil {
+		t.Fatalf("non-dbc cleanup failed while config location was unreadable: %v", err)
+	}
+	if removeCalls != 0 {
+		t.Fatalf("non-dbc cleanup called removeAll %d times for unreadable location, want 0", removeCalls)
+	}
+}
+
 func TestUninstallDriverRetainsUnprovenLegacyDirectories(t *testing.T) {
 	for _, test := range []struct {
 		name  string

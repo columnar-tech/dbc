@@ -376,6 +376,9 @@ func UninstallDriverShared(info DriverInfo) error {
 }
 
 func cleanupUninstalledDriverPackagesWithRemoveAll(cfg Config, info DriverInfo, removeAll func(string) error) error {
+	if info.Source != "dbc" {
+		return nil
+	}
 	location, err := uninstallPackageCleanupLocation(cfg, info)
 	if err != nil {
 		return fmt.Errorf("could not resolve package cleanup location: %w", err)
