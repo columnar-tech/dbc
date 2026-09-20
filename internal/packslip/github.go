@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -154,6 +155,21 @@ func (d *GitHubPackslipDiscovery) ReleaseListURL(source PackslipSource) (string,
 }
 
 func (d *GitHubPackslipDiscovery) get(ctx context.Context, resourceURL string, githubAPI bool) ([]byte, string, error) {
+	initialURL, err := url.Parse(resourceURL)
+	if err != nil {
+		return nil, "", err
+	}
+	base := d.rawBase
+	if githubAPI {
+		base = d.apiBase
+	}
+	var loopbackHTTPEndpoint *url.URL
+	if strings.EqualFold(base.Scheme, "http") && isLoopbackHost(base.Hostname()) && sameAuthority(initialURL, base) {
+		loopbackHTTPEndpoint = initialURL
+	}
+	if err := validateMetadataURL(initialURL, loopbackHTTPEndpoint); err != nil {
+		return nil, "", err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, resourceURL, nil)
 	if err != nil {
 		return nil, "", err
@@ -163,7 +179,26 @@ func (d *GitHubPackslipDiscovery) get(ctx context.Context, resourceURL string, g
 		request.Header.Set("Accept", "application/vnd.github+json")
 		request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	}
-	response, err := d.client.Do(request)
+	client := *d.client
+	checkRedirect := d.client.CheckRedirect
+	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if err := validateRedirectChain(next, via, loopbackHTTPEndpoint); err != nil {
+			return err
+		}
+		if checkRedirect != nil {
+			if err := checkRedirect(next, via); err != nil {
+				return err
+			}
+			// Caller policies may adjust the next request, so validate the full
+			// chain again before net/http follows it.
+			return validateRedirectChain(next, via, loopbackHTTPEndpoint)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 metadata redirects")
+		}
+		return nil
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		return nil, "", err
 	}
@@ -171,8 +206,8 @@ func (d *GitHubPackslipDiscovery) get(ctx context.Context, resourceURL string, g
 	finalURL := resourceURL
 	if response.Request != nil && response.Request.URL != nil {
 		finalURL = response.Request.URL.String()
-		if response.Request.URL.Scheme != "https" && !(response.Request.URL.Scheme == "http" && isLoopbackHost(response.Request.URL.Hostname())) {
-			return nil, finalURL, errors.New("metadata request redirected to a non-HTTPS URL")
+		if err := validateMetadataURL(response.Request.URL, loopbackHTTPEndpoint); err != nil {
+			return nil, finalURL, err
 		}
 	}
 	if response.StatusCode == http.StatusNotFound {
@@ -191,6 +226,62 @@ func (d *GitHubPackslipDiscovery) get(ctx context.Context, resourceURL string, g
 	return body, finalURL, nil
 }
 
+func validateRedirectChain(next *http.Request, via []*http.Request, loopbackHTTPEndpoint *url.URL) error {
+	if next == nil || next.URL == nil || len(via) == 0 {
+		return errors.New("metadata redirect has no valid request chain")
+	}
+	var previousURL *url.URL
+	for _, previous := range via {
+		if previous == nil || previous.URL == nil {
+			return errors.New("metadata redirect has an invalid previous request")
+		}
+		if err := validateMetadataURL(previous.URL, loopbackHTTPEndpoint); err != nil {
+			return fmt.Errorf("metadata redirect chain rejected: %w", err)
+		}
+		if previousURL != nil && strings.EqualFold(previousURL.Scheme, "https") && strings.EqualFold(previous.URL.Scheme, "http") {
+			return errors.New("metadata redirect chain attempted an HTTPS-to-HTTP downgrade")
+		}
+		previousURL = previous.URL
+	}
+	initialURL := via[0].URL
+	if strings.EqualFold(initialURL.Scheme, "http") && loopbackHTTPEndpoint == nil {
+		return errors.New("HTTP metadata is allowed only for a configured loopback test endpoint")
+	}
+	if strings.EqualFold(previousURL.Scheme, "https") && strings.EqualFold(next.URL.Scheme, "http") {
+		return errors.New("metadata redirect attempted an HTTPS-to-HTTP downgrade")
+	}
+	if err := validateMetadataURL(next.URL, loopbackHTTPEndpoint); err != nil {
+		return fmt.Errorf("metadata redirect rejected: %w", err)
+	}
+	return nil
+}
+
+func validateMetadataURL(target *url.URL, loopbackHTTPEndpoint *url.URL) error {
+	if target == nil || target.Hostname() == "" || target.User != nil || target.Fragment != "" {
+		return errors.New("metadata URL must have a host and no credentials or fragment")
+	}
+	switch strings.ToLower(target.Scheme) {
+	case "https":
+		return nil
+	case "http":
+		if loopbackHTTPEndpoint != nil && isLoopbackHost(target.Hostname()) && sameAuthority(target, loopbackHTTPEndpoint) {
+			return nil
+		}
+		return errors.New("HTTP metadata is allowed only for a configured loopback test endpoint")
+	default:
+		return fmt.Errorf("metadata URL scheme %q is not HTTPS", target.Scheme)
+	}
+}
+
+func sameAuthority(left, right *url.URL) bool {
+	return left != nil && right != nil && strings.EqualFold(left.Scheme, right.Scheme) &&
+		strings.EqualFold(left.Host, right.Host)
+}
+
 func isLoopbackHost(host string) bool {
-	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1"
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
