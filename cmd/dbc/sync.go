@@ -32,7 +32,7 @@ import (
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
-	"github.com/pelletier/go-toml/v2"
+	"github.com/columnar-tech/dbc/internal/resolution"
 )
 
 type SyncCmd struct {
@@ -185,9 +185,13 @@ func loadDriverList(path string) (DriversList, error) {
 }
 
 type installItem struct {
-	Driver   dbc.Driver
-	Package  dbc.PkgInfo
-	Checksum string
+	Driver               dbc.Driver
+	Package              dbc.PkgInfo
+	Checksum             string
+	ArchiveHash          string
+	ArchiveSize          int64
+	InstalledLibraryHash string
+	LockEntry            *lockInfo
 }
 
 func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
@@ -237,7 +241,14 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		items = append(items, installItem{
 			Driver:   drv,
 			Package:  pkg,
-			Checksum: info.Checksum,
+			Checksum: info.legacyChecksumFor(config.PlatformTuple()),
+			LockEntry: func() *lockInfo {
+				if info.Version == nil {
+					return nil
+				}
+				copy := info
+				return &copy
+			}(),
 		})
 	}
 	return items, nil
@@ -247,6 +258,7 @@ type installedDrvMsg struct {
 	removed     *config.DriverInfo
 	info        config.DriverInfo
 	postInstall []string
+	item        installItem
 }
 
 type alreadyInstalledDrvMsg struct {
@@ -269,12 +281,23 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 					}
 
 					if item.Checksum != "" {
+						// A v1 checksum proves only the installed library for its
+						// recorded platform. A v2 archive digest is intentionally not
+						// compared with this installed file; a separate install receipt
+						// will be needed to establish that relationship.
 						if chksum != item.Checksum {
 							return fmt.Errorf("checksum mismatch for driver %s: %s != %s",
 								item.Driver.Path, chksum, item.Checksum)
 						}
 					} else {
 						item.Checksum = chksum
+					}
+					item.InstalledLibraryHash = chksum
+
+					if !canReuseLockedEntry(item) {
+						if err := ensureArchiveSnapshot(s, &item); err != nil {
+							return fmt.Errorf("failed to snapshot driver archive: %w", err)
+						}
 					}
 
 					return alreadyInstalledDrvMsg{info: drv, item: item}
@@ -292,6 +315,11 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 			output, err := s.downloadPkg(item.Package)
 			if err != nil {
 				prog.Send(fmt.Errorf("failed to download driver: %w", err))
+				return
+			}
+			defer output.Close()
+			if err := snapshotDownloadedArchive(&item, output); err != nil {
+				prog.Send(fmt.Errorf("failed to snapshot downloaded driver archive: %w", err))
 				return
 			}
 
@@ -336,6 +364,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				removed:     removedDriver,
 				info:        manifest.DriverInfo,
 				postInstall: manifest.PostInstall.Messages,
+				item:        item,
 			})
 		}()
 		return nil
@@ -343,14 +372,140 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 }
 
 func (s syncModel) writeLockFile() error {
-	f, err := os.Create(s.LockFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create lock file %s: %w", s.LockFilePath, err)
-	}
-	defer f.Close()
-
 	s.locked.Version = lockFileVersion
-	return toml.NewEncoder(f).Encode(s.locked)
+	return writeLockFileAtomic(s.LockFilePath, s.locked)
+}
+
+func canReuseLockedEntry(item installItem) bool {
+	if item.LockEntry == nil || item.LockEntry.Version == nil || item.Package.Version == nil ||
+		!item.LockEntry.Version.Equal(item.Package.Version) {
+		return false
+	}
+	source, err := packageLockSource(item)
+	if err != nil || item.LockEntry.Source != source {
+		return false
+	}
+	if item.LockEntry.Version == nil {
+		return false
+	}
+	_, err = selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)
+	return err == nil
+}
+
+func packageLockSource(item installItem) (lockSource, error) {
+	if item.Driver.Registry == nil || item.Driver.Registry.BaseURL == nil {
+		return lockSource{}, fmt.Errorf("driver %q has no registry identity", item.Driver.Path)
+	}
+	return lockSource{Type: "registry", URL: item.Driver.Registry.BaseURL.String()}, nil
+}
+
+func ensureArchiveSnapshot(s syncModel, item *installItem) error {
+	if item.Package.ArtifactHash != "" && item.Package.ArtifactSize != nil {
+		if err := resolution.ValidateArtifactMetadata(item.Package.ArtifactHash, item.Package.ArtifactSize); err != nil {
+			return err
+		}
+		item.ArchiveHash = item.Package.ArtifactHash
+		item.ArchiveSize = *item.Package.ArtifactSize
+		return nil
+	}
+	output, err := s.downloadPkg(item.Package)
+	if err != nil {
+		return fmt.Errorf("failed to download archive for lock metadata: %w", err)
+	}
+	defer output.Close()
+	return snapshotDownloadedArchive(item, output)
+}
+
+func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
+	if archive == nil {
+		return fmt.Errorf("download returned no archive")
+	}
+	info, err := archive.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat downloaded archive: %w", err)
+	}
+	actualSize := info.Size()
+	actualHash, err := checksumFile(archive, archive.Name())
+	if err != nil {
+		return err
+	}
+	actualHash = "sha256:" + actualHash
+	if err := resolution.ValidateArtifactMetadata(actualHash, &actualSize); err != nil {
+		return err
+	}
+	if item.Package.ArtifactHash != "" && item.Package.ArtifactHash != actualHash {
+		return fmt.Errorf("downloaded archive hash %s does not match registry hash %s", actualHash, item.Package.ArtifactHash)
+	}
+	if item.Package.ArtifactSize != nil && *item.Package.ArtifactSize != actualSize {
+		return fmt.Errorf("downloaded archive size %d does not match registry size %d", actualSize, *item.Package.ArtifactSize)
+	}
+	item.ArchiveHash = actualHash
+	item.ArchiveSize = actualSize
+	if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to rewind downloaded archive: %w", err)
+	}
+	return nil
+}
+
+func lockEntryForItem(item installItem) (lockInfo, error) {
+	if item.LockEntry != nil && item.LockEntry.Legacy != nil && item.LockEntry.Legacy.Platform == config.PlatformTuple() {
+		if err := verifyLegacyLibraryProof(*item.LockEntry, config.PlatformTuple(), item.InstalledLibraryHash); err != nil {
+			return lockInfo{}, err
+		}
+	}
+	if canReuseLockedEntry(item) {
+		return *item.LockEntry, nil
+	}
+	if item.Package.Version == nil || item.Package.Path == nil {
+		return lockInfo{}, fmt.Errorf("driver %q has incomplete resolved package metadata", item.Driver.Path)
+	}
+	source, err := packageLockSource(item)
+	if err != nil {
+		return lockInfo{}, err
+	}
+	hash := item.ArchiveHash
+	if hash == "" {
+		hash = item.Package.ArtifactHash
+	}
+	size := item.ArchiveSize
+	if item.ArchiveHash == "" && item.Package.ArtifactSize != nil {
+		size = *item.Package.ArtifactSize
+	}
+	release := resolution.ResolvedRelease{
+		DriverID: item.Driver.Path,
+		Version:  item.Package.Version.String(),
+		Source:   resolution.SourceSpec{Type: source.Type, Reference: source.URL},
+		Artifacts: []resolution.Artifact{{
+			Platform: item.Package.PlatformTuple,
+			URL:      item.Package.Path.String(),
+			Hash:     hash,
+			Size:     &size,
+		}},
+	}
+	candidate, err := lockInfoFromResolvedRelease(item.Driver.Path, release)
+	if err != nil {
+		return lockInfo{}, err
+	}
+	if item.LockEntry == nil || item.LockEntry.Version == nil || !item.LockEntry.Version.Equal(item.Package.Version) {
+		return candidate, nil
+	}
+	if item.LockEntry.Version == nil {
+		return candidate, nil
+	}
+	if len(item.LockEntry.Artifacts) == 0 {
+		if item.LockEntry.Version == nil {
+			return candidate, nil
+		}
+		if item.LockEntry.Legacy != nil {
+			var verified *VerifiedLegacyLibrary
+			if item.LockEntry.Legacy.Platform == config.PlatformTuple() {
+				verified = &VerifiedLegacyLibrary{Platform: config.PlatformTuple(), LibraryHash: item.InstalledLibraryHash}
+			}
+			return migrateV1Entry(*item.LockEntry, release, config.PlatformTuple(), verified)
+		}
+		return candidate, nil
+	}
+	return refreshLockEntry(*item.LockEntry, candidate)
 }
 
 func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -425,12 +580,11 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return s, tea.Batch(s.installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
 	case alreadyInstalledDrvMsg:
-		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
-			Name:     msg.info.ID,
-			Version:  msg.info.Version,
-			Platform: config.PlatformTuple(),
-			Checksum: msg.item.Checksum,
-		})
+		entry, err := lockEntryForItem(msg.item)
+		if err != nil {
+			return s, errCmd("failed to update lock entry: %w", err)
+		}
+		s.locked.Drivers = append(s.locked.Drivers, entry)
 		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),
@@ -482,12 +636,13 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
 		}
-		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
-			Name:     msg.info.ID,
-			Version:  msg.info.Version,
-			Platform: config.PlatformTuple(),
-			Checksum: chksum,
-		})
+		msg.item.InstalledLibraryHash = chksum
+		entry, err := lockEntryForItem(msg.item)
+		if err != nil {
+			s.status = 1
+			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
+		}
+		s.locked.Drivers = append(s.locked.Drivers, entry)
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),
