@@ -129,12 +129,16 @@ func makeSignedList(t *testing.T, project string, sequence uint64, expiry string
 }
 
 type resolverHTTPFixtures struct {
-	project     string
-	tag         string
-	list        []byte
-	release     []byte
-	artifactURL string
-	apiHits     atomic.Int32
+	project             string
+	tag                 string
+	list                []byte
+	release             []byte
+	artifactURL         string
+	releaseAssets       []githubAsset
+	customReleaseAssets bool
+	apiHits             atomic.Int32
+	requestHits         atomic.Int32
+	archiveHits         atomic.Int32
 }
 
 func newResolverTestServer(t *testing.T, project, tag string, listBytes, releaseBytes []byte, artifactURL string) (*httptest.Server, *nativeResolver, *resolverHTTPFixtures) {
@@ -142,6 +146,7 @@ func newResolverTestServer(t *testing.T, project, tag string, listBytes, release
 	fixture := &resolverHTTPFixtures{project: project, tag: tag, list: listBytes, release: releaseBytes, artifactURL: artifactURL}
 	owner, repo, _ := projectParts(project)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fixture.requestHits.Add(1)
 		switch {
 		case r.URL.Path == "/"+owner+"/"+repo+"/HEAD/.well-known/packslip.json":
 			if fixture.list == nil {
@@ -152,12 +157,19 @@ func newResolverTestServer(t *testing.T, project, tag string, listBytes, release
 			_, _ = w.Write(fixture.list)
 		case strings.HasPrefix(r.URL.Path, "/repos/") && strings.HasSuffix(r.URL.Path, "/releases"):
 			fixture.apiHits.Add(1)
-			_, _ = w.Write(mustJSON([]githubRelease{{TagName: fixture.tag, Assets: []githubAsset{
-				{Name: "packslip.sigstore.json", BrowserDownloadURL: serverURL(r, "/assets/release.json")},
-				{Name: "driver-linux.tar.gz", BrowserDownloadURL: fixture.artifactURL},
-			}}}))
+			assets := fixture.releaseAssets
+			if !fixture.customReleaseAssets {
+				assets = []githubAsset{
+					{Name: "packslip.sigstore.json", BrowserDownloadURL: serverURL(r, "/assets/release.json")},
+					{Name: "driver-linux.tar.gz", BrowserDownloadURL: fixture.artifactURL},
+				}
+			}
+			_, _ = w.Write(mustJSON([]githubRelease{{TagName: fixture.tag, Assets: assets}}))
 		case r.URL.Path == "/assets/release.json":
 			_, _ = w.Write(fixture.release)
+		case r.URL.Path == "/assets/driver.tar.gz":
+			fixture.archiveHits.Add(1)
+			_, _ = w.Write([]byte("not a signed packslip"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -308,6 +320,19 @@ func TestResolverPreservesExplicitMuslTargetAndIgnoresUnsupportedFormatSeeds(t *
 	require.Equal(t, "https://downloads.example/linux-musl.tar.gz", resolved.Artifacts[1].Location.Value)
 }
 
+func TestDerivedConcreteLinuxTargetDefaultsToGNU(t *testing.T) {
+	linuxDefault := releaseArtifact{
+		Name: "linux-default.tar.gz", OS: ptr("linux"), Arch: ptr("x86_64"),
+		Format: ptr("tar.gz"), Size: ptr(uint64(10)), URL: ptr("https://downloads.example/linux-default.tar.gz"),
+	}
+	release, err := parseRelease(validRelease("1.0.0", linuxDefault), testProject)
+	require.NoError(t, err)
+	targets, err := deriveConcreteTargets(release)
+	require.NoError(t, err)
+	require.Equal(t, []Target{{OS: "linux", Arch: "amd64", LibC: "gnu"}}, targets,
+		"dbc's release snapshot continues to canonicalize an omitted Linux libc to GNU")
+}
+
 func TestResolverRejectsWildcardOnlyReleaseWithoutUpdatingTrust(t *testing.T) {
 	wildcard := releaseArtifact{Name: "portable.tar.gz", Format: ptr("tar.gz"), Size: ptr(uint64(10)), URL: ptr("https://downloads.example/portable.tar.gz")}
 	bundle := makeBundle(setSignerAndTag(t, validRelease("1.0.0", wildcard), testProject, "1.0.0", fakeSigner, "v1.0.0"))
@@ -455,6 +480,43 @@ func TestResolverRejectsBundleDigestMismatchWrongProjectAndInvalidSignature(t *t
 	resolver.verifier = mockPackslipVerifier{issuer: GitHubOIDCIssuer, signer: fakeSigner, err: errors.New("signature is invalid")}
 	_, err = resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: "1.0.0"})
 	require.ErrorContains(t, err, "signature is invalid")
+}
+
+func TestResolveRequiresExactSemVerBeforeDiscovery(t *testing.T) {
+	_, resolver, fixture := newResolverTestServer(t, testProject, "v1.2.3", nil, nil, "")
+	for _, version := range []string{"", ">=1.2.3", "latest", "v1.2.3", "1.2"} {
+		_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: version})
+		require.ErrorContains(t, err, "exact SemVer 2.0.0", "version %q", version)
+		require.Zero(t, fixture.requestHits.Load(), "version %q must be rejected before transport", version)
+	}
+
+	_, resolver, fixture = newResolverTestServer(t, testProject, "v1.2.3-rc.1+build.2", nil, nil, "")
+	_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "driver", Version: "1.2.3-rc.1+build.2",
+	})
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "exact SemVer 2.0.0", "valid prerelease and build metadata must pass input validation")
+	require.Positive(t, fixture.requestHits.Load(), "a valid exact SemVer may proceed to discovery")
+}
+
+func TestResolverDoesNotFallBackToGenericGitHubArchive(t *testing.T) {
+	t.Run("missing signed metadata", func(t *testing.T) {
+		server, resolver, fixture := newResolverTestServer(t, testProject, "v1.0.0", nil, nil, "")
+		fixture.customReleaseAssets = true
+		fixture.releaseAssets = []githubAsset{{Name: "driver.tar.gz", BrowserDownloadURL: server.URL + "/assets/driver.tar.gz"}}
+		_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: "1.0.0"})
+		require.ErrorContains(t, err, "has no packslip bundle asset")
+		require.Zero(t, fixture.archiveHits.Load(), "an unverified generic archive must never be fetched as a fallback")
+	})
+	t.Run("invalid signature", func(t *testing.T) {
+		server, resolver, fixture := newResolverTestServer(t, testProject, "v1.0.0", nil, nil, "")
+		fixture.artifactURL = server.URL + "/assets/driver.tar.gz"
+		fixture.release = makeBundle(setSignerAndTag(t, validRelease("1.0.0"), testProject, "1.0.0", fakeSigner, "v1.0.0"))
+		resolver.verifier = mockPackslipVerifier{issuer: GitHubOIDCIssuer, signer: fakeSigner, err: errors.New("signature is invalid")}
+		_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: "1.0.0"})
+		require.ErrorContains(t, err, "signature is invalid")
+		require.Zero(t, fixture.archiveHits.Load(), "an invalid signed statement must not unlock generic archive fallback")
+	})
 }
 
 func TestResolverRejectsArtifactSelectionAmbiguityAndMalformedHashOrSize(t *testing.T) {

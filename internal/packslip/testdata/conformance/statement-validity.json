@@ -1,0 +1,688 @@
+{
+  "rule": "https://packslip.dev/release/v1/#the-release-statement",
+  "description": "Whether a release statement is structurally valid, checked after the signature and before anything is installed. `accept` means a consumer proceeds to the digest checks; `reject` means it refuses the document. `reason` quotes the rule at issue. These are payloads, not bundles: signature verification is sigstore's and is not restated here.",
+  "cases": [
+    {
+      "name": "a minimal release statement",
+      "expect": "accept",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "two platforms",
+      "expect": "accept",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "name": "tool-darwin-arm64.tar.xz",
+            "digest": {
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            },
+            {
+              "name": "tool-darwin-arm64.tar.xz",
+              "os": "darwin",
+              "arch": "aarch64",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "an unknown field is ignored, not rejected",
+      "expect": "accept",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          },
+          "something_a_later_revision_added": {
+            "x": 1
+          }
+        }
+      },
+      "reason": "A later revision of version 1 may add optional fields; an older consumer reads the document anyway."
+    },
+    {
+      "name": "extensions carry data the specification does not define",
+      "expect": "accept",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ],
+              "extensions": {
+                "mise": {
+                  "install_hint": "brew"
+                }
+              }
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          },
+          "extensions": {
+            "example.com": {
+              "build_id": "20260901.3"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "the wrong predicate type",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/releases/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "A consumer keeps only the document whose predicateType is release/v1."
+    },
+    {
+      "name": "a version that is not semver",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.2",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "`version` is a semver 2.0.0 version. A consumer refuses anything else; the tag may still be spelled v1.2."
+    },
+    {
+      "name": "a project name with a scheme",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "https://github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "A project name is a host with an optional path, with no URL scheme and no trailing slash."
+    },
+    {
+      "name": "a project host with no dot",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "localhost/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "The host is lowercase and contains at least one dot."
+    },
+    {
+      "name": "an empty path segment in the project name",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com//tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "no artifacts",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "A release statement describes at least one artifact."
+    },
+    {
+      "name": "an artifact that no subject pins",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64-renamed.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "Every artifact must appear in `subject` with its digest, or nothing signs its bytes."
+    },
+    {
+      "name": "two artifacts with the same name",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            },
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "two artifacts a consumer could not choose between",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "name": "tool-linux-x64-b.tar.xz",
+            "digest": {
+              "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            },
+            {
+              "name": "tool-linux-x64-b.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "They share os, arch, libc, variant and format, so nothing in the document tells them apart. The vendor must scope or name them differently."
+    },
+    {
+      "name": "a published_at that is not a timestamp",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "September 2026",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "an uppercase token",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "Linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                "tool"
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "Vocabulary tokens are lowercase."
+    },
+    {
+      "name": "an executable name that is a path",
+      "expect": "reject",
+      "statement": {
+        "_type": "https://in-toto.io/Statement/v1",
+        "subject": [
+          {
+            "name": "tool-linux-x64.tar.xz",
+            "digest": {
+              "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "predicateType": "https://packslip.dev/release/v1",
+        "predicate": {
+          "project": "github.com/example/tool",
+          "version": "1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "artifacts": [
+            {
+              "name": "tool-linux-x64.tar.xz",
+              "os": "linux",
+              "arch": "x86_64",
+              "libc": "gnu",
+              "size": 5,
+              "format": "tar.xz",
+              "bin": [
+                {
+                  "name": "sub/tool",
+                  "path": "bin/tool"
+                }
+              ]
+            }
+          ],
+          "identity": {
+            "scheme": "sigstore-oidc",
+            "key_id": "https://github.com/example/tool/.github/workflows/release.yml@refs/tags/v1.0.0",
+            "issuer": "https://token.actions.githubusercontent.com"
+          }
+        }
+      },
+      "reason": "`bin` names go on PATH; a name cannot contain a separator."
+    }
+  ]
+}

@@ -241,6 +241,7 @@ func parseRelease(payload []byte, expectedProject string) (*parsedRelease, error
 		byName[entry.Name] = entry
 	}
 	seenArtifacts := make(map[string]bool, len(predicate.Artifacts))
+	seenSelectors := make(map[string]string, len(predicate.Artifacts))
 	for i := range predicate.Artifacts {
 		artifact := &predicate.Artifacts[i]
 		if artifact.Name == "" || strings.ContainsAny(artifact.Name, "/\\\x00") || artifact.Name == "." || artifact.Name == ".." {
@@ -260,6 +261,11 @@ func parseRelease(payload []byte, expectedProject string) (*parsedRelease, error
 			return nil, fmt.Errorf("packslip artifact %q has an invalid or missing format", artifact.Name)
 		}
 		canonicalizeArtifactAliases(artifact)
+		selector := artifactSelectorKey(artifact)
+		if previous, exists := seenSelectors[selector]; exists {
+			return nil, fmt.Errorf("packslip artifacts %q and %q have duplicate selectors", previous, artifact.Name)
+		}
+		seenSelectors[selector] = artifact.Name
 		for field, value := range map[string]*string{
 			"os": artifact.OS, "arch": artifact.Arch, "libc": artifact.LibC, "variant": artifact.Variant,
 		} {
@@ -805,18 +811,21 @@ func normalizeLooseTagVersion(value string) (string, bool) {
 }
 
 func selectArtifact(release *parsedRelease, target Target) (*releaseArtifact, error) {
-	target = resolution.CanonicalTarget(target)
+	return selectArtifactByFormats(release, target, supportedArchiveFormats)
+}
+
+// selectArtifactByFormats applies Packslip's selector and specificity rules,
+// using the caller's ordered list to break ties between equally specific
+// formats. It intentionally does not impose dbc's archive-format policy.
+func selectArtifactByFormats(release *parsedRelease, target Target, formats []string) (*releaseArtifact, error) {
+	target = canonicalizeTargetAliases(target)
 	if err := resolution.ValidateConcreteTarget(target); err != nil {
 		return nil, err
 	}
-	formats := supportedArchiveFormats
 	bestSpecificity, bestFormat := -1, len(formats)
 	var chosen, tied *releaseArtifact
 	for i := range release.predicate.Artifacts {
 		artifact := &release.predicate.Artifacts[i]
-		if !supportedArchiveFormat(stringValue(artifact.Format)) {
-			continue
-		}
 		if !fitsTarget(artifact.OS, target.OS) || !fitsTarget(artifact.Arch, target.Arch) || !fitsTarget(artifact.LibC, target.LibC) {
 			continue
 		}
@@ -941,23 +950,32 @@ func artifactSelectorKey(artifact *releaseArtifact) string {
 }
 
 func canonicalizeArtifactAliases(artifact *releaseArtifact) {
-	if artifact.OS != nil && *artifact.OS == "darwin" {
-		value := "macos"
-		artifact.OS = &value
+	if artifact.OS != nil {
+		osName, _ := canonicalizeOSArchAliases(*artifact.OS, "")
+		artifact.OS = &osName
 	}
-	if artifact.Arch == nil {
-		return
+	if artifact.Arch != nil {
+		_, arch := canonicalizeOSArchAliases("", *artifact.Arch)
+		artifact.Arch = &arch
 	}
-	var value string
-	switch *artifact.Arch {
+}
+
+func canonicalizeTargetAliases(target Target) Target {
+	target.OS, target.Arch = canonicalizeOSArchAliases(target.OS, target.Arch)
+	return target
+}
+
+func canonicalizeOSArchAliases(osName, arch string) (string, string) {
+	if osName == "darwin" {
+		osName = "macos"
+	}
+	switch arch {
 	case "x86_64":
-		value = "amd64"
+		arch = "amd64"
 	case "aarch64":
-		value = "arm64"
-	default:
-		return
+		arch = "arm64"
 	}
-	artifact.Arch = &value
+	return osName, arch
 }
 
 func fitsTarget(value *string, target string) bool {

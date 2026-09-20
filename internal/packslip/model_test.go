@@ -176,6 +176,44 @@ func TestSelectArtifactUsesPackslipOrderAndRejectsAmbiguity(t *testing.T) {
 	require.ErrorIs(t, err, ErrReleaseNotFound, "variant selectors must match exactly")
 }
 
+func TestDBCSupportedFormatsAndPackslipHostLibcSemantics(t *testing.T) {
+	makeArtifact := func(name, osName, arch, libc, format string) releaseArtifact {
+		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), LibC: optionalToken(libc), Size: ptr(uint64(1)), Format: ptr(format), URL: ptr("https://dl.example/" + name)}
+	}
+	release, err := parseRelease(validRelease("1.0.0",
+		makeArtifact("linux.tar.xz", "linux", "x86_64", "gnu", "tar.xz"),
+		makeArtifact("portable.tar.gz", "", "", "", "tar.gz"),
+	), testProject)
+	require.NoError(t, err)
+	selected, err := selectArtifact(release, Target{OS: "linux", Arch: "x86_64", LibC: "gnu"})
+	require.NoError(t, err)
+	require.Equal(t, "portable.tar.gz", selected.Name, "dbc must ignore unsupported formats even when they are more specific")
+
+	gnuOnly, err := parseRelease(validRelease("1.0.0", makeArtifact("linux-gnu.tar.gz", "linux", "amd64", "gnu", "tar.gz")), testProject)
+	require.NoError(t, err)
+	_, err = selectArtifact(gnuOnly, Target{OS: "linux", Arch: "x86_64"})
+	require.ErrorIs(t, err, ErrReleaseNotFound, "a host with unknown libc must not be treated as GNU")
+}
+
+func TestParseReleaseRejectsExactSelectorDuplicatesButDefersOverlappingScopeTies(t *testing.T) {
+	artifact := func(name, osName, arch string) releaseArtifact {
+		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/" + name)}
+	}
+	_, err := parseRelease(validRelease("1.0.0",
+		artifact("first.tar.gz", "linux", "amd64"),
+		artifact("second.tar.gz", "linux", "amd64"),
+	), testProject)
+	require.ErrorContains(t, err, "duplicate selectors")
+
+	release, err := parseRelease(validRelease("1.0.0",
+		artifact("linux.tar.gz", "linux", ""),
+		artifact("x64.tar.gz", "", "amd64"),
+	), testProject)
+	require.NoError(t, err, "different overlapping selectors are valid statement data")
+	_, err = selectArtifact(release, Target{OS: "linux", Arch: "amd64"})
+	require.ErrorIs(t, err, ErrAmbiguousArtifact, "the tie is reported only for a matching host")
+}
+
 func optionalToken(value string) *string {
 	if value == "" {
 		return nil
