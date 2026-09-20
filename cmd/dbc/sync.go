@@ -109,8 +109,9 @@ type syncModel struct {
 	NoVerify     bool
 	LockFilePath string
 	// information to write the new lockfile
-	locked LockFile
-	cfg    config.Config
+	locked             LockFile
+	writeCandidateLock func(string, LockFile) error
+	cfg                config.Config
 
 	jsonOutput         bool
 	jsonStreamProgress bool
@@ -192,7 +193,18 @@ type installItem struct {
 	ArchiveSize          int64
 	InstalledLibraryHash string
 	LockEntry            *lockInfo
+	Archive              *os.File
+	Expected             config.ExpectedPackageMetadata
+	AlreadyInstalled     *config.DriverInfo
+	RemovedDriver        *config.DriverInfo
 }
+
+type preparedSyncMsg struct {
+	items []installItem
+	lock  LockFile
+}
+
+type candidateLockSavedMsg struct{ lock LockFile }
 
 func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 	// Load the lock file if it exists
@@ -365,101 +377,48 @@ type alreadyInstalledDrvMsg struct {
 
 func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
-		var removedDriver *config.DriverInfo
-		if cfg.Exists {
-			// is driver installed already?
-			if drv, ok := cfg.Drivers[item.Driver.Path]; ok {
-				if item.Package.Version.Equal(drv.Version) {
-					chksum, err := checksum(drv.Driver.Shared.Get(config.PlatformTuple()))
-					if err != nil {
-						return fmt.Errorf("failed to compute checksum: %w", err)
-					}
-
-					if item.Checksum != "" {
-						// A lockfile checksum proves only the installed library.
-						if chksum != item.Checksum {
-							return fmt.Errorf("checksum mismatch for driver %s: %s != %s",
-								item.Driver.Path, chksum, item.Checksum)
-						}
-					} else {
-						item.Checksum = chksum
-					}
-					item.InstalledLibraryHash = chksum
-
-					if !canReuseLockedEntry(item) {
-						if err := ensureArchiveSnapshot(s, &item); err != nil {
-							return fmt.Errorf("failed to snapshot driver archive: %w", err)
-						}
-					}
-
-					return alreadyInstalledDrvMsg{info: drv, item: item}
-				} else {
-					removedDriver = &drv
-				}
+		if item.Archive == nil {
+			return errors.New("prepared package archive is missing")
+		}
+		defer item.Archive.Close()
+		if _, err := item.Archive.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to rewind prepared driver archive: %w", err)
+		}
+		var verify func(string, config.Manifest) error
+		if !s.NoVerify {
+			verify = func(stagingDir string, manifest config.Manifest) error {
+				return dbc.VerifyPackageSignature(stagingDir, manifest)
 			}
 		}
-
-		// avoid deadlock by doing this in a goroutine rather than during processing the tea.Msg
-		go func() {
-			output, err := s.downloadPkg(item.Package)
-			if err != nil {
-				prog.Send(fmt.Errorf("failed to download driver: %w", err))
-				return
+		manifest, err := config.InstallPackage(cfg, item.Driver.Path, item.Archive, item.Expected, config.InstallOptions{
+			Verify: verify,
+		})
+		if err != nil {
+			if isPackageVerificationFailure(err) {
+				return fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
 			}
-			defer output.Close()
-			if err := snapshotDownloadedArchive(&item, output); err != nil {
-				prog.Send(fmt.Errorf("failed to snapshot downloaded driver archive: %w", err))
-				return
-			}
-
-			expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
-			if err != nil {
-				prog.Send(err)
-				return
-			}
-			if !hasMetadata {
-				packageManifest, inspectErr := config.InspectPackageMetadata(output)
-				if inspectErr != nil {
-					prog.Send(inspectErr)
-					return
-				}
-				if packageManifest.PackageVersion == 2 {
-					prog.Send(errors.New("registry package v2 requires archive hash and size metadata"))
-					return
-				}
-			}
-			var verify func(string, config.Manifest) error
-			if !s.NoVerify {
-				verify = func(stagingDir string, manifest config.Manifest) error {
-					return dbc.VerifyPackageSignature(stagingDir, manifest)
-				}
-			}
-			manifest, err := config.InstallPackage(cfg, item.Driver.Path, output, expected, config.InstallOptions{
-				Verify: verify,
-			})
-			if err != nil {
-				if isPackageVerificationFailure(err) {
-					prog.Send(fmt.Errorf("failed to verify signature: %w", packageVerificationError(err)))
-				} else {
-					prog.Send(fmt.Errorf("failed to install driver: %w", err))
-				}
-				return
-			}
-
-			prog.Send(installedDrvMsg{
-				removed:     removedDriver,
-				info:        manifest.DriverInfo,
-				postInstall: manifest.PostInstall.Messages,
-				item:        item,
-			})
-		}()
-		return nil
+			return fmt.Errorf("failed to install driver: %w", err)
+		}
+		return installedDrvMsg{
+			removed:     item.RemovedDriver,
+			info:        manifest.DriverInfo,
+			postInstall: manifest.PostInstall.Messages,
+			item:        item,
+		}
 	}
 }
 
 func (s syncModel) writeLockFile() error {
 	s.locked.Version = lockFileVersion
-	return writeLockFileAtomic(s.LockFilePath, s.locked)
+	return s.persistCandidateLock(s.locked)
+}
+
+func (s syncModel) persistCandidateLock(lock LockFile) error {
+	lock.Version = lockFileVersion
+	if s.writeCandidateLock != nil {
+		return s.writeCandidateLock(s.LockFilePath, lock)
+	}
+	return writeLockFileAtomic(s.LockFilePath, lock)
 }
 
 func canReuseLockedEntry(item installItem) bool {
@@ -488,23 +447,6 @@ func packageLockSource(item installItem) (lockSource, error) {
 		return lockSource{}, fmt.Errorf("driver %q has no registry identity", item.Driver.Path)
 	}
 	return lockSource{Type: "registry", URL: item.Driver.Registry.BaseURL.String()}, nil
-}
-
-func ensureArchiveSnapshot(s syncModel, item *installItem) error {
-	if item.Package.ArtifactHash != "" && item.Package.ArtifactSize != nil {
-		if err := resolution.ValidateArtifactMetadata(item.Package.ArtifactHash, item.Package.ArtifactSize); err != nil {
-			return err
-		}
-		item.ArchiveHash = item.Package.ArtifactHash
-		item.ArchiveSize = *item.Package.ArtifactSize
-		return nil
-	}
-	output, err := s.downloadPkg(item.Package)
-	if err != nil {
-		return fmt.Errorf("failed to download archive for lock metadata: %w", err)
-	}
-	defer output.Close()
-	return snapshotDownloadedArchive(item, output)
 }
 
 func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
@@ -536,6 +478,148 @@ func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
 		return fmt.Errorf("failed to rewind downloaded archive: %w", err)
 	}
 	return nil
+}
+
+func (s syncModel) prepareInstallItems(items []installItem) (preparedSyncMsg, error) {
+	prepared := preparedSyncMsg{items: items, lock: LockFile{Version: lockFileVersion}}
+	closePrepared := func() {
+		for i := range prepared.items {
+			if prepared.items[i].Archive != nil {
+				_ = prepared.items[i].Archive.Close()
+				prepared.items[i].Archive = nil
+			}
+		}
+	}
+	for i := range prepared.items {
+		item := &prepared.items[i]
+		if s.cfg.Exists {
+			if installed, ok := s.cfg.Drivers[item.Driver.Path]; ok {
+				if item.Package.Version.Equal(installed.Version) {
+					libraryHash, err := checksum(installed.Driver.Shared.Get(config.PlatformTuple()))
+					if err != nil {
+						closePrepared()
+						return preparedSyncMsg{}, fmt.Errorf("failed to compute checksum: %w", err)
+					}
+					if item.Checksum != "" && libraryHash != item.Checksum {
+						closePrepared()
+						return preparedSyncMsg{}, fmt.Errorf("checksum mismatch for driver %s: %s != %s", item.Driver.Path, libraryHash, item.Checksum)
+					}
+					if item.Checksum == "" {
+						item.Checksum = libraryHash
+					}
+					item.InstalledLibraryHash = libraryHash
+					installedCopy := installed
+					item.AlreadyInstalled = &installedCopy
+				} else {
+					installedCopy := installed
+					item.RemovedDriver = &installedCopy
+				}
+			}
+		}
+
+		needsArchive := item.AlreadyInstalled == nil || !canReuseLockedEntry(*item)
+		if needsArchive {
+			// Determine whether the registry supplied source metadata before
+			// measured values are copied into Package below.
+			expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+			if err != nil {
+				closePrepared()
+				return preparedSyncMsg{}, err
+			}
+			archive, err := s.downloadPkg(item.Package)
+			if err != nil {
+				closePrepared()
+				return preparedSyncMsg{}, fmt.Errorf("failed to download driver: %w", err)
+			}
+			item.Archive = archive
+			if err := snapshotDownloadedArchive(item, archive); err != nil {
+				closePrepared()
+				return preparedSyncMsg{}, fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
+			}
+			if !hasMetadata {
+				if _, err := archive.Seek(0, io.SeekStart); err != nil {
+					closePrepared()
+					return preparedSyncMsg{}, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+				}
+				packageManifest, inspectErr := config.InspectPackageMetadata(archive)
+				if inspectErr != nil {
+					closePrepared()
+					return preparedSyncMsg{}, inspectErr
+				}
+				if packageManifest.PackageVersion == 2 {
+					closePrepared()
+					return preparedSyncMsg{}, errors.New("registry package v2 requires archive hash and size metadata")
+				}
+			}
+			item.Package.ArtifactHash = item.ArchiveHash
+			item.Package.ArtifactSize = cloneInt64(&item.ArchiveSize)
+			expected.ArchiveHash = item.ArchiveHash
+			expected.ArchiveSize = item.ArchiveSize
+			item.Expected = expected
+			if _, err := archive.Seek(0, io.SeekStart); err != nil {
+				closePrepared()
+				return preparedSyncMsg{}, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+			}
+			var verify func(string, config.Manifest) error
+			if !s.NoVerify {
+				verify = func(stagingDir string, manifest config.Manifest) error {
+					return dbc.VerifyPackageSignature(stagingDir, manifest)
+				}
+			}
+			validation, err := config.ValidatePackage(item.Driver.Path, archive, expected, config.InstallOptions{Verify: verify})
+			if err != nil {
+				closePrepared()
+				if isPackageVerificationFailure(err) {
+					return preparedSyncMsg{}, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
+				}
+				return preparedSyncMsg{}, fmt.Errorf("failed to validate driver package: %w", err)
+			}
+			if item.AlreadyInstalled == nil {
+				item.InstalledLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
+			}
+			if item.AlreadyInstalled != nil {
+				_ = archive.Close()
+				item.Archive = nil
+			}
+		} else {
+			// The exact locked artifact is already installed, so it can be reused
+			// without another download or package validation.
+			expected, _, err := expectedRegistryPackageMetadata(item.Package)
+			if err != nil {
+				closePrepared()
+				return preparedSyncMsg{}, err
+			}
+			item.Expected = expected
+		}
+
+		entry, err := lockEntryForItem(*item)
+		if err != nil {
+			closePrepared()
+			return preparedSyncMsg{}, fmt.Errorf("failed to update lock entry: %w", err)
+		}
+		prepared.lock.Drivers = append(prepared.lock.Drivers, entry)
+	}
+	return prepared, nil
+}
+
+func (s syncModel) dispatchInstallItem() tea.Cmd {
+	if s.index >= len(s.installItems) {
+		return tea.Quit
+	}
+	item := s.installItems[s.index]
+	if item.AlreadyInstalled != nil {
+		return func() tea.Msg { return alreadyInstalledDrvMsg{info: *item.AlreadyInstalled, item: item} }
+	}
+	return s.installDriver(s.cfg, item)
+}
+
+func closePreparedArchives(items []installItem) {
+	for i := range items {
+		if items[i].Archive != nil {
+			_ = items[i].Archive.Close()
+			items[i].Archive = nil
+		}
+	}
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {
@@ -687,13 +771,26 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		return s, tea.Batch(s.installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
-	case alreadyInstalledDrvMsg:
-		entry, err := lockEntryForItem(msg.item)
-		if err != nil {
-			return s, errCmd("failed to update lock entry: %w", err)
+		return s, tea.Batch(func() tea.Msg {
+			prepared, err := s.prepareInstallItems(msg)
+			if err != nil {
+				return err
+			}
+			return prepared
+		}, s.spinner.Tick)
+	case preparedSyncMsg:
+		s.installItems = msg.items
+		return s, func() tea.Msg {
+			if err := s.persistCandidateLock(msg.lock); err != nil {
+				closePreparedArchives(msg.items)
+				return fmt.Errorf("failed to write candidate lock file: %w", err)
+			}
+			return candidateLockSavedMsg{lock: msg.lock}
 		}
-		s.locked.Drivers = append(s.locked.Drivers, entry)
+	case candidateLockSavedMsg:
+		s.locked = msg.lock
+		return s, tea.Batch(s.dispatchInstallItem(), s.spinner.Tick)
+	case alreadyInstalledDrvMsg:
 		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),
@@ -710,14 +807,9 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
 			if s.jsonOutput {
-				return s, tea.Sequence(
-					func() tea.Msg { return s.writeLockFile() },
-					tea.Quit)
+				return s, tea.Quit
 			}
-			return s, tea.Sequence(
-				tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
-				func() tea.Msg { return s.writeLockFile() },
-				tea.Quit)
+			return s, tea.Sequence(tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version), tea.Quit)
 		}
 
 		s.index++
@@ -725,17 +817,18 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.jsonOutput {
 			return s, tea.Batch(
 				progressCmd,
-				s.installDriver(s.cfg, s.installItems[s.index]),
+				s.dispatchInstallItem(),
 			)
 		}
 		return s, tea.Batch(
 			progressCmd,
 			tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
-			s.installDriver(s.cfg, s.installItems[s.index]),
+			s.dispatchInstallItem(),
 		)
 	case installedDrvMsg:
 		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
 		if err != nil {
+			closePreparedArchives(s.installItems)
 			s.status = 1
 			if s.jsonOutput {
 				return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
@@ -745,13 +838,11 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
 		}
-		msg.item.InstalledLibraryHash = chksum
-		entry, err := lockEntryForItem(msg.item)
-		if err != nil {
+		if msg.item.InstalledLibraryHash != "" && msg.item.InstalledLibraryHash != chksum {
+			closePreparedArchives(s.installItems)
 			s.status = 1
-			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
+			return s, tea.Sequence(tea.Println("Error: installed library checksum does not match validated package"), tea.Quit)
 		}
-		s.locked.Drivers = append(s.locked.Drivers, entry)
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),
@@ -788,13 +879,10 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
 			if s.jsonOutput {
-				return s, tea.Sequence(
-					func() tea.Msg { return s.writeLockFile() },
-					tea.Quit)
+				return s, tea.Quit
 			}
 			return s, tea.Sequence(
 				printCmd,
-				func() tea.Msg { return s.writeLockFile() },
 				tea.Quit)
 		}
 
@@ -803,15 +891,16 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.jsonOutput {
 			return s, tea.Batch(
 				progressCmd,
-				s.installDriver(s.cfg, s.installItems[s.index]),
+				s.dispatchInstallItem(),
 			)
 		}
 		return s, tea.Batch(
 			progressCmd,
 			printCmd,
-			s.installDriver(s.cfg, s.installItems[s.index]),
+			s.dispatchInstallItem(),
 		)
 	case error:
+		closePreparedArchives(s.installItems)
 		s.status = 1
 		s.err = msg
 		if s.jsonOutput {
