@@ -267,11 +267,11 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
 ## From Local Archive
 
-dbc can install drivers from local archives as an alternative for users who can't or don't want to install from a [Driver Registry](../concepts/driver_registry.md). This is meant for advanced use cases and requires understanding the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) spec and loading process.
+dbc can install drivers from local archives as an alternative to a [Driver Registry](../concepts/driver_registry.md). It reads package metadata and generates the installed `<driver>.toml` ADBC Driver Manifest used by Driver Managers.
 
 ### Package archive metadata
 
-The dbc 0.4.0 package format uses a root-level file named exactly `dbc-package.toml` with `package_version = 2` to describe its contents. The dbc 0.3.x format uses a root-level file named exactly `MANIFEST` and remains accepted for compatibility. These package metadata files are separate from Packslip release metadata and the installed `<driver>.toml` ADBC Driver Manifest (`manifest_version = 1`).
+dbc 0.4.0 (unreleased) archives use a root-level file named exactly `dbc-package.toml` with `package_version = 2` to describe their contents. Archives for dbc 0.3.0 and earlier use a root-level file named exactly `MANIFEST` and remain accepted for compatibility. These package metadata files are separate from Packslip release metadata and the installed `<driver>.toml` ADBC Driver Manifest (`manifest_version = 1`).
 
 For example, `dbc-package.toml` can contain:
 
@@ -294,18 +294,18 @@ The archive must be flat: place `dbc-package.toml` and the library file at its r
 To install from a local archive, pass the path to a local archive instead of a name and set the `--no-verify` flag to skip signature verification:
 
 ```console
-$ dbc install --no-verify some_driver.tar.gz
-Installing from local package: some_driver.tar.gz
+$ dbc install --no-verify example.tar.gz
+Installing from local package: example.tar.gz
 
 [✓] installing
 [-] verifying signature
 
-Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
+Installed example 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
 
 !!! note
 
-    Make note of the name "some_driver" printed above as this will be the name to use when loading the driver with a [Driver Manager](../concepts/driver_manager.md). i.e., `dbapi.connect(driver="some_driver")`.
+    With dbc 0.4.0, use the `id` from `dbc-package.toml` (`example` above) as the driver name when connecting through a [Driver Manager](../concepts/driver_manager.md). With dbc 0.3.0 and earlier, the runtime ID may be derived from the archive filename.
 
 ## GitHub Actions
 

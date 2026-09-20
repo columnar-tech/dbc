@@ -418,7 +418,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				return
 			}
 			if !hasMetadata {
-				packageManifest, inspectErr := config.InspectPackageManifest(output)
+				packageManifest, inspectErr := config.InspectPackageMetadata(output)
 				if inspectErr != nil {
 					prog.Send(inspectErr)
 					return

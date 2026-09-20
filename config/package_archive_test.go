@@ -116,7 +116,7 @@ func validV2Archive(t *testing.T, contents []byte) []byte {
 	)
 }
 
-func TestPackageArchiveManifestVersions(t *testing.T) {
+func TestPackageArchiveMetadataVersions(t *testing.T) {
 	t.Run("legacy package manifest is adapted", func(t *testing.T) {
 		archive, err := os.Open(filepath.Join("..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
 		require.NoError(t, err)
@@ -142,7 +142,7 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 		assert.Equal(t, "libexample.so", manifest.Files.Driver)
 		assert.Empty(t, manifest.Driver.Shared.Get("linux_amd64"))
 
-		inspected, err := config.InspectPackageManifest(openPackageArchive(t, data))
+		inspected, err := config.InspectPackageMetadata(openPackageArchive(t, data))
 		require.NoError(t, err)
 		assert.Equal(t, 2, inspected.PackageVersion)
 	})
@@ -152,7 +152,7 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 		f, err := os.Open(archivePath)
 		require.NoError(t, err)
 		defer f.Close()
-		manifest, err := config.InspectPackageManifest(f)
+		manifest, err := config.InspectPackageMetadata(f)
 		require.NoError(t, err)
 		assert.Zero(t, manifest.PackageVersion)
 	})
@@ -312,7 +312,7 @@ func TestPackageArchiveMetadataFilenames(t *testing.T) {
 			archive := makePackageArchive(t, tt.entries...)
 			for name, inspect := range map[string]func(*os.File) error{
 				"inspect": func(file *os.File) error {
-					_, err := config.InspectPackageManifest(file)
+					_, err := config.InspectPackageMetadata(file)
 					return err
 				},
 				"extract": func(file *os.File) error {
@@ -330,13 +330,13 @@ func TestPackageArchiveMetadataFilenames(t *testing.T) {
 	}
 }
 
-func TestInspectPackageManifestScansPastMetadata(t *testing.T) {
+func TestInspectPackageMetadataScansPastMetadata(t *testing.T) {
 	archive := makePackageArchive(t,
 		archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "driver.so")},
 		archiveEntry{name: "driver.so", data: []byte("library")},
 		archiveEntry{name: "nested/file", data: []byte("unsafe")},
 	)
-	_, err := config.InspectPackageManifest(openPackageArchive(t, archive))
+	_, err := config.InspectPackageMetadata(openPackageArchive(t, archive))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "path separators")
 }
@@ -348,7 +348,7 @@ func TestPackageMetadataSizeLimitAppliesToBothFormats(t *testing.T) {
 			archive := makePackageArchive(t, archiveEntry{name: name, data: oversized})
 			for _, inspect := range []func(*os.File) error{
 				func(file *os.File) error {
-					_, err := config.InspectPackageManifest(file)
+					_, err := config.InspectPackageMetadata(file)
 					return err
 				},
 				func(file *os.File) error {

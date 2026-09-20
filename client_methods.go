@@ -286,7 +286,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	defer f.Close()
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 	if !hasMetadata {
-		packageManifest, inspectErr := config.InspectPackageManifest(f)
+		packageManifest, inspectErr := config.InspectPackageMetadata(f)
 		if inspectErr != nil {
 			return nil, fmt.Errorf("failed to inspect package for driver %s: %w", driverName, inspectErr)
 		}

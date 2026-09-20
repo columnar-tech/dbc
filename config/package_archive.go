@@ -862,11 +862,11 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	return nil
 }
 
-// InspectPackageManifest decodes the archive's package metadata without
+// InspectPackageMetadata decodes the archive's package metadata without
 // installing files. It is intended to classify legacy and versioned package
 // formats before choosing an install policy; the installer still validates
 // the full archive before publication. The archive remains open for the caller.
-func InspectPackageManifest(downloaded *os.File) (Manifest, error) {
+func InspectPackageMetadata(downloaded *os.File) (Manifest, error) {
 	if downloaded == nil {
 		return Manifest{}, errors.New("package archive is nil")
 	}

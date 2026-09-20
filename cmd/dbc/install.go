@@ -466,7 +466,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 				return err
 			}
 			if !hasMetadata {
-				packageManifest, inspectErr := config.InspectPackageManifest(downloaded)
+				packageManifest, inspectErr := config.InspectPackageMetadata(downloaded)
 				if inspectErr != nil {
 					return inspectErr
 				}
@@ -476,7 +476,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 			}
 			runtimeID = expected.ID
 		} else {
-			packageManifest, inspectErr := config.InspectPackageManifest(downloaded)
+			packageManifest, inspectErr := config.InspectPackageMetadata(downloaded)
 			if inspectErr != nil {
 				return inspectErr
 			}
