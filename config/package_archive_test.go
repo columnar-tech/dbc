@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -428,6 +429,118 @@ func TestInstallPackageArchiveChecksMetadataAndDigests(t *testing.T) {
 			assert.NoDirExists(t, filepath.Join(root, "example"))
 		})
 	}
+}
+
+func TestValidatePackageIsNonMutatingAndArchiveCanBeInstalledAfterward(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	oldArchive := validV2Archive(t, []byte("existing library"))
+	oldFile := openPackageArchive(t, oldArchive)
+	oldManifest, err := config.InstallPackage(cfg, "example", oldFile,
+		expectedPackage("example", "1.2.3", config.PlatformTuple(), "old-source", oldArchive), config.InstallOptions{})
+	require.NoError(t, err)
+	require.NoError(t, oldFile.Close())
+	oldRegistration, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	require.NoError(t, err)
+	oldLibrary, err := os.ReadFile(oldManifest.Driver.Shared.Get(config.PlatformTuple()))
+	require.NoError(t, err)
+	entriesBefore, err := os.ReadDir(root)
+	require.NoError(t, err)
+
+	candidateLibrary := []byte("candidate verified library")
+	candidateArchive := validV2Archive(t, candidateLibrary)
+	candidate := expectedPackage("example", "1.2.3", config.PlatformTuple(), "candidate-source", candidateArchive)
+	candidateFile := openPackageArchive(t, candidateArchive)
+	defer candidateFile.Close()
+	verifyCalls := 0
+	var validationStagingDir string
+	options := config.InstallOptions{Verify: func(stagingDir string, manifest config.Manifest) error {
+		verifyCalls++
+		validationStagingDir = stagingDir
+		got, readErr := os.ReadFile(filepath.Join(stagingDir, manifest.Files.Driver))
+		if readErr != nil {
+			return readErr
+		}
+		if !bytes.Equal(got, candidateLibrary) {
+			return fmt.Errorf("staged library = %q, want %q", got, candidateLibrary)
+		}
+		return nil
+	}}
+	validation, err := config.ValidatePackage("example", candidateFile, candidate, options)
+	require.NoError(t, err)
+	wantLibraryHash := sha256.Sum256(candidateLibrary)
+	assert.Equal(t, "sha256:"+hex.EncodeToString(wantLibraryHash[:]), validation.VerifiedLibraryHash)
+	assert.NotEqual(t, candidate.ArchiveHash, validation.VerifiedLibraryHash)
+	assert.Equal(t, 1, verifyCalls)
+	_, err = os.Stat(validationStagingDir)
+	assert.ErrorIs(t, err, os.ErrNotExist, "validation staging directory must be removed before return")
+
+	registrationAfterValidation, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	require.NoError(t, err)
+	assert.Equal(t, oldRegistration, registrationAfterValidation)
+	currentLibrary, err := os.ReadFile(oldManifest.Driver.Shared.Get(config.PlatformTuple()))
+	require.NoError(t, err)
+	assert.Equal(t, oldLibrary, currentLibrary)
+	entriesAfter, err := os.ReadDir(root)
+	require.NoError(t, err)
+	assert.Equal(t, entryNames(entriesBefore), entryNames(entriesAfter))
+
+	installed, err := config.InstallPackage(cfg, "example", candidateFile, candidate, options)
+	require.NoError(t, err, "the archive should remain reusable after validation")
+	assert.Equal(t, 2, verifyCalls, "install should perform its own verification")
+	installedLibrary, err := os.ReadFile(installed.Driver.Shared.Get(config.PlatformTuple()))
+	require.NoError(t, err)
+	assert.Equal(t, candidateLibrary, installedLibrary)
+}
+
+func TestValidatePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
+	archive := validV2Archive(t, []byte("library"))
+	mutations := []struct {
+		name   string
+		mutate func(*config.ExpectedPackageMetadata)
+	}{
+		{name: "id", mutate: func(expected *config.ExpectedPackageMetadata) { expected.ID = "other" }},
+		{name: "version", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Version = "1.2.4" }},
+		{name: "platform", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Platform = "macos_arm64" }},
+		{name: "archive hash", mutate: func(expected *config.ExpectedPackageMetadata) {
+			expected.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
+		}},
+		{name: "archive size", mutate: func(expected *config.ExpectedPackageMetadata) { expected.ArchiveSize++ }},
+	}
+	for _, tt := range mutations {
+		t.Run(tt.name, func(t *testing.T) {
+			expected := expectedPackage("example", "1.2.3", config.PlatformTuple(), "source", archive)
+			tt.mutate(&expected)
+			file := openPackageArchive(t, archive)
+			defer file.Close()
+			_, err := config.ValidatePackage("example", file, expected, config.InstallOptions{})
+			require.Error(t, err)
+		})
+	}
+
+	t.Run("signature verifier error", func(t *testing.T) {
+		verifyErr := errors.New("signature rejected")
+		var stagingDir string
+		file := openPackageArchive(t, archive)
+		defer file.Close()
+		_, err := config.ValidatePackage("example", file,
+			expectedPackage("example", "1.2.3", config.PlatformTuple(), "source", archive),
+			config.InstallOptions{Verify: func(dir string, _ config.Manifest) error {
+				stagingDir = dir
+				return verifyErr
+			}})
+		require.ErrorIs(t, err, verifyErr)
+		_, statErr := os.Stat(stagingDir)
+		assert.ErrorIs(t, statErr, os.ErrNotExist)
+	})
+}
+
+func entryNames(entries []os.DirEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
 }
 
 func TestInstallPackageArchiveReceiptReplacementAndRuntimeManifest(t *testing.T) {

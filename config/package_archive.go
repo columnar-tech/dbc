@@ -74,6 +74,13 @@ type InstallOptions struct {
 	Verify func(stagingDir string, manifest Manifest) error
 }
 
+// PackageValidation contains values measured while validating a package
+// archive. VerifiedLibraryHash is empty when the package has no separate
+// driver library file.
+type PackageValidation struct {
+	VerifiedLibraryHash string
+}
+
 type packageManifest struct {
 	manifest Manifest
 	id       string
@@ -327,6 +334,42 @@ func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 	return installPackage(cfg, runtimeID, downloaded, expected, options, CreateManifest)
 }
 
+// ValidatePackage verifies and stages an already-downloaded package in a
+// private temporary directory without registering it or changing shared
+// configuration. The temporary directory is removed before ValidatePackage
+// returns. The archive remains open and can be passed to InstallPackage after
+// validation.
+func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions) (validation PackageValidation, err error) {
+	if downloaded == nil {
+		return PackageValidation{}, errors.New("package archive is nil")
+	}
+	expected, err = normalizePackageInstallMetadata(runtimeID, expected)
+	if err != nil {
+		return PackageValidation{}, err
+	}
+	workDir, err := os.MkdirTemp("", "dbc-package-validate-")
+	if err != nil {
+		return PackageValidation{}, fmt.Errorf("could not create private package validation directory: %w", err)
+	}
+	defer func() {
+		if cleanupErr := os.RemoveAll(workDir); cleanupErr != nil {
+			validation = PackageValidation{}
+			err = errors.Join(err, fmt.Errorf("could not remove package validation directory: %w", cleanupErr))
+		}
+	}()
+
+	finalDir := filepath.Join(workDir, "installed")
+	_, payloadDir, err := stagePackageArchive(workDir, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
+	if err != nil {
+		return PackageValidation{}, err
+	}
+	receipt, ok := readPackageReceipt(workDir, runtimeID, payloadDir)
+	if !ok {
+		return PackageValidation{}, errors.New("could not read validated package receipt")
+	}
+	return PackageValidation{VerifiedLibraryHash: receipt.InstalledLibraryHash}, nil
+}
+
 func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error) (Manifest, error) {
 	return installPackageWithCleanup(cfg, runtimeID, downloaded, expected, options, registerManifest, cleanupOwnedPackageDirectories)
 }
@@ -335,36 +378,9 @@ func installPackageWithCleanup(cfg Config, runtimeID string, downloaded *os.File
 	if downloaded == nil {
 		return Manifest{}, errors.New("package archive is nil")
 	}
-	if err := validateFlatName(runtimeID); err != nil {
-		return Manifest{}, fmt.Errorf("invalid runtime driver id: %w", err)
-	}
-	if expected.ID == "" {
-		expected.ID = runtimeID
-	}
-	if expected.ID != runtimeID {
-		return Manifest{}, fmt.Errorf("expected package id %q does not match runtime driver id %q", expected.ID, runtimeID)
-	}
-	if expected.ArchiveHash != "" || expected.ArchiveSize != 0 {
-		if err := validateExpectedPackage(expected); err != nil {
-			return Manifest{}, err
-		}
-	} else {
-		if expected.Version != "" {
-			if _, err := semver.NewVersion(expected.Version); err != nil {
-				return Manifest{}, fmt.Errorf("invalid expected package version %q: %w", expected.Version, err)
-			}
-		}
-		if expected.Platform != "" {
-			if err := validatePlatformIdentifier(expected.Platform); err != nil {
-				return Manifest{}, fmt.Errorf("invalid expected package platform: %w", err)
-			}
-		}
-	}
-	if expected.SourceType == "" {
-		expected.SourceType = "local"
-	}
-	if expected.SourceIdentity == "" {
-		expected.SourceIdentity = "local"
+	expected, err := normalizePackageInstallMetadata(runtimeID, expected)
+	if err != nil {
+		return Manifest{}, err
 	}
 
 	loc, err := EnsureLocation(cfg)
@@ -423,6 +439,41 @@ func installPackageWithCleanup(cfg Config, runtimeID string, downloaded *os.File
 	// or update into an error.
 	_ = cleanup(loc, runtimeID, previous, finalDir, manifest.DriverInfo)
 	return manifest, nil
+}
+
+func normalizePackageInstallMetadata(runtimeID string, expected ExpectedPackageMetadata) (ExpectedPackageMetadata, error) {
+	if err := validateFlatName(runtimeID); err != nil {
+		return ExpectedPackageMetadata{}, fmt.Errorf("invalid runtime driver id: %w", err)
+	}
+	if expected.ID == "" {
+		expected.ID = runtimeID
+	}
+	if expected.ID != runtimeID {
+		return ExpectedPackageMetadata{}, fmt.Errorf("expected package id %q does not match runtime driver id %q", expected.ID, runtimeID)
+	}
+	if expected.ArchiveHash != "" || expected.ArchiveSize != 0 {
+		if err := validateExpectedPackage(expected); err != nil {
+			return ExpectedPackageMetadata{}, err
+		}
+	} else {
+		if expected.Version != "" {
+			if _, err := semver.NewVersion(expected.Version); err != nil {
+				return ExpectedPackageMetadata{}, fmt.Errorf("invalid expected package version %q: %w", expected.Version, err)
+			}
+		}
+		if expected.Platform != "" {
+			if err := validatePlatformIdentifier(expected.Platform); err != nil {
+				return ExpectedPackageMetadata{}, fmt.Errorf("invalid expected package platform: %w", err)
+			}
+		}
+	}
+	if expected.SourceType == "" {
+		expected.SourceType = "local"
+	}
+	if expected.SourceIdentity == "" {
+		expected.SourceIdentity = "local"
+	}
+	return expected, nil
 }
 
 func loadInstalledDriver(cfg Config, loc, runtimeID string) (*DriverInfo, error) {
