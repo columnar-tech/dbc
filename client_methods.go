@@ -137,6 +137,9 @@ func (c *Client) getDriverListFromIndex(ctx context.Context, index *Registry) ([
 	for i := range drivers.Drivers {
 		drivers.Drivers[i].Registry = index
 	}
+	if err := validateRegistryMetadata(drivers.Drivers); err != nil {
+		return nil, fmt.Errorf("failed to parse driver registry index: %w", err)
+	}
 
 	result := drivers.Drivers
 	sort.Slice(result, func(i, j int) bool {

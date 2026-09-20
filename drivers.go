@@ -37,6 +37,7 @@ import (
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 )
 
@@ -263,6 +264,10 @@ type PkgInfo struct {
 	PlatformTuple string
 
 	Path *url.URL
+	// ArtifactHash is the optional digest of the downloaded archive.
+	ArtifactHash string
+	// ArtifactSize is the optional size in bytes of the downloaded archive.
+	ArtifactSize *int64
 }
 
 // Deprecated: Use Client.Download instead.
@@ -311,11 +316,15 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 }
 
 type pkginfo struct {
-	Version  *semver.Version `yaml:"version"`
-	Packages []struct {
-		PlatformTuple string `yaml:"platform"`
-		URL           string `yaml:"url"`
-	} `yaml:"packages"`
+	Version  *semver.Version   `yaml:"version"`
+	Packages []registryPackage `yaml:"packages"`
+}
+
+type registryPackage struct {
+	PlatformTuple string    `yaml:"platform"`
+	URL           string    `yaml:"url"`
+	Hash          yaml.Node `yaml:"hash,omitempty"`
+	Size          yaml.Node `yaml:"size,omitempty"`
 }
 
 func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
@@ -326,30 +335,26 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 	if d.Registry == nil {
 		return PkgInfo{}, fmt.Errorf("cannot resolve package URL for %s: driver has no registry", d.Title)
 	}
-	base := d.Registry.BaseURL
 	for _, pkg := range p.Packages {
 		if pkg.PlatformTuple == platformTuple {
-			var uri *url.URL
-
-			if pkg.URL != "" {
-				var err error
-				uri, err = url.Parse(pkg.URL)
-				if err != nil {
-					return PkgInfo{}, fmt.Errorf("invalid package URL %q: %w", pkg.URL, err)
-				}
-				if !uri.IsAbs() {
-					uri = base.JoinPath(pkg.URL)
-				}
-			} else {
-				uri = base.JoinPath(d.Path, p.Version.String(),
-					d.Path+"_"+platformTuple+"-"+p.Version.String()+".tar.gz")
+			uri, err := resolveRegistryPackageURL(d, p.Version, pkg)
+			if err != nil {
+				return PkgInfo{}, err
 			}
+
+			artifact, err := pkg.resolveArtifact()
+			if err != nil {
+				return PkgInfo{}, err
+			}
+			artifact.URL = uri.String()
 
 			return PkgInfo{
 				Driver:        d,
 				Version:       p.Version,
 				PlatformTuple: platformTuple,
 				Path:          uri,
+				ArtifactHash:  artifact.Hash,
+				ArtifactSize:  artifact.Size,
 			}, nil
 		}
 	}
@@ -395,10 +400,7 @@ func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (
 			return false
 		}
 
-		return slices.ContainsFunc(p.Packages, func(p struct {
-			PlatformTuple string `yaml:"platform"`
-			URL           string `yaml:"url"`
-		}) bool {
+		return slices.ContainsFunc(p.Packages, func(p registryPackage) bool {
 			return p.PlatformTuple == platformTuple
 		})
 	})
