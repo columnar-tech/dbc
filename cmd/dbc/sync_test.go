@@ -16,6 +16,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
@@ -689,4 +691,52 @@ driver = "driver.so"
 	suite.Require().NoError(tarWriter.Close())
 	suite.Require().NoError(gzipWriter.Close())
 	suite.Require().NoError(file.Close())
+}
+
+func TestSyncJSONPostInstallChecksumMismatchReportsStructuredError(t *testing.T) {
+	libraryPath := filepath.Join(t.TempDir(), "driver.so")
+	if err := os.WriteFile(libraryPath, []byte("installed library"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
+	info.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
+	const message = "installed library checksum does not match validated package"
+	var output bytes.Buffer
+	model := syncModel{
+		jsonOutput: true,
+		jsonOut:    &output,
+		installItems: []installItem{{
+			Driver:               dbc.Driver{Path: "example"},
+			InstalledLibraryHash: strings.Repeat("0", 64),
+		}},
+	}
+	updated, _ := model.Update(installedDrvMsg{
+		info: info,
+		item: model.installItems[0],
+	})
+
+	status := updated.(HasStatus)
+	if status.Status() != 1 {
+		t.Fatalf("status = %d, want 1", status.Status())
+	}
+	if status.Err() == nil || status.Err().Error() != message {
+		t.Fatalf("Err() = %v, want %q", status.Err(), message)
+	}
+	var envelope jsonschema.Envelope
+	if err := json.Unmarshal(output.Bytes(), &envelope); err != nil {
+		t.Fatalf("output is not a valid JSON envelope: %v; output %q", err, output.String())
+	}
+	if envelope.Kind != "error" {
+		t.Fatalf("envelope kind = %q, want error", envelope.Kind)
+	}
+	var response jsonschema.ErrorResponse
+	if err := json.Unmarshal(envelope.Payload, &response); err != nil {
+		t.Fatalf("could not decode error payload: %v", err)
+	}
+	if response.Code != "checksum_failed" {
+		t.Fatalf("error code = %q, want checksum_failed", response.Code)
+	}
+	if response.Message != message {
+		t.Fatalf("error message = %q, want %q", response.Message, message)
+	}
 }

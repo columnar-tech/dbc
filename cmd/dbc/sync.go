@@ -622,6 +622,20 @@ func closePreparedArchives(items []installItem) {
 	}
 }
 
+func (s syncModel) checksumFailure(err error) (syncModel, tea.Cmd) {
+	closePreparedArchives(s.installItems)
+	s.status = 1
+	s.err = err
+	if s.jsonOutput {
+		s.emitJSON("error", jsonschema.ErrorResponse{
+			Code:    "checksum_failed",
+			Message: err.Error(),
+		})
+		return s, tea.Quit
+	}
+	return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
+}
+
 func lockEntryForItem(item installItem) (lockInfo, error) {
 	if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
 		if err := verifyLegacyLibraryProof(*item.LockEntry, config.PlatformTuple(), item.InstalledLibraryHash); err != nil {
@@ -828,20 +842,10 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installedDrvMsg:
 		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
 		if err != nil {
-			closePreparedArchives(s.installItems)
-			s.status = 1
-			if s.jsonOutput {
-				return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
-					Code:    "checksum_failed",
-					Message: err.Error(),
-				})), tea.Quit)
-			}
-			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
+			return s.checksumFailure(err)
 		}
 		if msg.item.InstalledLibraryHash != "" && msg.item.InstalledLibraryHash != chksum {
-			closePreparedArchives(s.installItems)
-			s.status = 1
-			return s, tea.Sequence(tea.Println("Error: installed library checksum does not match validated package"), tea.Quit)
+			return s.checksumFailure(errors.New("installed library checksum does not match validated package"))
 		}
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
