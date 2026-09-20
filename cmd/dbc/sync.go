@@ -622,13 +622,13 @@ func closePreparedArchives(items []installItem) {
 	}
 }
 
-func (s syncModel) checksumFailure(err error) (syncModel, tea.Cmd) {
+func (s syncModel) fail(code string, err error) (syncModel, tea.Cmd) {
 	closePreparedArchives(s.installItems)
 	s.status = 1
 	s.err = err
 	if s.jsonOutput {
 		s.emitJSON("error", jsonschema.ErrorResponse{
-			Code:    "checksum_failed",
+			Code:    code,
 			Message: err.Error(),
 		})
 		return s, tea.Quit
@@ -842,10 +842,10 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case installedDrvMsg:
 		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
 		if err != nil {
-			return s.checksumFailure(err)
+			return s.fail("checksum_failed", err)
 		}
 		if msg.item.InstalledLibraryHash != "" && msg.item.InstalledLibraryHash != chksum {
-			return s.checksumFailure(errors.New("installed library checksum does not match validated package"))
+			return s.fail("checksum_failed", errors.New("installed library checksum does not match validated package"))
 		}
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
@@ -904,15 +904,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.dispatchInstallItem(),
 		)
 	case error:
-		closePreparedArchives(s.installItems)
-		s.status = 1
-		s.err = msg
-		if s.jsonOutput {
-			return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
-				Code:    "sync_failed",
-				Message: msg.Error(),
-			})), tea.Quit)
-		}
+		return s.fail("sync_failed", msg)
 	}
 
 	bm, cmd := s.baseModel.Update(msg)

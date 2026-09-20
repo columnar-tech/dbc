@@ -16,15 +16,14 @@ package main
 
 import (
 	"archive/tar"
-	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Masterminds/semver/v3"
@@ -694,57 +693,10 @@ driver = "driver.so"
 	suite.Require().NoError(file.Close())
 }
 
-func TestSyncJSONPostInstallChecksumMismatchReportsStructuredError(t *testing.T) {
-	libraryPath := filepath.Join(t.TempDir(), "driver.so")
-	if err := os.WriteFile(libraryPath, []byte("installed library"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
-	info.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
-	const message = "installed library checksum does not match validated package"
-	var output bytes.Buffer
-	model := syncModel{
-		jsonOutput: true,
-		jsonOut:    &output,
-		installItems: []installItem{{
-			Driver:               dbc.Driver{Path: "example"},
-			InstalledLibraryHash: strings.Repeat("0", 64),
-		}},
-	}
-	updated, _ := model.Update(installedDrvMsg{
-		info: info,
-		item: model.installItems[0],
-	})
-
-	status := updated.(HasStatus)
-	if status.Status() != 1 {
-		t.Fatalf("status = %d, want 1", status.Status())
-	}
-	if status.Err() == nil || status.Err().Error() != message {
-		t.Fatalf("Err() = %v, want %q", status.Err(), message)
-	}
-	var envelope jsonschema.Envelope
-	if err := json.Unmarshal(output.Bytes(), &envelope); err != nil {
-		t.Fatalf("output is not a valid JSON envelope: %v; output %q", err, output.String())
-	}
-	if envelope.Kind != "error" {
-		t.Fatalf("envelope kind = %q, want error", envelope.Kind)
-	}
-	var response jsonschema.ErrorResponse
-	if err := json.Unmarshal(envelope.Payload, &response); err != nil {
-		t.Fatalf("could not decode error payload: %v", err)
-	}
-	if response.Code != "checksum_failed" {
-		t.Fatalf("error code = %q, want checksum_failed", response.Code)
-	}
-	if response.Message != message {
-		t.Fatalf("error message = %q, want %q", response.Message, message)
-	}
-}
-
 type syncInjectedMessageModel struct {
 	model   syncModel
 	message tea.Msg
+	result  *syncModel
 }
 
 func (m syncInjectedMessageModel) Init() tea.Cmd {
@@ -752,27 +704,97 @@ func (m syncInjectedMessageModel) Init() tea.Cmd {
 }
 
 func (m syncInjectedMessageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return m.model.Update(msg)
+	updated, cmd := m.model.Update(msg)
+	if next, ok := updated.(syncModel); ok {
+		m.model = next
+		if m.result != nil {
+			*m.result = next
+		}
+		return m, cmd
+	}
+	return updated, cmd
 }
 
 func (m syncInjectedMessageModel) View() tea.View {
 	return m.model.View()
 }
 
-func (suite *SubcommandTestSuite) TestSyncPlainPostInstallChecksumMismatchUsesSingleStandardError() {
-	libraryPath := filepath.Join(suite.tempdir, "driver.so")
-	suite.Require().NoError(os.WriteFile(libraryPath, []byte("installed library"), 0600))
-	info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
-	info.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
-	const message = "installed library checksum does not match validated package"
-	model := syncInjectedMessageModel{
-		model: syncModel{installItems: []installItem{{
-			Driver:               dbc.Driver{Path: "example"},
-			InstalledLibraryHash: strings.Repeat("0", 64),
-		}}},
-		message: installedDrvMsg{info: info, item: installItem{InstalledLibraryHash: strings.Repeat("0", 64)}},
+func (m syncInjectedMessageModel) WithJSONWriter(w io.Writer) tea.Model {
+	m.model.jsonOut = w
+	return m
+}
+
+func (m syncInjectedMessageModel) Status() int { return m.model.Status() }
+func (m syncInjectedMessageModel) Err() error  { return m.model.Err() }
+func (m syncInjectedMessageModel) FinalOutput() string {
+	return m.model.FinalOutput()
+}
+func (m syncInjectedMessageModel) IsJSONMode() bool { return m.model.IsJSONMode() }
+
+func (suite *SubcommandTestSuite) TestSyncTerminalErrorsUseSingleOutputContract() {
+	for _, failure := range []string{"generic", "checksum-read", "checksum-mismatch"} {
+		for _, mode := range []string{"plain", "json", "json-stream"} {
+			suite.Run(failure+"/"+mode, func() {
+				var (
+					message tea.Msg
+					wantErr error
+					code    string
+				)
+				switch failure {
+				case "generic":
+					wantErr = errors.New("injected sync failure")
+					message = wantErr
+					code = "sync_failed"
+				case "checksum-read":
+					missingPath := filepath.Join(suite.T().TempDir(), "missing-driver.so")
+					_, wantErr = checksum(missingPath)
+					info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
+					info.Driver.Shared.Set(config.PlatformTuple(), missingPath)
+					message = installedDrvMsg{info: info}
+					code = "checksum_failed"
+				case "checksum-mismatch":
+					libraryPath := filepath.Join(suite.T().TempDir(), "driver.so")
+					suite.Require().NoError(os.WriteFile(libraryPath, []byte("installed library"), 0600))
+					info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
+					info.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
+					item := installItem{InstalledLibraryHash: strings.Repeat("0", 64)}
+					message = installedDrvMsg{info: info, item: item}
+					wantErr = errors.New("installed library checksum does not match validated package")
+					code = "checksum_failed"
+				}
+
+				jsonOutput := mode != "plain"
+				var result syncModel
+				model := syncInjectedMessageModel{
+					model: syncModel{
+						jsonOutput:         jsonOutput,
+						jsonStreamProgress: mode == "json-stream",
+					},
+					message: message,
+					result:  &result,
+				}
+				output := suite.runCmdErr(model)
+				suite.Equal(1, result.Status())
+				suite.EqualError(result.Err(), wantErr.Error())
+				suite.Empty(result.FinalOutput(), "failure must not produce a success sync.status envelope")
+
+				if !jsonOutput {
+					suite.Equal("\nError: "+wantErr.Error(), output)
+					suite.Equal(1, strings.Count(output, wantErr.Error()), "terminal error should be reported once")
+					return
+				}
+
+				suite.NotContains(output, "Error:", "JSON output must not contain plaintext error formatting")
+				lines := strings.Split(strings.TrimSpace(output), "\n")
+				suite.Len(lines, 1, "failure should produce exactly one terminal JSON envelope")
+				var envelope jsonschema.Envelope
+				suite.NoError(json.Unmarshal([]byte(lines[0]), &envelope))
+				suite.Equal("error", envelope.Kind)
+				var response jsonschema.ErrorResponse
+				suite.NoError(json.Unmarshal(envelope.Payload, &response))
+				suite.Equal(code, response.Code)
+				suite.Equal(wantErr.Error(), response.Message)
+			})
+		}
 	}
-	output := suite.runCmdErr(model)
-	suite.Equal("\nError: "+message, output)
-	suite.Equal(1, strings.Count(output, message))
 }
