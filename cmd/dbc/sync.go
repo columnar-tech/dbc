@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -23,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
@@ -31,6 +33,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/columnar-tech/dbc/internal/resolution"
 )
@@ -51,6 +54,7 @@ func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		NoVerify:           c.NoVerify,
 		jsonOutput:         c.Json || c.JsonStreamProgress,
 		jsonStreamProgress: c.JsonStreamProgress,
+		worker:             newSyncWorker(),
 	}
 }
 
@@ -62,12 +66,45 @@ func (c SyncCmd) GetModel() tea.Model {
 		jsonOutput:         c.Json || c.JsonStreamProgress,
 		jsonStreamProgress: c.JsonStreamProgress,
 		baseModel:          defaultBaseModel(),
+		worker:             newSyncWorker(),
 	}
 }
 
 func (syncModel) NeedsRenderer() {}
 
 func (s syncModel) IsJSONMode() bool { return s.jsonOutput }
+
+// FilterProgramMessage keeps Bubble Tea quit and interrupt messages from
+// stopping sync while its worker owns the project lock or prepared archives.
+// Other commands do not implement this optional interface and retain their
+// existing quit behavior.
+func (s syncModel) FilterProgramMessage(msg tea.Msg) tea.Msg {
+	if s.terminal || s.worker == nil {
+		return msg
+	}
+	cancel := false
+	switch msg.(type) {
+	case tea.QuitMsg, tea.InterruptMsg:
+		cancel = true
+	case tea.KeyPressMsg:
+		key := msg.(tea.KeyPressMsg).String()
+		cancel = key == "ctrl+c" || key == "ctrl+d" || key == "esc"
+	}
+	if cancel {
+		s.worker.cancel()
+		return nil
+	}
+	return msg
+}
+
+// ProgramExited is called by the command runner after Bubble Tea exits through
+// a path not handled by FilterProgramMessage. It abandons UI events and joins
+// the worker after cancellation and cleanup.
+func (s syncModel) ProgramExited() {
+	if s.worker != nil {
+		s.worker.abandonProgram()
+	}
+}
 
 func (s syncModel) WithJSONWriter(w io.Writer) tea.Model {
 	s.jsonOut = w
@@ -137,9 +174,50 @@ type syncModel struct {
 	// newlyInstalled tracks freshly installed drivers for JSON output
 	newlyInstalled []jsonschema.SyncedDriver
 
-	jsonOut io.Writer
+	jsonOut  io.Writer
+	worker   *syncWorker
+	terminal bool
 }
 
+type syncWorkerHooks struct {
+	duringPrepare       func(context.Context, int, installItem) error
+	beforeCandidateSave func(context.Context) error
+	installPackage      func(context.Context, config.Config, string, *os.File, config.ExpectedPackageMetadata, config.InstallOptions) (config.Manifest, error)
+}
+
+type syncWorker struct {
+	ctx       context.Context
+	cancel    context.CancelFunc
+	done      chan struct{}
+	events    chan tea.Msg
+	abandon   chan struct{}
+	stateMu   sync.Mutex
+	started   bool
+	abandoned bool
+	finish    sync.Once
+	hooks     syncWorkerHooks
+}
+
+func newSyncWorker() *syncWorker {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &syncWorker{
+		ctx: ctx, cancel: cancel, done: make(chan struct{}),
+		events: make(chan tea.Msg, 1), abandon: make(chan struct{}),
+	}
+}
+
+type syncWorkerResultMsg struct {
+	err  error
+	code string
+	lock LockFile
+}
+
+type syncResolvingMsg struct{ driver string }
+
+type syncItemsMsg struct{ items []installItem }
+
+// driversListMsg is retained for focused lock-resolution tests. The production
+// sync path reads the driver list inside the project-lock-owning worker.
 type driversListMsg struct {
 	path string
 	list DriversList
@@ -147,30 +225,86 @@ type driversListMsg struct {
 
 func (s syncModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		p, err := filepath.Abs(s.Path)
-		if err != nil {
-			return err
+		if s.worker == nil {
+			s.worker = newSyncWorker()
 		}
+		return s.worker.start(s)
+	}
+}
 
-		if filepath.Ext(p) == "" {
-			p = filepath.Join(p, "dbc.toml")
-		}
+func (w *syncWorker) start(s syncModel) tea.Msg {
+	w.stateMu.Lock()
+	if w.abandoned {
+		w.stateMu.Unlock()
+		return nil
+	}
+	if !w.started {
+		w.started = true
+		go w.run(s)
+	}
+	w.stateMu.Unlock()
+	return w.receive()
+}
 
-		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
-		lock, err := acquireLock(lockPath, 10*time.Second)
-		if err != nil {
-			return err
-		}
-		defer lock.Release()
+func (w *syncWorker) hasStarted() bool {
+	w.stateMu.Lock()
+	defer w.stateMu.Unlock()
+	return w.started
+}
 
-		drivers, err := loadDriverList(p)
-		if err != nil {
-			return err
-		}
-		return driversListMsg{
-			path: p,
-			list: drivers,
-		}
+func (w *syncWorker) nextEvent() tea.Cmd {
+	return func() tea.Msg { return w.receive() }
+}
+
+func (w *syncWorker) send(ctx context.Context, msg tea.Msg) bool {
+	select {
+	case w.events <- msg:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-w.abandon:
+		return false
+	}
+}
+
+func (w *syncWorker) receive() tea.Msg {
+	select {
+	case <-w.abandon:
+		return nil
+	default:
+	}
+	select {
+	case msg := <-w.events:
+		return msg
+	case <-w.abandon:
+		return nil
+	}
+}
+
+func (w *syncWorker) run(s syncModel) {
+	defer w.finish.Do(func() { close(w.done) })
+	defer w.cancel()
+	result := s.runSyncWorker(w)
+	select {
+	case w.events <- result:
+	case <-w.abandon:
+	}
+}
+
+func (w *syncWorker) abandonProgram() {
+	w.stateMu.Lock()
+	if !w.abandoned {
+		w.abandoned = true
+		w.cancel()
+		close(w.abandon)
+	}
+	started := w.started
+	if !started {
+		w.finish.Do(func() { close(w.done) })
+	}
+	w.stateMu.Unlock()
+	if started {
+		<-w.done
 	}
 }
 
@@ -183,6 +317,18 @@ func loadDriverList(path string) (DriversList, error) {
 		return DriversList{}, fmt.Errorf("no drivers found in driver list `%s`", path)
 	}
 	return list, nil
+}
+
+func reloadConfigTarget(selected config.Config) config.Config {
+	refreshed, ok := config.Get()[selected.Level]
+	if !ok {
+		return selected
+	}
+	// Keep the exact target resolved when the sync model was constructed while
+	// refreshing its runtime manifest state after acquiring the project lock.
+	refreshed.Level = selected.Level
+	refreshed.Location = selected.Location
+	return refreshed
 }
 
 type installItem struct {
@@ -375,37 +521,56 @@ type alreadyInstalledDrvMsg struct {
 	item installItem
 }
 
-func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
-	return func() tea.Msg {
-		if item.Archive == nil {
-			return errors.New("prepared package archive is missing")
-		}
-		defer item.Archive.Close()
-		if _, err := item.Archive.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("failed to rewind prepared driver archive: %w", err)
-		}
-		var verify func(string, config.Manifest) error
-		if !s.NoVerify {
-			verify = func(stagingDir string, manifest config.Manifest) error {
-				return dbc.VerifyPackageSignature(stagingDir, manifest)
-			}
-		}
-		manifest, err := config.InstallPackage(cfg, item.Driver.Path, item.Archive, item.Expected, config.InstallOptions{
-			Verify: verify,
-		})
-		if err != nil {
-			if isPackageVerificationFailure(err) {
-				return fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
-			}
-			return fmt.Errorf("failed to install driver: %w", err)
-		}
-		return installedDrvMsg{
-			removed:     item.RemovedDriver,
-			info:        manifest.DriverInfo,
-			postInstall: manifest.PostInstall.Messages,
-			item:        item,
+func (s syncModel) installPreparedPackage(ctx context.Context, item installItem) (installedDrvMsg, error) {
+	if err := ctx.Err(); err != nil {
+		return installedDrvMsg{}, err
+	}
+	if item.Archive == nil {
+		return installedDrvMsg{}, errors.New("prepared package archive is missing")
+	}
+	if _, err := item.Archive.Seek(0, io.SeekStart); err != nil {
+		return installedDrvMsg{}, fmt.Errorf("failed to rewind prepared driver archive: %w", err)
+	}
+	var verify func(string, config.Manifest) error
+	if !s.NoVerify {
+		verify = func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
 		}
 	}
+	install := s.worker.hooks.installPackage
+	if install == nil {
+		// config.InstallPackage is contextless. Keep this call synchronous so
+		// cancellation cannot release the project lock or archive prematurely.
+		install = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
+			return config.InstallPackage(cfg, driver, archive, expected, options)
+		}
+	}
+	manifest, err := install(ctx, s.cfg, item.Driver.Path, item.Archive, item.Expected, config.InstallOptions{Verify: verify})
+	if err := ctx.Err(); err != nil {
+		return installedDrvMsg{}, err
+	}
+	if err != nil {
+		if isPackageVerificationFailure(err) {
+			return installedDrvMsg{}, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
+		}
+		return installedDrvMsg{}, fmt.Errorf("failed to install driver: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return installedDrvMsg{}, err
+	}
+	checksumHash, err := checksum(manifest.DriverInfo.Driver.Shared.Get(config.PlatformTuple()))
+	if err != nil {
+		return installedDrvMsg{}, syncChecksumError{err: err}
+	}
+	if item.InstalledLibraryHash != "" && item.InstalledLibraryHash != checksumHash {
+		return installedDrvMsg{}, syncChecksumError{err: errors.New("installed library checksum does not match validated package")}
+	}
+	return installedDrvMsg{
+		removed:     item.RemovedDriver,
+		info:        manifest.DriverInfo,
+		postInstall: manifest.PostInstall.Messages,
+		item:        item,
+	}, nil
 }
 
 func (s syncModel) writeLockFile() error {
@@ -480,29 +645,22 @@ func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
 	return nil
 }
 
-func (s syncModel) prepareInstallItems(items []installItem) (preparedSyncMsg, error) {
+func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem) (preparedSyncMsg, error) {
 	prepared := preparedSyncMsg{items: items, lock: LockFile{Version: lockFileVersion}}
-	closePrepared := func() {
-		for i := range prepared.items {
-			if prepared.items[i].Archive != nil {
-				_ = prepared.items[i].Archive.Close()
-				prepared.items[i].Archive = nil
-			}
-		}
-	}
 	for i := range prepared.items {
+		if err := ctx.Err(); err != nil {
+			return prepared, err
+		}
 		item := &prepared.items[i]
 		if s.cfg.Exists {
 			if installed, ok := s.cfg.Drivers[item.Driver.Path]; ok {
 				if item.Package.Version.Equal(installed.Version) {
 					libraryHash, err := checksum(installed.Driver.Shared.Get(config.PlatformTuple()))
 					if err != nil {
-						closePrepared()
-						return preparedSyncMsg{}, fmt.Errorf("failed to compute checksum: %w", err)
+						return prepared, fmt.Errorf("failed to compute checksum: %w", err)
 					}
 					if item.Checksum != "" && libraryHash != item.Checksum {
-						closePrepared()
-						return preparedSyncMsg{}, fmt.Errorf("checksum mismatch for driver %s: %s != %s", item.Driver.Path, libraryHash, item.Checksum)
+						return prepared, fmt.Errorf("checksum mismatch for driver %s: %s != %s", item.Driver.Path, libraryHash, item.Checksum)
 					}
 					if item.Checksum == "" {
 						item.Checksum = libraryHash
@@ -523,32 +681,33 @@ func (s syncModel) prepareInstallItems(items []installItem) (preparedSyncMsg, er
 			// measured values are copied into Package below.
 			expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
 			if err != nil {
-				closePrepared()
-				return preparedSyncMsg{}, err
+				return prepared, err
 			}
+			// downloadPkg is contextless; wait for it to return while retaining
+			// the project lock, then observe cancellation and clean up its archive.
 			archive, err := s.downloadPkg(item.Package)
-			if err != nil {
-				closePrepared()
-				return preparedSyncMsg{}, fmt.Errorf("failed to download driver: %w", err)
+			if archive != nil {
+				item.Archive = archive
 			}
-			item.Archive = archive
+			if ctx.Err() != nil {
+				return prepared, ctx.Err()
+			}
+			if err != nil {
+				return prepared, fmt.Errorf("failed to download driver: %w", err)
+			}
 			if err := snapshotDownloadedArchive(item, archive); err != nil {
-				closePrepared()
-				return preparedSyncMsg{}, fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
+				return prepared, fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
 			}
 			if !hasMetadata {
 				if _, err := archive.Seek(0, io.SeekStart); err != nil {
-					closePrepared()
-					return preparedSyncMsg{}, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+					return prepared, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
 				}
 				packageManifest, inspectErr := config.InspectPackageMetadata(archive)
 				if inspectErr != nil {
-					closePrepared()
-					return preparedSyncMsg{}, inspectErr
+					return prepared, inspectErr
 				}
 				if packageManifest.PackageVersion == 2 {
-					closePrepared()
-					return preparedSyncMsg{}, errors.New("registry package v2 requires archive hash and size metadata")
+					return prepared, errors.New("registry package v2 requires archive hash and size metadata")
 				}
 			}
 			item.Package.ArtifactHash = item.ArchiveHash
@@ -557,8 +716,7 @@ func (s syncModel) prepareInstallItems(items []installItem) (preparedSyncMsg, er
 			expected.ArchiveSize = item.ArchiveSize
 			item.Expected = expected
 			if _, err := archive.Seek(0, io.SeekStart); err != nil {
-				closePrepared()
-				return preparedSyncMsg{}, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+				return prepared, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
 			}
 			var verify func(string, config.Manifest) error
 			if !s.NoVerify {
@@ -568,49 +726,193 @@ func (s syncModel) prepareInstallItems(items []installItem) (preparedSyncMsg, er
 			}
 			validation, err := config.ValidatePackage(item.Driver.Path, archive, expected, config.InstallOptions{Verify: verify})
 			if err != nil {
-				closePrepared()
 				if isPackageVerificationFailure(err) {
-					return preparedSyncMsg{}, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
+					return prepared, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
 				}
-				return preparedSyncMsg{}, fmt.Errorf("failed to validate driver package: %w", err)
+				return prepared, fmt.Errorf("failed to validate driver package: %w", err)
 			}
 			if item.AlreadyInstalled == nil {
 				item.InstalledLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
-			}
-			if item.AlreadyInstalled != nil {
-				_ = archive.Close()
-				item.Archive = nil
 			}
 		} else {
 			// The exact locked artifact is already installed, so it can be reused
 			// without another download or package validation.
 			expected, _, err := expectedRegistryPackageMetadata(item.Package)
 			if err != nil {
-				closePrepared()
-				return preparedSyncMsg{}, err
+				return prepared, err
 			}
 			item.Expected = expected
 		}
 
 		entry, err := lockEntryForItem(*item)
 		if err != nil {
-			closePrepared()
-			return preparedSyncMsg{}, fmt.Errorf("failed to update lock entry: %w", err)
+			return prepared, fmt.Errorf("failed to update lock entry: %w", err)
 		}
 		prepared.lock.Drivers = append(prepared.lock.Drivers, entry)
+		if s.worker != nil && s.worker.hooks.duringPrepare != nil {
+			if err := s.worker.hooks.duringPrepare(ctx, i, *item); err != nil {
+				return prepared, err
+			}
+		}
 	}
 	return prepared, nil
 }
 
-func (s syncModel) dispatchInstallItem() tea.Cmd {
-	if s.index >= len(s.installItems) {
-		return tea.Quit
+type syncChecksumError struct{ err error }
+
+func (e syncChecksumError) Error() string { return e.err.Error() }
+func (e syncChecksumError) Unwrap() error { return e.err }
+
+func acquireSyncProjectLock(ctx context.Context, lockPath string) (fslock.Lock, error) {
+	lock, err := fslock.AcquireContext(ctx, lockPath)
+	if err == nil {
+		return lock, nil
 	}
-	item := s.installItems[s.index]
-	if item.AlreadyInstalled != nil {
-		return func() tea.Msg { return alreadyInstalledDrvMsg{info: *item.AlreadyInstalled, item: item} }
+	if errors.Is(err, fslock.ErrLockContended) {
+		return fslock.Lock{}, fmt.Errorf("another dbc operation is in progress: %w", err)
 	}
-	return s.installDriver(s.cfg, item)
+	if errors.Is(err, os.ErrPermission) {
+		return fslock.Lock{}, fmt.Errorf(
+			"cannot write to %s: permission denied.\nThis command requires elevated privileges; try %s.",
+			filepath.Dir(lockPath), elevationHint())
+	}
+	return fslock.Lock{}, fmt.Errorf("could not acquire lock in %s: %w", filepath.Dir(lockPath), err)
+}
+
+func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
+	result := syncWorkerResultMsg{code: "sync_failed"}
+	fail := func(code string, err error) syncWorkerResultMsg {
+		result.code = code
+		result.err = err
+		return result
+	}
+	ctx := worker.ctx
+	path, err := filepath.Abs(s.Path)
+	if err != nil {
+		return fail("sync_failed", err)
+	}
+	if filepath.Ext(path) == "" {
+		path = filepath.Join(path, "dbc.toml")
+	}
+	lockPath := filepath.Join(filepath.Dir(path), ".dbc.project.lock")
+	lockCtx, cancelLockWait := context.WithTimeout(ctx, 10*time.Second)
+	projectLock, err := acquireSyncProjectLock(lockCtx, lockPath)
+	cancelLockWait()
+	if err != nil {
+		if ctx.Err() != nil {
+			return fail("sync_failed", ctx.Err())
+		}
+		return fail("sync_failed", err)
+	}
+	defer projectLock.Release()
+	if err := ctx.Err(); err != nil {
+		return fail("sync_failed", err)
+	}
+	s.cfg = reloadConfigTarget(s.cfg)
+
+	list, err := loadDriverList(path)
+	if err != nil {
+		return fail("sync_failed", err)
+	}
+	s.Path = path
+	s.LockFilePath = strings.TrimSuffix(path, filepath.Ext(path)) + ".lock"
+	s.list = list
+	if err := applyProjectRegistries(s.list); err != nil {
+		return fail("sync_failed", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail("sync_failed", err)
+	}
+
+	needsRegistry, err := s.registryDiscoveryNeeded(s.list)
+	if err != nil {
+		return fail("sync_failed", fmt.Errorf("failed to inspect lock file: %w", err))
+	}
+	if needsRegistry {
+		// Registry clients are currently contextless. The project lock remains
+		// held until this call returns, after which cancellation is observed.
+		drivers, registryErr := s.getDriverRegistry()
+		if err := ctx.Err(); err != nil {
+			return fail("sync_failed", err)
+		}
+		s.registryErrors = registryErr
+		if len(drivers) == 0 && registryErr != nil {
+			return fail("sync_failed", fmt.Errorf("error getting driver list: %w", registryErr))
+		}
+		s.driverIndex = drivers
+	}
+
+	items, err := s.createInstallList(s.list)
+	if err != nil {
+		return fail("sync_failed", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail("sync_failed", err)
+	}
+	if !worker.send(ctx, syncItemsMsg{items: items}) {
+		return fail("sync_failed", ctx.Err())
+	}
+	for _, item := range items {
+		if !worker.send(ctx, syncResolvingMsg{driver: item.Driver.Path}) {
+			return fail("sync_failed", ctx.Err())
+		}
+	}
+
+	prepared, err := s.prepareInstallItems(ctx, items)
+	defer closePreparedArchives(prepared.items)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fail("sync_failed", err)
+		}
+		return fail("sync_failed", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fail("sync_failed", err)
+	}
+	if worker.hooks.beforeCandidateSave != nil {
+		if err := worker.hooks.beforeCandidateSave(ctx); err != nil {
+			return fail("sync_failed", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fail("sync_failed", err)
+	}
+	if err := s.persistCandidateLock(prepared.lock); err != nil {
+		return fail("sync_failed", fmt.Errorf("failed to write candidate lock file: %w", err))
+	}
+	result.lock = prepared.lock
+
+	for _, item := range prepared.items {
+		if err := ctx.Err(); err != nil {
+			return fail("sync_failed", err)
+		}
+		if item.AlreadyInstalled != nil {
+			progress := alreadyInstalledDrvMsg{info: *item.AlreadyInstalled, item: item}
+			progress.item.Archive = nil
+			if !worker.send(ctx, progress) {
+				return fail("sync_failed", ctx.Err())
+			}
+			continue
+		}
+		installed, err := s.installPreparedPackage(ctx, item)
+		if err != nil {
+			var checksumErr syncChecksumError
+			if errors.As(err, &checksumErr) {
+				return fail("checksum_failed", checksumErr)
+			}
+			return fail("sync_failed", err)
+		}
+		installed.item.Archive = nil
+		if !worker.send(ctx, installed) {
+			return fail("sync_failed", ctx.Err())
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fail("sync_failed", err)
+	}
+	result.err = nil
+	result.code = ""
+	return result
 }
 
 func closePreparedArchives(items []installItem) {
@@ -622,10 +924,18 @@ func closePreparedArchives(items []installItem) {
 	}
 }
 
+func syncProgressPercent(index, total int) float64 {
+	if total <= 0 {
+		return 0
+	}
+	completed := min(max(index+1, 0), total)
+	return float64(completed) / float64(total)
+}
+
 func (s syncModel) fail(code string, err error) (syncModel, tea.Cmd) {
-	closePreparedArchives(s.installItems)
 	s.status = 1
 	s.err = err
+	s.terminal = true
 	if s.jsonOutput {
 		s.emitJSON("error", jsonschema.ErrorResponse{
 			Code:    code,
@@ -715,6 +1025,8 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.progress, cmd = s.progress.Update(msg)
 		return s, cmd
 	case driversListMsg:
+		// This adapter exists for focused lock-resolution tests. Runtime syncs
+		// keep this entire sequence in runSyncWorker under the project lock.
 		s.Path = msg.path
 		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
 		s.list = msg.list
@@ -727,83 +1039,34 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if !needsRegistry {
 			return s, func() tea.Msg {
-				items, err := s.createInstallList(s.list)
+				returnItems, err := s.createInstallList(s.list)
 				if err != nil {
 					return err
 				}
-				return items
+				return returnItems
 			}
 		}
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()
-			// Return both drivers and error - we'll decide how to handle based on whether
-			// all requested drivers can be found
-			return driversWithRegistryError{
-				drivers: drivers,
-				err:     err,
-			}
+			return driversWithRegistryError{drivers: drivers, err: err}
 		}
-	case driversWithRegistryError:
-		s.registryErrors = msg.err
-		// If we have no drivers and there's an error, fail immediately
-		if len(msg.drivers) == 0 && msg.err != nil {
-			return s, errCmd("error getting driver list: %w", msg.err)
-		}
-		s.driverIndex = msg.drivers
-		return s, func() tea.Msg {
-			items, err := s.createInstallList(s.list)
-			if err != nil {
-				return err
-			}
-			return items
-		}
-	case []dbc.Driver:
-		// For backwards compatibility, still handle plain driver list
-		s.driverIndex = msg
-		return s, func() tea.Msg {
-			items, err := s.createInstallList(s.list)
-			if err != nil {
-				return err
-			}
-			return items
-		}
-	case []installItem:
+	case syncItemsMsg:
 		s.spinner = spinner.New()
 		s.progress = progress.New(
 			progress.WithDefaultBlend(),
 			progress.WithWidth(40),
 			progress.WithoutPercentage(),
 		)
-		s.installItems = msg
-
-		if s.jsonStreamProgress {
-			for _, item := range msg {
-				s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
-					Phase:  "resolving",
-					Driver: item.Driver.Path,
-				})
-			}
-		}
-
-		return s, tea.Batch(func() tea.Msg {
-			prepared, err := s.prepareInstallItems(msg)
-			if err != nil {
-				return err
-			}
-			return prepared
-		}, s.spinner.Tick)
-	case preparedSyncMsg:
 		s.installItems = msg.items
-		return s, func() tea.Msg {
-			if err := s.persistCandidateLock(msg.lock); err != nil {
-				closePreparedArchives(msg.items)
-				return fmt.Errorf("failed to write candidate lock file: %w", err)
-			}
-			return candidateLockSavedMsg{lock: msg.lock}
+		return s, tea.Batch(s.worker.nextEvent(), s.spinner.Tick)
+	case syncResolvingMsg:
+		if s.jsonStreamProgress {
+			s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
+				Phase:  "resolving",
+				Driver: msg.driver,
+			})
 		}
-	case candidateLockSavedMsg:
-		s.locked = msg.lock
-		return s, tea.Batch(s.dispatchInstallItem(), s.spinner.Tick)
+		return s, s.worker.nextEvent()
 	case alreadyInstalledDrvMsg:
 		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
@@ -817,35 +1080,30 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Version: msg.info.Version.String(),
 			})
 		}
-
-		if s.index >= len(s.installItems)-1 {
-			s.done = true
-			if s.jsonOutput {
-				return s, tea.Quit
-			}
-			return s, tea.Sequence(tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version), tea.Quit)
+		percent := syncProgressPercent(s.index, len(s.installItems))
+		if s.index < len(s.installItems)-1 {
+			s.index++
 		}
-
-		s.index++
-		progressCmd := s.progress.SetPercent(float64(s.index) / float64(len(s.installItems)))
+		progressCmd := s.progress.SetPercent(percent)
 		if s.jsonOutput {
-			return s, tea.Batch(
-				progressCmd,
-				s.dispatchInstallItem(),
-			)
+			return s, tea.Batch(progressCmd, s.worker.nextEvent())
 		}
 		return s, tea.Batch(
 			progressCmd,
-			tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
-			s.dispatchInstallItem(),
+			tea.Sequence(tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version), s.worker.nextEvent()),
 		)
 	case installedDrvMsg:
-		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
-		if err != nil {
-			return s.fail("checksum_failed", err)
-		}
-		if msg.item.InstalledLibraryHash != "" && msg.item.InstalledLibraryHash != chksum {
-			return s.fail("checksum_failed", errors.New("installed library checksum does not match validated package"))
+		// Production workers verify the post-install checksum before publishing
+		// this progress event. Retain the direct-update path for isolated model
+		// tests and embedders that inject the event without a worker.
+		if s.worker == nil {
+			chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
+			if err != nil {
+				return s.fail("checksum_failed", err)
+			}
+			if msg.item.InstalledLibraryHash != "" && msg.item.InstalledLibraryHash != chksum {
+				return s.fail("checksum_failed", errors.New("installed library checksum does not match validated package"))
+			}
 		}
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
@@ -880,29 +1138,29 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if s.index >= len(s.installItems)-1 {
-			s.done = true
-			if s.jsonOutput {
-				return s, tea.Quit
-			}
-			return s, tea.Sequence(
-				printCmd,
-				tea.Quit)
+		percent := syncProgressPercent(s.index, len(s.installItems))
+		if s.index < len(s.installItems)-1 {
+			s.index++
 		}
-
-		s.index++
-		progressCmd := s.progress.SetPercent(float64(s.index) / float64(len(s.installItems)))
+		progressCmd := s.progress.SetPercent(percent)
 		if s.jsonOutput {
 			return s, tea.Batch(
 				progressCmd,
-				s.dispatchInstallItem(),
+				s.worker.nextEvent(),
 			)
 		}
 		return s, tea.Batch(
 			progressCmd,
-			printCmd,
-			s.dispatchInstallItem(),
+			tea.Sequence(printCmd, s.worker.nextEvent()),
 		)
+	case syncWorkerResultMsg:
+		if msg.err != nil {
+			return s.fail(msg.code, msg.err)
+		}
+		s.locked = msg.lock
+		s.done = true
+		s.terminal = true
+		return s, tea.Quit
 	case error:
 		return s.fail("sync_failed", msg)
 	}
@@ -934,7 +1192,8 @@ func (s syncModel) View() tea.View {
 	prog := s.progress.View()
 	cellsAvail := max(0, s.width-lipgloss.Width(spin+prog+driverCount))
 
-	driverName := s.installItems[s.index].Driver.Path
+	driverIndex := min(s.index, len(s.installItems)-1)
+	driverName := s.installItems[driverIndex].Driver.Path
 	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + driverName)
 
 	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))

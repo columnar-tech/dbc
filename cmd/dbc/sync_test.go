@@ -16,7 +16,9 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,13 +26,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
+
+func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
+	if got := syncProgressPercent(0, 2); got != 0.5 {
+		t.Fatalf("first completed item progress = %v, want 0.5", got)
+	}
+	if got := syncProgressPercent(1, 2); got != 1 {
+		t.Fatalf("second completed item progress = %v, want 1", got)
+	}
+}
 
 func (suite *SubcommandTestSuite) TestSync() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
@@ -652,6 +668,363 @@ func (suite *SubcommandTestSuite) TestSyncExactLockedArtifactConvergesWithoutReg
 	suite.runCmd(model)
 	suite.Equal(0, registryCalls)
 	suite.Equal(0, downloadCalls)
+}
+
+type syncProgramRun struct {
+	program *tea.Program
+	done    chan struct{}
+	model   tea.Model
+	err     error
+	output  bytes.Buffer
+}
+
+func startSyncProgram(model syncModel) *syncProgramRun {
+	return startSyncProgramWithContext(model, nil)
+}
+
+func startSyncProgramWithContext(model syncModel, ctx context.Context) *syncProgramRun {
+	run := &syncProgramRun{done: make(chan struct{})}
+	model.jsonOut = &run.output
+	options := []tea.ProgramOption{tea.WithInput(nil), tea.WithOutput(io.Discard), tea.WithoutRenderer(), tea.WithFilter(filterProgramMessage)}
+	if ctx != nil {
+		options = append(options, tea.WithContext(ctx))
+	}
+	run.program = tea.NewProgram(model, options...)
+	go func() {
+		run.model, run.err = run.program.Run()
+		notifyProgramExited(model)
+		run.program.Wait()
+		close(run.done)
+	}()
+	return run
+}
+
+func waitSyncTestSignal(t *testing.T, signal <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for sync worker test signal")
+	}
+}
+
+func waitSyncProgram(t *testing.T, run *syncProgramRun) syncModel {
+	t.Helper()
+	select {
+	case <-run.done:
+	case <-time.After(5 * time.Second):
+		run.program.Send(tea.InterruptMsg{})
+		t.Fatal("timed out waiting for sync program to finish")
+	}
+	if run.err != nil {
+		t.Fatalf("sync program returned an error: %v", run.err)
+	}
+	model, ok := run.model.(syncModel)
+	if !ok {
+		t.Fatalf("unexpected sync model result %T", run.model)
+	}
+	return model
+}
+
+func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
+	for _, stage := range []string{"registry", "download", "prepare", "candidate-save", "install"} {
+		suite.Run(stage, func() {
+			tmp := suite.T().TempDir()
+			path := filepath.Join(tmp, "dbc.toml")
+			lockPath := filepath.Join(tmp, "dbc.lock")
+			projectLockPath := filepath.Join(tmp, ".dbc.project.lock")
+			suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0600))
+			suite.Require().NoError(writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion}))
+			oldLock, err := os.ReadFile(lockPath)
+			suite.Require().NoError(err)
+
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			defer unblock()
+			var archive *os.File
+			model := SyncCmd{Path: path, NoVerify: true, Json: stage != "prepare", JsonStreamProgress: stage == "prepare"}.GetModelCustom(baseModel{
+				getDriverRegistry: func() ([]dbc.Driver, error) {
+					if stage == "registry" {
+						close(entered)
+						<-release
+					}
+					return getTestDriverRegistry()
+				},
+				downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+					archive, err = downloadTestPkg(pkg)
+					if stage == "download" {
+						close(entered)
+						<-release
+					}
+					return archive, err
+				},
+			}).(syncModel)
+			block := func(context.Context) error {
+				close(entered)
+				<-release
+				return nil
+			}
+			switch stage {
+			case "prepare":
+				model.worker.hooks.duringPrepare = func(ctx context.Context, _ int, item installItem) error {
+					archive = item.Archive
+					return block(ctx)
+				}
+			case "candidate-save":
+				model.worker.hooks.beforeCandidateSave = block
+			case "install":
+				model.worker.hooks.installPackage = func(ctx context.Context, _ config.Config, _ string, file *os.File, _ config.ExpectedPackageMetadata, _ config.InstallOptions) (config.Manifest, error) {
+					archive = file
+					close(entered)
+					<-release
+					return config.Manifest{}, ctx.Err()
+				}
+			}
+
+			run := startSyncProgram(model)
+			waitSyncTestSignal(suite.T(), entered)
+			run.program.Send(tea.InterruptMsg{})
+			waitSyncTestSignal(suite.T(), model.worker.ctx.Done())
+			select {
+			case <-run.done:
+				suite.FailNow("program exited before the worker completed")
+			default:
+			}
+			select {
+			case <-model.worker.done:
+				suite.FailNow("worker exited while its test hook was blocked")
+			default:
+			}
+			var statErr error
+			if archive != nil {
+				_, statErr = archive.Stat()
+				suite.NoError(statErr, "prepared archive must stay open until the worker exits")
+			} else {
+				suite.Equal("registry", stage, "only registry discovery runs before an archive is opened")
+			}
+			lockCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			_, lockErr := fslock.AcquireContext(lockCtx, projectLockPath)
+			cancel()
+			suite.ErrorIs(lockErr, context.DeadlineExceeded, "project lock must stay held until the worker exits")
+
+			unblock()
+			result := waitSyncProgram(suite.T(), run)
+			suite.Equal(1, result.Status())
+			suite.ErrorIs(result.Err(), context.Canceled)
+			suite.Empty(result.FinalOutput())
+			var lines []string
+			for _, line := range strings.Split(strings.TrimSpace(run.output.String()), "\n") {
+				if line != "" {
+					lines = append(lines, line)
+				}
+			}
+			errorEnvelopes := 0
+			for _, line := range lines {
+				var envelope jsonschema.Envelope
+				suite.NoError(json.Unmarshal([]byte(line), &envelope), "each JSON progress line must be valid")
+				if envelope.Kind != "error" {
+					suite.NotEqual("sync.status", envelope.Kind, "cancel must not produce successful final output")
+					continue
+				}
+				errorEnvelopes++
+				var response jsonschema.ErrorResponse
+				suite.NoError(json.Unmarshal(envelope.Payload, &response))
+				suite.Equal("sync_failed", response.Code)
+				suite.Equal(context.Canceled.Error(), response.Message)
+			}
+			suite.Equal(1, errorEnvelopes, "cancel should emit one terminal JSON error envelope")
+			waitSyncTestSignal(suite.T(), model.worker.done)
+			if archive != nil {
+				_, statErr = archive.Stat()
+				suite.ErrorIs(statErr, os.ErrClosed)
+			}
+			projectLock, lockErr := fslock.Acquire(projectLockPath, time.Second)
+			suite.NoError(lockErr)
+			if lockErr == nil {
+				suite.NoError(projectLock.Release())
+			}
+			newLock, err := os.ReadFile(lockPath)
+			suite.Require().NoError(err)
+			if stage == "install" {
+				suite.NotEqual(oldLock, newLock, "candidate lock remains after execution begins")
+			} else {
+				suite.Equal(oldLock, newLock, "cancellation before candidate save preserves old lock")
+			}
+			_, err = config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+			suite.Error(err, "test install hook must prevent runtime installation")
+		})
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncProgramContextCancellationJoinsWorker() {
+	tmp := suite.T().TempDir()
+	path := filepath.Join(tmp, "dbc.toml")
+	projectLockPath := filepath.Join(tmp, ".dbc.project.lock")
+	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0600))
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	var archive *os.File
+	model := SyncCmd{Path: path, NoVerify: true, Json: true}.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			var err error
+			archive, err = downloadTestPkg(pkg)
+			close(entered)
+			<-release // Deliberately contextless, matching the downloader contract.
+			return archive, err
+		},
+	}).(syncModel)
+	programCtx, cancelProgram := context.WithCancel(context.Background())
+	run := startSyncProgramWithContext(model, programCtx)
+	waitSyncTestSignal(suite.T(), entered)
+	cancelProgram()
+	waitSyncTestSignal(suite.T(), model.worker.ctx.Done())
+	select {
+	case <-run.done:
+		suite.FailNow("runner must join the worker before returning")
+	default:
+	}
+	suite.NotNil(archive)
+	_, err := archive.Stat()
+	suite.NoError(err, "archive must remain owned until the blocked downloader returns")
+	lockCtx, cancelLock := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	_, lockErr := fslock.AcquireContext(lockCtx, projectLockPath)
+	cancelLock()
+	suite.ErrorIs(lockErr, context.DeadlineExceeded, "project lock must remain held during cancellation cleanup")
+
+	unblock()
+	waitSyncTestSignal(suite.T(), run.done)
+	waitSyncTestSignal(suite.T(), model.worker.done)
+	suite.ErrorIs(run.err, context.Canceled)
+	_, err = archive.Stat()
+	suite.ErrorIs(err, os.ErrClosed)
+	projectLock, err := fslock.Acquire(projectLockPath, time.Second)
+	suite.NoError(err)
+	if err == nil {
+		suite.NoError(projectLock.Release())
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncCancellationWhileWaitingForProjectLock() {
+	tmp := suite.T().TempDir()
+	path := filepath.Join(tmp, "dbc.toml")
+	projectLockPath := filepath.Join(tmp, ".dbc.project.lock")
+	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0600))
+	holder, err := fslock.Acquire(projectLockPath, time.Second)
+	suite.Require().NoError(err)
+	var holderReleaseOnce sync.Once
+	releaseHolder := func() { holderReleaseOnce.Do(func() { _ = holder.Release() }) }
+	defer releaseHolder()
+	registryCalls, downloadCalls := atomic.Int32{}, atomic.Int32{}
+	model := SyncCmd{Path: path, NoVerify: true, Json: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			registryCalls.Add(1)
+			return getTestDriverRegistry()
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls.Add(1)
+			return downloadTestPkg(pkg)
+		},
+	}).(syncModel)
+	run := startSyncProgram(model)
+	deadline := time.After(2 * time.Second)
+	for !model.worker.hasStarted() {
+		select {
+		case <-deadline:
+			suite.FailNow("sync worker did not start")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	time.Sleep(100 * time.Millisecond)
+	run.program.Send(tea.InterruptMsg{})
+	result := waitSyncProgram(suite.T(), run)
+	suite.Equal(1, result.Status())
+	suite.ErrorIs(result.Err(), context.Canceled)
+	suite.Zero(registryCalls.Load(), "registry discovery must wait for project lock acquisition")
+	suite.Zero(downloadCalls.Load())
+	waitSyncTestSignal(suite.T(), model.worker.done)
+	releaseHolder()
+	projectLock, err := fslock.Acquire(projectLockPath, time.Second)
+	suite.NoError(err, "canceled lock waiter must not retain the project lock")
+	if err == nil {
+		suite.NoError(projectLock.Release())
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncSerializesSameProjectUntilWorkerFinishes() {
+	tmp := suite.T().TempDir()
+	path := filepath.Join(tmp, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0600))
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	var registryCalls atomic.Int32
+	first := SyncCmd{Path: path, NoVerify: true, Json: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			registryCalls.Add(1)
+			return getTestDriverRegistry()
+		},
+		downloadPkg: downloadTestPkg,
+	}).(syncModel)
+	first.worker.hooks.beforeCandidateSave = func(context.Context) error {
+		close(entered)
+		<-release
+		return nil
+	}
+	firstRun := startSyncProgram(first)
+	waitSyncTestSignal(suite.T(), entered)
+
+	secondDownloads, secondInstalls := atomic.Int32{}, atomic.Int32{}
+	second := SyncCmd{Path: path, NoVerify: true, Json: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			registryCalls.Add(1)
+			return getTestDriverRegistry()
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			secondDownloads.Add(1)
+			return downloadTestPkg(pkg)
+		},
+	}).(syncModel)
+	second.worker.hooks.installPackage = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
+		secondInstalls.Add(1)
+		return config.InstallPackage(cfg, driver, archive, expected, options)
+	}
+	secondRun := startSyncProgram(second)
+	deadline := time.After(2 * time.Second)
+	for !second.worker.hasStarted() {
+		select {
+		case <-deadline:
+			suite.FailNow("second sync did not start")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	time.Sleep(150 * time.Millisecond)
+	suite.Equal(int32(1), registryCalls.Load(), "second sync must wait before registry discovery")
+	select {
+	case <-secondRun.done:
+		suite.FailNow("second sync exited before acquiring the project lock")
+	default:
+	}
+
+	unblock()
+	firstResult := waitSyncProgram(suite.T(), firstRun)
+	secondResult := waitSyncProgram(suite.T(), secondRun)
+	suite.Equal(0, firstResult.Status())
+	suite.Equal(0, secondResult.Status())
+	suite.Equal(int32(1), registryCalls.Load(), "candidate lock should let the second sync avoid discovery")
+	suite.Len(secondResult.skippedDrivers, 1, "runtime state must be reloaded after the second sync acquires the lock")
+	suite.Empty(secondResult.newlyInstalled)
+	suite.Zero(secondDownloads.Load(), "the second sync should reuse the installed exact artifact")
+	suite.Zero(secondInstalls.Load(), "the second sync should skip the already-installed driver")
 }
 
 func (suite *SubcommandTestSuite) copyArchiveForSyncTest(source string) string {

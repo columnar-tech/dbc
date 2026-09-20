@@ -162,13 +162,15 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 		m = jw.WithJSONWriter(&out)
 	}
 	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithoutRenderer(), tea.WithContext(ctx))
+		tea.WithoutRenderer(), tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
 	defer func() {
 		prog = nil
 	}()
 
 	var err error
+	programModel := m
 	m, err = prog.Run()
+	notifyProgramExited(programModel)
 	prog.Wait()
 	suite.Require().NoError(err)
 	suite.Equal(1, m.(HasStatus).Status(), "The subcommand did not exit with a status of 1 as expected.")
@@ -200,13 +202,15 @@ func (suite *SubcommandTestSuite) runCmd(m tea.Model) string {
 		m = jw.WithJSONWriter(&out)
 	}
 	prog = tea.NewProgram(m, tea.WithInput(nil), tea.WithOutput(&out),
-		tea.WithoutRenderer(), tea.WithContext(ctx))
+		tea.WithoutRenderer(), tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
 	defer func() {
 		prog = nil
 	}()
 
 	var err error
+	programModel := m
 	m, err = prog.Run()
+	notifyProgramExited(programModel)
 	prog.Wait()
 	suite.Require().NoError(err)
 	suite.Equal(0, m.(HasStatus).Status(), "The command exited with a non-zero status.")

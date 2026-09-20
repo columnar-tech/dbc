@@ -76,6 +76,19 @@ type NeedsRenderer interface {
 	NeedsRenderer()
 }
 
+func filterProgramMessage(model tea.Model, msg tea.Msg) tea.Msg {
+	if filtered, ok := model.(interface{ FilterProgramMessage(tea.Msg) tea.Msg }); ok {
+		return filtered.FilterProgramMessage(msg)
+	}
+	return msg
+}
+
+func notifyProgramExited(model tea.Model) {
+	if lifecycle, ok := model.(interface{ ProgramExited() }); ok {
+		lifecycle.ProgramExited()
+	}
+}
+
 var (
 	dbcClient     *dbc.Client
 	dbcClientErr  error
@@ -166,7 +179,6 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	}
 	return dbcClient.Search(context.Background(), "")
 }
-
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -467,12 +479,12 @@ func main() {
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
-		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
+		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithFilter(filterProgramMessage))
 	} else if args.Quiet {
 		// Quiet still prints stderr as GNU standard is to suppress "usual" output
-		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr))
+		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr), tea.WithFilter(filterProgramMessage))
 	} else {
-		prog = tea.NewProgram(m)
+		prog = tea.NewProgram(m, tea.WithFilter(filterProgramMessage))
 		usedRenderer = true
 	}
 
@@ -484,8 +496,11 @@ func main() {
 		}
 	}
 
+	programModel := m
 	var runErr error
-	if m, runErr = prog.Run(); runErr != nil {
+	m, runErr = prog.Run()
+	notifyProgramExited(programModel)
+	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "Error running program:", runErr)
 		os.Exit(1)
 	}
