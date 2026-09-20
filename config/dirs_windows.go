@@ -430,7 +430,9 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 			// TODO: Remove this when the driver managers are fixed (>=1.8.1).
 			removeManifestSymlink(info.FilePath, info.ID)
 		}
-		cleanupUninstalledDriverPackages(cfg, info)
+		if err := cleanupUninstalledDriverPackagesAfterRegistrationRemoval(cfg, info); err != nil {
+			return err
+		}
 
 		return nil
 	})

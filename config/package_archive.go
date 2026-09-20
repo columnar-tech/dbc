@@ -272,6 +272,10 @@ func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 }
 
 func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error) (Manifest, error) {
+	return installPackageWithCleanup(cfg, runtimeID, downloaded, expected, options, registerManifest, cleanupOwnedPackageDirectories)
+}
+
+func installPackageWithCleanup(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error, cleanup func(string, string, *DriverInfo, string, DriverInfo) error) (Manifest, error) {
 	if downloaded == nil {
 		return Manifest{}, errors.New("package archive is nil")
 	}
@@ -358,7 +362,10 @@ func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 		return Manifest{}, fmt.Errorf("could not register driver manifest: %w", err)
 	}
 
-	cleanupOwnedPackageDirectories(loc, runtimeID, previous, finalDir, manifest.DriverInfo)
+	// Replacing a registration is already complete. Removing an old generation
+	// is garbage collection, so its failure must not turn a successful install
+	// or update into an error.
+	_ = cleanup(loc, runtimeID, previous, finalDir, manifest.DriverInfo)
 	return manifest, nil
 }
 
@@ -472,9 +479,19 @@ func normalizedRegistrationPath(path string) string {
 }
 
 func managedPackageDirectory(location, runtimeID string, info DriverInfo) (string, bool) {
-	if info.Source != "dbc" || info.ID != runtimeID || info.Version == nil {
+	directories := managedPackageDirectories(location, runtimeID, info)
+	if len(directories) == 0 {
 		return "", false
 	}
+	return directories[0], true
+}
+
+func managedPackageDirectories(location, runtimeID string, info DriverInfo) []string {
+	if info.Source != "dbc" || info.ID != runtimeID || info.Version == nil {
+		return nil
+	}
+	directories := make([]string, 0, 1)
+	seen := make(map[string]struct{})
 	for sharedPath := range info.Driver.Shared.Paths() {
 		if sharedPath == "" {
 			continue
@@ -490,13 +507,12 @@ func managedPackageDirectory(location, runtimeID string, info DriverInfo) (strin
 		if !ok || receipt.InstalledLibrary == "" || receipt.DriverVersion != info.Version.String() {
 			continue
 		}
-		registeredPath := info.Driver.Shared.defaultPath
-		if registeredPath == "" {
-			var found bool
-			registeredPath, found = info.Driver.Shared.platformMap[receipt.Platform]
-			if !found {
-				continue
-			}
+		registeredPath, found := info.Driver.Shared.platformMap[receipt.Platform]
+		if info.Driver.Shared.defaultPath != "" {
+			registeredPath, found = info.Driver.Shared.defaultPath, true
+		}
+		if !found {
+			continue
 		}
 		if !filepath.IsAbs(registeredPath) {
 			registeredPath = filepath.Join(location, registeredPath)
@@ -504,48 +520,73 @@ func managedPackageDirectory(location, runtimeID string, info DriverInfo) (strin
 		if filepath.Clean(registeredPath) != filepath.Clean(sharedPath) || filepath.Base(sharedPath) != receipt.InstalledLibrary {
 			continue
 		}
-		return dir, true
+		dir = filepath.Clean(dir)
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		directories = append(directories, dir)
 	}
-	return "", false
+	return directories
 }
 
 func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, current DriverInfo) {
-	cleanupOwnedPackageDirectories(location, runtimeID, nil, currentDir, current)
+	_ = cleanupOwnedPackageDirectories(location, runtimeID, nil, currentDir, current)
 }
 
-func cleanupOwnedPackageDirectories(location, runtimeID string, previous *DriverInfo, currentDir string, current DriverInfo) {
+func cleanupOwnedPackageDirectories(location, runtimeID string, previous *DriverInfo, currentDir string, current DriverInfo) error {
+	return cleanupOwnedPackageDirectoriesWithRemoveAll(location, runtimeID, previous, currentDir, current, os.RemoveAll)
+}
+
+func cleanupOwnedPackageDirectoriesWithRemoveAll(location, runtimeID string, previous *DriverInfo, currentDir string, current DriverInfo, removeAll func(string) error) error {
 	if validateFlatName(runtimeID) != nil {
-		return
+		return nil
 	}
-	ownedReceiptDirectory := ""
+	var cleanupErr error
+	remove := func(directory string) {
+		if err := removeAll(directory); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("could not remove owned package directory %s: %w", directory, err))
+		}
+	}
+	candidates := make(map[string]struct{})
 	if previous != nil {
-		if directory, ok := managedPackageDirectory(location, runtimeID, *previous); ok && !packageDirectoryIsCurrent(location, currentDir, current, directory) {
-			ownedReceiptDirectory = filepath.Clean(directory)
-			_ = os.RemoveAll(ownedReceiptDirectory)
+		for _, directory := range managedPackageDirectories(location, runtimeID, *previous) {
+			if !packageDirectoryIsCurrent(location, currentDir, current, directory) {
+				directory = filepath.Clean(directory)
+				candidates[directory] = struct{}{}
+			}
 		}
 	}
 	entries, err := os.ReadDir(location)
 	if err != nil {
-		return
+		if !errors.Is(err, fs.ErrNotExist) {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("could not inspect package directory %s: %w", location, err))
+		}
+	} else {
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.Name(), ".dbc-package-"+runtimeID+"-") {
+				continue
+			}
+			dir := filepath.Join(location, entry.Name())
+			absDir, err := filepath.Abs(dir)
+			if err != nil {
+				continue
+			}
+			absDir = filepath.Clean(absDir)
+			if packageDirectoryIsCurrent(location, currentDir, current, absDir) {
+				continue
+			}
+			if _, ok := readManagedPackageReceipt(location, runtimeID, dir); !ok {
+				continue
+			}
+			candidates[absDir] = struct{}{}
+		}
 	}
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), ".dbc-package-"+runtimeID+"-") {
-			continue
-		}
-		dir := filepath.Join(location, entry.Name())
-		absDir, err := filepath.Abs(dir)
-		if err != nil || (ownedReceiptDirectory != "" && filepath.Clean(absDir) == ownedReceiptDirectory) {
-			continue
-		}
-		if packageDirectoryIsCurrent(location, currentDir, current, absDir) {
-			continue
-		}
-		if _, ok := readManagedPackageReceipt(location, runtimeID, dir); !ok {
-			continue
-		}
-		_ = os.RemoveAll(dir)
+	for directory := range candidates {
+		remove(directory)
 	}
-	cleanupLegacyPackageDirectory(location, runtimeID, previous, current)
+	cleanupErr = errors.Join(cleanupErr, cleanupLegacyPackageDirectoryWithRemoveAll(location, runtimeID, previous, current, removeAll))
+	return cleanupErr
 }
 
 func packageDirectoryIsCurrent(location, currentDir string, current DriverInfo, directory string) bool {
@@ -559,23 +600,20 @@ func packageDirectoryIsCurrent(location, currentDir string, current DriverInfo, 
 	return runtimeReferencesPackageDirectory(current, location, directory)
 }
 
-// cleanupLegacyPackageDirectory removes a pre-receipt package generation only
-// when the previous runtime registration and its on-disk layout jointly prove
-// ownership. Ambiguous or externally managed paths are deliberately retained.
-func cleanupLegacyPackageDirectory(location, runtimeID string, previous *DriverInfo, current DriverInfo) {
+func cleanupLegacyPackageDirectoryWithRemoveAll(location, runtimeID string, previous *DriverInfo, current DriverInfo, removeAll func(string) error) error {
 	if previous == nil || previous.Source != "dbc" || previous.ID != runtimeID || previous.Version == nil {
-		return
+		return nil
 	}
 	if validateFlatName(runtimeID) != nil {
-		return
+		return nil
 	}
 	root, err := filepath.Abs(location)
 	if err != nil {
-		return
+		return nil
 	}
 	rootInfo, err := os.Stat(root)
 	if err != nil || !rootInfo.IsDir() {
-		return
+		return nil
 	}
 
 	platformPaths := make(map[string]string)
@@ -588,6 +626,7 @@ func cleanupLegacyPackageDirectory(location, runtimeID string, previous *DriverI
 	}
 
 	removed := make(map[string]struct{})
+	var cleanupErr error
 	for platform, sharedPath := range platformPaths {
 		if sharedPath == "" || validatePlatformIdentifier(platform) != nil {
 			continue
@@ -623,10 +662,13 @@ func cleanupLegacyPackageDirectory(location, runtimeID string, previous *DriverI
 		if !legacySharedFileIsOwned(root, candidateAbs, sharedPath) {
 			continue
 		}
-		if err := os.RemoveAll(candidateAbs); err == nil {
+		if err := removeAll(candidateAbs); err == nil {
 			removed[candidateAbs] = struct{}{}
+		} else {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("could not remove owned legacy package directory %s: %w", candidateAbs, err))
 		}
 	}
+	return cleanupErr
 }
 
 func legacySharedFileIsOwned(location, candidate, sharedPath string) bool {

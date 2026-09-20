@@ -129,7 +129,9 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 				return fmt.Errorf("failed to delete driver shared object: %w", err)
 			}
 		}
-		cleanupUninstalledDriverPackages(cfg, info)
+		if err := cleanupUninstalledDriverPackagesAfterRegistrationRemoval(cfg, info); err != nil {
+			return err
+		}
 
 		return nil
 	})

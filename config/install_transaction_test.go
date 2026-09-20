@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -380,6 +381,39 @@ func TestInstallPackageCleansOldGenerationOnlyAfterRegistration(t *testing.T) {
 	}
 	if got, err := os.ReadFile(second.Driver.Shared.Get(PlatformTuple())); err != nil || string(got) != "new library" {
 		t.Fatalf("new package generation unavailable: %q, %v", got, err)
+	}
+}
+
+func TestInstallPackageIgnoresOldGenerationCleanupFailure(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	firstArchive := makeInstallArchive(t, "example", "1.0.0", "old-library.so", []byte("old library"))
+	firstFile := writeInstallArchive(t, firstArchive, "initial")
+	first, err := InstallPackage(cfg, "example", firstFile, installExpected("example", "source-one", firstArchive), InstallOptions{})
+	_ = firstFile.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldDir := filepath.Dir(first.Driver.Shared.Get(PlatformTuple()))
+	secondArchive := makeInstallArchive(t, "example", "1.0.0", "new-library.so", []byte("new library"))
+	secondFile := writeInstallArchive(t, secondArchive, "replacement")
+	cleanupErr := errors.New("package removal failed")
+	installed, err := installPackageWithCleanup(cfg, "example", secondFile, installExpected("example", "source-two", secondArchive), InstallOptions{}, CreateManifest, func(string, string, *DriverInfo, string, DriverInfo) error {
+		return cleanupErr
+	})
+	_ = secondFile.Close()
+	if err != nil {
+		t.Fatalf("install returned stale-generation cleanup error: %v", err)
+	}
+	if _, err := os.Stat(oldDir); err != nil {
+		t.Fatalf("old generation missing after best-effort cleanup failure: %v", err)
+	}
+	current, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Driver.Shared.Get(PlatformTuple()) != installed.Driver.Shared.Get(PlatformTuple()) {
+		t.Fatalf("runtime registration path = %q, want installed path %q", current.Driver.Shared.Get(PlatformTuple()), installed.Driver.Shared.Get(PlatformTuple()))
 	}
 }
 
@@ -758,6 +792,76 @@ func TestUninstallDriverRemovesOnlyProvenLegacyPackageGeneration(t *testing.T) {
 	}
 	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("proven legacy generation remains after uninstall: %v", err)
+	}
+}
+
+func TestUninstallPackageCleanupReturnsProvenRemovalFailures(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(t *testing.T, root string) (Config, DriverInfo, string)
+	}{
+		{name: "managed generation", setup: func(t *testing.T, root string) (Config, DriverInfo, string) {
+			cfg := Config{Level: ConfigEnv, Location: root}
+			archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("managed library"))
+			file := writeInstallArchive(t, archive, "managed")
+			if _, err := InstallPackage(cfg, "example", file, installExpected("example", "source", archive), InstallOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			_ = file.Close()
+			info, err := GetDriver(cfg, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return cfg, info, filepath.Dir(info.Driver.Shared.Get(PlatformTuple()))
+		}},
+		{name: "receipt-backed archive basename", setup: func(t *testing.T, root string) (Config, DriverInfo, string) {
+			cfg := Config{Level: ConfigEnv, Location: root}
+			_, directory := installArchiveBasenamePackage(t, root)
+			info, err := GetDriver(cfg, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return cfg, info, directory
+		}},
+		{name: "legacy standard layout", setup: func(t *testing.T, root string) (Config, DriverInfo, string) {
+			cfg := Config{Level: ConfigEnv, Location: root}
+			directory := createLegacyInstall(t, root, "example", "1.0.0", "")
+			info, err := GetDriver(cfg, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return cfg, info, directory
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg, info, directory := test.setup(t, root)
+			manifest := filepath.Join(info.FilePath, info.ID+".toml")
+			if err := os.Remove(manifest); err != nil {
+				t.Fatalf("could not simulate completed registration removal: %v", err)
+			}
+			removeErr := errors.New("simulated package removal failure")
+			var removed []string
+			err := cleanupUninstalledDriverPackagesAfterRegistrationRemovalWithRemoveAll(cfg, info, func(path string) error {
+				removed = append(removed, filepath.Clean(path))
+				return removeErr
+			})
+			if !errors.Is(err, removeErr) {
+				t.Fatalf("cleanup error = %v, want wrapped removal error", err)
+			}
+			if !slices.Contains(removed, filepath.Clean(directory)) {
+				t.Fatalf("cleanup did not attempt removal of proven directory %q: %v", directory, removed)
+			}
+			if !strings.Contains(err.Error(), "driver registration was removed") {
+				t.Fatalf("cleanup error = %v, want explicit registration-removed state", err)
+			}
+			if _, err := os.Stat(directory); err != nil {
+				t.Fatalf("injected failure unexpectedly removed package directory: %v", err)
+			}
+			if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("runtime registration unexpectedly remains after cleanup failure: %v", err)
+			}
+		})
 	}
 }
 

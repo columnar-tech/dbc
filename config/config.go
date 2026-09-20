@@ -334,8 +334,7 @@ func UninstallDriverShared(info DriverInfo) error {
 		filesystemLocation = ConfigSystem.ConfigLocation()
 	}
 	if info.Source == "dbc" {
-		cleanupOwnedPackageDirectories(filesystemLocation, info.ID, &info, "", DriverInfo{})
-		return nil
+		return cleanupOwnedPackageDirectories(filesystemLocation, info.ID, &info, "", DriverInfo{})
 	}
 
 	root, err := os.OpenRoot(filesystemLocation)
@@ -376,10 +375,29 @@ func UninstallDriverShared(info DriverInfo) error {
 	return nil
 }
 
-func cleanupUninstalledDriverPackages(cfg Config, info DriverInfo) {
+func cleanupUninstalledDriverPackagesWithRemoveAll(cfg Config, info DriverInfo, removeAll func(string) error) error {
 	location, err := uninstallPackageCleanupLocation(cfg, info)
 	if err != nil {
-		return
+		return fmt.Errorf("could not resolve package cleanup location: %w", err)
 	}
-	cleanupOwnedPackageDirectories(location, info.ID, &info, "", DriverInfo{})
+	return cleanupOwnedPackageDirectoriesWithRemoveAll(location, info.ID, &info, "", DriverInfo{}, removeAll)
+}
+
+func cleanupUninstalledDriverPackages(cfg Config, info DriverInfo) error {
+	return cleanupUninstalledDriverPackagesWithRemoveAll(cfg, info, os.RemoveAll)
+}
+
+func cleanupUninstalledDriverPackagesAfterRegistrationRemoval(cfg Config, info DriverInfo) error {
+	return packageCleanupAfterUninstallError(cleanupUninstalledDriverPackages(cfg, info))
+}
+
+func cleanupUninstalledDriverPackagesAfterRegistrationRemovalWithRemoveAll(cfg Config, info DriverInfo, removeAll func(string) error) error {
+	return packageCleanupAfterUninstallError(cleanupUninstalledDriverPackagesWithRemoveAll(cfg, info, removeAll))
+}
+
+func packageCleanupAfterUninstallError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("driver registration was removed but owned package cleanup was incomplete: %w", err)
 }
