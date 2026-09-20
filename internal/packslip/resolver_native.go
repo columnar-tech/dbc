@@ -333,6 +333,14 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 	if err := validateSupportedArtifactSet(verified.statement); err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
+	// TODO(packslip): Before exposing Packslip as a public dbc source, require a
+	// signed dbc consumer declaration in Packslip predicate/artifact extensions.
+	// The prototype currently treats supported tar.gz/tgz artifacts as dbc
+	// package candidates. The declaration should identify the dbc ADBC driver
+	// and package contract, runtime identity, installable artifacts, and package
+	// format; release/artifact field ownership remains undecided. After download,
+	// verify it against dbc-package.toml and fail on mismatches. Keep the schema
+	// unspecified until that contract is designed.
 	targets, err := deriveConcreteTargets(verified.statement)
 	if err != nil {
 		return resolution.ResolvedRelease{}, err
