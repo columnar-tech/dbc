@@ -311,10 +311,12 @@ func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 	if entry.Version == nil {
 		return false
 	}
-	if entry.Version.Prerelease() != "" && spec.Prerelease != "allow" {
-		return false
+	if spec.Version != nil {
+		// An explicit constraint can name a prerelease directly. Let semver's
+		// constraint evaluation decide whether that locked version is allowed.
+		return spec.Version.Check(entry.Version)
 	}
-	return spec.Version == nil || spec.Version.Check(entry.Version)
+	return entry.Version.Prerelease() == "" || spec.Prerelease == "allow"
 }
 
 func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {

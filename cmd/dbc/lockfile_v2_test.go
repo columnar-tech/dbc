@@ -474,6 +474,36 @@ func TestV2RegistryReplayFallsBackToDiscoveryOnlyWhenTargetArtifactIsMissing(t *
 	assert.Equal(t, 1, discoveryCalls)
 }
 
+func TestV2RegistryReplayAllowsExplicitPrereleaseConstraintOffline(t *testing.T) {
+	projectPath := filepath.Join(t.TempDir(), "dbc.toml")
+	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+	entry.Version = semver.MustParse("1.2.3-beta.1")
+	lockPath := filepath.Join(filepath.Dir(projectPath), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: 2, Drivers: []lockInfo{entry}}))
+	require.NoError(t, os.WriteFile(projectPath, []byte("[drivers]\n[drivers.example]\n"), 0o600))
+	constraint, err := semver.NewConstraint("=1.2.3-beta.1")
+	require.NoError(t, err)
+
+	discoveryCalls := 0
+	model := syncModel{
+		baseModel: baseModel{getDriverRegistry: func() ([]dbc.Driver, error) {
+			discoveryCalls++
+			return nil, errors.New("registry unavailable")
+		}},
+		Path: projectPath,
+	}
+	_, cmd := model.Update(driversListMsg{path: projectPath, list: DriversList{
+		Drivers: map[string]driverSpec{"example": {Version: constraint}},
+	}})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	items, ok := msg.([]installItem)
+	require.True(t, ok, "expected explicit prerelease constraint to replay lock, got %T", msg)
+	require.Len(t, items, 1)
+	assert.Equal(t, "1.2.3-beta.1", items[0].Package.Version.String())
+	assert.Zero(t, discoveryCalls, "an explicit matching prerelease constraint must not trigger registry discovery")
+}
+
 func TestLockReplayRejectsMuslForGenericLinuxTargetAndAmbiguousArtifacts(t *testing.T) {
 	entry := testLockEntry()
 	entry.Artifacts = []lockArtifact{{
