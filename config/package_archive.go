@@ -33,7 +33,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-const installReceiptName = "dbc-install-receipt.json"
+const (
+	installReceiptName        = "dbc-install-receipt.json"
+	legacyPackageManifestName = "MANIFEST"
+	packageV2MetadataName     = "dbc-package.toml"
+	maxPackageMetadataSize    = 1 << 20
+)
 
 // ExpectedPackageMetadata describes the resolution that selected an archive.
 // Hashes use the canonical form "sha256:<lowercase hex>". ArchiveSize is the
@@ -121,69 +126,92 @@ type legacyPackageManifestWire struct {
 	} `toml:"PostInstall,omitempty"`
 }
 
-func decodePackageManifest(data []byte) (packageManifest, error) {
+func decodePackageManifest(name string, data []byte) (packageManifest, error) {
+	switch name {
+	case packageV2MetadataName:
+		return decodePackageV2Metadata(data)
+	case legacyPackageManifestName:
+		return decodeLegacyPackageManifest(data)
+	default:
+		return packageManifest{}, fmt.Errorf("unsupported package metadata filename %q", name)
+	}
+}
+
+func decodePackageV2Metadata(data []byte) (packageManifest, error) {
 	var root map[string]any
 	if err := toml.Unmarshal(data, &root); err != nil {
-		return packageManifest{}, fmt.Errorf("%w: error decoding package manifest: %v", ErrInvalidManifest, err)
+		return packageManifest{}, fmt.Errorf("%w: error decoding package v2 metadata: %v", ErrInvalidManifest, err)
 	}
 
-	if rawVersion, hasDiscriminator := root["package_version"]; hasDiscriminator {
-		version, ok := rawVersion.(int64)
-		if !ok {
-			return packageManifest{}, fmt.Errorf("%w: package_version must be an integer", ErrInvalidManifest)
-		}
-		if version != 2 {
-			return packageManifest{}, fmt.Errorf("%w: package version %d is unsupported", ErrInvalidManifest, version)
-		}
+	rawVersion, hasDiscriminator := root["package_version"]
+	if !hasDiscriminator {
+		return packageManifest{}, fmt.Errorf("%w: package_version = 2 is required in %s", ErrInvalidManifest, packageV2MetadataName)
+	}
+	version, ok := rawVersion.(int64)
+	if !ok {
+		return packageManifest{}, fmt.Errorf("%w: package_version must be an integer", ErrInvalidManifest)
+	}
+	if version != 2 {
+		return packageManifest{}, fmt.Errorf("%w: package version %d is unsupported", ErrInvalidManifest, version)
+	}
 
-		var wire packageManifestV2Wire
-		if err := toml.Unmarshal(data, &wire); err != nil {
-			return packageManifest{}, fmt.Errorf("%w: error decoding package v2 manifest: %v", ErrInvalidManifest, err)
-		}
-		if wire.PackageVersion != 2 {
-			return packageManifest{}, fmt.Errorf("%w: package_version must be 2", ErrInvalidManifest)
-		}
-		if wire.ManifestVersion != nil {
-			return packageManifest{}, fmt.Errorf("%w: package v2 must not set runtime manifest_version", ErrInvalidManifest)
-		}
-		if err := validateFlatName(wire.ID); err != nil {
-			return packageManifest{}, fmt.Errorf("%w: invalid package id: %v", ErrInvalidManifest, err)
-		}
-		if strings.TrimSpace(wire.Name) == "" {
-			return packageManifest{}, fmt.Errorf("%w: name is required", ErrInvalidManifest)
-		}
-		if wire.Version == nil {
-			return packageManifest{}, fmt.Errorf("%w: version is required", ErrInvalidManifest)
-		}
-		if err := validatePlatformIdentifier(wire.Platform); err != nil {
-			return packageManifest{}, fmt.Errorf("%w: invalid platform: %v", ErrInvalidManifest, err)
-		}
-		if strings.TrimSpace(wire.Driver.Entrypoint) == "" {
-			return packageManifest{}, fmt.Errorf("%w: Driver.entrypoint is required", ErrInvalidManifest)
-		}
-		if err := validateFlatName(wire.Files.Driver); err != nil {
-			return packageManifest{}, fmt.Errorf("%w: invalid Files.driver: %v", ErrInvalidManifest, err)
-		}
+	var wire packageManifestV2Wire
+	if err := toml.Unmarshal(data, &wire); err != nil {
+		return packageManifest{}, fmt.Errorf("%w: error decoding package v2 metadata: %v", ErrInvalidManifest, err)
+	}
+	if wire.PackageVersion != 2 {
+		return packageManifest{}, fmt.Errorf("%w: package_version must be 2", ErrInvalidManifest)
+	}
+	if wire.ManifestVersion != nil {
+		return packageManifest{}, fmt.Errorf("%w: package v2 must not set runtime manifest_version", ErrInvalidManifest)
+	}
+	if err := validateFlatName(wire.ID); err != nil {
+		return packageManifest{}, fmt.Errorf("%w: invalid package id: %v", ErrInvalidManifest, err)
+	}
+	if strings.TrimSpace(wire.Name) == "" {
+		return packageManifest{}, fmt.Errorf("%w: name is required", ErrInvalidManifest)
+	}
+	if wire.Version == nil {
+		return packageManifest{}, fmt.Errorf("%w: version is required", ErrInvalidManifest)
+	}
+	if err := validatePlatformIdentifier(wire.Platform); err != nil {
+		return packageManifest{}, fmt.Errorf("%w: invalid platform: %v", ErrInvalidManifest, err)
+	}
+	if strings.TrimSpace(wire.Driver.Entrypoint) == "" {
+		return packageManifest{}, fmt.Errorf("%w: Driver.entrypoint is required", ErrInvalidManifest)
+	}
+	if err := validateFlatName(wire.Files.Driver); err != nil {
+		return packageManifest{}, fmt.Errorf("%w: invalid Files.driver: %v", ErrInvalidManifest, err)
+	}
 
-		return packageManifest{
-			manifest: Manifest{
-				PackageVersion: 2,
-				DriverInfo: DriverInfo{
-					ID:      wire.ID,
-					Name:    wire.Name,
-					Version: wire.Version,
-					Driver: struct {
-						Entrypoint string
-						Shared     driverMap
-					}{Entrypoint: wire.Driver.Entrypoint},
-				},
-				Files: struct {
-					Driver    string `toml:"driver,omitempty"`
-					Signature string `toml:"signature,omitempty"`
-				}{Driver: wire.Files.Driver},
+	return packageManifest{
+		manifest: Manifest{
+			PackageVersion: 2,
+			DriverInfo: DriverInfo{
+				ID:      wire.ID,
+				Name:    wire.Name,
+				Version: wire.Version,
+				Driver: struct {
+					Entrypoint string
+					Shared     driverMap
+				}{Entrypoint: wire.Driver.Entrypoint},
 			},
-			id: wire.ID, platform: wire.Platform, v2: true,
-		}, nil
+			Files: struct {
+				Driver    string `toml:"driver,omitempty"`
+				Signature string `toml:"signature,omitempty"`
+			}{Driver: wire.Files.Driver},
+		},
+		id: wire.ID, platform: wire.Platform, v2: true,
+	}, nil
+}
+
+func decodeLegacyPackageManifest(data []byte) (packageManifest, error) {
+	var root map[string]any
+	if err := toml.Unmarshal(data, &root); err != nil {
+		return packageManifest{}, fmt.Errorf("%w: error decoding legacy package manifest: %v", ErrInvalidManifest, err)
+	}
+	if _, hasPackageVersion := root["package_version"]; hasPackageVersion {
+		return packageManifest{}, fmt.Errorf("%w: package_version is not allowed in legacy %s; use %s for package v2 metadata", ErrInvalidManifest, legacyPackageManifestName, packageV2MetadataName)
 	}
 
 	var wire legacyPackageManifestWire
@@ -226,6 +254,34 @@ func decodePackageManifest(data []byte) (packageManifest, error) {
 			PostInstall: wire.PostInstall,
 		},
 	}, nil
+}
+
+func classifyPackageMetadataName(name string) (string, bool, error) {
+	for _, expected := range []string{legacyPackageManifestName, packageV2MetadataName} {
+		if !strings.EqualFold(name, expected) {
+			continue
+		}
+		if name != expected {
+			return "", false, fmt.Errorf("package metadata file must be named exactly %q", expected)
+		}
+		return expected, true, nil
+	}
+	return "", false, nil
+}
+
+func selectPackageMetadata(metadata map[string][]byte) (string, []byte, error) {
+	legacy, hasLegacy := metadata[legacyPackageManifestName]
+	v2, hasV2 := metadata[packageV2MetadataName]
+	if hasLegacy && hasV2 {
+		return "", nil, fmt.Errorf("package archive must contain either %s or %s, not both", legacyPackageManifestName, packageV2MetadataName)
+	}
+	if hasLegacy {
+		return legacyPackageManifestName, legacy, nil
+	}
+	if hasV2 {
+		return packageV2MetadataName, v2, nil
+	}
+	return "", nil, fmt.Errorf("package archive must contain exactly one of %s or %s", legacyPackageManifestName, packageV2MetadataName)
 }
 
 func decodeDriverShared(value any, required bool) (driverMap, error) {
@@ -806,10 +862,10 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	return nil
 }
 
-// InspectPackageManifest decodes the archive's MANIFEST without installing
-// files. It is intended to classify legacy and versioned package wire formats
-// before choosing an install policy; the installer still validates the full
-// archive before publication. The archive remains open for the caller.
+// InspectPackageManifest decodes the archive's package metadata without
+// installing files. It is intended to classify legacy and versioned package
+// formats before choosing an install policy; the installer still validates
+// the full archive before publication. The archive remains open for the caller.
 func InspectPackageManifest(downloaded *os.File) (Manifest, error) {
 	if downloaded == nil {
 		return Manifest{}, errors.New("package archive is nil")
@@ -835,10 +891,11 @@ func InspectPackageManifest(downloaded *os.File) (Manifest, error) {
 	defer gz.Close()
 	reader := tar.NewReader(gz)
 	seen := make(map[string]string)
+	metadata := make(map[string][]byte)
 	for {
 		header, err := reader.Next()
 		if errors.Is(err, io.EOF) {
-			return Manifest{}, errors.New("package archive has no MANIFEST")
+			break
 		}
 		if err != nil {
 			return Manifest{}, fmt.Errorf("error reading package archive: %w", err)
@@ -857,31 +914,37 @@ func InspectPackageManifest(downloaded *os.File) (Manifest, error) {
 			return Manifest{}, fmt.Errorf("archive entries %q and %q collide by name", previous, header.Name)
 		}
 		seen[folded] = header.Name
-		if strings.EqualFold(header.Name, "MANIFEST") && header.Name != "MANIFEST" {
-			return Manifest{}, errors.New("package manifest must be named exactly MANIFEST")
+		metadataName, isMetadata, err := classifyPackageMetadataName(header.Name)
+		if err != nil {
+			return Manifest{}, err
 		}
-		if header.Name != "MANIFEST" {
+		if !isMetadata {
 			if _, err := io.Copy(io.Discard, reader); err != nil {
 				return Manifest{}, fmt.Errorf("could not skip package file %q: %w", header.Name, err)
 			}
 			continue
 		}
-		if header.Size < 0 || header.Size > 1<<20 {
-			return Manifest{}, errors.New("package manifest size is invalid or exceeds 1 MiB")
+		if header.Size < 0 || header.Size > maxPackageMetadataSize {
+			return Manifest{}, errors.New("package metadata size is invalid or exceeds 1 MiB")
 		}
-		data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+		data, err := io.ReadAll(io.LimitReader(reader, maxPackageMetadataSize+1))
 		if err != nil {
-			return Manifest{}, fmt.Errorf("could not read package manifest: %w", err)
+			return Manifest{}, fmt.Errorf("could not read package metadata: %w", err)
 		}
 		if int64(len(data)) != header.Size {
-			return Manifest{}, errors.New("package manifest size does not match its tar header")
+			return Manifest{}, errors.New("package metadata size does not match its tar header")
 		}
-		manifest, err := decodePackageManifest(data)
-		if err != nil {
-			return Manifest{}, err
-		}
-		return manifest.manifest, nil
+		metadata[metadataName] = data
 	}
+	metadataName, data, err := selectPackageMetadata(metadata)
+	if err != nil {
+		return Manifest{}, err
+	}
+	manifest, err := decodePackageManifest(metadataName, data)
+	if err != nil {
+		return Manifest{}, err
+	}
+	return manifest.manifest, nil
 }
 
 func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata) (Manifest, error) {
@@ -1065,8 +1128,7 @@ func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageMan
 	defer gz.Close()
 	reader := tar.NewReader(gz)
 	seen := make(map[string]string)
-	manifestCount := 0
-	var parsed packageManifest
+	metadata := make(map[string][]byte)
 	files := make(map[string]string)
 	for {
 		header, err := reader.Next()
@@ -1098,25 +1160,22 @@ func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageMan
 			return empty, packageManifest{}, nil, fmt.Errorf("archive entries %q and %q collide by name", previous, header.Name)
 		}
 		seen[folded] = header.Name
-		if strings.EqualFold(header.Name, "MANIFEST") && header.Name != "MANIFEST" {
-			return empty, packageManifest{}, nil, fmt.Errorf("package manifest must be named exactly MANIFEST")
+		metadataName, isMetadata, err := classifyPackageMetadataName(header.Name)
+		if err != nil {
+			return empty, packageManifest{}, nil, err
 		}
-		if header.Name == "MANIFEST" {
-			manifestCount++
-			if header.Size > 1<<20 {
-				return empty, packageManifest{}, nil, errors.New("package manifest exceeds 1 MiB")
+		if isMetadata {
+			if header.Size > maxPackageMetadataSize {
+				return empty, packageManifest{}, nil, errors.New("package metadata exceeds 1 MiB")
 			}
-			data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+			data, err := io.ReadAll(io.LimitReader(reader, maxPackageMetadataSize+1))
 			if err != nil {
-				return empty, packageManifest{}, nil, fmt.Errorf("could not read package manifest: %w", err)
+				return empty, packageManifest{}, nil, fmt.Errorf("could not read package metadata: %w", err)
 			}
 			if int64(len(data)) != header.Size {
-				return empty, packageManifest{}, nil, errors.New("package manifest size does not match its tar header")
+				return empty, packageManifest{}, nil, errors.New("package metadata size does not match its tar header")
 			}
-			parsed, err = decodePackageManifest(data)
-			if err != nil {
-				return empty, packageManifest{}, nil, err
-			}
+			metadata[metadataName] = data
 			continue
 		}
 		filePath := filepath.Join(payloadDir, header.Name)
@@ -1144,8 +1203,13 @@ func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageMan
 		}
 		files[folded] = header.Name
 	}
-	if manifestCount != 1 {
-		return empty, packageManifest{}, nil, fmt.Errorf("package archive must contain exactly one MANIFEST; found %d", manifestCount)
+	metadataName, data, err := selectPackageMetadata(metadata)
+	if err != nil {
+		return empty, packageManifest{}, nil, err
+	}
+	parsed, err := decodePackageManifest(metadataName, data)
+	if err != nil {
+		return empty, packageManifest{}, nil, err
 	}
 	if _, err := io.Copy(io.Discard, gz); err != nil {
 		return empty, packageManifest{}, nil, fmt.Errorf("could not verify gzip stream: %w", err)

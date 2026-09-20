@@ -121,8 +121,9 @@ func (d driverMap) String() string {
 	return sb.String()
 }
 
-// runtimeManifestWire is the ADBC Driver Manager manifest format. Package
-// MANIFEST files use packageManifestV2Wire/legacyPackageManifestWire instead.
+// runtimeManifestWire is the installed ADBC Driver Manifest format. A legacy
+// package's MANIFEST uses legacyPackageManifestWire, while dbc-package.toml
+// uses packageManifestV2Wire.
 type runtimeManifestWire struct {
 	PackageVersion  *int64          `toml:"package_version,omitempty"`
 	ManifestVersion int32           `toml:"manifest_version"`

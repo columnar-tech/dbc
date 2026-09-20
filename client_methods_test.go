@@ -57,7 +57,7 @@ driver = "driver.so"
 	for _, entry := range []struct {
 		name string
 		data []byte
-	}{{"MANIFEST", []byte(manifest)}, {"driver.so", []byte("v2 library")}} {
+	}{{"dbc-package.toml", []byte(manifest)}, {"driver.so", []byte("v2 library")}} {
 		require.NoError(t, tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}))
 		_, err := tw.Write(entry.data)
 		require.NoError(t, err)

@@ -56,7 +56,7 @@ entrypoint = "AdbcDriverExampleInit"
 driver = %q
 `, id, version, PlatformTuple(), library))
 	return makeInstallArchiveWithEntries(t,
-		installArchiveEntry{name: "MANIFEST", data: manifest},
+		installArchiveEntry{name: "dbc-package.toml", data: manifest},
 		installArchiveEntry{name: library, data: libraryData},
 	)
 }

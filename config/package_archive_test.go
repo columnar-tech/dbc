@@ -110,7 +110,7 @@ func validV2Archive(t *testing.T, contents []byte) []byte {
 	t.Helper()
 	manifest := packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "libexample.so")
 	return makePackageArchive(t,
-		archiveEntry{name: "MANIFEST", data: manifest},
+		archiveEntry{name: "dbc-package.toml", data: manifest},
 		archiveEntry{name: "libexample.so", data: contents},
 		archiveEntry{name: "LICENSE", data: []byte("license")},
 	)
@@ -130,7 +130,7 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 
 	t.Run("package v2 is decoded separately from runtime v1", func(t *testing.T) {
 		data := makePackageArchive(t,
-			archiveEntry{name: "MANIFEST", data: packageV2Manifest("example", "1.2.3", "linux_amd64", "libexample.so")},
+			archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", "1.2.3", "linux_amd64", "libexample.so")},
 			archiveEntry{name: "libexample.so", data: []byte("library")},
 		)
 		f := openPackageArchive(t, data)
@@ -160,7 +160,7 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 	t.Run("unknown discriminator does not fall back to legacy", func(t *testing.T) {
 		manifest := []byte("package_version = 3\nname = 'Legacy-looking name'\nversion = '1.0.0'\n\n[Files]\ndriver = 'driver.so'\n")
 		data := makePackageArchive(t,
-			archiveEntry{name: "MANIFEST", data: manifest},
+			archiveEntry{name: "dbc-package.toml", data: manifest},
 			archiveEntry{name: "driver.so", data: []byte("library")},
 		)
 		f := openPackageArchive(t, data)
@@ -172,7 +172,7 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 	t.Run("malformed discriminator does not fall back to legacy", func(t *testing.T) {
 		manifest := []byte("package_version = '2'\nname = 'Legacy-looking name'\nversion = '1.0.0'\n\n[Files]\ndriver = 'driver.so'\n")
 		data := makePackageArchive(t,
-			archiveEntry{name: "MANIFEST", data: manifest},
+			archiveEntry{name: "dbc-package.toml", data: manifest},
 			archiveEntry{name: "driver.so", data: []byte("library")},
 		)
 		f := openPackageArchive(t, data)
@@ -232,6 +232,136 @@ entrypoint = "AdbcDriverLegacyTableInit"
 		require.NoError(t, err)
 		assert.Equal(t, libraryPath, loaded.Driver.Shared.Get(platform))
 	})
+}
+
+func TestPackageArchiveMetadataFilenames(t *testing.T) {
+	legacy := []byte("name = 'Legacy Driver'\nversion = '1.0.0'\n")
+	v2 := packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "driver.so")
+	v2WithRuntimeVersion := bytes.Replace(v2, []byte("id = "), []byte("manifest_version = 1\nid = "), 1)
+	tests := []struct {
+		name        string
+		entries     []archiveEntry
+		wantMessage string
+	}{
+		{
+			name:        "missing metadata",
+			entries:     []archiveEntry{{name: "driver.so", data: []byte("library")}},
+			wantMessage: "must contain exactly one of MANIFEST or dbc-package.toml",
+		},
+		{
+			name: "both formats",
+			entries: []archiveEntry{
+				{name: "MANIFEST", data: legacy},
+				{name: "dbc-package.toml", data: v2},
+				{name: "driver.so", data: []byte("library")},
+			},
+			wantMessage: "not both",
+		},
+		{
+			name:        "legacy filename requires legacy format",
+			entries:     []archiveEntry{{name: "MANIFEST", data: v2}, {name: "driver.so", data: []byte("library")}},
+			wantMessage: "package_version is not allowed in legacy MANIFEST",
+		},
+		{
+			name:        "v2 filename requires package version",
+			entries:     []archiveEntry{{name: "dbc-package.toml", data: []byte("name = 'Legacy-looking name'\nversion = '1.0.0'\n")}, {name: "driver.so", data: []byte("library")}},
+			wantMessage: "package_version = 2 is required",
+		},
+		{
+			name:        "v2 metadata rejects runtime manifest version",
+			entries:     []archiveEntry{{name: "dbc-package.toml", data: v2WithRuntimeVersion}, {name: "driver.so", data: []byte("library")}},
+			wantMessage: "must not set runtime manifest_version",
+		},
+		{
+			name:        "legacy filename case mismatch",
+			entries:     []archiveEntry{{name: "manifest", data: legacy}},
+			wantMessage: `must be named exactly "MANIFEST"`,
+		},
+		{
+			name:        "v2 filename case mismatch",
+			entries:     []archiveEntry{{name: "dbc-Package.toml", data: v2}},
+			wantMessage: `must be named exactly "dbc-package.toml"`,
+		},
+		{
+			name: "legacy case collision",
+			entries: []archiveEntry{
+				{name: "MANIFEST", data: legacy},
+				{name: "manifest", data: legacy},
+			},
+			wantMessage: "collide by name",
+		},
+		{
+			name: "v2 case collision",
+			entries: []archiveEntry{
+				{name: "dbc-package.toml", data: v2},
+				{name: "DBC-PACKAGE.TOML", data: v2},
+			},
+			wantMessage: "collide by name",
+		},
+		{
+			name: "duplicate v2 metadata",
+			entries: []archiveEntry{
+				{name: "dbc-package.toml", data: v2},
+				{name: "dbc-package.toml", data: v2},
+			},
+			wantMessage: "collide by name",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			archive := makePackageArchive(t, tt.entries...)
+			for name, inspect := range map[string]func(*os.File) error{
+				"inspect": func(file *os.File) error {
+					_, err := config.InspectPackageManifest(file)
+					return err
+				},
+				"extract": func(file *os.File) error {
+					_, err := config.InflateTarball(file, t.TempDir())
+					return err
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					err := inspect(openPackageArchive(t, archive))
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), tt.wantMessage)
+				})
+			}
+		})
+	}
+}
+
+func TestInspectPackageManifestScansPastMetadata(t *testing.T) {
+	archive := makePackageArchive(t,
+		archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "driver.so")},
+		archiveEntry{name: "driver.so", data: []byte("library")},
+		archiveEntry{name: "nested/file", data: []byte("unsafe")},
+	)
+	_, err := config.InspectPackageManifest(openPackageArchive(t, archive))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "path separators")
+}
+
+func TestPackageMetadataSizeLimitAppliesToBothFormats(t *testing.T) {
+	oversized := bytes.Repeat([]byte("x"), (1<<20)+1)
+	for _, name := range []string{"MANIFEST", "dbc-package.toml"} {
+		t.Run(name, func(t *testing.T) {
+			archive := makePackageArchive(t, archiveEntry{name: name, data: oversized})
+			for _, inspect := range []func(*os.File) error{
+				func(file *os.File) error {
+					_, err := config.InspectPackageManifest(file)
+					return err
+				},
+				func(file *os.File) error {
+					_, err := config.InflateTarball(file, t.TempDir())
+					return err
+				},
+			} {
+				err := inspect(openPackageArchive(t, archive))
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "exceeds 1 MiB")
+			}
+		})
+	}
 }
 
 func TestInstallDriverRejectsNilArchive(t *testing.T) {

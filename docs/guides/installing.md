@@ -269,6 +269,28 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
 dbc can install drivers from local archives as an alternative for users who can't or don't want to install from a [Driver Registry](../concepts/driver_registry.md). This is meant for advanced use cases and requires understanding the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) spec and loading process.
 
+### Package archive metadata
+
+The dbc 0.4.0 package format uses a root-level file named exactly `dbc-package.toml` with `package_version = 2` to describe its contents. The dbc 0.3.x format uses a root-level file named exactly `MANIFEST` and remains accepted for compatibility. These package metadata files are separate from Packslip release metadata and the installed `<driver>.toml` ADBC Driver Manifest (`manifest_version = 1`).
+
+For example, `dbc-package.toml` can contain:
+
+```toml
+package_version = 2
+id = "example"
+name = "Example ADBC Driver"
+version = "1.0.0"
+platform = "linux_amd64"
+
+[Driver]
+entrypoint = "AdbcDriverExampleInit"
+
+[Files]
+driver = "libadbc_driver_example.so"
+```
+
+The archive must be flat: place `dbc-package.toml` and the library file at its root. `id` is the installed runtime ID, `name` is the display name, `version` is a SemVer version, `platform` is the target tuple, `Driver.entrypoint` is the exported initialization symbol, and `Files.driver` names the library file in the archive root.
+
 To install from a local archive, pass the path to a local archive instead of a name and set the `--no-verify` flag to skip signature verification:
 
 ```console

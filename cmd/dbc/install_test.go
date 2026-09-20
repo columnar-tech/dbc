@@ -529,7 +529,7 @@ driver = "driver.so"
 	for _, entry := range []struct {
 		name string
 		data []byte
-	}{{"MANIFEST", []byte(manifest)}, {"driver.so", []byte("driver library")}} {
+	}{{"dbc-package.toml", []byte(manifest)}, {"driver.so", []byte("driver library")}} {
 		if err := tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}); err != nil {
 			t.Fatal(err)
 		}
@@ -700,7 +700,7 @@ func TestStartInstallingRegistryV2WithoutArchiveMetadataIsRejected(t *testing.T)
 	}
 }
 
-func TestStartInstallingLocalV2UsesManifestID(t *testing.T) {
+func TestStartInstallingLocalV2UsesPackageMetadataID(t *testing.T) {
 	archive := packageV2ArchiveForInstall(t, "declared-driver", "1.2.3", config.PlatformTuple())
 	root := t.TempDir()
 	packagePath := filepath.Join(root, "filename-driver.tar.gz")
@@ -724,10 +724,10 @@ func TestStartInstallingLocalV2UsesManifestID(t *testing.T) {
 		t.Fatalf("startInstalling returned %T, want config.Manifest", message)
 	}
 	if manifest.ID != "declared-driver" {
-		t.Fatalf("installed runtime ID = %q, want MANIFEST ID", manifest.ID)
+		t.Fatalf("installed runtime ID = %q, want package metadata ID", manifest.ID)
 	}
 	if _, err := os.Stat(filepath.Join(root, "declared-driver.toml")); err != nil {
-		t.Fatalf("runtime manifest for MANIFEST ID was not registered: %v", err)
+		t.Fatalf("runtime manifest for package metadata ID was not registered: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "filename-driver.toml")); !os.IsNotExist(err) {
 		t.Fatalf("filename-derived runtime manifest was unexpectedly registered: %v", err)
