@@ -54,19 +54,20 @@ func resolveRegistryPackageURL(d Driver, version *semver.Version, pkg registryPa
 // It resolves omitted URLs for every declared platform before returning the
 // release, so lock conversion never sees a mix of resolved and implicit URLs.
 func (p pkginfo) resolvedRelease(d Driver) (resolution.ResolvedRelease, error) {
-	if d.Registry == nil || d.Registry.BaseURL == nil {
-		return resolution.ResolvedRelease{}, fmt.Errorf("cannot resolve release for %s: driver has no registry URL", d.Title)
-	}
 	if p.Version == nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("cannot resolve release for %s: release has no version", d.Title)
 	}
 
+	var sourceReference string
+	if d.Registry != nil && d.Registry.BaseURL != nil {
+		sourceReference = d.Registry.BaseURL.String()
+	}
 	release := resolution.ResolvedRelease{
 		DriverID: d.Path,
 		Version:  p.Version.String(),
 		Source: resolution.SourceSpec{
 			Type:      "registry",
-			Reference: d.Registry.BaseURL.String(),
+			Reference: sourceReference,
 		},
 		Artifacts: make([]resolution.Artifact, 0, len(p.Packages)),
 	}

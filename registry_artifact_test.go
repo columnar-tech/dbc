@@ -83,6 +83,48 @@ packages:
 	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_windows_amd64-1.2.3.tar.gz", resolved.Artifacts[1].URL)
 }
 
+func TestResolvedRegistryReleaseAllowsAbsoluteURLsWithoutRegistryBase(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		registry *Registry
+	}{
+		{name: "no registry"},
+		{name: "registry without base URL", registry: &Registry{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			release := pkginfo{
+				Version: semver.MustParse("1.2.3"),
+				Packages: []registryPackage{
+					{PlatformTuple: "linux_amd64", URL: "https://packages.example.test/linux.tar.gz"},
+					{PlatformTuple: "windows_amd64", URL: "https://packages.example.test/windows.tar.gz"},
+				},
+			}
+			driver := Driver{Path: "example-driver", Title: "Example Driver", Registry: tt.registry}
+
+			resolved, err := release.resolvedRelease(driver)
+			require.NoError(t, err)
+			require.Len(t, resolved.Artifacts, 2)
+			assert.Equal(t, "https://packages.example.test/linux.tar.gz", resolved.Artifacts[0].URL)
+			assert.Equal(t, "https://packages.example.test/windows.tar.gz", resolved.Artifacts[1].URL)
+			assert.Empty(t, resolved.Source.Reference)
+		})
+	}
+}
+
+func TestResolvedRegistryReleaseMixedURLsRequireRegistryBase(t *testing.T) {
+	release := pkginfo{
+		Version: semver.MustParse("1.2.3"),
+		Packages: []registryPackage{
+			{PlatformTuple: "linux_amd64", URL: "https://packages.example.test/linux.tar.gz"},
+			{PlatformTuple: "windows_amd64", URL: "windows.tar.gz"},
+		},
+	}
+	driver := Driver{Path: "example-driver", Title: "Example Driver", Registry: &Registry{}}
+
+	_, err := release.resolvedRelease(driver)
+	require.ErrorContains(t, err, "no registry URL")
+}
+
 func TestResolveRegistryPackageURLWithoutBaseURL(t *testing.T) {
 	driver := Driver{Title: "Example Driver", Registry: &Registry{}}
 
