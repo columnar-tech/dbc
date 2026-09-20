@@ -17,6 +17,7 @@ package dbc
 import (
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/resolution"
@@ -57,17 +58,25 @@ func (p pkginfo) resolvedRelease(d Driver) (resolution.ResolvedRelease, error) {
 	if p.Version == nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("cannot resolve release for %s: release has no version", d.Title)
 	}
-
-	var sourceReference string
-	if d.Registry != nil && d.Registry.BaseURL != nil {
-		sourceReference = d.Registry.BaseURL.String()
+	if strings.TrimSpace(d.Path) == "" {
+		return resolution.ResolvedRelease{}, fmt.Errorf("cannot record registry source identity for release: driver ID is empty")
 	}
+	if d.Registry == nil || d.Registry.BaseURL == nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("cannot record registry source identity for %s: registry BaseURL is missing", d.Path)
+	}
+	baseURL := d.Registry.BaseURL
+	if !baseURL.IsAbs() ||
+		(!strings.EqualFold(baseURL.Scheme, "http") && !strings.EqualFold(baseURL.Scheme, "https")) ||
+		baseURL.Hostname() == "" {
+		return resolution.ResolvedRelease{}, fmt.Errorf("cannot record registry source identity for %s: registry BaseURL must be an absolute HTTP(S) URL with a host", d.Path)
+	}
+
 	release := resolution.ResolvedRelease{
 		DriverID: d.Path,
 		Version:  p.Version.String(),
 		Source: resolution.SourceSpec{
 			Type:      "registry",
-			Reference: sourceReference,
+			Reference: baseURL.String(),
 		},
 		Artifacts: make([]resolution.Artifact, 0, len(p.Packages)),
 	}

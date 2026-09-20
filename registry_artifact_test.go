@@ -63,92 +63,145 @@ func TestRegistryArtifactMetadataOptional(t *testing.T) {
 	assert.Zero(t, *artifact.Size)
 }
 
-func TestResolvedRegistryReleaseFillsURLsForEveryPlatform(t *testing.T) {
-	var release pkginfo
-	require.NoError(t, yaml.NewDecoder(strings.NewReader(`
-version: v1.2.3
-packages:
-  - platform: linux_amd64
-  - platform: windows_amd64
-`)).Decode(&release))
-	driver := Driver{
-		Path:     "example-driver",
-		Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")},
+func TestResolveRegistryPackageURLStateTable(t *testing.T) {
+	types := []struct {
+		name string
+		pkg  registryPackage
+	}{
+		{name: "absolute", pkg: registryPackage{URL: "https://packages.example.test/driver.tar.gz"}},
+		{name: "relative", pkg: registryPackage{URL: "driver.tar.gz"}},
+		{name: "implicit", pkg: registryPackage{PlatformTuple: "linux_amd64"}},
 	}
+	registries := []struct {
+		name     string
+		registry *Registry
+		valid    bool
+	}{
+		{name: "nil"},
+		{name: "empty", registry: &Registry{}},
+		{name: "valid", registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")}, valid: true},
+	}
+	versions := []struct {
+		name    string
+		version *semver.Version
+	}{
+		{name: "nil"},
+		{name: "present", version: semver.MustParse("1.2.3")},
+	}
+
+	for _, urlType := range types {
+		for _, registry := range registries {
+			for _, version := range versions {
+				name := urlType.name + "/registry=" + registry.name + "/version=" + version.name
+				t.Run(name, func(t *testing.T) {
+					wantSuccess := urlType.name == "absolute" ||
+						(urlType.name == "relative" && registry.valid) ||
+						(urlType.name == "implicit" && registry.valid && version.version != nil)
+					driver := Driver{Title: "Example Driver", Path: "example-driver", Registry: registry.registry}
+					uri, err := resolveRegistryPackageURL(driver, version.version, urlType.pkg)
+					if !wantSuccess {
+						require.Error(t, err)
+						return
+					}
+					require.NoError(t, err)
+					wantURL := "https://packages.example.test/driver.tar.gz"
+					if urlType.name == "relative" {
+						wantURL = "https://registry.example.test/driver.tar.gz"
+					}
+					if urlType.name == "implicit" {
+						wantURL = "https://registry.example.test/example-driver/1.2.3/example-driver_linux_amd64-1.2.3.tar.gz"
+					}
+					assert.Equal(t, wantURL, uri.String())
+				})
+			}
+		}
+	}
+}
+
+func TestResolvedRegistryReleaseRequiresSourceIdentity(t *testing.T) {
+	absoluteRelease := pkginfo{
+		Version: semver.MustParse("1.2.3"),
+		Packages: []registryPackage{{
+			PlatformTuple: "linux_amd64",
+			URL:           "https://packages.example.test/driver.tar.gz",
+		}},
+	}
+	tests := []struct {
+		name           string
+		driver         Driver
+		wantErr        string
+		missingVersion bool
+	}{
+		{name: "missing driver ID", driver: Driver{Title: "Example Driver", Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")}}, wantErr: "driver ID is empty"},
+		{name: "missing registry", driver: Driver{Path: "example-driver"}, wantErr: "registry BaseURL is missing"},
+		{name: "missing registry BaseURL", driver: Driver{Path: "example-driver", Registry: &Registry{}}, wantErr: "registry BaseURL is missing"},
+		{name: "invalid registry identity", driver: Driver{Path: "example-driver", Registry: &Registry{BaseURL: mustParseURL("file:///tmp/registry")}}, wantErr: "absolute HTTP(S) URL with a host"},
+		{name: "missing version", driver: Driver{Path: "example-driver", Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")}}, wantErr: "release has no version", missingVersion: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			release := absoluteRelease
+			if tt.missingVersion {
+				release.Version = nil
+			}
+			_, err := release.resolvedRelease(tt.driver)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestResolvedRegistryReleaseKeepsSourceAndArtifactHostsSeparate(t *testing.T) {
+	release := pkginfo{
+		Version: semver.MustParse("1.2.3"),
+		Packages: []registryPackage{{
+			PlatformTuple: "linux_amd64",
+			URL:           "https://packages.example.test/driver.tar.gz",
+		}},
+	}
+	driver := Driver{Path: "example-driver", Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")}}
 
 	resolved, err := release.resolvedRelease(driver)
 	require.NoError(t, err)
-	require.Len(t, resolved.Artifacts, 2)
-	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_linux_amd64-1.2.3.tar.gz", resolved.Artifacts[0].URL)
-	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_windows_amd64-1.2.3.tar.gz", resolved.Artifacts[1].URL)
+	assert.Equal(t, "https://registry.example.test", resolved.Source.Reference)
+	require.Len(t, resolved.Artifacts, 1)
+	assert.Equal(t, "https://packages.example.test/driver.tar.gz", resolved.Artifacts[0].URL)
 }
 
-func TestResolvedRegistryReleaseAllowsAbsoluteURLsWithoutRegistryBase(t *testing.T) {
-	for _, tt := range []struct {
-		name     string
-		registry *Registry
-	}{
-		{name: "no registry"},
-		{name: "registry without base URL", registry: &Registry{}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			release := pkginfo{
-				Version: semver.MustParse("1.2.3"),
-				Packages: []registryPackage{
-					{PlatformTuple: "linux_amd64", URL: "https://packages.example.test/linux.tar.gz"},
-					{PlatformTuple: "windows_amd64", URL: "https://packages.example.test/windows.tar.gz"},
-				},
-			}
-			driver := Driver{Path: "example-driver", Title: "Example Driver", Registry: tt.registry}
-
-			resolved, err := release.resolvedRelease(driver)
-			require.NoError(t, err)
-			require.Len(t, resolved.Artifacts, 2)
-			assert.Equal(t, "https://packages.example.test/linux.tar.gz", resolved.Artifacts[0].URL)
-			assert.Equal(t, "https://packages.example.test/windows.tar.gz", resolved.Artifacts[1].URL)
-			assert.Empty(t, resolved.Source.Reference)
-		})
-	}
-}
-
-func TestResolvedRegistryReleaseMixedURLsRequireRegistryBase(t *testing.T) {
+func TestResolvedRegistryReleaseSourceIdentityIncludesRegistry(t *testing.T) {
 	release := pkginfo{
-		Version: semver.MustParse("1.2.3"),
+		Version:  semver.MustParse("1.2.3"),
+		Packages: []registryPackage{{PlatformTuple: "linux_amd64", URL: "https://packages.example.test/driver.tar.gz"}},
+	}
+	first, err := release.resolvedRelease(Driver{Path: "example-driver", Registry: &Registry{BaseURL: mustParseURL("https://registry-one.example.test")}})
+	require.NoError(t, err)
+	second, err := release.resolvedRelease(Driver{Path: "example-driver", Registry: &Registry{BaseURL: mustParseURL("https://registry-two.example.test")}})
+	require.NoError(t, err)
+	assert.NotEqual(t, first.Source.Reference, second.Source.Reference)
+}
+
+func TestResolvedRegistryReleaseMatchesGetPackageURLs(t *testing.T) {
+	version := semver.MustParse("1.2.3")
+	release := pkginfo{
+		Version: version,
 		Packages: []registryPackage{
-			{PlatformTuple: "linux_amd64", URL: "https://packages.example.test/linux.tar.gz"},
-			{PlatformTuple: "windows_amd64", URL: "windows.tar.gz"},
+			{PlatformTuple: "linux_amd64", URL: "packages/linux.tar.gz"},
+			{PlatformTuple: "windows_amd64"},
 		},
 	}
-	driver := Driver{Path: "example-driver", Title: "Example Driver", Registry: &Registry{}}
+	driver := Driver{
+		Path:     "example-driver",
+		Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")},
+		PkgInfo:  []pkginfo{release},
+	}
+	resolved, err := release.resolvedRelease(driver)
+	require.NoError(t, err)
 
-	_, err := release.resolvedRelease(driver)
-	require.ErrorContains(t, err, "no registry URL")
-}
-
-func TestResolveRegistryPackageURLWithoutBaseURL(t *testing.T) {
-	driver := Driver{Title: "Example Driver", Registry: &Registry{}}
-
-	t.Run("absolute URL", func(t *testing.T) {
-		uri, err := resolveRegistryPackageURL(driver, nil, registryPackage{
-			URL: "https://packages.example.test/driver.tar.gz",
-		})
+	for _, artifact := range resolved.Artifacts {
+		pkg, err := driver.GetPackage(version, artifact.Platform, false)
 		require.NoError(t, err)
-		assert.Equal(t, "https://packages.example.test/driver.tar.gz", uri.String())
-	})
-
-	t.Run("relative URL", func(t *testing.T) {
-		_, err := resolveRegistryPackageURL(driver, semver.MustParse("1.2.3"), registryPackage{
-			URL: "driver.tar.gz",
-		})
-		require.ErrorContains(t, err, "no registry URL")
-	})
-
-	t.Run("implicit URL", func(t *testing.T) {
-		_, err := resolveRegistryPackageURL(driver, semver.MustParse("1.2.3"), registryPackage{
-			PlatformTuple: "linux_amd64",
-		})
-		require.ErrorContains(t, err, "no registry URL")
-	})
+		require.NotNil(t, pkg.Path)
+		assert.Equal(t, pkg.Path.String(), artifact.URL)
+	}
 }
 
 func TestRegistryArtifactMetadataRejectsInvalidValues(t *testing.T) {
