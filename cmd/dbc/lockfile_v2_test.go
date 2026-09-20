@@ -484,6 +484,22 @@ func TestLockArtifactsAllowSharedLocationOnlyWithConsistentMetadata(t *testing.T
 	assert.NotEqual(t, first.Location, second.Location, "same value with distinct kinds has a distinct identity")
 }
 
+func TestLockRoundTripPreservesOneArtifactLocationSharedBySeveralTargets(t *testing.T) {
+	release := testResolvedRelease()
+	shared := release.Artifacts[0]
+	shared.Target = resolution.Target{OS: "macos", Arch: "arm64"}
+	release.Artifacts = append(release.Artifacts, shared)
+	require.NoError(t, resolution.ValidateResolvedRelease(release))
+
+	entry, err := lockInfoFromResolvedRelease("example", release)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	loaded, err := loadLockFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, release, loaded.lockinfo["example"].resolvedRelease())
+}
+
 func TestVersionUpgradeIsSeparateFromMetadataRefresh(t *testing.T) {
 	old := testLockEntry()
 	old.Legacy = &legacyLibraryProof{Platform: "macos_arm64", LibraryHash: strings.Repeat("d", 64)}

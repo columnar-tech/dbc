@@ -47,14 +47,14 @@ type PackslipSource struct {
 	Project string
 }
 
-// Target is the canonical host tuple used to select one archive from a release.
+// Target is the canonical platform tuple used in a resolution snapshot.
 type Target = resolution.Target
 
-// Request identifies one driver release and the archive needed by this host.
+// Request identifies one driver release whose installable artifacts are
+// snapshotted for every concrete target advertised by the signed release.
 type Request struct {
 	DriverID string
 	Version  string
-	Target   Target
 }
 
 // TrustStore retains the identities and signed-list state accepted by dbc.
@@ -87,7 +87,8 @@ type Config struct {
 	Now              func() time.Time
 }
 
-// Resolver resolves authenticated release metadata for one target.
+// Resolver resolves authenticated release metadata into a release-level
+// snapshot of all concrete targets supported by dbc.
 type Resolver interface {
 	Resolve(context.Context, PackslipSource, Request) (resolution.ResolvedRelease, error)
 }

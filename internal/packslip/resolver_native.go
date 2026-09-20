@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -87,10 +88,6 @@ func (r *nativeResolver) Resolve(ctx context.Context, source PackslipSource, req
 	}
 	if !semverPattern.MatchString(request.Version) {
 		return resolution.ResolvedRelease{}, fmt.Errorf("requested packslip version %q must be an exact SemVer 2.0.0 version", request.Version)
-	}
-	request.Target = resolution.CanonicalTarget(request.Target)
-	if err := resolution.ValidateConcreteTarget(request.Target); err != nil {
-		return resolution.ResolvedRelease{}, fmt.Errorf("invalid packslip target: %w", err)
 	}
 	source.Project = project
 	identityPolicy, err := githubIdentityPolicy(project)
@@ -336,13 +333,21 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 	if err := validateSupportedArtifactSet(verified.statement); err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
-	selected, err := selectArtifact(verified.statement, request.Target)
+	targets, err := deriveConcreteTargets(verified.statement)
 	if err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
-	artifact, err := convertSelectedArtifact(verified.statement, selected, assets, request.Target)
-	if err != nil {
-		return resolution.ResolvedRelease{}, err
+	artifacts := make([]resolution.Artifact, 0, len(targets))
+	for _, target := range targets {
+		selected, err := selectArtifact(verified.statement, target)
+		if err != nil {
+			return resolution.ResolvedRelease{}, fmt.Errorf("select packslip artifact for %s: %w", describeTarget(target), err)
+		}
+		artifact, err := convertSelectedArtifact(verified.statement, selected, assets, target)
+		if err != nil {
+			return resolution.ResolvedRelease{}, fmt.Errorf("resolve packslip artifact for %s: %w", describeTarget(target), err)
+		}
+		artifacts = append(artifacts, artifact)
 	}
 	provenance, err := provenancePresence(verified.statement)
 	if err != nil {
@@ -366,7 +371,7 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 		Version:   verified.statement.predicate.Version,
 		Source:    resolution.SourceSpec{Type: "packslip", Reference: project},
 		Evidence:  evidence,
-		Artifacts: []resolution.Artifact{artifact},
+		Artifacts: artifacts,
 	}
 	if err := resolution.ValidateResolvedRelease(result); err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("invalid resolved packslip release: %w", err)
@@ -376,6 +381,56 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 		return resolution.ResolvedRelease{}, err
 	}
 	return result, nil
+}
+
+func describeTarget(target Target) string {
+	target = resolution.CanonicalTarget(target)
+	return fmt.Sprintf("os=%q arch=%q libc=%q variant=%q", target.OS, target.Arch, target.LibC, target.Variant)
+}
+
+// deriveConcreteTargets returns the finite set of concrete targets represented
+// by supported artifacts with explicit OS and architecture selectors. A
+// wildcard-only artifact cannot describe an enumerable platform set, so it
+// does not create a target by itself.
+func deriveConcreteTargets(release *parsedRelease) ([]Target, error) {
+	targetSet := make(map[Target]struct{}, len(release.predicate.Artifacts))
+	for i := range release.predicate.Artifacts {
+		artifact := &release.predicate.Artifacts[i]
+		if !supportedArchiveFormat(stringValue(artifact.Format)) || artifact.OS == nil || artifact.Arch == nil {
+			continue
+		}
+		target := resolution.CanonicalTarget(Target{
+			OS:      *artifact.OS,
+			Arch:    *artifact.Arch,
+			LibC:    stringValue(artifact.LibC),
+			Variant: stringValue(artifact.Variant),
+		})
+		if err := resolution.ValidateConcreteTarget(target); err != nil {
+			return nil, fmt.Errorf("packslip artifact %q does not identify a concrete target: %w", artifact.Name, err)
+		}
+		targetSet[target] = struct{}{}
+	}
+	if len(targetSet) == 0 {
+		return nil, errors.New("packslip release has no supported artifact with explicit OS and architecture selectors")
+	}
+	targets := make([]Target, 0, len(targetSet))
+	for target := range targetSet {
+		targets = append(targets, target)
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		left, right := targets[i], targets[j]
+		if left.OS != right.OS {
+			return left.OS < right.OS
+		}
+		if left.Arch != right.Arch {
+			return left.Arch < right.Arch
+		}
+		if left.LibC != right.LibC {
+			return left.LibC < right.LibC
+		}
+		return left.Variant < right.Variant
+	})
+	return targets, nil
 }
 
 func checkDeclaredIdentity(declared releaseIdentity, verified *packslipverify.VerifiedBundle) error {

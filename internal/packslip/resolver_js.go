@@ -20,7 +20,7 @@ import (
 
 type unsupportedResolver struct{}
 
-// NewResolver returns a resolver that rejects unsupported targets before
+// NewResolver returns a resolver that rejects unsupported sources before
 // reading trust state or making a network request.
 func NewResolver(Config) (Resolver, error) { return unsupportedResolver{}, nil }
 

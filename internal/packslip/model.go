@@ -861,8 +861,8 @@ func supportedArchiveFormat(format string) bool {
 	return format == "tar.gz" || format == "tgz"
 }
 
-// validateSupportedArtifactSet checks ambiguity over the entire signed release,
-// including platforms other than the one currently requested.
+// validateSupportedArtifactSet checks ambiguity across the entire signed
+// release before concrete targets are finalized.
 func validateSupportedArtifactSet(release *parsedRelease) error {
 	count := 0
 	for i := range release.predicate.Artifacts {
