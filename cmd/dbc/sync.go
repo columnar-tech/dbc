@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -208,6 +209,26 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		if lf.lockinfo != nil {
 			info = lf.lockinfo[name]
 		}
+		if lf.Version == lockFileVersion && info.Version != nil {
+			if info.Source.Type != "registry" {
+				return nil, fmt.Errorf("locked source type %q for driver %q is not supported by sync yet; source integration will follow", info.Source.Type, name)
+			}
+			if lockVersionSatisfiesSpec(info, spec) {
+				artifact, err := selectLockedArtifact(info, config.PlatformTuple(), false)
+				if err == nil {
+					item, err := installItemFromLockedArtifact(name, info, artifact)
+					if err != nil {
+						return nil, err
+					}
+					items = append(items, item)
+					continue
+				}
+				var refreshErr *LockRefreshRequiredError
+				if !errors.As(err, &refreshErr) {
+					return nil, err
+				}
+			}
+		}
 
 		// locate the driver info in the CDN driver registry index
 		drv, err := findDriver(name, s.driverIndex)
@@ -252,6 +273,81 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		})
 	}
 	return items, nil
+}
+
+func (s syncModel) registryDiscoveryNeeded(list DriversList) (bool, error) {
+	lf, err := loadLockFile(s.LockFilePath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for name, spec := range list.Drivers {
+		entry, ok := lf.lockinfo[name]
+		if lf.Version != lockFileVersion || !ok || entry.Version == nil {
+			return true, nil
+		}
+		// Non-registry source adapters are outside this sync slice. Their error
+		// is reported by createInstallList without contacting the registry.
+		if entry.Source.Type != "registry" {
+			continue
+		}
+		if !lockVersionSatisfiesSpec(entry, spec) {
+			return true, nil
+		}
+		if _, err := selectLockedArtifact(entry, config.PlatformTuple(), false); err != nil {
+			var refreshErr *LockRefreshRequiredError
+			if errors.As(err, &refreshErr) {
+				return true, nil
+			}
+			return false, err
+		}
+	}
+	return false, nil
+}
+
+func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
+	if entry.Version == nil {
+		return false
+	}
+	if entry.Version.Prerelease() != "" && spec.Prerelease != "allow" {
+		return false
+	}
+	return spec.Version == nil || spec.Version.Check(entry.Version)
+}
+
+func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {
+	if artifact.Path != "" || artifact.URL == "" {
+		return installItem{}, fmt.Errorf("locked registry artifact for %s is not a remote URL artifact", name)
+	}
+	if artifact.Format != "" && artifact.Format != "tar.gz" {
+		return installItem{}, fmt.Errorf("locked artifact format %q for %s is not supported by sync yet", artifact.Format, name)
+	}
+	packageURL, err := url.Parse(artifact.URL)
+	if err != nil || !packageURL.IsAbs() || packageURL.Hostname() == "" {
+		return installItem{}, fmt.Errorf("invalid locked artifact URL for %s: %q", name, artifact.URL)
+	}
+	registryURL, err := url.Parse(entry.Source.URL)
+	if err != nil || !registryURL.IsAbs() || registryURL.Hostname() == "" {
+		return installItem{}, fmt.Errorf("invalid locked registry identity for %s: %q", name, entry.Source.URL)
+	}
+	driver := dbc.Driver{Path: name, Title: name, Registry: &dbc.Registry{BaseURL: registryURL}}
+	pkg := dbc.PkgInfo{
+		Driver:        driver,
+		Version:       entry.Version,
+		PlatformTuple: config.PlatformTuple(),
+		Path:          packageURL,
+		ArtifactHash:  artifact.Hash,
+		ArtifactSize:  cloneInt64(artifact.Size),
+	}
+	copy := entry
+	return installItem{
+		Driver:    driver,
+		Package:   pkg,
+		Checksum:  entry.legacyChecksumFor(config.PlatformTuple()),
+		LockEntry: &copy,
+	}, nil
 }
 
 type installedDrvMsg struct {
@@ -385,11 +481,12 @@ func canReuseLockedEntry(item installItem) bool {
 	if err != nil || item.LockEntry.Source != source {
 		return false
 	}
-	if item.LockEntry.Version == nil {
+	artifact, err := selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)
+	if err != nil || artifact.URL == "" || item.Package.Path == nil || item.Package.ArtifactSize == nil {
 		return false
 	}
-	_, err = selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)
-	return err == nil
+	return item.Package.Path.String() == artifact.URL &&
+		item.Package.ArtifactHash == artifact.Hash && *item.Package.ArtifactSize == *artifact.Size
 }
 
 func packageLockSource(item installItem) (lockSource, error) {
@@ -434,10 +531,10 @@ func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
 		return err
 	}
 	if item.Package.ArtifactHash != "" && item.Package.ArtifactHash != actualHash {
-		return fmt.Errorf("downloaded archive hash %s does not match registry hash %s", actualHash, item.Package.ArtifactHash)
+		return fmt.Errorf("downloaded archive hash %s does not match expected hash %s", actualHash, item.Package.ArtifactHash)
 	}
 	if item.Package.ArtifactSize != nil && *item.Package.ArtifactSize != actualSize {
-		return fmt.Errorf("downloaded archive size %d does not match registry size %d", actualSize, *item.Package.ArtifactSize)
+		return fmt.Errorf("downloaded archive size %d does not match expected size %d", actualSize, *item.Package.ArtifactSize)
 	}
 	item.ArchiveHash = actualHash
 	item.ArchiveSize = actualSize
@@ -477,6 +574,7 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		Source:   resolution.SourceSpec{Type: source.Type, Reference: source.URL},
 		Artifacts: []resolution.Artifact{{
 			Platform: item.Package.PlatformTuple,
+			Format:   "tar.gz",
 			URL:      item.Package.Path.String(),
 			Hash:     hash,
 			Size:     &size,
@@ -526,6 +624,19 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.list = msg.list
 		if err := applyProjectRegistries(s.list); err != nil {
 			return s, errCmd("%v", err)
+		}
+		needsRegistry, err := s.registryDiscoveryNeeded(s.list)
+		if err != nil {
+			return s, errCmd("failed to inspect lock file: %w", err)
+		}
+		if !needsRegistry {
+			return s, func() tea.Msg {
+				items, err := s.createInstallList(s.list)
+				if err != nil {
+					return err
+				}
+				return items
+			}
 		}
 		return s, func() tea.Msg {
 			drivers, err := s.getDriverRegistry()

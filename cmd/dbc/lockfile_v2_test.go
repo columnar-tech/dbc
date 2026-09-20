@@ -17,6 +17,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -261,21 +262,28 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 		Source:  lockSource{Type: "registry", URL: registryURL.String()},
 		Artifacts: []lockArtifact{{
 			Platform: platform, OS: osName, Arch: arch, LibC: libc, Variant: variant,
-			URL: "https://registry.example.test/archive.tar.gz", Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
+			URL: "https://assets.example.test/archive.tar.gz", Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10), Format: "tar.gz",
 		}},
 	}
-	packageURL, err := url.Parse("https://registry.example.test/archive.tar.gz")
+	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
 	require.NoError(t, err)
-	item := installItem{
-		Driver:    dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: registryURL}},
-		Package:   dbc.PkgInfo{Version: entry.Version, PlatformTuple: platform, Path: packageURL},
-		LockEntry: &entry,
-	}
+	assert.Equal(t, registryURL.String(), item.Driver.Registry.BaseURL.String())
+	assert.Equal(t, "https://assets.example.test/archive.tar.gz", item.Package.Path.String(), "artifact host is independent of source identity")
+	assert.Equal(t, entry.Artifacts[0].Hash, item.Package.ArtifactHash)
+	assert.Equal(t, *entry.Artifacts[0].Size, *item.Package.ArtifactSize)
+	item.InstalledLibraryHash = strings.Repeat("f", 64)
 
 	updated, err := lockEntryForItem(item)
 	require.NoError(t, err)
 	assert.Equal(t, entry, updated, "the existing archive snapshot must not require optional registry hash/size")
 	assert.Empty(t, updated.legacyChecksumFor(platform), "archive hash is not an installed-library checksum")
+
+	path := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(path, LockFile{Version: 2, Drivers: []lockInfo{updated}}))
+	reloaded, err := loadLockFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, entry.Artifacts[0].Hash, reloaded.lockinfo["example"].Artifacts[0].Hash,
+		"post-install lock rewrite must keep the archive snapshot rather than the installed-library hash")
 }
 
 func TestSyncAdapterRejectsFreshEntryWithoutArchiveMetadata(t *testing.T) {
@@ -334,6 +342,136 @@ func TestDownloadedArchiveSnapshotUsesArchiveBytes(t *testing.T) {
 	assert.Equal(t, "sha256:"+hex.EncodeToString(digest[:]), item.ArchiveHash)
 	assert.EqualValues(t, len(archiveBytes), item.ArchiveSize)
 	assert.Empty(t, item.InstalledLibraryHash, "archive bytes must not be recorded as an installed-library hash")
+}
+
+func TestLockedArchiveDownloadMustMatchExpectedHashAndSize(t *testing.T) {
+	archivePath := filepath.Join(t.TempDir(), "package.tar.gz")
+	archiveBytes := []byte("downloaded bytes differ from the lock")
+	require.NoError(t, os.WriteFile(archivePath, archiveBytes, 0o600))
+	digest := sha256.Sum256(archiveBytes)
+	actualHash := "sha256:" + hex.EncodeToString(digest[:])
+	actualSize := int64(len(archiveBytes))
+
+	tests := []struct {
+		name string
+		pkg  dbc.PkgInfo
+		want string
+	}{
+		{
+			name: "hash mismatch",
+			pkg:  dbc.PkgInfo{ArtifactHash: "sha256:" + strings.Repeat("a", 64), ArtifactSize: &actualSize},
+			want: "does not match expected hash",
+		},
+		{
+			name: "size mismatch",
+			pkg:  dbc.PkgInfo{ArtifactHash: actualHash, ArtifactSize: int64Pointer(actualSize + 1)},
+			want: "does not match expected size",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			archive, err := os.Open(archivePath)
+			require.NoError(t, err)
+			defer archive.Close()
+			item := installItem{Package: tt.pkg}
+			err = snapshotDownloadedArchive(&item, archive)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Empty(t, item.ArchiveHash, "failed verification must not produce a lock snapshot")
+		})
+	}
+}
+
+func TestV2RegistryReplaySkipsDiscoveryAndUsesLockedURLAndMetadata(t *testing.T) {
+	projectPath := filepath.Join(t.TempDir(), "dbc.toml")
+	lockPath := filepath.Join(filepath.Dir(projectPath), "dbc.lock")
+	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: 2, Drivers: []lockInfo{entry}}))
+	require.NoError(t, os.WriteFile(projectPath, []byte("[drivers]\n[drivers.example]\n"), 0o600))
+
+	discoveryCalls := 0
+	model := syncModel{
+		baseModel: baseModel{getDriverRegistry: func() ([]dbc.Driver, error) {
+			discoveryCalls++
+			return nil, errors.New("registry unavailable")
+		}},
+		Path: projectPath,
+		// Deliberately include a changed/incomplete registry result. A valid v2
+		// target artifact must remain authoritative and never consult it.
+		driverIndex: []dbc.Driver{{Path: "example", Title: "changed registry metadata"}},
+	}
+	updated, cmd := model.Update(driversListMsg{path: projectPath, list: DriversList{
+		Drivers: map[string]driverSpec{"example": {}},
+	}})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	items, ok := msg.([]installItem)
+	require.True(t, ok, "expected lock replay install items, got %T", msg)
+	require.Len(t, items, 1)
+	assert.Zero(t, discoveryCalls, "registry discovery must not run for a complete v2 registry artifact")
+	assert.Equal(t, entry.Artifacts[0].URL, items[0].Package.Path.String())
+	assert.Equal(t, entry.Artifacts[0].Hash, items[0].Package.ArtifactHash)
+	assert.Equal(t, *entry.Artifacts[0].Size, *items[0].Package.ArtifactSize)
+	assert.Equal(t, entry.Source.URL, items[0].Driver.Registry.BaseURL.String())
+
+	// The normal completion path builds the entry from the locked PkgInfo and
+	// rewrites v2 without changing its artifact snapshot.
+	updatedModel := updated.(syncModel)
+	updatedModel.LockFilePath = lockPath
+	rewritten, err := lockEntryForItem(items[0])
+	require.NoError(t, err)
+	updatedModel.locked = LockFile{Version: 2, Drivers: []lockInfo{rewritten}}
+	require.NoError(t, updatedModel.writeLockFile())
+	reloaded, err := loadLockFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, entry.Artifacts[0], reloaded.lockinfo["example"].Artifacts[0])
+}
+
+func testRegistryLockEntryForPlatform(platform string) lockInfo {
+	osName, arch, libc, variant, ok := parsePlatformTuple(platform)
+	if !ok {
+		panic("invalid test platform tuple: " + platform)
+	}
+	return lockInfo{
+		Name:    "example",
+		Version: semver.MustParse("1.2.3"),
+		Source:  lockSource{Type: "registry", URL: "https://registry.example.test"},
+		Artifacts: []lockArtifact{{
+			Platform: platform, OS: osName, Arch: arch, LibC: libc, Variant: variant,
+			Format: "tar.gz", URL: "https://assets.example.test/" + platform + ".tar.gz",
+			Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
+		}},
+	}
+}
+
+func TestV2RegistryReplayFallsBackToDiscoveryOnlyWhenTargetArtifactIsMissing(t *testing.T) {
+	tmp := t.TempDir()
+	projectPath := filepath.Join(tmp, "dbc.toml")
+	lockPath := filepath.Join(tmp, "dbc.lock")
+	otherPlatform := "linux_amd64"
+	if config.PlatformTuple() == otherPlatform {
+		otherPlatform = "macos_arm64"
+	}
+	entry := testRegistryLockEntryForPlatform(otherPlatform)
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: 2, Drivers: []lockInfo{entry}}))
+	require.NoError(t, os.WriteFile(projectPath, []byte("[drivers]\n[drivers.example]\n"), 0o600))
+
+	discoveryCalls := 0
+	model := syncModel{
+		baseModel: baseModel{getDriverRegistry: func() ([]dbc.Driver, error) {
+			discoveryCalls++
+			return []dbc.Driver{}, nil
+		}},
+		Path: projectPath,
+	}
+	_, cmd := model.Update(driversListMsg{path: projectPath, list: DriversList{
+		Drivers: map[string]driverSpec{"example": {}},
+	}})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	_, ok := msg.(driversWithRegistryError)
+	require.True(t, ok, "missing target should enter the existing registry fallback, got %T", msg)
+	assert.Equal(t, 1, discoveryCalls)
 }
 
 func TestLockReplayRejectsMuslForGenericLinuxTargetAndAmbiguousArtifacts(t *testing.T) {
