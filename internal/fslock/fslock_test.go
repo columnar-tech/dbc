@@ -19,6 +19,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -122,6 +123,9 @@ func TestAcquireTimeout(t *testing.T) {
 	if !errors.Is(err, fslock.ErrLockContended) {
 		t.Fatalf("timeout error must wrap ErrLockContended, got: %v", err)
 	}
+	if !strings.Contains(err.Error(), "last lock attempt:") {
+		t.Fatalf("timeout error must include the last OS lock error, got: %v", err)
+	}
 }
 
 func TestAcquireContextCanceledWhileContended(t *testing.T) {
@@ -146,6 +150,9 @@ func TestAcquireContextCanceledWhileContended(t *testing.T) {
 	case err := <-done:
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("AcquireContext error = %v, want context.Canceled", err)
+		}
+		if !strings.Contains(err.Error(), "last lock attempt:") {
+			t.Fatalf("cancellation error must include the last OS lock error, got: %v", err)
 		}
 		if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
 			t.Fatalf("AcquireContext took %s to observe cancellation", elapsed)
@@ -207,6 +214,9 @@ func TestAcquireContextDeadlineWhileContended(t *testing.T) {
 	_, err = fslock.AcquireContext(ctx, path)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("AcquireContext error = %v, want context.DeadlineExceeded", err)
+	}
+	if !strings.Contains(err.Error(), "last lock attempt:") {
+		t.Fatalf("deadline error must include the last OS lock error, got: %v", err)
 	}
 }
 

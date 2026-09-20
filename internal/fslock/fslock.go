@@ -45,8 +45,8 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 	// zero and negative timeouts.
 	lock, err := acquireContext(ctx, path, true)
 	if errors.Is(err, context.DeadlineExceeded) {
-		return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s: %w",
-			path, timeout, ErrLockContended)
+		return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
+			path, timeout, err, ErrLockContended)
 	}
 	return lock, err
 }
@@ -59,6 +59,16 @@ func AcquireContext(ctx context.Context, path string) (Lock, error) {
 		return Lock{}, err
 	}
 	return acquireContext(ctx, path, false)
+}
+
+// retryContextError retains both the cancellation cause and the last lock
+// syscall error for callers that need to diagnose a failed wait.
+func retryContextError(path string, ctxErr, lockErr error) error {
+	if lockErr == nil {
+		return ctxErr
+	}
+	return fmt.Errorf("fslock: could not acquire lock on %s: %w (last lock attempt: %w)",
+		path, ctxErr, lockErr)
 }
 
 // waitForRetry pauses between non-blocking lock attempts while remaining

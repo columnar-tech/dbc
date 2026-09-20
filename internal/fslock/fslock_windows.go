@@ -33,11 +33,12 @@ func acquireContext(ctx context.Context, path string, allowInitialAttempt bool) 
 
 	ol := new(windows.Overlapped)
 	firstAttempt := true
+	var lastLockErr error
 	for {
 		if !(firstAttempt && allowInitialAttempt) {
 			if err := ctx.Err(); err != nil {
 				f.Close()
-				return Lock{}, err
+				return Lock{}, retryContextError(path, err, lastLockErr)
 			}
 		}
 		firstAttempt = false
@@ -48,9 +49,10 @@ func acquireContext(ctx context.Context, path string, allowInitialAttempt bool) 
 		if err == nil {
 			return Lock{f: f, path: path}, nil
 		}
+		lastLockErr = err
 		if err := waitForRetry(ctx); err != nil {
 			f.Close()
-			return Lock{}, err
+			return Lock{}, retryContextError(path, err, lastLockErr)
 		}
 	}
 }

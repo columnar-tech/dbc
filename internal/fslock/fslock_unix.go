@@ -61,10 +61,11 @@ var errStaleInode = errors.New("fslock: stale inode")
 
 func lockFile(ctx context.Context, f *os.File, path string, allowInitialAttempt bool) (Lock, error) {
 	firstAttempt := true
+	var lastLockErr error
 	for {
 		if !(firstAttempt && allowInitialAttempt) {
 			if err := ctx.Err(); err != nil {
-				return Lock{}, err
+				return Lock{}, retryContextError(path, err, lastLockErr)
 			}
 		}
 		firstAttempt = false
@@ -83,8 +84,9 @@ func lockFile(ctx context.Context, f *os.File, path string, allowInitialAttempt 
 			}
 			return Lock{f: f, path: path}, nil
 		}
+		lastLockErr = err
 		if err := waitForRetry(ctx); err != nil {
-			return Lock{}, err
+			return Lock{}, retryContextError(path, err, lastLockErr)
 		}
 	}
 }
