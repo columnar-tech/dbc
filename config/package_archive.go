@@ -447,9 +447,11 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 			return result, fmt.Errorf("could not hash installed driver file: %w", err)
 		}
 	} else {
-		// Legacy installs recorded the package directory for the current
-		// platform, while a string-form Driver.shared remains the runtime value.
-		manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
+		// Preserve explicit legacy runtime load paths. Older packages that omit
+		// Driver.shared rely on the package directory as their fallback.
+		if !hasRuntimeSharedPath(manifest.DriverInfo.Driver.Shared) {
+			manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
+		}
 	}
 	receipt := InstallReceipt{
 		SourceType: expected.SourceType, SourceIdentity: expected.SourceIdentity,
@@ -466,6 +468,18 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 		return result, fmt.Errorf("could not publish package directory: %w", err)
 	}
 	return manifest, nil
+}
+
+func hasRuntimeSharedPath(shared driverMap) bool {
+	if shared.defaultPath != "" {
+		return true
+	}
+	for _, path := range shared.platformMap {
+		if path != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func snapshotArchive(source *os.File, target string) (string, int64, error) {

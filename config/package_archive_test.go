@@ -202,6 +202,36 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 		assert.Contains(t, string(runtimeManifest), "shared = 'test_driver'")
 		assert.Contains(t, string(runtimeManifest), "source = 'dbc'")
 	})
+
+	t.Run("legacy manifest-only platform shared table keeps its runtime library path", func(t *testing.T) {
+		platform := config.PlatformTuple()
+		libraryPath := "/opt/external/libexample.so"
+		packageManifest := []byte(fmt.Sprintf(`name = "Legacy Table Driver"
+version = "1.0.0"
+
+[Driver]
+entrypoint = "AdbcDriverLegacyTableInit"
+
+[Driver.shared]
+%q = %q
+`, platform, libraryPath))
+		archive := makePackageArchive(t, archiveEntry{name: "MANIFEST", data: packageManifest})
+		f := openPackageArchive(t, archive)
+		root := t.TempDir()
+		cfg := config.Config{Level: config.ConfigEnv, Location: root}
+		manifest, err := config.InstallDriver(cfg, "legacy-table", f)
+		require.NoError(t, err)
+		assert.Empty(t, manifest.Files.Driver)
+		assert.Equal(t, libraryPath, manifest.Driver.Shared.Get(platform))
+
+		require.NoError(t, config.CreateManifest(cfg, manifest.DriverInfo))
+		runtimeManifest, err := os.ReadFile(filepath.Join(root, "legacy-table.toml"))
+		require.NoError(t, err)
+		assert.Contains(t, string(runtimeManifest), libraryPath)
+		loaded, err := config.GetDriver(cfg, "legacy-table")
+		require.NoError(t, err)
+		assert.Equal(t, libraryPath, loaded.Driver.Shared.Get(platform))
+	})
 }
 
 func TestInstallDriverRejectsNilArchive(t *testing.T) {
