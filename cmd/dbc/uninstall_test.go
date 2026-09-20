@@ -200,10 +200,11 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
-	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
+	manifestPath := filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml")
+	suite.FileExists(manifestPath)
 
-	// The installed manifest should have a Driver.shared set to a folder, not the .so
-	// We only need a partial struct definition to read in the Driver.shared table
+	// The legacy package explicitly declares a relative runtime load path. It must
+	// survive installation and remain separate from the package sidecar directory.
 	type partialManifest struct {
 		Driver struct {
 			Shared map[string]string `toml:"shared"`
@@ -211,17 +212,15 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	}
 	var invalidManifest partialManifest
 	f, err := os.Open(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-	if err != nil {
-		suite.Error(err)
-	}
+	suite.Require().NoError(err)
 	err = toml.NewDecoder(f).Decode(&invalidManifest)
-	if err != nil {
-		suite.Error(err)
-	}
+	suite.Require().NoError(err)
+	suite.Require().NoError(f.Close())
 	value := invalidManifest.Driver.Shared[config.PlatformTuple()]
-	// Assert that it's a folder
-	suite.DirExists(value)
-	// and continue
+	suite.Equal("libadbc_driver_invalid_manifest.so", value)
+	runtimeManifest, err := os.ReadFile(manifestPath)
+	suite.Require().NoError(err)
+	suite.Contains(string(runtimeManifest), value)
 
 	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
@@ -233,9 +232,11 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 
 	// We do remove the manifest
 	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-	// But we don't remove the driver shared folder in this edge case, so we assert
-	// they're still around
-	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
+	// Legacy uninstall currently leaves the package sidecar and library because
+	// Driver.shared is a relative runtime name rather than an installed path.
+	packageDir := filepath.Join(suite.Dir(), "test-driver-invalid-manifest")
+	suite.DirExists(packageDir)
+	suite.FileExists(filepath.Join(packageDir, "libadbc_driver_invalid_manifest.so"))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
