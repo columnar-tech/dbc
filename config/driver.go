@@ -15,6 +15,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/atomicfile"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -201,22 +203,6 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	}
 
 	manifestPath := filepath.Join(location, driver.ID+".toml")
-	f, err := os.Create(manifestPath)
-	if err != nil {
-		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
-	}
-	defer f.Close()
-
-	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
-	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
-	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
-	//
-	// To work around this, we create a symlink on level up to the manifest we're
-	// installing.
-	//
-	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	createManifestSymlink(location, driver.ID, manifestPath)
-
 	toEncode := runtimeManifestWire{
 		ManifestVersion: currentManifestVersion,
 		Name:            driver.Name,
@@ -234,11 +220,29 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		toEncode.Driver.Shared = driver.Driver.Shared.platformMap
 	}
 
-	enc := toml.NewEncoder(f).SetIndentTables(false)
-
+	var encoded bytes.Buffer
+	enc := toml.NewEncoder(&encoded).SetIndentTables(false)
 	if err := enc.Encode(toEncode); err != nil {
 		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
 	}
+	if err := atomicfile.WriteFile(manifestPath, encoded.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("error writing manifest %s: %w", driver.ID, err)
+	}
+
+	// Work around older driver managers that look one directory above the
+	// configured manifest directory.
+	createManifestSymlink(location, driver.ID, manifestPath)
 
 	return nil
 }
+
+type manifestRollbackError struct {
+	writeErr    error
+	rollbackErr error
+}
+
+func (e *manifestRollbackError) Error() string {
+	return fmt.Sprintf("%v; restoring previous manifest registration failed: %v", e.writeErr, e.rollbackErr)
+}
+
+func (e *manifestRollbackError) Unwrap() error { return e.writeErr }

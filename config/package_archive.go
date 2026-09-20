@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,14 @@ type InstallReceipt struct {
 	Platform             string `json:"platform"`
 	ArchiveHash          string `json:"archive_hash"`
 	ArchiveSize          int64  `json:"archive_size"`
+	InstalledLibrary     string `json:"installed_library,omitempty"`
 	InstalledLibraryHash string `json:"installed_library_hash,omitempty"`
+}
+
+// InstallOptions supplies verification that must finish before an installation
+// is made visible to the runtime driver manager.
+type InstallOptions struct {
+	Verify func(stagingDir string, manifest Manifest) error
 }
 
 type packageManifest struct {
@@ -254,6 +262,266 @@ func InstallPackageArchive(cfg Config, downloaded *os.File, expected ExpectedPac
 	return installPackageArchive(cfg, expected.ID, expected.ID, downloaded, expected)
 }
 
+// InstallPackage prepares a package in a private generation directory, verifies
+// it, registers its runtime manifest, and then removes a previous managed
+// generation when its receipt proves ownership. The downloaded archive remains
+// open for the caller.
+func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions) (Manifest, error) {
+	return installPackage(cfg, runtimeID, downloaded, expected, options, CreateManifest)
+}
+
+func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error) (Manifest, error) {
+	if downloaded == nil {
+		return Manifest{}, errors.New("package archive is nil")
+	}
+	if err := validateFlatName(runtimeID); err != nil {
+		return Manifest{}, fmt.Errorf("invalid runtime driver id: %w", err)
+	}
+	if expected.ID == "" {
+		expected.ID = runtimeID
+	}
+	if expected.ID != runtimeID {
+		return Manifest{}, fmt.Errorf("expected package id %q does not match runtime driver id %q", expected.ID, runtimeID)
+	}
+	if expected.ArchiveHash != "" || expected.ArchiveSize != 0 {
+		if err := validateExpectedPackage(expected); err != nil {
+			return Manifest{}, err
+		}
+	} else {
+		if expected.Version != "" {
+			if _, err := semver.NewVersion(expected.Version); err != nil {
+				return Manifest{}, fmt.Errorf("invalid expected package version %q: %w", expected.Version, err)
+			}
+		}
+		if expected.Platform != "" {
+			if err := validatePlatformIdentifier(expected.Platform); err != nil {
+				return Manifest{}, fmt.Errorf("invalid expected package platform: %w", err)
+			}
+		}
+	}
+	if expected.SourceType == "" {
+		expected.SourceType = "local"
+	}
+	if expected.SourceIdentity == "" {
+		expected.SourceIdentity = "local"
+	}
+
+	loc, err := EnsureLocation(cfg)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
+	}
+	loc, err = filepath.Abs(loc)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not resolve config location: %w", err)
+	}
+	releaseLock, err := acquireDriverInstallLock(loc, runtimeID)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not lock driver installation: %w", err)
+	}
+	defer releaseLock()
+
+	if _, err := loadInstalledDriver(cfg, loc, runtimeID); err != nil {
+		return Manifest{}, fmt.Errorf("could not inspect existing driver registration: %w", err)
+	}
+	workDir, err := os.MkdirTemp(loc, ".dbc-install-")
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not create private installation staging directory: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+
+	reservedDir, err := os.MkdirTemp(loc, ".dbc-package-"+runtimeID+"-")
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not reserve package generation directory: %w", err)
+	}
+	if err := os.Remove(reservedDir); err != nil {
+		return Manifest{}, fmt.Errorf("could not prepare package generation directory: %w", err)
+	}
+	finalDir := reservedDir
+
+	manifest, payloadDir, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
+	if err != nil {
+		return Manifest{}, err
+	}
+	if err := os.Rename(payloadDir, finalDir); err != nil {
+		return Manifest{}, fmt.Errorf("could not publish verified package generation: %w", err)
+	}
+	if err := registerManifest(cfg, manifest.DriverInfo); err != nil {
+		var rollbackErr *manifestRollbackError
+		if errors.As(err, &rollbackErr) {
+			return Manifest{}, fmt.Errorf("could not register driver manifest; preserving verified package at %s: %w", finalDir, err)
+		}
+		if removeErr := os.RemoveAll(finalDir); removeErr != nil {
+			return Manifest{}, fmt.Errorf("could not register driver manifest: %w; could not remove unregistered package at %s: %v", err, finalDir, removeErr)
+		}
+		return Manifest{}, fmt.Errorf("could not register driver manifest: %w", err)
+	}
+
+	cleanupManagedPackageDirectories(loc, runtimeID, finalDir, manifest.DriverInfo)
+	return manifest, nil
+}
+
+func loadInstalledDriver(cfg Config, loc, runtimeID string) (*DriverInfo, error) {
+	var info DriverInfo
+	var err error
+	if cfg.Level == ConfigEnv {
+		info, err = loadDriverFromManifest(loc, runtimeID)
+	} else {
+		info, err = GetDriver(cfg, runtimeID)
+	}
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+func acquireDriverInstallLock(location, runtimeID string) (func(), error) {
+	lockTarget := filepath.Join(location, runtimeID)
+	lockHash := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(lockTarget))))
+	return acquirePackageInstallLock(filepath.Join(location, ".dbc-package-install-"+hex.EncodeToString(lockHash[:])+".lock"))
+}
+
+func managedPackageDirectory(location, runtimeID string, info DriverInfo) (string, bool) {
+	if info.Source != "dbc" {
+		return "", false
+	}
+	for sharedPath := range info.Driver.Shared.Paths() {
+		if sharedPath == "" {
+			continue
+		}
+		if !filepath.IsAbs(sharedPath) {
+			sharedPath = filepath.Join(location, sharedPath)
+		}
+		dir := filepath.Clean(filepath.Dir(sharedPath))
+		receipt, ok := readManagedPackageReceipt(location, runtimeID, dir)
+		if !ok || receipt.InstalledLibrary == "" || info.ID != runtimeID || info.Version == nil || receipt.DriverVersion != info.Version.String() {
+			continue
+		}
+		registeredPath := info.Driver.Shared.defaultPath
+		if registeredPath == "" {
+			var found bool
+			registeredPath, found = info.Driver.Shared.platformMap[receipt.Platform]
+			if !found {
+				continue
+			}
+		}
+		if !filepath.IsAbs(registeredPath) {
+			registeredPath = filepath.Join(location, registeredPath)
+		}
+		if filepath.Clean(registeredPath) != filepath.Clean(sharedPath) || filepath.Base(sharedPath) != receipt.InstalledLibrary {
+			continue
+		}
+		return dir, true
+	}
+	return "", false
+}
+
+func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, current DriverInfo) {
+	entries, err := os.ReadDir(location)
+	if err != nil {
+		return
+	}
+	currentDir = filepath.Clean(currentDir)
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".dbc-package-"+runtimeID+"-") {
+			continue
+		}
+		dir := filepath.Join(location, entry.Name())
+		if filepath.Clean(dir) == currentDir || runtimeReferencesDirectory(current, dir) {
+			continue
+		}
+		if _, ok := readManagedPackageReceipt(location, runtimeID, dir); !ok {
+			continue
+		}
+		_ = os.RemoveAll(dir)
+	}
+}
+
+func readManagedPackageReceipt(location, runtimeID, directory string) (InstallReceipt, bool) {
+	var receipt InstallReceipt
+	absLocation, err := filepath.Abs(location)
+	if err != nil {
+		return receipt, false
+	}
+	absDirectory, err := filepath.Abs(directory)
+	if err != nil {
+		return receipt, false
+	}
+	rel, err := filepath.Rel(absLocation, absDirectory)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
+		return receipt, false
+	}
+	if !strings.HasPrefix(filepath.Base(absDirectory), ".dbc-package-"+runtimeID+"-") {
+		return receipt, false
+	}
+	dirInfo, err := os.Lstat(absDirectory)
+	if err != nil || !dirInfo.IsDir() || dirInfo.Mode()&os.ModeSymlink != 0 {
+		return receipt, false
+	}
+	receiptPath := filepath.Join(absDirectory, installReceiptName)
+	receiptInfo, err := os.Lstat(receiptPath)
+	if err != nil || !receiptInfo.Mode().IsRegular() {
+		return receipt, false
+	}
+	data, err := os.ReadFile(receiptPath)
+	if err != nil || json.Unmarshal(data, &receipt) != nil {
+		return InstallReceipt{}, false
+	}
+	if receipt.DriverID != runtimeID || validateFlatName(receipt.DriverID) != nil ||
+		strings.TrimSpace(receipt.SourceType) == "" || strings.TrimSpace(receipt.SourceIdentity) == "" ||
+		receipt.ArchiveSize <= 0 || parseReceiptMetadata(receipt) != nil {
+		return InstallReceipt{}, false
+	}
+	hasLibrary := receipt.InstalledLibrary != "" || receipt.InstalledLibraryHash != ""
+	if !hasLibrary {
+		return receipt, true
+	}
+	if validateFlatName(receipt.InstalledLibrary) != nil {
+		return InstallReceipt{}, false
+	}
+	if _, err := parseSHA256(receipt.InstalledLibraryHash); err != nil {
+		return InstallReceipt{}, false
+	}
+	libraryPath := filepath.Join(absDirectory, receipt.InstalledLibrary)
+	libraryInfo, err := os.Lstat(libraryPath)
+	if err != nil || !libraryInfo.Mode().IsRegular() {
+		return InstallReceipt{}, false
+	}
+	actualHash, err := hashFile(libraryPath)
+	if err != nil || actualHash != receipt.InstalledLibraryHash {
+		return InstallReceipt{}, false
+	}
+	return receipt, true
+}
+
+func parseReceiptMetadata(receipt InstallReceipt) error {
+	if _, err := semver.NewVersion(receipt.DriverVersion); err != nil {
+		return fmt.Errorf("invalid receipt driver version: %w", err)
+	}
+	if err := validatePlatformIdentifier(receipt.Platform); err != nil {
+		return fmt.Errorf("invalid receipt platform: %w", err)
+	}
+	if _, err := parseSHA256(receipt.ArchiveHash); err != nil {
+		return fmt.Errorf("invalid receipt archive hash: %w", err)
+	}
+	return nil
+}
+
+func runtimeReferencesDirectory(info DriverInfo, directory string) bool {
+	for sharedPath := range info.Driver.Shared.Paths() {
+		if sharedPath == "" {
+			continue
+		}
+		sharedPath = filepath.Clean(sharedPath)
+		if sharedPath == filepath.Clean(directory) || filepath.Dir(sharedPath) == filepath.Clean(directory) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	if err := validateFlatName(expected.ID); err != nil {
 		return fmt.Errorf("invalid expected package id: %w", err)
@@ -393,37 +661,48 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 		return result, fmt.Errorf("could not create private installation staging directory: %w", err)
 	}
 	defer os.RemoveAll(workDir)
+	manifest, payloadDir, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, nil, workDir)
+	if err != nil {
+		return result, err
+	}
+	if err := publishDirectory(payloadDir, finalDir); err != nil {
+		return result, fmt.Errorf("could not publish package directory: %w", err)
+	}
+	return manifest, nil
+}
 
+func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.File, expected ExpectedPackageMetadata, verify func(string, Manifest) error, workDir string) (Manifest, string, error) {
+	var result Manifest
 	archivePath := filepath.Join(workDir, "archive.tgz")
 	archiveHash, archiveSize, err := snapshotArchive(downloaded, archivePath)
 	if err != nil {
-		return result, fmt.Errorf("could not snapshot package archive: %w", err)
+		return result, "", fmt.Errorf("could not snapshot package archive: %w", err)
 	}
 	if expected.ArchiveHash != "" && expected.ArchiveHash != archiveHash {
-		return result, fmt.Errorf("package archive hash mismatch: got %s, expected %s", archiveHash, expected.ArchiveHash)
+		return result, "", fmt.Errorf("package archive hash mismatch: got %s, expected %s", archiveHash, expected.ArchiveHash)
 	}
 	if expected.ArchiveSize > 0 && expected.ArchiveSize != archiveSize {
-		return result, fmt.Errorf("package archive size mismatch: got %d, expected %d", archiveSize, expected.ArchiveSize)
+		return result, "", fmt.Errorf("package archive size mismatch: got %d, expected %d", archiveSize, expected.ArchiveSize)
 	}
 
 	payloadDir := filepath.Join(workDir, "payload")
 	if err := os.Mkdir(payloadDir, 0o700); err != nil {
-		return result, fmt.Errorf("could not create private package staging directory: %w", err)
+		return result, "", fmt.Errorf("could not create private package staging directory: %w", err)
 	}
 	manifest, meta, files, err := extractPackageArchive(archivePath, payloadDir)
 	if err != nil {
-		return result, fmt.Errorf("failed to extract package archive: %w", err)
+		return result, "", fmt.Errorf("failed to extract package archive: %w", err)
 	}
 	if expected.ID != "" && meta.v2 && expected.ID != meta.id {
-		return result, fmt.Errorf("package id mismatch: archive declares %q, expected %q", meta.id, expected.ID)
+		return result, "", fmt.Errorf("package id mismatch: archive declares %q, expected %q", meta.id, expected.ID)
 	}
 	if expected.Version != "" && manifest.Version.String() != expected.Version {
-		return result, fmt.Errorf("package version mismatch: archive declares %q, expected %q", manifest.Version, expected.Version)
+		return result, "", fmt.Errorf("package version mismatch: archive declares %q, expected %q", manifest.Version, expected.Version)
 	}
 	platform := expected.Platform
 	if meta.v2 {
 		if platform != "" && meta.platform != platform {
-			return result, fmt.Errorf("package platform mismatch: archive declares %q, expected %q", meta.platform, platform)
+			return result, "", fmt.Errorf("package platform mismatch: archive declares %q, expected %q", meta.platform, platform)
 		}
 		platform = meta.platform
 	}
@@ -431,43 +710,44 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 		platform = PlatformTuple()
 	}
 	if err := validatePackageFileReferences(manifest, files, meta.v2); err != nil {
-		return result, err
+		return result, "", err
 	}
 	if _, exists := files[strings.ToLower(installReceiptName)]; exists {
-		return result, fmt.Errorf("package archive uses reserved file name %q", installReceiptName)
+		return result, "", fmt.Errorf("package archive uses reserved file name %q", installReceiptName)
 	}
 
 	manifest.DriverInfo.ID = runtimeID
 	manifest.DriverInfo.Source = "dbc"
 	installedHash := ""
+	installedLibrary := ""
 	if manifest.Files.Driver != "" {
 		manifest.DriverInfo.Driver.Shared.Set(platform, filepath.Join(finalDir, manifest.Files.Driver))
+		installedLibrary = manifest.Files.Driver
 		installedHash, err = hashFile(filepath.Join(payloadDir, manifest.Files.Driver))
 		if err != nil {
-			return result, fmt.Errorf("could not hash installed driver file: %w", err)
+			return result, "", fmt.Errorf("could not hash installed driver file: %w", err)
 		}
-	} else {
-		// Preserve explicit legacy runtime load paths. Older packages that omit
-		// Driver.shared rely on the package directory as their fallback.
-		if !hasRuntimeSharedPath(manifest.DriverInfo.Driver.Shared) {
-			manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
-		}
+	} else if !hasRuntimeSharedPath(manifest.DriverInfo.Driver.Shared) {
+		manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
 	}
 	receipt := InstallReceipt{
 		SourceType: expected.SourceType, SourceIdentity: expected.SourceIdentity,
 		DriverID: runtimeID, DriverVersion: manifest.Version.String(), Platform: platform,
-		ArchiveHash: archiveHash, ArchiveSize: archiveSize, InstalledLibraryHash: installedHash,
+		ArchiveHash: archiveHash, ArchiveSize: archiveSize, InstalledLibrary: installedLibrary,
+		InstalledLibraryHash: installedHash,
 	}
 	if err := writeInstallReceipt(payloadDir, receipt); err != nil {
-		return result, fmt.Errorf("could not write installation receipt: %w", err)
+		return result, "", fmt.Errorf("could not write installation receipt: %w", err)
 	}
 	if err := os.Chmod(payloadDir, 0o755); err != nil {
-		return result, fmt.Errorf("could not prepare package directory for publication: %w", err)
+		return result, "", fmt.Errorf("could not prepare package directory for publication: %w", err)
 	}
-	if err := publishDirectory(payloadDir, finalDir); err != nil {
-		return result, fmt.Errorf("could not publish package directory: %w", err)
+	if verify != nil {
+		if err := verify(payloadDir, manifest); err != nil {
+			return result, "", fmt.Errorf("package verification failed: %w", err)
+		}
 	}
-	return manifest, nil
+	return manifest, payloadDir, nil
 }
 
 func hasRuntimeSharedPath(shared driverMap) bool {
