@@ -138,6 +138,57 @@ func TestRemoveManifestSymlinkOnlyRemovesTargetRegistration(t *testing.T) {
 	assert.Equal(t, otherManifest, target)
 }
 
+func TestManifestSymlinkHandlesRelativeNestedLocations(t *testing.T) {
+	root := t.TempDir()
+	location := filepath.Join(root, "nested", "registered")
+	parent := filepath.Dir(location)
+	manifest := filepath.Join(location, "example.toml")
+	otherManifest := filepath.Join(root, "other", "example.toml")
+	require.NoError(t, os.MkdirAll(location, 0755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(otherManifest), 0755))
+	require.NoError(t, os.WriteFile(manifest, []byte("registered"), 0644))
+	require.NoError(t, os.WriteFile(otherManifest, []byte("other"), 0644))
+
+	workingDirectory, err := os.Getwd()
+	require.NoError(t, err)
+	relativeLocation, err := filepath.Rel(workingDirectory, location)
+	require.NoError(t, err)
+	relativeManifest := filepath.Join(relativeLocation, "example.toml")
+	link := filepath.Join(parent, "example.toml")
+
+	if err := os.Symlink(relativeManifest, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	removeManifestSymlink(relativeLocation, "example")
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("legacy relative symlink was not removed: %v", err)
+	}
+
+	createManifestSymlink(relativeLocation, "example", relativeManifest)
+	linkTarget, err := os.Readlink(link)
+	require.NoError(t, err)
+	if !filepath.IsAbs(linkTarget) {
+		linkTarget = filepath.Join(parent, linkTarget)
+	}
+	actualTarget, err := filepath.Abs(linkTarget)
+	require.NoError(t, err)
+	expectedTarget, err := filepath.Abs(manifest)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Clean(expectedTarget), filepath.Clean(actualTarget), "relative nested link should resolve to its manifest")
+	removeManifestSymlink(relativeLocation, "example")
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("new relative nested symlink was not removed: %v", err)
+	}
+
+	otherTarget, err := filepath.Rel(parent, otherManifest)
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(otherTarget, link))
+	removeManifestSymlink(relativeLocation, "example")
+	retainedTarget, err := os.Readlink(link)
+	require.NoError(t, err, "symlink to another registration should remain")
+	assert.Equal(t, otherTarget, retainedTarget)
+}
+
 func TestLoadDriverFromUnsupportedManifest(t *testing.T) {
 	prefix := t.TempDir()
 	driverName := "test_driver"
