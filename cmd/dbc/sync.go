@@ -633,7 +633,7 @@ func (s syncModel) checksumFailure(err error) (syncModel, tea.Cmd) {
 		})
 		return s, tea.Quit
 	}
-	return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
+	return s, tea.Quit
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {

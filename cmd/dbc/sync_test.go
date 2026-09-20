@@ -26,6 +26,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
@@ -739,4 +740,39 @@ func TestSyncJSONPostInstallChecksumMismatchReportsStructuredError(t *testing.T)
 	if response.Message != message {
 		t.Fatalf("error message = %q, want %q", response.Message, message)
 	}
+}
+
+type syncInjectedMessageModel struct {
+	model   syncModel
+	message tea.Msg
+}
+
+func (m syncInjectedMessageModel) Init() tea.Cmd {
+	return func() tea.Msg { return m.message }
+}
+
+func (m syncInjectedMessageModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return m.model.Update(msg)
+}
+
+func (m syncInjectedMessageModel) View() tea.View {
+	return m.model.View()
+}
+
+func (suite *SubcommandTestSuite) TestSyncPlainPostInstallChecksumMismatchUsesSingleStandardError() {
+	libraryPath := filepath.Join(suite.tempdir, "driver.so")
+	suite.Require().NoError(os.WriteFile(libraryPath, []byte("installed library"), 0600))
+	info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
+	info.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
+	const message = "installed library checksum does not match validated package"
+	model := syncInjectedMessageModel{
+		model: syncModel{installItems: []installItem{{
+			Driver:               dbc.Driver{Path: "example"},
+			InstalledLibraryHash: strings.Repeat("0", 64),
+		}}},
+		message: installedDrvMsg{info: info, item: installItem{InstalledLibraryHash: strings.Repeat("0", 64)}},
+	}
+	output := suite.runCmdErr(model)
+	suite.Equal("\nError: "+message, output)
+	suite.Equal(1, strings.Count(output, message))
 }
