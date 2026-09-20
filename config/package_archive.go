@@ -158,6 +158,7 @@ func decodePackageManifest(data []byte) (packageManifest, error) {
 
 		return packageManifest{
 			manifest: Manifest{
+				PackageVersion: 2,
 				DriverInfo: DriverInfo{
 					ID:      wire.ID,
 					Name:    wire.Name,
@@ -240,10 +241,6 @@ func decodeDriverShared(value any, required bool) (driverMap, error) {
 	return result, nil
 }
 
-func hasRuntimeSharedPath(shared driverMap) bool {
-	return shared.defaultPath != "" || len(shared.platformMap) != 0
-}
-
 // InstallPackageArchive verifies and installs an already-downloaded package.
 // The expected metadata must describe the resolution that selected the
 // archive. The archive remains open for the caller.
@@ -284,6 +281,84 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 		return fmt.Errorf("invalid expected archive hash: %w", err)
 	}
 	return nil
+}
+
+// InspectPackageManifest decodes the archive's MANIFEST without installing
+// files. It is intended to classify legacy and versioned package wire formats
+// before choosing an install policy; the installer still validates the full
+// archive before publication. The archive remains open for the caller.
+func InspectPackageManifest(downloaded *os.File) (Manifest, error) {
+	if downloaded == nil {
+		return Manifest{}, errors.New("package archive is nil")
+	}
+	workDir, err := os.MkdirTemp("", "dbc-package-inspect-")
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not create package inspection directory: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+	archivePath := filepath.Join(workDir, "archive.tgz")
+	if _, _, err := snapshotArchive(downloaded, archivePath); err != nil {
+		return Manifest{}, fmt.Errorf("could not snapshot package archive: %w", err)
+	}
+	archive, err := os.Open(archivePath)
+	if err != nil {
+		return Manifest{}, err
+	}
+	defer archive.Close()
+	gz, err := gzip.NewReader(archive)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not create gzip reader: %w", err)
+	}
+	defer gz.Close()
+	reader := tar.NewReader(gz)
+	seen := make(map[string]string)
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return Manifest{}, errors.New("package archive has no MANIFEST")
+		}
+		if err != nil {
+			return Manifest{}, fmt.Errorf("error reading package archive: %w", err)
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			if header.Typeflag == tar.TypeDir {
+				return Manifest{}, fmt.Errorf("found a directory entry %q; driver archives must be flat", header.Name)
+			}
+			return Manifest{}, fmt.Errorf("archive entry %q is not a regular file", header.Name)
+		}
+		if err := validateFlatName(header.Name); err != nil {
+			return Manifest{}, fmt.Errorf("invalid archive entry %q: %w", header.Name, err)
+		}
+		folded := strings.ToLower(header.Name)
+		if previous, ok := seen[folded]; ok {
+			return Manifest{}, fmt.Errorf("archive entries %q and %q collide by name", previous, header.Name)
+		}
+		seen[folded] = header.Name
+		if strings.EqualFold(header.Name, "MANIFEST") && header.Name != "MANIFEST" {
+			return Manifest{}, errors.New("package manifest must be named exactly MANIFEST")
+		}
+		if header.Name != "MANIFEST" {
+			if _, err := io.Copy(io.Discard, reader); err != nil {
+				return Manifest{}, fmt.Errorf("could not skip package file %q: %w", header.Name, err)
+			}
+			continue
+		}
+		if header.Size < 0 || header.Size > 1<<20 {
+			return Manifest{}, errors.New("package manifest size is invalid or exceeds 1 MiB")
+		}
+		data, err := io.ReadAll(io.LimitReader(reader, (1<<20)+1))
+		if err != nil {
+			return Manifest{}, fmt.Errorf("could not read package manifest: %w", err)
+		}
+		if int64(len(data)) != header.Size {
+			return Manifest{}, errors.New("package manifest size does not match its tar header")
+		}
+		manifest, err := decodePackageManifest(data)
+		if err != nil {
+			return Manifest{}, err
+		}
+		return manifest.manifest, nil
+	}
 }
 
 func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata) (Manifest, error) {
@@ -371,9 +446,9 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 		if err != nil {
 			return result, fmt.Errorf("could not hash installed driver file: %w", err)
 		}
-	} else if !hasRuntimeSharedPath(manifest.DriverInfo.Driver.Shared) {
-		// Legacy manifest-only packages used the package directory as a
-		// removable sidecar while retaining Driver.shared as their runtime value.
+	} else {
+		// Legacy installs recorded the package directory for the current
+		// platform, while a string-form Driver.shared remains the runtime value.
 		manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
 	}
 	receipt := InstallReceipt{

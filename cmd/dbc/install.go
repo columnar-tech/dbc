@@ -112,7 +112,7 @@ func (c InstallCmd) GetModel() tea.Model {
 }
 
 func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || noVerify {
+	if m.PackageVersion == 2 || m.Files.Driver == "" || noVerify {
 		return nil
 	}
 
@@ -479,18 +479,74 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	}
 
 	return m, func() tea.Msg {
+		if downloaded == nil {
+			return errors.New("downloaded package archive is nil")
+		}
+		defer downloaded.Close()
+
 		if m.conflictingInfo.ID != "" {
 			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
 				return err
 			}
 		}
 
-		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded)
+		var (
+			manifest config.Manifest
+			err      error
+		)
+		if !m.isLocal {
+			expected, hasMetadata, metadataErr := expectedRegistryPackageMetadata(m.DriverPackage)
+			if metadataErr != nil {
+				return metadataErr
+			}
+			if hasMetadata {
+				manifest, err = config.InstallPackageArchive(m.cfg, downloaded, expected)
+			} else {
+				packageManifest, inspectErr := config.InspectPackageManifest(downloaded)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				if packageManifest.PackageVersion == 2 {
+					return errors.New("registry package v2 requires archive hash and size metadata")
+				}
+				manifest, err = config.InstallDriver(m.cfg, m.Driver, downloaded)
+			}
+		} else {
+			manifest, err = config.InstallDriver(m.cfg, m.Driver, downloaded)
+		}
 		if err != nil {
 			return err
 		}
 		return manifest
 	}
+}
+
+func expectedRegistryPackageMetadata(pkg dbc.PkgInfo) (config.ExpectedPackageMetadata, bool, error) {
+	hasHash := pkg.ArtifactHash != ""
+	hasSize := pkg.ArtifactSize != nil
+	if hasHash != hasSize {
+		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata must include both archive hash and size")
+	}
+	if !hasHash {
+		return config.ExpectedPackageMetadata{}, false, nil
+	}
+	if pkg.Version == nil {
+		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its version")
+	}
+	if strings.TrimSpace(pkg.PlatformTuple) == "" {
+		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its platform")
+	}
+	if pkg.Driver.Registry == nil || pkg.Driver.Registry.BaseURL == nil {
+		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its source identity")
+	}
+	if strings.TrimSpace(pkg.Driver.Path) == "" {
+		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its driver ID")
+	}
+	return config.ExpectedPackageMetadata{
+		ID: pkg.Driver.Path, Version: pkg.Version.String(), Platform: pkg.PlatformTuple,
+		SourceType: "registry", SourceIdentity: pkg.Driver.Registry.BaseURL.String(),
+		ArchiveHash: pkg.ArtifactHash, ArchiveSize: *pkg.ArtifactSize,
+	}, true, nil
 }
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

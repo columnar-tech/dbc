@@ -15,6 +15,12 @@
 package dbc_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +36,67 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func makeClientPackageV2Archive(t *testing.T, platform string) []byte {
+	t.Helper()
+	manifest := fmt.Sprintf(`package_version = 2
+id = "v2-driver"
+name = "V2 Driver"
+version = "1.2.3"
+platform = %q
+
+[Driver]
+entrypoint = "AdbcDriverV2Init"
+
+[Files]
+driver = "driver.so"
+`, platform)
+	var buffer bytes.Buffer
+	gz := gzip.NewWriter(&buffer)
+	tw := tar.NewWriter(gz)
+	for _, entry := range []struct {
+		name string
+		data []byte
+	}{{"MANIFEST", []byte(manifest)}, {"driver.so", []byte("v2 library")}} {
+		require.NoError(t, tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}))
+		_, err := tw.Write(entry.data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tw.Close())
+	require.NoError(t, gz.Close())
+	return buffer.Bytes()
+}
+
+func newV2InstallServer(t *testing.T, archive []byte, metadata string) *httptest.Server {
+	t.Helper()
+	digest := sha256.Sum256(archive)
+	index := fmt.Sprintf(`drivers:
+  - name: V2 Driver
+    path: v2-driver
+    pkginfo:
+      - version: v1.2.3
+        packages:
+          - platform: %s
+            url: package.tar.gz
+`, config.PlatformTuple())
+	if metadata == "complete" {
+		index += fmt.Sprintf("            hash: %q\n            size: %d\n", "sha256:"+hex.EncodeToString(digest[:]), len(archive))
+	} else if metadata == "hash-only" {
+		index += fmt.Sprintf("            hash: %q\n", "sha256:"+hex.EncodeToString(digest[:]))
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.yaml":
+			_, _ = w.Write([]byte(index))
+		case "/package.tar.gz":
+			_, _ = w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
 
 func newTestClientForServer(t *testing.T, serverURL string) *dbc.Client {
 	t.Helper()
@@ -131,6 +198,60 @@ func TestClientInstall(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nonexistent-driver")
 	})
+}
+
+func TestClientInstallPackageV2UsesRegistryMetadata(t *testing.T) {
+	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
+	srv := newV2InstallServer(t, archive, "complete")
+	c := newTestClientForServer(t, srv.URL)
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+
+	manifest, err := c.Install(t.Context(), cfg, "v2-driver")
+	require.NoError(t, err)
+	require.NotNil(t, manifest)
+	assert.Equal(t, 2, manifest.PackageVersion)
+
+	var receipt config.InstallReceipt
+	receiptBytes, err := os.ReadFile(filepath.Join(root, "v2-driver", "dbc-install-receipt.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(receiptBytes, &receipt))
+	assert.Equal(t, "registry", receipt.SourceType)
+	assert.Equal(t, srv.URL, receipt.SourceIdentity)
+	assert.NotEmpty(t, receipt.ArchiveHash)
+	assert.Positive(t, receipt.ArchiveSize)
+
+	runtimeManifest, err := os.ReadFile(filepath.Join(root, "v2-driver.toml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(runtimeManifest), "manifest_version = 1")
+	assert.NotContains(t, string(runtimeManifest), "package_version")
+}
+
+func TestClientInstallPackageV2WithoutRegistryMetadataIsRejected(t *testing.T) {
+	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
+	srv := newV2InstallServer(t, archive, "none")
+	c := newTestClientForServer(t, srv.URL)
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+
+	_, err := c.Install(t.Context(), cfg, "v2-driver")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry package v2 requires archive hash and size metadata")
+	assert.NoDirExists(t, filepath.Join(root, "v2-driver"))
+	assert.NoFileExists(t, filepath.Join(root, "v2-driver.toml"))
+}
+
+func TestClientInstallRejectsPartialRegistryArchiveMetadata(t *testing.T) {
+	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
+	srv := newV2InstallServer(t, archive, "hash-only")
+	c := newTestClientForServer(t, srv.URL)
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+
+	_, err := c.Install(t.Context(), cfg, "v2-driver")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "registry package metadata must include both archive hash and size")
+	assert.NoDirExists(t, filepath.Join(root, "v2-driver"))
 }
 
 func TestClientUninstall(t *testing.T) {

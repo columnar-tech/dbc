@@ -32,6 +32,10 @@ const currentManifestVersion = 1
 type Manifest struct {
 	DriverInfo
 
+	// PackageVersion is the parsed package wire version. It is in-memory
+	// metadata only; runtime ADBC manifests continue to use ManifestVersion.
+	PackageVersion int
+
 	Files struct {
 		Driver    string `toml:"driver,omitempty"`
 		Signature string `toml:"signature,omitempty"`

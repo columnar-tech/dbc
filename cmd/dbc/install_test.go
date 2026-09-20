@@ -16,14 +16,20 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -94,8 +100,9 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir,
 		suite.runCmd(m))
 
-	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
-		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+	suite.Equal([]string{"test-driver-1.1/dbc-install-receipt.json",
+		"test-driver-1.1/test-driver-1-not-valid.so", "test-driver-1.1/test-driver-1-not-valid.so.sig",
+		"test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
@@ -483,7 +490,149 @@ func (suite *SubcommandTestSuite) TestInstallDriverWithSubdirectories() {
 	out := suite.runCmdErr(m)
 
 	// and return an error with this
-	suite.Contains(out, "driver archives shouldn't contain subdirectories")
+	suite.Contains(out, "driver archives must be flat")
+}
+
+func packageV2ArchiveForInstall(t *testing.T, id, version, platform string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gz := gzip.NewWriter(&buffer)
+	tw := tar.NewWriter(gz)
+	manifest := fmt.Sprintf(`package_version = 2
+id = %q
+name = "Example Driver"
+version = %q
+platform = %q
+
+[Driver]
+entrypoint = "AdbcDriverExampleInit"
+
+[Files]
+driver = "driver.so"
+`, id, version, platform)
+	for _, entry := range []struct {
+		name string
+		data []byte
+	}{{"MANIFEST", []byte(manifest)}, {"driver.so", []byte("driver library")}} {
+		if err := tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(entry.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func openInstallArchive(t *testing.T, data []byte) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "package-*.tar.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
+func TestStartInstallingRegistryPackageV2RequiresAndUsesMetadata(t *testing.T) {
+	archive := packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())
+	digest := sha256.Sum256(archive)
+	size := int64(len(archive))
+	baseURL, err := url.Parse("https://registry.example.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	model := progressiveInstallModel{
+		Driver: "example",
+		cfg:    config.Config{Level: config.ConfigEnv, Location: root},
+		DriverPackage: dbc.PkgInfo{
+			Driver:        dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: baseURL}},
+			Version:       semver.MustParse("1.2.3"),
+			PlatformTuple: config.PlatformTuple(),
+			ArtifactHash:  "sha256:" + hex.EncodeToString(digest[:]),
+			ArtifactSize:  &size,
+		},
+	}
+	_, install := model.startInstalling(openInstallArchive(t, archive))
+	message := install()
+	manifest, ok := message.(config.Manifest)
+	if !ok {
+		t.Fatalf("startInstalling returned %T, want config.Manifest", message)
+	}
+	if manifest.PackageVersion != 2 {
+		t.Fatalf("package marker = %d, want 2", manifest.PackageVersion)
+	}
+	if err := verifySignature(manifest, false); err != nil {
+		t.Fatalf("package v2 must not require legacy PGP signature: %v", err)
+	}
+	var receipt config.InstallReceipt
+	receiptData, err := os.ReadFile(filepath.Join(root, "example", "dbc-install-receipt.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(receiptData, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.SourceType != "registry" || receipt.SourceIdentity != baseURL.String() {
+		t.Fatalf("receipt source = %q %q, want registry %q", receipt.SourceType, receipt.SourceIdentity, baseURL)
+	}
+	if receipt.ArchiveHash != "sha256:"+hex.EncodeToString(digest[:]) || receipt.ArchiveSize != size {
+		t.Fatalf("receipt archive metadata = %q/%d, want %q/%d", receipt.ArchiveHash, receipt.ArchiveSize, "sha256:"+hex.EncodeToString(digest[:]), size)
+	}
+}
+
+func TestStartInstallingRegistryV2WithoutArchiveMetadataIsRejected(t *testing.T) {
+	archive := packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())
+	root := t.TempDir()
+	model := progressiveInstallModel{
+		Driver: "example",
+		cfg:    config.Config{Level: config.ConfigEnv, Location: root},
+		DriverPackage: dbc.PkgInfo{
+			Driver:        dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: must(url.Parse("https://registry.example.test"))}},
+			Version:       semver.MustParse("1.2.3"),
+			PlatformTuple: config.PlatformTuple(),
+		},
+	}
+	_, install := model.startInstalling(openInstallArchive(t, archive))
+	message := install()
+	installErr, ok := message.(error)
+	if !ok || !strings.Contains(installErr.Error(), "requires archive hash and size metadata") {
+		t.Fatalf("startInstalling returned %v, want missing metadata error", message)
+	}
+	if _, err := os.Stat(filepath.Join(root, "example")); !os.IsNotExist(err) {
+		t.Fatalf("package was published despite missing registry metadata: stat error = %v", err)
+	}
+}
+
+func TestStartInstallingRejectsPartialRegistryArchiveMetadata(t *testing.T) {
+	model := progressiveInstallModel{
+		Driver: "example",
+		DriverPackage: dbc.PkgInfo{
+			Driver:        dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: must(url.Parse("https://registry.example.test"))}},
+			Version:       semver.MustParse("1.2.3"),
+			PlatformTuple: config.PlatformTuple(),
+			ArtifactHash:  "sha256:" + strings.Repeat("0", 64),
+		},
+		cfg: config.Config{Level: config.ConfigEnv, Location: t.TempDir()},
+	}
+	_, install := model.startInstalling(openInstallArchive(t, packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())))
+	message := install()
+	installErr, ok := message.(error)
+	if !ok || !strings.Contains(installErr.Error(), "must include both archive hash and size") {
+		t.Fatalf("startInstalling returned %v, want partial metadata error", message)
+	}
 }
 
 func (suite *SubcommandTestSuite) TestInstallJSON() {

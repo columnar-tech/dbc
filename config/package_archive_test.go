@@ -137,9 +137,24 @@ func TestPackageArchiveManifestVersions(t *testing.T) {
 		manifest, err := config.InflateTarball(f, t.TempDir())
 		require.NoError(t, err)
 		assert.Equal(t, "example", manifest.ID)
+		assert.Equal(t, 2, manifest.PackageVersion)
 		assert.Equal(t, "AdbcDriverExampleInit", manifest.Driver.Entrypoint)
 		assert.Equal(t, "libexample.so", manifest.Files.Driver)
 		assert.Empty(t, manifest.Driver.Shared.Get("linux_amd64"))
+
+		inspected, err := config.InspectPackageManifest(openPackageArchive(t, data))
+		require.NoError(t, err)
+		assert.Equal(t, 2, inspected.PackageVersion)
+	})
+
+	t.Run("legacy package remains distinguishable from v2", func(t *testing.T) {
+		archivePath := filepath.Join("..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz")
+		f, err := os.Open(archivePath)
+		require.NoError(t, err)
+		defer f.Close()
+		manifest, err := config.InspectPackageManifest(f)
+		require.NoError(t, err)
+		assert.Zero(t, manifest.PackageVersion)
 	})
 
 	t.Run("unknown discriminator does not fall back to legacy", func(t *testing.T) {
