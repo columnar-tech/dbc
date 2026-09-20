@@ -15,6 +15,7 @@
 package fslock_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -120,6 +121,130 @@ func TestAcquireTimeout(t *testing.T) {
 	// Verify the error type is ErrLockContended
 	if !errors.Is(err, fslock.ErrLockContended) {
 		t.Fatalf("timeout error must wrap ErrLockContended, got: %v", err)
+	}
+}
+
+func TestAcquireContextCanceledWhileContended(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	held, err := fslock.Acquire(path, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer held.Release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := fslock.AcquireContext(ctx, path)
+		done <- err
+	}()
+
+	start := time.Now()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("AcquireContext error = %v, want context.Canceled", err)
+		}
+		if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+			t.Fatalf("AcquireContext took %s to observe cancellation", elapsed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AcquireContext did not return after cancellation")
+	}
+}
+
+func TestAcquireContextPreCanceledDoesNotCreateLockFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := fslock.AcquireContext(ctx, path)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("AcquireContext error = %v, want context.Canceled", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-canceled AcquireContext left a lock file: stat error = %v", err)
+	}
+}
+
+func TestAcquireContextPreDeadlineDoesNotCreateLockFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	_, err := fslock.AcquireContext(ctx, path)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("AcquireContext error = %v, want context.DeadlineExceeded", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired AcquireContext left a lock file: stat error = %v", err)
+	}
+}
+
+func TestAcquireZeroTimeoutStillTriesOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	lock, err := fslock.Acquire(path, 0)
+	if err != nil {
+		t.Fatalf("Acquire with zero timeout: %v", err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+}
+
+func TestAcquireContextDeadlineWhileContended(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	held, err := fslock.Acquire(path, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer held.Release()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err = fslock.AcquireContext(ctx, path)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("AcquireContext error = %v, want context.DeadlineExceeded", err)
+	}
+}
+
+func TestAcquireContextAfterRelease(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	held, err := fslock.Acquire(path, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	done := make(chan struct {
+		lock fslock.Lock
+		err  error
+	}, 1)
+	go func() {
+		lock, err := fslock.AcquireContext(ctx, path)
+		done <- struct {
+			lock fslock.Lock
+			err  error
+		}{lock: lock, err: err}
+	}()
+
+	time.Sleep(20 * time.Millisecond)
+	if err := held.Release(); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("AcquireContext: %v", result.err)
+		}
+		if err := result.lock.Release(); err != nil {
+			t.Fatalf("context lock Release: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AcquireContext did not acquire after the prior lock was released")
 	}
 }
 

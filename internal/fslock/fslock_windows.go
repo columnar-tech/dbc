@@ -17,37 +17,41 @@
 package fslock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
-	"time"
 
 	"golang.org/x/sys/windows"
 )
 
-// Acquire acquires an exclusive advisory lock on the file at path, retrying
-// until timeout elapses. Returns an error if the lock cannot be acquired.
-func Acquire(path string, timeout time.Duration) (Lock, error) {
+func acquireContext(ctx context.Context, path string, allowInitialAttempt bool) (Lock, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
 	}
 
 	ol := new(windows.Overlapped)
-	deadline := time.Now().Add(timeout)
+	firstAttempt := true
 	for {
+		if !(firstAttempt && allowInitialAttempt) {
+			if err := ctx.Err(); err != nil {
+				f.Close()
+				return Lock{}, err
+			}
+		}
+		firstAttempt = false
+
 		err = windows.LockFileEx(windows.Handle(f.Fd()),
 			windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 			0, 1, 0, ol)
 		if err == nil {
 			return Lock{f: f, path: path}, nil
 		}
-		if time.Now().After(deadline) {
+		if err := waitForRetry(ctx); err != nil {
 			f.Close()
-			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
-				path, timeout, err, ErrLockContended)
+			return Lock{}, err
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 
