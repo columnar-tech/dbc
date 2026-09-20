@@ -189,6 +189,41 @@ func TestManifestSymlinkHandlesRelativeNestedLocations(t *testing.T) {
 	assert.Equal(t, otherTarget, retainedTarget)
 }
 
+func TestRemoveManifestSymlinkDoesNotResolveForeignTargetFromWorkingDirectory(t *testing.T) {
+	root := t.TempDir()
+	location := filepath.Join(root, "nested", "registered")
+	manifest := filepath.Join(location, "example.toml")
+	parent := filepath.Dir(location)
+	require.NoError(t, os.MkdirAll(location, 0755))
+	require.NoError(t, os.WriteFile(manifest, []byte("registered"), 0644))
+
+	workingDirectory, err := os.Getwd()
+	require.NoError(t, err)
+	relativeLocation, err := filepath.Rel(workingDirectory, location)
+	require.NoError(t, err)
+	legacyManifestPath := filepath.Join(relativeLocation, "example.toml")
+	foreignTarget := relativeLocation + string(filepath.Separator) + "." + string(filepath.Separator) + "example.toml"
+	require.NotEqual(t, legacyManifestPath, foreignTarget)
+
+	expected, err := filepath.Abs(manifest)
+	require.NoError(t, err)
+	fromWorkingDirectory, err := filepath.Abs(foreignTarget)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Clean(expected), filepath.Clean(fromWorkingDirectory))
+	fromParent, err := filepath.Abs(filepath.Join(parent, foreignTarget))
+	require.NoError(t, err)
+	assert.NotEqual(t, filepath.Clean(expected), filepath.Clean(fromParent))
+
+	link := filepath.Join(parent, "example.toml")
+	if err := os.Symlink(foreignTarget, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	removeManifestSymlink(relativeLocation, "example")
+	target, err := os.Readlink(link)
+	require.NoError(t, err, "foreign relative symlink should be retained")
+	assert.Equal(t, foreignTarget, target)
+}
+
 func TestLoadDriverFromUnsupportedManifest(t *testing.T) {
 	prefix := t.TempDir()
 	driverName := "test_driver"

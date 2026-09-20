@@ -218,14 +218,17 @@ func removeManifestSymlink(filePath, driverID string) {
 		actual, err := filepath.Abs(candidate)
 		return err == nil && filepath.Clean(actual) == filepath.Clean(expected)
 	}
-	isTargetRegistration := targetsExpectedManifest(target)
-	if !filepath.IsAbs(target) {
+	isTargetRegistration := false
+	if filepath.IsAbs(target) {
+		isTargetRegistration = targetsExpectedManifest(target)
+	} else {
 		// New links are relative to their parent directory. Older links may
-		// contain the original relative manifestPath, interpreted from the
-		// process working directory when the link was created.
-		isTargetRegistration = isTargetRegistration || targetsExpectedManifest(filepath.Join(parentDir, target))
+		// contain the original relative manifestPath. Only the exact original
+		// value is accepted for that legacy form; do not reinterpret arbitrary
+		// relative targets from the process working directory.
+		isTargetRegistration = targetsExpectedManifest(filepath.Join(parentDir, target))
 		legacyManifestPath := filepath.Join(filePath, safeDriverID+".toml")
-		isTargetRegistration = isTargetRegistration || filepath.Clean(target) == filepath.Clean(legacyManifestPath)
+		isTargetRegistration = isTargetRegistration || target == legacyManifestPath
 	}
 	if isTargetRegistration {
 		_ = os.Remove(symlink)
