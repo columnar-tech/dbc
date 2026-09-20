@@ -605,10 +605,11 @@ func TestInstallSignatureFailurePreservesExistingInstallation(t *testing.T) {
 	}
 	_, install := model.startInstalling(openInstallArchive(t, badArchive))
 	message := install()
-	installErr, ok := message.(error)
+	verificationFailure, ok := message.(installVerificationFailedMsg)
 	if !ok {
-		t.Fatalf("startInstalling returned %T, want signature error", message)
+		t.Fatalf("startInstalling returned %T, want installVerificationFailedMsg", message)
 	}
+	installErr := verificationFailure.err
 	if !strings.Contains(installErr.Error(), "signature file 'test-driver-1-not-valid.so.sig' for driver is missing") {
 		t.Fatalf("unexpected install error: %v", installErr)
 	}
