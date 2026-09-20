@@ -22,12 +22,31 @@ package packslipverify
 import (
 	"context"
 	"embed"
+	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/sigstore/sigstore-go/pkg/root"
 )
 
 //go:embed testdata/*.json
 var bundleFixture embed.FS
+
+func readFixtureTrustedRoot(t *testing.T) *root.TrustedRoot {
+	t.Helper()
+	trustedRootJSON, err := bundleFixture.ReadFile("testdata/trusted-root-public-good.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedRoot, err := root.NewTrustedRootFromJSON(trustedRootJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return trustedRoot
+}
 
 func newFixtureVerifier(t *testing.T) PackslipVerifier {
 	t.Helper()
@@ -40,6 +59,150 @@ func newFixtureVerifier(t *testing.T) PackslipVerifier {
 		t.Fatal(err)
 	}
 	return verifier
+}
+
+func TestTrustedRootWaitHonorsCallerCancellationAndReusesSuccess(t *testing.T) {
+	trustedRoot := readFixtureTrustedRoot(t)
+	loaderStarted := make(chan struct{})
+	allowLoadToFinish := make(chan struct{})
+	waiterStarted := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(allowLoadToFinish) })
+	var calls atomic.Int32
+
+	verifier := &nativeVerifier{
+		rootLoader: func(ctx context.Context) (*root.TrustedRoot, error) {
+			calls.Add(1)
+			close(loaderStarted)
+			select {
+			case <-allowLoadToFinish:
+				return trustedRoot, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		},
+		rootWaitHook: func() { close(waiterStarted) },
+	}
+	type rootResult struct {
+		root *root.TrustedRoot
+		err  error
+	}
+	firstResult := make(chan rootResult, 1)
+	go func() {
+		got, err := verifier.trustedRoot(context.Background())
+		firstResult <- rootResult{root: got, err: err}
+	}()
+	select {
+	case <-loaderStarted:
+	case <-time.After(time.Second):
+		t.Fatal("root loader did not start")
+	}
+
+	waiterCtx, cancelWaiter := context.WithCancel(context.Background())
+	defer cancelWaiter()
+	waiterResult := make(chan rootResult, 1)
+	go func() {
+		got, err := verifier.trustedRoot(waiterCtx)
+		waiterResult <- rootResult{root: got, err: err}
+	}()
+	select {
+	case <-waiterStarted:
+	case <-time.After(time.Second):
+		t.Fatal("second caller did not join the in-flight root load")
+	}
+
+	cancelWaiter()
+	select {
+	case result := <-waiterResult:
+		if !errors.Is(result.err, context.Canceled) {
+			t.Fatalf("second caller error = %v, want context cancellation", result.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second caller did not return promptly after cancellation")
+	}
+
+	releaseOnce.Do(func() { close(allowLoadToFinish) })
+	first := <-firstResult
+	if first.err != nil || first.root != trustedRoot {
+		t.Fatalf("first caller got root %p, error %v; want shared root %p", first.root, first.err, trustedRoot)
+	}
+	reused, err := verifier.trustedRoot(context.Background())
+	if err != nil || reused != trustedRoot {
+		t.Fatalf("cached root = %p, error %v; want shared root %p", reused, err, trustedRoot)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("root loader calls = %d, want 1", got)
+	}
+}
+
+func TestTrustedRootFailureIsSharedThenRetried(t *testing.T) {
+	trustedRoot := readFixtureTrustedRoot(t)
+	temporaryFailure := errors.New("temporary trust root fetch failure")
+	loaderStarted := make(chan struct{})
+	allowFailure := make(chan struct{})
+	waiterStarted := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(allowFailure) })
+	var calls atomic.Int32
+
+	verifier := &nativeVerifier{
+		rootLoader: func(context.Context) (*root.TrustedRoot, error) {
+			if calls.Add(1) == 1 {
+				close(loaderStarted)
+				<-allowFailure
+				return nil, temporaryFailure
+			}
+			return trustedRoot, nil
+		},
+		rootWaitHook: func() { close(waiterStarted) },
+	}
+	type rootResult struct {
+		root *root.TrustedRoot
+		err  error
+	}
+	firstResult := make(chan rootResult, 1)
+	go func() {
+		got, err := verifier.trustedRoot(context.Background())
+		firstResult <- rootResult{root: got, err: err}
+	}()
+	select {
+	case <-loaderStarted:
+	case <-time.After(time.Second):
+		t.Fatal("root loader did not start")
+	}
+	waiterResult := make(chan rootResult, 1)
+	go func() {
+		got, err := verifier.trustedRoot(context.Background())
+		waiterResult <- rootResult{root: got, err: err}
+	}()
+	select {
+	case <-waiterStarted:
+	case <-time.After(time.Second):
+		t.Fatal("second caller did not join the in-flight root load")
+	}
+
+	releaseOnce.Do(func() { close(allowFailure) })
+	for name, resultChannel := range map[string]<-chan rootResult{
+		"initializer": firstResult,
+		"waiter":      waiterResult,
+	} {
+		select {
+		case result := <-resultChannel:
+			if result.root != nil || !errors.Is(result.err, temporaryFailure) {
+				t.Errorf("%s got root %p, error %v; want the shared initialization error", name, result.root, result.err)
+			}
+		case <-time.After(time.Second):
+			t.Errorf("%s did not receive the initialization failure", name)
+		}
+	}
+
+	retried, err := verifier.trustedRoot(context.Background())
+	if err != nil || retried != trustedRoot {
+		t.Fatalf("retry got root %p, error %v; want root %p", retried, err, trustedRoot)
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("root loader calls = %d, want 2 after one retry", got)
+	}
 }
 
 const (

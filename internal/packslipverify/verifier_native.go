@@ -36,9 +36,20 @@ import (
 type nativeVerifier struct {
 	config Config
 
-	rootMu sync.Mutex
-	root   *root.TrustedRoot
+	rootMu       sync.Mutex
+	root         *root.TrustedRoot
+	rootLoad     *trustedRootLoad
+	rootLoader   trustedRootLoader // Optional loader seam for native tests.
+	rootWaitHook func()            // Optional synchronization hook for native tests.
 }
+
+type trustedRootLoad struct {
+	done chan struct{}
+	root *root.TrustedRoot
+	err  error
+}
+
+type trustedRootLoader func(context.Context) (*root.TrustedRoot, error)
 
 // New returns a native Sigstore bundle verifier.
 func New(config Config) (PackslipVerifier, error) {
@@ -124,16 +135,79 @@ func (v *nativeVerifier) Verify(ctx context.Context, bundleJSON []byte, identity
 	return verified, nil
 }
 
+// trustedRoot shares each in-flight load with its current waiters. A successful
+// result is cached; a failed attempt is shared with its waiters and then
+// discarded so a later caller can retry.
 func (v *nativeVerifier) trustedRoot(ctx context.Context) (*root.TrustedRoot, error) {
-	v.rootMu.Lock()
-	defer v.rootMu.Unlock()
-	if v.root != nil {
-		return v.root, nil
-	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
+	v.rootMu.Lock()
+	if err := ctx.Err(); err != nil {
+		v.rootMu.Unlock()
+		return nil, err
+	}
+	if v.root != nil {
+		trustedRoot := v.root
+		v.rootMu.Unlock()
+		return trustedRoot, nil
+	}
+	if currentLoad := v.rootLoad; currentLoad != nil {
+		v.rootMu.Unlock()
+		if v.rootWaitHook != nil {
+			v.rootWaitHook()
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-currentLoad.done:
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return currentLoad.root, currentLoad.err
+		}
+	}
+
+	currentLoad := &trustedRootLoad{done: make(chan struct{})}
+	v.rootLoad = currentLoad
+	loader := v.rootLoader
+	v.rootMu.Unlock()
+
+	if loader == nil {
+		loader = v.loadTrustedRoot
+	}
+	trustedRoot, err := loader(ctx)
+	if err == nil {
+		switch {
+		case trustedRoot == nil:
+			err = errors.New("trusted root loader returned no root")
+		case ctx.Err() != nil:
+			trustedRoot = nil
+			err = ctx.Err()
+		}
+	}
+
+	v.rootMu.Lock()
+	currentLoad.root = trustedRoot
+	currentLoad.err = err
+	if err == nil {
+		v.root = trustedRoot
+	}
+	if v.rootLoad == currentLoad {
+		// Failed attempts are shared with their current waiters, then forgotten
+		// so a later Verify call can retry transient TUF/network failures.
+		v.rootLoad = nil
+	}
+	close(currentLoad.done)
+	v.rootMu.Unlock()
+	return trustedRoot, err
+}
+
+func (v *nativeVerifier) loadTrustedRoot(ctx context.Context) (*root.TrustedRoot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	var trustedRoot *root.TrustedRoot
 	var err error
 	if len(v.config.TrustedRootJSON) > 0 {
@@ -158,8 +232,7 @@ func (v *nativeVerifier) trustedRoot(ctx context.Context) (*root.TrustedRoot, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	v.root = trustedRoot
-	return v.root, nil
+	return trustedRoot, nil
 }
 
 func validateIdentity(identity IdentityPolicy) error {
