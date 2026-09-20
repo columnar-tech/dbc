@@ -267,6 +267,25 @@ func TestResolverSelectsOneCanonicalWinnerPerTarget(t *testing.T) {
 	require.NoError(t, resolution.ValidateResolvedRelease(resolved))
 }
 
+func TestResolverAcceptsOverlappingWildcardAndConcreteSelectors(t *testing.T) {
+	artifact := func(name, osName, arch, url string) releaseArtifact {
+		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Format: ptr("tar.gz"), Size: ptr(uint64(10)), URL: ptr(url)}
+	}
+	release := validRelease("1.0.0",
+		artifact("linux-any-arch.tar.gz", "linux", "", "https://downloads.example/linux-any-arch.tar.gz"),
+		artifact("any-os-amd64.tar.gz", "", "amd64", "https://downloads.example/any-os-amd64.tar.gz"),
+		artifact("linux-amd64.tar.gz", "linux", "amd64", "https://downloads.example/linux-amd64.tar.gz"),
+	)
+	bundle := makeBundle(setSignerAndTag(t, release, testProject, "1.0.0", fakeSigner, "v1.0.0"))
+	_, resolver, _ := newResolverTestServer(t, testProject, "v1.0.0", nil, bundle, "")
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: "1.0.0"})
+	require.NoError(t, err)
+	require.Len(t, resolved.Artifacts, 1)
+	require.Equal(t, Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, resolved.Artifacts[0].Target)
+	require.Equal(t, "https://downloads.example/linux-amd64.tar.gz", resolved.Artifacts[0].Location.Value,
+		"resolution chooses the most specific artifact for the derived Linux amd64 target")
+}
+
 func TestResolverAllowsOneSelectedArtifactToWinForSeveralTargets(t *testing.T) {
 	artifact := func(name, osName, arch, libc, format, url string) releaseArtifact {
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), LibC: optionalToken(libc), Format: ptr(format), Size: ptr(uint64(10)), URL: ptr(url)}
@@ -524,8 +543,8 @@ func TestResolverRejectsArtifactSelectionAmbiguityAndMalformedHashOrSize(t *test
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Format: ptr(format), Size: size, URL: ptr("https://downloads.example/" + name)}
 	}
 	ambiguousPayload := validRelease("1.0.0",
-		artifact("os.tar.gz", "linux", "", "tar.gz", ptr(uint64(1))),
-		artifact("arch.tar.gz", "", "x86_64", "tar.gz", ptr(uint64(1))),
+		artifact("linux-amd64.tar.gz", "linux", "amd64", "tar.gz", ptr(uint64(1))),
+		releaseArtifact{Name: "linux-gnu.tar.gz", OS: ptr("linux"), LibC: ptr("gnu"), Format: ptr("tar.gz"), Size: ptr(uint64(1)), URL: ptr("https://downloads.example/linux-gnu.tar.gz")},
 	)
 	releaseBundle := makeBundle(setSignerAndTag(t, ambiguousPayload, testProject, "1.0.0", fakeSigner, "v1.0.0"))
 	_, resolver, _ := newResolverTestServer(t, testProject, "v1.0.0", nil, releaseBundle, "https://downloads.example/driver.tar.gz")

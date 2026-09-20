@@ -870,56 +870,20 @@ func supportedArchiveFormat(format string) bool {
 	return format == "tar.gz" || format == "tgz"
 }
 
-// validateSupportedArtifactSet checks ambiguity across the entire signed
-// release before concrete targets are finalized.
+// validateSupportedArtifactSet ensures the release inventory contains at
+// least one archive format supported by dbc. Selection ambiguity is checked
+// only after concrete targets are derived.
 func validateSupportedArtifactSet(release *parsedRelease) error {
 	count := 0
 	for i := range release.predicate.Artifacts {
-		left := &release.predicate.Artifacts[i]
-		if !supportedArchiveFormat(stringValue(left.Format)) {
-			continue
-		}
-		count++
-		for j := i + 1; j < len(release.predicate.Artifacts); j++ {
-			right := &release.predicate.Artifacts[j]
-			if !supportedArchiveFormat(stringValue(right.Format)) || stringValue(left.Format) != stringValue(right.Format) {
-				continue
-			}
-			if artifactSpecificity(left) == artifactSpecificity(right) && selectorVariantsOverlap(left, right) && selectorsOverlap(left, right) {
-				return fmt.Errorf("%w: %q and %q", ErrAmbiguousArtifact, left.Name, right.Name)
-			}
+		if supportedArchiveFormat(stringValue(release.predicate.Artifacts[i].Format)) {
+			count++
 		}
 	}
 	if count == 0 {
 		return errors.New("packslip release has no supported tar.gz or tgz artifacts")
 	}
 	return nil
-}
-
-func artifactSpecificity(artifact *releaseArtifact) int {
-	specificity := 0
-	for _, selector := range []*string{artifact.OS, artifact.Arch, artifact.LibC} {
-		if selector != nil {
-			specificity++
-		}
-	}
-	return specificity
-}
-
-func selectorVariantsOverlap(left, right *releaseArtifact) bool {
-	if left.Variant == nil || right.Variant == nil {
-		return left.Variant == nil && right.Variant == nil
-	}
-	return *left.Variant == *right.Variant
-}
-
-func selectorsOverlap(left, right *releaseArtifact) bool {
-	for _, pair := range [][2]*string{{left.OS, right.OS}, {left.Arch, right.Arch}, {left.LibC, right.LibC}} {
-		if pair[0] != nil && pair[1] != nil && *pair[0] != *pair[1] {
-			return false
-		}
-	}
-	return true
 }
 
 func convertSelectedArtifact(release *parsedRelease, artifact *releaseArtifact, assets []githubAsset, target Target) (resolution.Artifact, error) {

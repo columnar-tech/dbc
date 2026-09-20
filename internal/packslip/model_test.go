@@ -200,10 +200,10 @@ func TestParseReleaseRejectsExactSelectorDuplicatesButDefersOverlappingScopeTies
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/" + name)}
 	}
 	_, err := parseRelease(validRelease("1.0.0",
-		artifact("first.tar.gz", "linux", "amd64"),
+		artifact("first.tar.gz", "linux", "x86_64"),
 		artifact("second.tar.gz", "linux", "amd64"),
 	), testProject)
-	require.ErrorContains(t, err, "duplicate selectors")
+	require.ErrorContains(t, err, "duplicate selectors", "selector aliases are canonicalized before structural duplicate detection")
 
 	release, err := parseRelease(validRelease("1.0.0",
 		artifact("linux.tar.gz", "linux", ""),
@@ -212,6 +212,17 @@ func TestParseReleaseRejectsExactSelectorDuplicatesButDefersOverlappingScopeTies
 	require.NoError(t, err, "different overlapping selectors are valid statement data")
 	_, err = selectArtifact(release, Target{OS: "linux", Arch: "amd64"})
 	require.ErrorIs(t, err, ErrAmbiguousArtifact, "the tie is reported only for a matching host")
+
+	concreteTie, err := parseRelease(validRelease("1.0.0",
+		artifact("linux-amd64.tar.gz", "linux", "amd64"),
+		releaseArtifact{Name: "linux-gnu.tar.gz", OS: ptr("linux"), LibC: ptr("gnu"), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/linux-gnu.tar.gz")},
+	), testProject)
+	require.NoError(t, err)
+	targets, err := deriveConcreteTargets(concreteTie)
+	require.NoError(t, err)
+	require.Equal(t, []Target{{OS: "linux", Arch: "amd64", LibC: "gnu"}}, targets)
+	_, err = selectArtifact(concreteTie, targets[0])
+	require.ErrorIs(t, err, ErrAmbiguousArtifact, "ambiguity is reported for an actual derived target with tied highest-specificity candidates")
 }
 
 func optionalToken(value string) *string {
@@ -265,17 +276,30 @@ func TestWireDecoderIgnoresUnknownOptionalFieldsButRejectsMalformedJSON(t *testi
 	require.ErrorContains(t, err, "duplicate JSON field")
 }
 
-func TestSupportedArtifactAmbiguityIsRejectedForOtherPlatforms(t *testing.T) {
+func TestSupportedArtifactInventoryAllowsOverlappingSelectorsAndChoosesMostSpecific(t *testing.T) {
 	artifact := func(name, osName, arch string) releaseArtifact {
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/" + name)}
 	}
 	release, err := parseRelease(validRelease("1.0.0",
-		artifact("windows.tar.gz", "windows", ""),
-		artifact("arm64.tar.gz", "", "aarch64"),
-		artifact("linux-x64.tar.gz", "linux", "x86_64"),
+		artifact("linux-any-arch.tar.gz", "linux", ""),
+		artifact("any-os-amd64.tar.gz", "", "amd64"),
+		artifact("linux-amd64.tar.gz", "linux", "amd64"),
 	), testProject)
 	require.NoError(t, err)
-	require.ErrorIs(t, validateSupportedArtifactSet(release), ErrAmbiguousArtifact)
+	require.NoError(t, validateSupportedArtifactSet(release), "inventory validation does not reject pairwise overlap before concrete target derivation")
+	targets, err := deriveConcreteTargets(release)
+	require.NoError(t, err)
+	require.Equal(t, []Target{{OS: "linux", Arch: "amd64", LibC: "gnu"}}, targets)
+	selected, err := selectArtifact(release, targets[0])
+	require.NoError(t, err)
+	require.Equal(t, "linux-amd64.tar.gz", selected.Name, "the exact selector has higher specificity than linux/* and */amd64")
+}
+
+func TestSupportedArtifactInventoryRequiresAtLeastOneSupportedFormat(t *testing.T) {
+	unsupported := releaseArtifact{Name: "linux.tar.xz", OS: ptr("linux"), Arch: ptr("amd64"), Format: ptr("tar.xz"), Size: ptr(uint64(1)), URL: ptr("https://dl.example/linux.tar.xz")}
+	release, err := parseRelease(validRelease("1.0.0", unsupported), testProject)
+	require.NoError(t, err)
+	require.ErrorContains(t, validateSupportedArtifactSet(release), "no supported tar.gz or tgz artifacts")
 }
 
 func TestParseReleaseHasNoUnsignedFallback(t *testing.T) {
