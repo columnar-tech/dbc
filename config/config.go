@@ -15,8 +15,6 @@
 package config
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -224,93 +222,66 @@ func getEnvConfigDir() string {
 }
 
 func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {
-	var (
-		loc string
-		err error
-	)
-	if loc, err = EnsureLocation(cfg); err != nil {
-		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
+	if downloaded == nil {
+		return Manifest{}, errors.New("package archive is nil")
 	}
+	defer downloaded.Close()
 	base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(downloaded.Name()), ".tar.gz"), ".tgz")
-	finalDir := filepath.Join(loc, base)
-
-	if err := os.MkdirAll(finalDir, 0o755); err != nil {
-		return Manifest{}, fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
+	expected := ExpectedPackageMetadata{
+		ID: shortName, SourceType: "dbc", SourceIdentity: "legacy-install",
 	}
-
-	manifest, err := InflateTarball(downloaded, finalDir)
-	if err != nil {
-		return Manifest{}, fmt.Errorf("failed to extract tarball: %w", err)
-	}
-
-	driverPath := filepath.Join(finalDir, manifest.Files.Driver)
-
-	manifest.DriverInfo.ID = shortName
-	manifest.DriverInfo.Source = "dbc"
-	manifest.DriverInfo.Driver.Shared.Set(PlatformTuple(), driverPath)
-
-	return manifest, nil
+	return installPackageArchive(cfg, base, shortName, downloaded, expected)
 }
 
 // TODO: Unexport once we refactor sync.go. sync.go has it's own separate
 // installation routine which it probably shouldn't.
 func InflateTarball(f *os.File, outDir string) (Manifest, error) {
+	if f == nil {
+		return Manifest{}, errors.New("package archive is nil")
+	}
 	defer f.Close()
-	var m Manifest
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return m, fmt.Errorf("could not seek to start: %w", err)
-	}
-	rdr, err := gzip.NewReader(f)
+	info, err := os.Stat(outDir)
 	if err != nil {
-		return m, fmt.Errorf("could not create gzip reader: %w", err)
+		return Manifest{}, fmt.Errorf("could not access output directory %s: %w", outDir, err)
 	}
-	defer rdr.Close()
-
-	t := tar.NewReader(rdr)
-	for {
-		hdr, err := t.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			return m, fmt.Errorf("error reading tarball: %w", err)
-		}
-
-		// Return a helpful error if an entry is a directory. dbc doesn't support
-		// installing driver tarballs that contain directories.
-		if hdr.Typeflag == tar.TypeDir {
-			return m, fmt.Errorf("found a directory entry when trying to extract %s which isn't supported. driver archives shouldn't contain subdirectories", f.Name())
-		}
-
-		if hdr.Name != "MANIFEST" {
-			next, err := os.Create(filepath.Join(outDir, hdr.Name))
-			if err != nil {
-				return m, fmt.Errorf("could not create file %s: %w", hdr.Name, err)
-			}
-
-			if _, err = io.Copy(next, t); err != nil {
-				next.Close()
-				return m, fmt.Errorf("could not write file from tarball %s: %w", hdr.Name, err)
-			}
-			next.Close()
-		} else {
-			m, err = decodeManifest(t, "", false)
-			if err != nil {
-				return m, fmt.Errorf("could not decode manifest: %w", err)
-			}
-
-		}
+	if !info.IsDir() {
+		return Manifest{}, fmt.Errorf("output path %s is not a directory", outDir)
 	}
-
-	return m, nil
+	workDir, err := os.MkdirTemp(outDir, ".dbc-inflate-")
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not create private extraction staging directory: %w", err)
+	}
+	defer os.RemoveAll(workDir)
+	archivePath := filepath.Join(workDir, "archive.tgz")
+	if _, _, err := snapshotArchive(f, archivePath); err != nil {
+		return Manifest{}, fmt.Errorf("could not snapshot archive: %w", err)
+	}
+	payloadDir := filepath.Join(workDir, "payload")
+	if err := os.Mkdir(payloadDir, 0o700); err != nil {
+		return Manifest{}, fmt.Errorf("could not create private extraction directory: %w", err)
+	}
+	manifest, _, files, err := extractPackageArchive(archivePath, payloadDir)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("could not extract tarball: %w", err)
+	}
+	names := make([]string, 0, len(files))
+	for _, name := range files {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	if err := publishExtractedFiles(payloadDir, outDir, names); err != nil {
+		return Manifest{}, err
+	}
+	return manifest, nil
 }
 
 func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifest, error) {
-	var di tomlDriverInfo
+	var di runtimeManifestWire
 	if err := toml.NewDecoder(r).Decode(&di); err != nil {
 		return Manifest{}, fmt.Errorf("error decoding manifest: %w", err)
+	}
+	if di.PackageVersion != nil {
+		return Manifest{}, fmt.Errorf("%w: package manifest cannot be loaded as an ADBC runtime manifest", ErrInvalidManifest)
 	}
 
 	if di.ManifestVersion > currentManifestVersion {
@@ -326,6 +297,10 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 		return Manifest{}, fmt.Errorf("%w: version is required", ErrInvalidManifest)
 	}
 
+	shared, err := decodeDriverShared(di.Driver.Shared, requireShared)
+	if err != nil {
+		return Manifest{}, err
+	}
 	result := Manifest{
 		DriverInfo: DriverInfo{
 			ID:        driverName,
@@ -341,23 +316,7 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 	}
 
 	result.Driver.Entrypoint = di.Driver.Entrypoint
-	switch s := di.Driver.Shared.(type) {
-	case string:
-		result.Driver.Shared.defaultPath = s
-	case map[string]any:
-		result.Driver.Shared.platformMap = make(map[string]string)
-		for k, v := range s {
-			if strVal, ok := v.(string); ok {
-				result.Driver.Shared.platformMap[k] = strVal
-			} else {
-				return Manifest{}, fmt.Errorf("%w: invalid type for platform %s, expected string", ErrInvalidManifest, k)
-			}
-		}
-	default:
-		if requireShared {
-			return Manifest{}, fmt.Errorf("%w: invalid type for 'Driver.shared' in manifest, expected string or table", ErrInvalidManifest)
-		}
-	}
+	result.Driver.Shared = shared
 
 	return result, nil
 }

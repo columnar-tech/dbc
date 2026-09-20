@@ -115,7 +115,10 @@ func (d driverMap) String() string {
 	return sb.String()
 }
 
-type tomlDriverInfo struct {
+// runtimeManifestWire is the ADBC Driver Manager manifest format. Package
+// MANIFEST files use packageManifestV2Wire/legacyPackageManifestWire instead.
+type runtimeManifestWire struct {
+	PackageVersion  *int64          `toml:"package_version,omitempty"`
 	ManifestVersion int32           `toml:"manifest_version"`
 	Name            string          `toml:"name"`
 	Publisher       string          `toml:"publisher"`
@@ -210,7 +213,7 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
 	createManifestSymlink(location, driver.ID, manifestPath)
 
-	toEncode := tomlDriverInfo{
+	toEncode := runtimeManifestWire{
 		ManifestVersion: currentManifestVersion,
 		Name:            driver.Name,
 		Publisher:       driver.Publisher,
