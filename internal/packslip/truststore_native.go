@@ -193,8 +193,10 @@ func applyReleaseAcceptance(state *projectTrust, project string, candidate relea
 	if state.AttestedBy == "vendor" && candidate.Attested == "repackager" {
 		return fmt.Errorf("release attestation changed from vendor to repackager for %s", project)
 	}
-	for selector, wasPresent := range state.Provenance {
-		if wasPresent && !candidate.Provenance[selector] {
+	previousProvenance := canonicalizeProvenanceSelectors(state.Provenance)
+	candidateProvenance := canonicalizeProvenanceSelectors(candidate.Provenance)
+	for selector, wasPresent := range previousProvenance {
+		if wasPresent && !candidateProvenance[selector] {
 			return fmt.Errorf("release provenance disappeared for artifact selector %s", selector)
 		}
 	}
@@ -203,15 +205,58 @@ func applyReleaseAcceptance(state *projectTrust, project string, candidate relea
 	if state.AttestedBy == "" || candidate.Attested == "vendor" {
 		state.AttestedBy = candidate.Attested
 	}
-	if state.Provenance == nil {
-		state.Provenance = make(map[string]bool)
+	mergedProvenance := previousProvenance
+	if mergedProvenance == nil && candidateProvenance != nil {
+		mergedProvenance = make(map[string]bool, len(candidateProvenance))
 	}
-	for selector, present := range candidate.Provenance {
-		if present || !state.Provenance[selector] {
-			state.Provenance[selector] = present
+	for selector, present := range candidateProvenance {
+		if present || !mergedProvenance[selector] {
+			mergedProvenance[selector] = present
 		}
 	}
+	state.Provenance = mergedProvenance
 	return nil
+}
+
+// canonicalProvenanceSelectorKey normalizes only established OS and
+// architecture aliases in the five-field Packslip selector key. A malformed
+// key or an unknown token is preserved byte-for-byte so existing trust is not
+// accidentally broadened. In particular, an empty libc remains a wildcard.
+func canonicalProvenanceSelectorKey(selector string) string {
+	parts := strings.Split(selector, "|")
+	if len(parts) != 5 {
+		return selector
+	}
+	for _, part := range parts {
+		if part != "" && !validToken(part) {
+			return selector
+		}
+	}
+	switch parts[0] {
+	case "darwin":
+		parts[0] = "macos"
+	}
+	switch parts[1] {
+	case "x86_64":
+		parts[1] = "amd64"
+	case "aarch64":
+		parts[1] = "arm64"
+	}
+	return strings.Join(parts, "|")
+}
+
+func canonicalizeProvenanceSelectors(provenance map[string]bool) map[string]bool {
+	if provenance == nil {
+		return nil
+	}
+	canonical := make(map[string]bool, len(provenance))
+	for selector, present := range provenance {
+		key := canonicalProvenanceSelectorKey(selector)
+		if present || !canonical[key] {
+			canonical[key] = present
+		}
+	}
+	return canonical
 }
 
 func (s *TrustStore) update(ctx context.Context, project string, mutate func(*projectTrust) error) error {

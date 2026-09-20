@@ -63,6 +63,23 @@ func acceptTestList(t *testing.T, store *TrustStore, identity trustedIdentity, i
 	}, nil)
 }
 
+func seedTestProvenance(t *testing.T, store *TrustStore, identity trustedIdentity, provenance map[string]bool) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(store.path), 0o700))
+	identityCopy := identity
+	doc := trustDocument{
+		Version: trustStoreVersion,
+		Projects: map[string]*projectTrust{
+			testProject: {
+				ReleaseSigner: &identityCopy,
+				AttestedBy:    "vendor",
+				Provenance:    provenance,
+			},
+		},
+	}
+	require.NoError(t, store.write(doc))
+}
+
 func TestTrustStoreAllowsGitHubRefChangesButRejectsWorkflowPathChanges(t *testing.T) {
 	store := testTrustStore(t)
 	first, _ := testTrustedIdentity(t, "https://github.com/acme/driver/.github/workflows/release.yml@refs/tags/v1.0.0")
@@ -98,6 +115,67 @@ func TestTrustStoreRejectsAttestationAndProvenanceDowngrades(t *testing.T) {
 	require.NoError(t, acceptTestRelease(t, store, identity, initial, "vendor"))
 	require.ErrorContains(t, acceptTestRelease(t, store, identity, initial, "repackager"), "vendor to repackager")
 	require.ErrorContains(t, acceptTestRelease(t, store, identity, map[string]bool{"linux|x86_64|gnu||tar.gz": false}, "vendor"), "provenance disappeared")
+}
+
+func TestTrustStoreCanonicalizesPersistedProvenanceAliases(t *testing.T) {
+	store := testTrustStore(t)
+	identity, _ := testTrustedIdentity(t, "https://github.com/acme/driver/.github/workflows/release.yml@refs/heads/main")
+	seedTestProvenance(t, store, identity, map[string]bool{
+		"linux|x86_64|gnu||tar.gz": true,
+		"darwin|aarch64|||tgz":     true,
+	})
+	require.NoError(t, acceptTestRelease(t, store, identity, map[string]bool{
+		"linux|amd64|gnu||tar.gz": true,
+		"macos|arm64|||tgz":       true,
+	}, "vendor"))
+
+	doc, err := store.read()
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{
+		"linux|amd64|gnu||tar.gz": true,
+		"macos|arm64|||tgz":       true,
+	}, doc.Projects[testProject].Provenance)
+}
+
+func TestTrustStoreCanonicalProvenanceDowngradeStillFails(t *testing.T) {
+	tests := []struct {
+		name      string
+		candidate map[string]bool
+	}{
+		{name: "false", candidate: map[string]bool{"linux|amd64|gnu||tar.gz": false}},
+		{name: "missing", candidate: map[string]bool{}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := testTrustStore(t)
+			identity, _ := testTrustedIdentity(t, "https://github.com/acme/driver/.github/workflows/release.yml@refs/heads/main")
+			seedTestProvenance(t, store, identity, map[string]bool{"linux|x86_64|gnu||tar.gz": true})
+			require.ErrorContains(t, acceptTestRelease(t, store, identity, test.candidate, "vendor"), "provenance disappeared")
+		})
+	}
+}
+
+func TestTrustStoreProvenanceAliasCollisionPreservesTrue(t *testing.T) {
+	store := testTrustStore(t)
+	identity, _ := testTrustedIdentity(t, "https://github.com/acme/driver/.github/workflows/release.yml@refs/heads/main")
+	seedTestProvenance(t, store, identity, map[string]bool{
+		"linux|x86_64|gnu||tar.gz": true,
+		"linux|amd64|gnu||tar.gz":  false,
+	})
+	require.NoError(t, acceptTestRelease(t, store, identity, map[string]bool{
+		"linux|amd64|gnu||tar.gz": true,
+	}, "vendor"))
+
+	doc, err := store.read()
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"linux|amd64|gnu||tar.gz": true}, doc.Projects[testProject].Provenance)
+}
+
+func TestProvenanceSelectorKeyNormalizationPreservesLibcWildcardAndUnknownKeys(t *testing.T) {
+	require.Equal(t, "linux|amd64|||tar.gz", canonicalProvenanceSelectorKey("linux|x86_64|||tar.gz"),
+		"empty libc remains empty rather than becoming GNU")
+	require.Equal(t, "custom|mips64|unknown||tar.gz", canonicalProvenanceSelectorKey("custom|mips64|unknown||tar.gz"))
+	require.Equal(t, "malformed|key", canonicalProvenanceSelectorKey("malformed|key"))
 }
 
 func TestTrustStorePersistsListSequencesAndRejectsRollbackOrSameSequenceReplacement(t *testing.T) {
