@@ -193,7 +193,7 @@ func TestResolverUsesSignedListDigestAndBuildsResolvedRelease(t *testing.T) {
 	server, resolver, fixture := newResolverTestServer(t, testProject, "v1.0.0", nil, releaseBytes, "")
 	listBytes := makeSignedList(t, testProject, 1, "2026-10-01T00:00:00Z", server.URL+"/assets/release.json", releaseBytes, fakeSigner, "1.0.0", "v1.0.0", "")
 	fixture.list = listBytes
-	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "iceberg", Version: "1.0.0", Target: Target{OS: "linux", Arch: "x86_64", LibC: "gnu"}})
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "iceberg", Version: "1.0.0", Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"}})
 	require.NoError(t, err)
 	require.Equal(t, "iceberg", resolved.DriverID)
 	require.Equal(t, "1.0.0", resolved.Version)
@@ -203,13 +203,19 @@ func TestResolverUsesSignedListDigestAndBuildsResolvedRelease(t *testing.T) {
 	require.Equal(t, "sha256:"+digestHex(listBytes), resolved.Evidence.ReleaseListHash)
 	require.Equal(t, server.URL+"/acme/driver/HEAD/.well-known/packslip.json", resolved.Evidence.ReleaseListURL)
 	require.Equal(t, server.URL+"/assets/release.json", resolved.Evidence.BundleURL)
-	require.Len(t, resolved.Artifacts, 3, "a resolution must preserve all supported platforms")
+	require.Len(t, resolved.Artifacts, 1, "a resolution contains the artifact selected for its requested target")
 	require.Equal(t, "https://downloads.example/driver-linux.tar.gz", resolved.Artifacts[0].URL)
 	require.Equal(t, "sha256:"+strings.Repeat("a", 64), resolved.Artifacts[0].Hash)
 	require.Equal(t, int64(10), *resolved.Artifacts[0].Size)
-	require.Equal(t, "darwin", resolved.Artifacts[1].OS)
-	require.Equal(t, "windows", resolved.Artifacts[2].OS)
-	require.Equal(t, int32(1), fixture.apiHits.Load())
+	require.Equal(t, Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, resolved.Artifacts[0].Target)
+	macos, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "iceberg", Version: "1.0.0", Target: Target{OS: "macos", Arch: "arm64"},
+	})
+	require.NoError(t, err)
+	require.Len(t, macos.Artifacts, 1)
+	require.Equal(t, Target{OS: "macos", Arch: "arm64"}, macos.Artifacts[0].Target)
+	require.Equal(t, "https://downloads.example/driver-macos.tgz", macos.Artifacts[0].URL)
+	require.Equal(t, int32(2), fixture.apiHits.Load())
 }
 
 func TestResolverRetainsSignedListEvidenceWhenReleaseIsAbsentFromList(t *testing.T) {

@@ -88,11 +88,9 @@ func (r *nativeResolver) Resolve(ctx context.Context, source PackslipSource, req
 	if !semverPattern.MatchString(request.Version) {
 		return resolution.ResolvedRelease{}, fmt.Errorf("requested packslip version %q must be an exact SemVer 2.0.0 version", request.Version)
 	}
-	if !validToken(request.Target.OS) || !validToken(request.Target.Arch) {
-		return resolution.ResolvedRelease{}, errors.New("packslip target requires valid OS and architecture tokens")
-	}
-	if request.Target.LibC != "" && !validToken(request.Target.LibC) || request.Target.Variant != "" && !validToken(request.Target.Variant) {
-		return resolution.ResolvedRelease{}, errors.New("packslip target has an invalid libc or variant token")
+	request.Target = resolution.CanonicalTarget(request.Target)
+	if err := resolution.ValidateConcreteTarget(request.Target); err != nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("invalid packslip target: %w", err)
 	}
 	source.Project = project
 	identityPolicy, err := githubIdentityPolicy(project)
@@ -332,13 +330,14 @@ func (r *nativeResolver) verifyReleaseBundle(ctx context.Context, bundleBytes []
 }
 
 func (r *nativeResolver) finishResolved(ctx context.Context, project string, request Request, observedList listObservation, acceptedList *listAcceptance, verified *verifiedRelease, bundleURL string, bundleBytes []byte, listURL, listHash string, assets []githubAsset) (resolution.ResolvedRelease, error) {
-	if _, err := selectArtifact(verified.statement, request.Target); err != nil {
-		return resolution.ResolvedRelease{}, err
-	}
 	if err := validateSupportedArtifactSet(verified.statement); err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
-	artifacts, err := convertSupportedArtifacts(verified.statement, assets)
+	selected, err := selectArtifact(verified.statement, request.Target)
+	if err != nil {
+		return resolution.ResolvedRelease{}, err
+	}
+	artifact, err := convertSelectedArtifact(verified.statement, selected, assets, request.Target)
 	if err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
@@ -355,7 +354,7 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 			BundleURL: bundleURL, BundleHash: checksum,
 			ReleaseListURL: listURL, ReleaseListHash: listHash,
 		},
-		Artifacts: artifacts,
+		Artifacts: []resolution.Artifact{artifact},
 	}
 	if err := resolution.ValidateResolvedRelease(result); err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("invalid resolved packslip release: %w", err)

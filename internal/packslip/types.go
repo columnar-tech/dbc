@@ -47,13 +47,8 @@ type PackslipSource struct {
 	Project string
 }
 
-// Target is the host tuple used to select one archive from a release.
-type Target struct {
-	OS      string
-	Arch    string
-	LibC    string
-	Variant string
-}
+// Target is the canonical host tuple used to select one archive from a release.
+type Target = resolution.Target
 
 // Request identifies one driver release and the archive needed by this host.
 type Request struct {

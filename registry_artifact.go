@@ -119,11 +119,15 @@ func (p registryPackage) resolveArtifact() (resolution.Artifact, error) {
 	if err := resolution.ValidateArtifactMetadata(hash, size); err != nil {
 		return resolution.Artifact{}, err
 	}
+	target, err := resolution.TargetFromPlatformTuple(p.PlatformTuple)
+	if err != nil {
+		return resolution.Artifact{}, err
+	}
 	return resolution.Artifact{
-		Platform: p.PlatformTuple,
-		URL:      p.URL,
-		Hash:     hash,
-		Size:     size,
+		Target: target,
+		URL:    p.URL,
+		Hash:   hash,
+		Size:   size,
 	}, nil
 }
 

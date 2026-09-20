@@ -147,6 +147,7 @@ func TestSelectArtifactUsesPackslipOrderAndRejectsAmbiguity(t *testing.T) {
 		makeArtifact("linux-specific.tar.gz", "linux", "x86_64", "gnu", "tar.gz", nil),
 	), testProject)
 	require.NoError(t, err)
+	require.NoError(t, validateSupportedArtifactSet(release), "tar.gz and tgz with one selector are resolved by format preference")
 	selected, err := selectArtifact(release, Target{OS: "linux", Arch: "x86_64", LibC: "gnu"})
 	require.NoError(t, err)
 	require.Equal(t, "linux-specific.tar.gz", selected.Name)
@@ -168,6 +169,11 @@ func TestSelectArtifactUsesPackslipOrderAndRejectsAmbiguity(t *testing.T) {
 	selected, err = selectArtifact(withVariant, Target{OS: "linux", Arch: "x86_64", LibC: "gnu", Variant: "fips"})
 	require.NoError(t, err)
 	require.Equal(t, "fips.tar.gz", selected.Name)
+	selected, err = selectArtifact(withVariant, Target{OS: "linux", Arch: "x86_64", LibC: "gnu"})
+	require.NoError(t, err)
+	require.Equal(t, "default.tar.gz", selected.Name, "an empty target variant selects the ordinary variant")
+	_, err = selectArtifact(withVariant, Target{OS: "linux", Arch: "x86_64", LibC: "gnu", Variant: "other"})
+	require.ErrorIs(t, err, ErrReleaseNotFound, "variant selectors must match exactly")
 }
 
 func optionalToken(value string) *string {

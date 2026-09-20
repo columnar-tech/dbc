@@ -36,14 +36,11 @@ func TestValidateResolvedRelease(t *testing.T) {
 			BundleHash: "sha256:" + strings.Repeat("a", 64),
 		},
 		Artifacts: []Artifact{{
-			Platform: "linux_amd64",
-			OS:       "linux",
-			Arch:     "amd64",
-			LibC:     "gnu",
-			Format:   "tar.gz",
-			URL:      "https://example.test/driver.tar.gz",
-			Hash:     "sha256:" + strings.Repeat("b", 64),
-			Size:     &size,
+			Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+			Format: "tar.gz",
+			URL:    "https://example.test/driver.tar.gz",
+			Hash:   "sha256:" + strings.Repeat("b", 64),
+			Size:   &size,
 			HostRequirements: HostRequirements{
 				OSMin:    "1.0",
 				GLibCMin: "2.17",
@@ -62,9 +59,10 @@ func TestValidateResolvedRelease(t *testing.T) {
 func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 	size := int64(12)
 	base := ResolvedRelease{Artifacts: []Artifact{{
-		URL:  "https://example.test/driver.tar.gz",
-		Hash: "sha256:" + strings.Repeat("a", 64),
-		Size: &size,
+		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+		URL:    "https://example.test/driver.tar.gz",
+		Hash:   "sha256:" + strings.Repeat("a", 64),
+		Size:   &size,
 	}}}
 
 	tests := []struct {
@@ -75,11 +73,10 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 		{name: "missing hash", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Hash = "" }, wantErr: "no finalized hash"},
 		{name: "missing size", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Size = nil }, wantErr: "no finalized size"},
 		{name: "missing URL", mutate: func(r *ResolvedRelease) { r.Artifacts[0].URL = "" }, wantErr: "no resolved URL"},
-		{name: "duplicate artifact URL", mutate: func(r *ResolvedRelease) {
+		{name: "duplicate target", mutate: func(r *ResolvedRelease) {
 			duplicate := r.Artifacts[0]
-			duplicate.Platform = "macos_arm64"
 			r.Artifacts = append(r.Artifacts, duplicate)
-		}, wantErr: "duplicate artifact identity"},
+		}, wantErr: "duplicate target"},
 	}
 
 	for _, tt := range tests {
@@ -95,10 +92,50 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 func TestValidateResolvedReleaseKeepsRegistryCandidateWithoutHashValid(t *testing.T) {
 	size := int64(12)
 	candidate := ResolvedRelease{Artifacts: []Artifact{{
-		URL:  "https://registry.example.test/driver.tar.gz",
-		Size: &size,
+		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+		URL:    "https://registry.example.test/driver.tar.gz",
+		Size:   &size,
 	}}}
 
 	assert.ErrorContains(t, ValidateResolvedRelease(candidate), "no finalized hash")
 	assert.NoError(t, ValidateArtifactMetadata("", nil))
+}
+
+func TestTargetAliasesAndTupleAdapter(t *testing.T) {
+	tests := []struct {
+		platform string
+		want     Target
+	}{
+		{platform: "darwin_aarch64", want: Target{OS: "macos", Arch: "arm64"}},
+		{platform: "linux_x86_64", want: Target{OS: "linux", Arch: "amd64", LibC: "gnu"}},
+		{platform: "linux_amd64_musl_v3", want: Target{OS: "linux", Arch: "amd64", LibC: "musl", Variant: "v3"}},
+		{platform: "plan9_oddarch", want: Target{OS: "plan9", Arch: "oddarch"}},
+	}
+	for _, test := range tests {
+		t.Run(test.platform, func(t *testing.T) {
+			got, err := TargetFromPlatformTuple(test.platform)
+			assert.NoError(t, err)
+			assert.Equal(t, test.want, got)
+		})
+	}
+}
+
+func TestEmptyConcreteTargetIsNotAWildcard(t *testing.T) {
+	assert.Error(t, ValidateConcreteTarget(Target{}))
+	assert.NoError(t, ValidateConcreteTarget(Target{OS: "linux", Arch: "amd64", LibC: "gnu"}),
+		"empty variant identifies the ordinary concrete variant")
+}
+
+func TestResolvedReleaseAllowsSharedLocationButRejectsConflictingMetadata(t *testing.T) {
+	size := int64(12)
+	base := Artifact{
+		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, URL: "https://example.test/shared.tar.gz",
+		Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,
+	}
+	release := ResolvedRelease{Artifacts: []Artifact{base, {
+		Target: Target{OS: "macos", Arch: "arm64"}, URL: base.URL, Hash: base.Hash, Size: &size,
+	}}}
+	assert.NoError(t, ValidateResolvedRelease(release))
+	release.Artifacts[1].Hash = "sha256:" + strings.Repeat("b", 64)
+	assert.ErrorContains(t, ValidateResolvedRelease(release), "conflicting hash or size")
 }

@@ -71,17 +71,21 @@ type lockEvidence struct {
 }
 
 type lockArtifact struct {
-	Platform         string               `toml:"platform,omitempty"`
-	OS               string               `toml:"os,omitempty"`
-	Arch             string               `toml:"arch,omitempty"`
-	LibC             string               `toml:"libc,omitempty"`
-	Variant          string               `toml:"variant,omitempty"`
+	Target           resolution.Target    `toml:"target"`
 	Format           string               `toml:"format,omitempty"`
 	URL              string               `toml:"url,omitempty"`
 	Path             string               `toml:"path,omitempty"`
 	Hash             string               `toml:"hash"`
 	Size             *int64               `toml:"size"`
 	HostRequirements lockHostRequirements `toml:"host_requirements,omitempty"`
+	// These fields exist only to detect and reject obsolete v2 wire selectors.
+	// New lock entries never populate or serialize them; Target is the only
+	// artifact selector accepted for version 2 files.
+	LegacyPlatform *string `toml:"platform,omitempty"`
+	LegacyOS       *string `toml:"os,omitempty"`
+	LegacyArch     *string `toml:"arch,omitempty"`
+	LegacyLibC     *string `toml:"libc,omitempty"`
+	LegacyVariant  *string `toml:"variant,omitempty"`
 }
 
 type lockHostRequirements struct {
@@ -195,7 +199,7 @@ func normalizeLockFileV1(wire lockFileV1) (LockFile, error) {
 }
 
 func (d lockInfo) legacyChecksumFor(platform string) string {
-	if d.Legacy == nil || d.Legacy.Platform != platform {
+	if d.Legacy == nil || !samePlatformTarget(d.Legacy.Platform, platform) {
 		return ""
 	}
 	return d.Legacy.LibraryHash
@@ -279,14 +283,18 @@ func validateHTTPURL(field, raw string) error {
 }
 
 func validateLockArtifacts(artifacts []lockArtifact) error {
-	seenSelectors := make(map[string]struct{}, len(artifacts))
-	seenURLs := make(map[string]struct{}, len(artifacts))
+	seenTargets := make(map[resolution.Target]struct{}, len(artifacts))
+	seenLocations := make(map[string]lockArtifact, len(artifacts))
 	for i, artifact := range artifacts {
-		if artifact.Platform == "" && (artifact.OS == "" || artifact.Arch == "") {
-			return fmt.Errorf("artifact %d must identify a platform or both OS and architecture", i)
+		if artifact.LegacyPlatform != nil || artifact.LegacyOS != nil || artifact.LegacyArch != nil ||
+			artifact.LegacyLibC != nil || artifact.LegacyVariant != nil {
+			return fmt.Errorf("artifact %d uses obsolete selector fields; use the target table", i)
 		}
-		if (artifact.OS == "") != (artifact.Arch == "") {
-			return fmt.Errorf("artifact %d must provide OS and architecture together", i)
+		if err := resolution.ValidateConcreteTarget(artifact.Target); err != nil {
+			return fmt.Errorf("artifact %d has invalid target: %w", i, err)
+		}
+		if canonical := resolution.CanonicalTarget(artifact.Target); canonical != artifact.Target {
+			return fmt.Errorf("artifact %d target is not canonical", i)
 		}
 		if (artifact.URL == "") == (artifact.Path == "") {
 			return fmt.Errorf("artifact %d must have exactly one of URL or path", i)
@@ -305,21 +313,30 @@ func validateLockArtifacts(artifacts []lockArtifact) error {
 				return fmt.Errorf("artifact %d: %w", i, err)
 			}
 		}
-		selector := artifactSelectorIdentity(artifact)
-		if _, exists := seenSelectors[selector]; exists {
-			return fmt.Errorf("duplicate or ambiguous artifact selector %q", selector)
+		if _, exists := seenTargets[artifact.Target]; exists {
+			return fmt.Errorf("duplicate artifact target %q", artifactSelectorIdentity(artifact))
 		}
-		seenSelectors[selector] = struct{}{}
-		location := artifact.URL
+		seenTargets[artifact.Target] = struct{}{}
+		location := "url:" + artifact.URL
 		if artifact.Path != "" {
 			location = "path:" + artifact.Path
 		}
-		if _, exists := seenURLs[location]; exists {
-			return fmt.Errorf("duplicate artifact location %q", location)
+		if prior, exists := seenLocations[location]; exists {
+			if prior.Hash != artifact.Hash || !sameLockSize(prior.Size, artifact.Size) {
+				return fmt.Errorf("artifacts sharing location %q have conflicting hash or size", location)
+			}
+		} else {
+			seenLocations[location] = artifact
 		}
-		seenURLs[location] = struct{}{}
 	}
 	return nil
+}
+
+func sameLockSize(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func validateLockHash(hash string) error {
@@ -328,49 +345,28 @@ func validateLockHash(hash string) error {
 }
 
 func artifactSelectorIdentity(artifact lockArtifact) string {
-	osName, arch, libc, variant := artifact.OS, artifact.Arch, artifact.LibC, artifact.Variant
-	if platformOS, platformArch, platformLibC, platformVariant, ok := parsePlatformTuple(artifact.Platform); ok {
-		if osName == "" {
-			osName = platformOS
-		}
-		if arch == "" {
-			arch = platformArch
-		}
-		if libc == "" {
-			libc = platformLibC
-		}
-		if variant == "" {
-			variant = platformVariant
-		}
-	}
-	if osName == "linux" && libc == "" {
-		libc = "gnu"
-	}
-	return fmt.Sprintf("%s\x00%s\x00%s\x00%s", osName, arch, libc, variant)
+	return targetIdentity(artifact.Target)
 }
 
 func parsePlatformTuple(platform string) (osName, arch, libc, variant string, ok bool) {
-	if platform == "" {
+	target, err := resolution.TargetFromPlatformTuple(platform)
+	if err != nil {
 		return "", "", "", "", false
 	}
-	parts := strings.Split(platform, "_")
-	if len(parts) < 2 {
-		return "", "", "", "", false
+	return target.OS, target.Arch, target.LibC, target.Variant, true
+}
+
+func targetIdentity(target resolution.Target) string {
+	return strings.Join([]string{target.OS, target.Arch, target.LibC, target.Variant}, "\x00")
+}
+
+func samePlatformTarget(left, right string) bool {
+	leftTarget, leftErr := resolution.TargetFromPlatformTuple(left)
+	rightTarget, rightErr := resolution.TargetFromPlatformTuple(right)
+	if leftErr != nil || rightErr != nil {
+		return left == right
 	}
-	osName, arch = parts[0], parts[1]
-	for _, part := range parts[2:] {
-		switch part {
-		case "gnu", "musl":
-			libc = part
-		default:
-			if variant == "" {
-				variant = part
-			} else {
-				variant += "_" + part
-			}
-		}
-	}
-	return osName, arch, libc, variant, true
+	return leftTarget == rightTarget
 }
 
 func validateLegacyLibraryHash(hash string) error {

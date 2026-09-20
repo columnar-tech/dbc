@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
@@ -121,15 +122,11 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 
 func lockArtifactFromResolved(artifact resolution.Artifact) lockArtifact {
 	result := lockArtifact{
-		Platform: artifact.Platform,
-		OS:       artifact.OS,
-		Arch:     artifact.Arch,
-		LibC:     artifact.LibC,
-		Variant:  artifact.Variant,
-		Format:   artifact.Format,
-		URL:      artifact.URL,
-		Hash:     artifact.Hash,
-		Size:     cloneInt64(artifact.Size),
+		Target: resolution.CanonicalTarget(artifact.Target),
+		Format: artifact.Format,
+		URL:    artifact.URL,
+		Hash:   artifact.Hash,
+		Size:   cloneInt64(artifact.Size),
 		HostRequirements: lockHostRequirements{
 			OSMin:    artifact.HostRequirements.OSMin,
 			GLibCMin: artifact.HostRequirements.GLibCMin,
@@ -171,15 +168,11 @@ func (d lockInfo) resolvedRelease() resolution.ResolvedRelease {
 			artifactURL = artifact.Path
 		}
 		resolved := resolution.Artifact{
-			Platform: artifact.Platform,
-			OS:       artifact.OS,
-			Arch:     artifact.Arch,
-			LibC:     artifact.LibC,
-			Variant:  artifact.Variant,
-			Format:   artifact.Format,
-			URL:      artifactURL,
-			Hash:     artifact.Hash,
-			Size:     cloneInt64(artifact.Size),
+			Target: artifact.Target,
+			Format: artifact.Format,
+			URL:    artifactURL,
+			Hash:   artifact.Hash,
+			Size:   cloneInt64(artifact.Size),
 			HostRequirements: resolution.HostRequirements{
 				OSMin:    artifact.HostRequirements.OSMin,
 				GLibCMin: artifact.HostRequirements.GLibCMin,
@@ -259,8 +252,8 @@ func migrateV1Entry(old lockInfo, release resolution.ResolvedRelease, currentPla
 	if old.Name != release.DriverID || release.Version != old.Version.String() {
 		return lockInfo{}, fmt.Errorf("migration must preserve driver %q version %s", old.Name, old.Version)
 	}
-	if old.Legacy != nil && old.Legacy.Platform == currentPlatform {
-		if verified == nil || verified.Platform != old.Legacy.Platform || verified.LibraryHash != old.Legacy.LibraryHash {
+	if old.Legacy != nil && samePlatformTarget(old.Legacy.Platform, currentPlatform) {
+		if verified == nil || !samePlatformTarget(verified.Platform, old.Legacy.Platform) || verified.LibraryHash != old.Legacy.LibraryHash {
 			return lockInfo{}, fmt.Errorf("cannot migrate %s on %s without a matching verified installed-library hash", old.Name, currentPlatform)
 		}
 	}
@@ -278,7 +271,7 @@ func migrateV1Entry(old lockInfo, release resolution.ResolvedRelease, currentPla
 // verifyLegacyLibraryProof checks the installed library against the v1 proof
 // when an artifact for its original platform is used after migration.
 func verifyLegacyLibraryProof(entry lockInfo, platform, installedLibraryHash string) error {
-	if entry.Legacy == nil || entry.Legacy.Platform != platform {
+	if entry.Legacy == nil || !samePlatformTarget(entry.Legacy.Platform, platform) {
 		return nil
 	}
 	if installedLibraryHash != entry.Legacy.LibraryHash {
@@ -289,7 +282,7 @@ func verifyLegacyLibraryProof(entry lockInfo, platform, installedLibraryHash str
 
 // refreshLockEntry merges metadata for the same source and version. Existing
 // artifacts are immutable: a refresh may add a target but cannot replace an
-// artifact whose digest or size contradicts the current lock.
+// existing target's location, format, digest, size, or host requirements.
 func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 	if existing.Name != refreshed.Name || existing.Version == nil || refreshed.Version == nil || !existing.Version.Equal(refreshed.Version) {
 		return lockInfo{}, errors.New("metadata refresh must keep the locked driver version")
@@ -313,7 +306,9 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 				continue
 			}
 			found = true
-			if prior.Hash != candidate.Hash || *prior.Size != *candidate.Size {
+			if prior.URL != candidate.URL || prior.Path != candidate.Path || prior.Format != candidate.Format ||
+				prior.Hash != candidate.Hash || !sameLockSize(prior.Size, candidate.Size) ||
+				!reflect.DeepEqual(canonicalHostRequirements(prior.HostRequirements), canonicalHostRequirements(candidate.HostRequirements)) {
 				return lockInfo{}, fmt.Errorf("metadata refresh contradicts locked artifact %q", candidateIdentity)
 			}
 			break
@@ -331,6 +326,27 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 		return lockInfo{}, err
 	}
 	return merged, nil
+}
+
+func canonicalHostRequirements(requirements lockHostRequirements) lockHostRequirements {
+	if len(requirements.Libs) == 0 {
+		requirements.Libs = nil
+	} else {
+		requirements.Libs = append([]string(nil), requirements.Libs...)
+		sort.Strings(requirements.Libs)
+	}
+	if len(requirements.Bins) == 0 {
+		requirements.Bins = nil
+	} else {
+		requirements.Bins = append([]lockNamedRequirement(nil), requirements.Bins...)
+		sort.Slice(requirements.Bins, func(i, j int) bool {
+			if requirements.Bins[i].Name != requirements.Bins[j].Name {
+				return requirements.Bins[i].Name < requirements.Bins[j].Name
+			}
+			return requirements.Bins[i].Min < requirements.Bins[j].Min
+		})
+	}
+	return requirements
 }
 
 // upgradeLockEntry changes the driver version as an explicit operation. It
@@ -354,10 +370,13 @@ func upgradeLockEntry(existing lockInfo, upgraded lockInfo) (lockInfo, error) {
 // selectLockedArtifact performs pure target selection from lock data. It does
 // not consult a registry, a release API, or persistent trust state.
 func selectLockedArtifact(entry lockInfo, platform string, locked bool) (lockArtifact, error) {
+	target, targetErr := resolution.TargetFromPlatformTuple(platform)
 	var matches []lockArtifact
-	for _, artifact := range entry.Artifacts {
-		if artifactMatchesPlatform(artifact, platform) {
-			matches = append(matches, artifact)
+	if targetErr == nil {
+		for _, artifact := range entry.Artifacts {
+			if artifact.Target == target {
+				matches = append(matches, artifact)
+			}
 		}
 	}
 	if len(matches) > 1 {
@@ -370,47 +389,6 @@ func selectLockedArtifact(entry lockInfo, platform string, locked bool) (lockArt
 		return lockArtifact{}, &LockedModeArtifactMissingError{DriverID: entry.Name, Platform: platform}
 	}
 	return lockArtifact{}, &LockRefreshRequiredError{DriverID: entry.Name, Platform: platform}
-}
-
-func artifactMatchesPlatform(artifact lockArtifact, target string) bool {
-	targetOS, targetArch, targetLibC, targetVariant, ok := parsePlatformTuple(target)
-	if !ok {
-		return false
-	}
-	artifactOS, artifactArch, artifactLibC, artifactVariant, parsed := parsePlatformTuple(artifact.Platform)
-	if !parsed {
-		artifactOS, artifactArch, artifactLibC, artifactVariant = artifact.OS, artifact.Arch, "", ""
-	}
-	if artifact.OS != "" {
-		artifactOS = artifact.OS
-	}
-	if artifact.Arch != "" {
-		artifactArch = artifact.Arch
-	}
-	if artifact.LibC != "" {
-		artifactLibC = artifact.LibC
-	}
-	if artifact.Variant != "" {
-		artifactVariant = artifact.Variant
-	}
-	if artifactOS != targetOS || artifactArch != targetArch {
-		return false
-	}
-	// Existing dbc Linux tuples mean GNU by default; a musl build must not
-	// silently satisfy an ordinary linux_amd64 target.
-	if targetOS == "linux" && targetLibC == "" {
-		targetLibC = "gnu"
-	}
-	if targetOS == "linux" && artifactLibC == "" {
-		artifactLibC = "gnu"
-	}
-	if artifactLibC != targetLibC {
-		return false
-	}
-	if artifactVariant != "" && artifactVariant != targetVariant {
-		return false
-	}
-	return true
 }
 
 func writeLockFileAtomic(path string, lock LockFile) error {

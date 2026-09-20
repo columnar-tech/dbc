@@ -259,6 +259,7 @@ func parseRelease(payload []byte, expectedProject string) (*parsedRelease, error
 		if artifact.Format == nil || !validToken(*artifact.Format) {
 			return nil, fmt.Errorf("packslip artifact %q has an invalid or missing format", artifact.Name)
 		}
+		canonicalizeArtifactAliases(artifact)
 		for field, value := range map[string]*string{
 			"os": artifact.OS, "arch": artifact.Arch, "libc": artifact.LibC, "variant": artifact.Variant,
 		} {
@@ -804,6 +805,10 @@ func normalizeLooseTagVersion(value string) (string, bool) {
 }
 
 func selectArtifact(release *parsedRelease, target Target) (*releaseArtifact, error) {
+	target = resolution.CanonicalTarget(target)
+	if err := resolution.ValidateConcreteTarget(target); err != nil {
+		return nil, err
+	}
 	formats := supportedArchiveFormats
 	bestSpecificity, bestFormat := -1, len(formats)
 	var chosen, tied *releaseArtifact
@@ -908,36 +913,24 @@ func selectorsOverlap(left, right *releaseArtifact) bool {
 	return true
 }
 
-func convertSupportedArtifacts(release *parsedRelease, assets []githubAsset) ([]resolution.Artifact, error) {
-	result := make([]resolution.Artifact, 0, len(release.predicate.Artifacts))
-	for i := range release.predicate.Artifacts {
-		artifact := &release.predicate.Artifacts[i]
-		if !supportedArchiveFormat(stringValue(artifact.Format)) {
-			continue
-		}
-		artifactURL := stringValue(artifact.URL)
-		if artifactURL == "" {
-			matches := make([]string, 0, 1)
-			for _, asset := range assets {
-				if asset.Name == artifact.Name && asset.BrowserDownloadURL != "" {
-					matches = append(matches, asset.BrowserDownloadURL)
-				}
+func convertSelectedArtifact(release *parsedRelease, artifact *releaseArtifact, assets []githubAsset, target Target) (resolution.Artifact, error) {
+	artifactURL := stringValue(artifact.URL)
+	if artifactURL == "" {
+		matches := make([]string, 0, 1)
+		for _, asset := range assets {
+			if asset.Name == artifact.Name && asset.BrowserDownloadURL != "" {
+				matches = append(matches, asset.BrowserDownloadURL)
 			}
-			if len(matches) != 1 {
-				return nil, fmt.Errorf("packslip artifact %q has no unambiguous matching GitHub release asset", artifact.Name)
-			}
-			artifactURL = matches[0]
 		}
-		if err := validateHTTPSURL(artifactURL); err != nil {
-			return nil, fmt.Errorf("packslip artifact %q URL: %w", artifact.Name, err)
+		if len(matches) != 1 {
+			return resolution.Artifact{}, fmt.Errorf("packslip artifact %q has no unambiguous matching GitHub release asset", artifact.Name)
 		}
-		converted, err := convertArtifact(release, artifact, artifactURL)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, converted)
+		artifactURL = matches[0]
 	}
-	return result, nil
+	if err := validateHTTPSURL(artifactURL); err != nil {
+		return resolution.Artifact{}, fmt.Errorf("packslip artifact %q URL: %w", artifact.Name, err)
+	}
+	return convertArtifact(release, artifact, artifactURL, target)
 }
 
 func artifactSelectorKey(artifact *releaseArtifact) string {
@@ -947,6 +940,26 @@ func artifactSelectorKey(artifact *releaseArtifact) string {
 	}, "|")
 }
 
+func canonicalizeArtifactAliases(artifact *releaseArtifact) {
+	if artifact.OS != nil && *artifact.OS == "darwin" {
+		value := "macos"
+		artifact.OS = &value
+	}
+	if artifact.Arch == nil {
+		return
+	}
+	var value string
+	switch *artifact.Arch {
+	case "x86_64":
+		value = "amd64"
+	case "aarch64":
+		value = "arm64"
+	default:
+		return
+	}
+	artifact.Arch = &value
+}
+
 func fitsTarget(value *string, target string) bool {
 	if value == nil {
 		return true
@@ -954,7 +967,7 @@ func fitsTarget(value *string, target string) bool {
 	return target != "" && *value == target
 }
 
-func convertArtifact(release *parsedRelease, artifact *releaseArtifact, artifactURL string) (resolution.Artifact, error) {
+func convertArtifact(release *parsedRelease, artifact *releaseArtifact, artifactURL string, target Target) (resolution.Artifact, error) {
 	if artifact.Size == nil || *artifact.Size > math.MaxInt64 {
 		return resolution.Artifact{}, fmt.Errorf("packslip artifact %q size exceeds dbc's supported range", artifact.Name)
 	}
@@ -967,14 +980,11 @@ func convertArtifact(release *parsedRelease, artifact *releaseArtifact, artifact
 	}
 	size := int64(*artifact.Size)
 	result := resolution.Artifact{
-		OS:      stringValue(artifact.OS),
-		Arch:    stringValue(artifact.Arch),
-		LibC:    stringValue(artifact.LibC),
-		Variant: stringValue(artifact.Variant),
-		Format:  stringValue(artifact.Format),
-		URL:     artifactURL,
-		Hash:    "sha256:" + subject.Digest["sha256"],
-		Size:    &size,
+		Target: resolution.CanonicalTarget(target),
+		Format: stringValue(artifact.Format),
+		URL:    artifactURL,
+		Hash:   "sha256:" + subject.Digest["sha256"],
+		Size:   &size,
 	}
 	if artifact.Requires != nil {
 		requires := artifact.Requires

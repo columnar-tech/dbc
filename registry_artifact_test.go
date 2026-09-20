@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -196,12 +197,42 @@ func TestResolvedRegistryReleaseMatchesGetPackageURLs(t *testing.T) {
 	resolved, err := release.resolvedRelease(driver)
 	require.NoError(t, err)
 
-	for _, artifact := range resolved.Artifacts {
-		pkg, err := driver.GetPackage(version, artifact.Platform, false)
+	for _, rawPackage := range release.Packages {
+		target, err := resolution.TargetFromPlatformTuple(rawPackage.PlatformTuple)
+		require.NoError(t, err)
+		var artifact resolution.Artifact
+		found := false
+		for _, candidate := range resolved.Artifacts {
+			if candidate.Target == target {
+				artifact = candidate
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "resolved release should contain the canonical target for %s", rawPackage.PlatformTuple)
+		pkg, err := driver.GetPackage(version, rawPackage.PlatformTuple, false)
 		require.NoError(t, err)
 		require.NotNil(t, pkg.Path)
 		assert.Equal(t, pkg.Path.String(), artifact.URL)
 	}
+}
+
+func TestRegistryTupleAliasesCanonicalizeWithoutChangingImplicitAssetURL(t *testing.T) {
+	version := semver.MustParse("1.2.3")
+	release := pkginfo{
+		Version:  version,
+		Packages: []registryPackage{{PlatformTuple: "linux_x86_64"}},
+	}
+	driver := Driver{
+		Path:     "example-driver",
+		Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")},
+	}
+	resolved, err := release.resolvedRelease(driver)
+	require.NoError(t, err)
+	require.Len(t, resolved.Artifacts, 1)
+	assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, resolved.Artifacts[0].Target)
+	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_linux_x86_64-1.2.3.tar.gz", resolved.Artifacts[0].URL,
+		"implicit asset filenames retain the raw registry tuple")
 }
 
 func TestRegistryArtifactMetadataRejectsInvalidValues(t *testing.T) {

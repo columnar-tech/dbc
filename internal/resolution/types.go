@@ -22,11 +22,121 @@ import (
 	"strings"
 )
 
+// Target identifies one concrete operating-system and architecture target.
+// Empty variant denotes the ordinary variant; it is never a wildcard.
+type Target struct {
+	OS      string `toml:"os" json:"os"`
+	Arch    string `toml:"arch" json:"arch"`
+	LibC    string `toml:"libc,omitempty" json:"libc,omitempty"`
+	Variant string `toml:"variant,omitempty" json:"variant,omitempty"`
+}
+
+// CanonicalTarget applies the small set of established aliases at adapter
+// boundaries. Unknown values are preserved rather than guessed.
+func CanonicalTarget(target Target) Target {
+	switch target.OS {
+	case "darwin":
+		target.OS = "macos"
+	}
+	switch target.Arch {
+	case "x86_64":
+		target.Arch = "amd64"
+	case "aarch64":
+		target.Arch = "arm64"
+	}
+	if target.OS == "linux" && target.LibC == "" {
+		target.LibC = "gnu"
+	}
+	return target
+}
+
+// TargetFromPlatformTuple is a one-way adapter from the CLI/registry tuple
+// grammar to a canonical target: the tuple carries OS, architecture, the known
+// gnu/musl libc tokens, and optional variant components. It does not infer an
+// unknown libc or promise that arbitrary Target values can be encoded back into
+// a tuple. Callers that need the original tuple for URL construction must keep
+// it separately.
+func TargetFromPlatformTuple(platform string) (Target, error) {
+	if platform == "" {
+		return Target{}, fmt.Errorf("platform tuple is empty")
+	}
+	parts := strings.Split(platform, "_")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return Target{}, fmt.Errorf("platform tuple %q must contain OS and architecture", platform)
+	}
+	archEnd := 2
+	arch := parts[1]
+	if len(parts) > 2 && parts[1] == "x86" && parts[2] == "64" {
+		arch = "x86_64"
+		archEnd = 3
+	}
+	target := Target{OS: parts[0], Arch: arch}
+	for _, part := range parts[archEnd:] {
+		if part == "" {
+			return Target{}, fmt.Errorf("platform tuple %q contains an empty component", platform)
+		}
+		switch part {
+		case "gnu", "musl":
+			if target.LibC != "" {
+				return Target{}, fmt.Errorf("platform tuple %q contains multiple libc components", platform)
+			}
+			target.LibC = part
+		default:
+			if target.Variant == "" {
+				target.Variant = part
+			} else {
+				target.Variant += "_" + part
+			}
+		}
+	}
+	target = CanonicalTarget(target)
+	if err := ValidateConcreteTarget(target); err != nil {
+		return Target{}, fmt.Errorf("platform tuple %q: %w", platform, err)
+	}
+	return target, nil
+}
+
+// ValidateConcreteTarget rejects selectors that cannot identify a concrete
+// target. Token values are intentionally not restricted to a known platform
+// inventory so new platforms can be represented without guessing semantics.
+func ValidateConcreteTarget(target Target) error {
+	for _, selector := range []struct{ field, value string }{
+		{field: "OS", value: target.OS},
+		{field: "architecture", value: target.Arch},
+		{field: "libc", value: target.LibC},
+		{field: "variant", value: target.Variant},
+	} {
+		field, value := selector.field, selector.value
+		if value == "" {
+			if field == "OS" || field == "architecture" {
+				return fmt.Errorf("target %s is empty", field)
+			}
+			continue
+		}
+		if !validTargetToken(value) {
+			return fmt.Errorf("target %s %q is invalid", field, value)
+		}
+	}
+	return nil
+}
+
+func validTargetToken(value string) bool {
+	if value == "" || !((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= '0' && value[0] <= '9')) {
+		return false
+	}
+	for _, ch := range value {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '_' && ch != '.' && ch != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 // Requirement describes the driver release and target requested by a caller.
 type Requirement struct {
 	DriverID          string
 	VersionConstraint string
-	Platform          string
+	Target            Target
 }
 
 // SourceSpec identifies a source and its source-specific reference. Reference
@@ -38,7 +148,7 @@ type SourceSpec struct {
 }
 
 // ResolvedRelease is a source-independent release snapshot. Artifacts may be a
-// partial platform set; callers must not infer that omitted platforms exist.
+// partial target set; callers must not infer that omitted targets exist.
 type ResolvedRelease struct {
 	DriverID  string
 	Version   string
@@ -57,15 +167,10 @@ type Evidence struct {
 	ReleaseListHash string
 }
 
-// Artifact describes one downloadable archive. Hash and Size are optional so
-// older registry entries and locally resolved partial sets remain representable.
+// Artifact describes one downloadable archive for one concrete target. Hash and
+// Size are optional so older registry entries remain representable.
 type Artifact struct {
-	// Platform retains the registry tuple during migration to explicit selectors.
-	Platform         string
-	OS               string
-	Arch             string
-	LibC             string
-	Variant          string
+	Target           Target
 	Format           string
 	URL              string
 	Hash             string
@@ -123,17 +228,29 @@ func ValidateResolvedRelease(release ResolvedRelease) error {
 		return fmt.Errorf("resolved release must contain at least one artifact")
 	}
 
-	// Source models do not yet assign stable artifact IDs, so the resolved URL
-	// is the identity used to reject duplicate records within one release.
-	seen := make(map[string]struct{}, len(release.Artifacts))
+	seenTargets := make(map[Target]struct{}, len(release.Artifacts))
+	seenLocations := make(map[string]Artifact, len(release.Artifacts))
 	for i, artifact := range release.Artifacts {
 		if artifact.URL == "" {
 			return fmt.Errorf("artifact %d has no resolved URL", i)
 		}
-		if _, ok := seen[artifact.URL]; ok {
-			return fmt.Errorf("resolved release contains duplicate artifact identity")
+		if canonical := CanonicalTarget(artifact.Target); canonical != artifact.Target {
+			return fmt.Errorf("artifact %d target is not canonical", i)
 		}
-		seen[artifact.URL] = struct{}{}
+		if err := ValidateConcreteTarget(artifact.Target); err != nil {
+			return fmt.Errorf("artifact %d has invalid target: %w", i, err)
+		}
+		if _, ok := seenTargets[artifact.Target]; ok {
+			return fmt.Errorf("resolved release contains duplicate target")
+		}
+		seenTargets[artifact.Target] = struct{}{}
+		if prior, ok := seenLocations[artifact.URL]; ok {
+			if prior.Hash != artifact.Hash || !sameSize(prior.Size, artifact.Size) {
+				return fmt.Errorf("artifacts sharing a location have conflicting hash or size")
+			}
+		} else {
+			seenLocations[artifact.URL] = artifact
+		}
 
 		if artifact.Hash == "" {
 			return fmt.Errorf("artifact %d has no finalized hash", i)
@@ -146,4 +263,11 @@ func ValidateResolvedRelease(release ResolvedRelease) error {
 		}
 	}
 	return nil
+}
+
+func sameSize(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }

@@ -535,7 +535,7 @@ func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {
-	if item.LockEntry != nil && item.LockEntry.Legacy != nil && item.LockEntry.Legacy.Platform == config.PlatformTuple() {
+	if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
 		if err := verifyLegacyLibraryProof(*item.LockEntry, config.PlatformTuple(), item.InstalledLibraryHash); err != nil {
 			return lockInfo{}, err
 		}
@@ -550,6 +550,10 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 	if err != nil {
 		return lockInfo{}, err
 	}
+	target, err := resolution.TargetFromPlatformTuple(item.Package.PlatformTuple)
+	if err != nil {
+		return lockInfo{}, fmt.Errorf("invalid resolved package target %q: %w", item.Package.PlatformTuple, err)
+	}
 	hash := item.ArchiveHash
 	if hash == "" {
 		hash = item.Package.ArtifactHash
@@ -563,11 +567,11 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		Version:  item.Package.Version.String(),
 		Source:   resolution.SourceSpec{Type: source.Type, Reference: source.URL},
 		Artifacts: []resolution.Artifact{{
-			Platform: item.Package.PlatformTuple,
-			Format:   "tar.gz",
-			URL:      item.Package.Path.String(),
-			Hash:     hash,
-			Size:     &size,
+			Target: target,
+			Format: "tar.gz",
+			URL:    item.Package.Path.String(),
+			Hash:   hash,
+			Size:   &size,
 		}},
 	}
 	candidate, err := lockInfoFromResolvedRelease(item.Driver.Path, release)
@@ -586,7 +590,7 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		}
 		if item.LockEntry.Legacy != nil {
 			var verified *VerifiedLegacyLibrary
-			if item.LockEntry.Legacy.Platform == config.PlatformTuple() {
+			if samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
 				verified = &VerifiedLegacyLibrary{Platform: config.PlatformTuple(), LibraryHash: item.InstalledLibraryHash}
 			}
 			return migrateV1Entry(*item.LockEntry, release, config.PlatformTuple(), verified)
