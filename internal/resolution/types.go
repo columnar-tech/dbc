@@ -19,8 +19,67 @@ package resolution
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
+
+// ArtifactLocationKind identifies how an artifact location is interpreted.
+type ArtifactLocationKind string
+
+const (
+	ArtifactLocationURL  ArtifactLocationKind = "url"
+	ArtifactLocationPath ArtifactLocationKind = "path"
+)
+
+// ArtifactLocation identifies an archive by either a remote URL or a local
+// filesystem path. Relative paths are resolved against the lockfile directory
+// by an executor, never against the process working directory.
+type ArtifactLocation struct {
+	Kind  ArtifactLocationKind `toml:"kind" json:"kind"`
+	Value string               `toml:"value" json:"value"`
+}
+
+// ValidateArtifactLocation validates the shared artifact-location contract.
+// Source adapters may apply stricter URL policies before constructing a URL
+// location.
+func ValidateArtifactLocation(location ArtifactLocation) error {
+	if location.Value == "" {
+		return fmt.Errorf("artifact location value is empty")
+	}
+	switch location.Kind {
+	case ArtifactLocationURL:
+		parsed, err := url.Parse(location.Value)
+		if err != nil || !parsed.IsAbs() || parsed.Opaque != "" ||
+			(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) ||
+			parsed.Hostname() == "" || parsed.User != nil || strings.Contains(location.Value, "#") {
+			return fmt.Errorf("artifact URL must be an absolute HTTP(S) URL with a host and without userinfo or fragment")
+		}
+	case ArtifactLocationPath:
+		if strings.IndexByte(location.Value, 0) >= 0 {
+			return fmt.Errorf("artifact path must not contain NUL")
+		}
+		if looksLikeArtifactURI(location.Value) {
+			return fmt.Errorf("artifact path must not use URI syntax")
+		}
+	default:
+		return fmt.Errorf("unsupported artifact location kind %q", location.Kind)
+	}
+	return nil
+}
+
+func looksLikeArtifactURI(value string) bool {
+	// Keep Windows drive paths usable on every host while rejecting URI schemes
+	// and URLs accidentally placed in the path field.
+	if len(value) >= 3 && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) &&
+		value[1] == ':' && (value[2] == '/' || value[2] == '\\') {
+		return false
+	}
+	if strings.Contains(value, "://") {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme != ""
+}
 
 // Target identifies one concrete operating-system and architecture target.
 // Empty variant denotes the ordinary variant; it is never a wildcard.
@@ -172,7 +231,7 @@ type Evidence struct {
 type Artifact struct {
 	Target           Target
 	Format           string
-	URL              string
+	Location         ArtifactLocation
 	Hash             string
 	Size             *int64
 	HostRequirements HostRequirements
@@ -229,10 +288,10 @@ func ValidateResolvedRelease(release ResolvedRelease) error {
 	}
 
 	seenTargets := make(map[Target]struct{}, len(release.Artifacts))
-	seenLocations := make(map[string]Artifact, len(release.Artifacts))
+	seenLocations := make(map[ArtifactLocation]Artifact, len(release.Artifacts))
 	for i, artifact := range release.Artifacts {
-		if artifact.URL == "" {
-			return fmt.Errorf("artifact %d has no resolved URL", i)
+		if err := ValidateArtifactLocation(artifact.Location); err != nil {
+			return fmt.Errorf("artifact %d has invalid location: %w", i, err)
 		}
 		if canonical := CanonicalTarget(artifact.Target); canonical != artifact.Target {
 			return fmt.Errorf("artifact %d target is not canonical", i)
@@ -244,12 +303,12 @@ func ValidateResolvedRelease(release ResolvedRelease) error {
 			return fmt.Errorf("resolved release contains duplicate target")
 		}
 		seenTargets[artifact.Target] = struct{}{}
-		if prior, ok := seenLocations[artifact.URL]; ok {
+		if prior, ok := seenLocations[artifact.Location]; ok {
 			if prior.Hash != artifact.Hash || !sameSize(prior.Size, artifact.Size) {
 				return fmt.Errorf("artifacts sharing a location have conflicting hash or size")
 			}
 		} else {
-			seenLocations[artifact.URL] = artifact
+			seenLocations[artifact.Location] = artifact
 		}
 
 		if artifact.Hash == "" {

@@ -107,12 +107,7 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 		return lockInfo{}, fmt.Errorf("unsupported resolved source type %q", release.Source.Type)
 	}
 	for _, artifact := range release.Artifacts {
-		lockedArtifact := lockArtifactFromResolved(artifact)
-		if release.Source.Type == "path" {
-			lockedArtifact.Path = lockedArtifact.URL
-			lockedArtifact.URL = ""
-		}
-		entry.Artifacts = append(entry.Artifacts, lockedArtifact)
+		entry.Artifacts = append(entry.Artifacts, lockArtifactFromResolved(artifact))
 	}
 	if err := validateLockInfo(entry); err != nil {
 		return lockInfo{}, err
@@ -122,11 +117,11 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 
 func lockArtifactFromResolved(artifact resolution.Artifact) lockArtifact {
 	result := lockArtifact{
-		Target: resolution.CanonicalTarget(artifact.Target),
-		Format: artifact.Format,
-		URL:    artifact.URL,
-		Hash:   artifact.Hash,
-		Size:   cloneInt64(artifact.Size),
+		Target:   resolution.CanonicalTarget(artifact.Target),
+		Format:   artifact.Format,
+		Location: artifact.Location,
+		Hash:     artifact.Hash,
+		Size:     cloneInt64(artifact.Size),
 		HostRequirements: lockHostRequirements{
 			OSMin:    artifact.HostRequirements.OSMin,
 			GLibCMin: artifact.HostRequirements.GLibCMin,
@@ -163,16 +158,12 @@ func (d lockInfo) resolvedRelease() resolution.ResolvedRelease {
 		release.Version = d.Version.String()
 	}
 	for _, artifact := range d.Artifacts {
-		artifactURL := artifact.URL
-		if artifact.Path != "" {
-			artifactURL = artifact.Path
-		}
 		resolved := resolution.Artifact{
-			Target: artifact.Target,
-			Format: artifact.Format,
-			URL:    artifactURL,
-			Hash:   artifact.Hash,
-			Size:   cloneInt64(artifact.Size),
+			Target:   artifact.Target,
+			Format:   artifact.Format,
+			Location: artifact.Location,
+			Hash:     artifact.Hash,
+			Size:     cloneInt64(artifact.Size),
 			HostRequirements: resolution.HostRequirements{
 				OSMin:    artifact.HostRequirements.OSMin,
 				GLibCMin: artifact.HostRequirements.GLibCMin,
@@ -306,7 +297,7 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 				continue
 			}
 			found = true
-			if prior.URL != candidate.URL || prior.Path != candidate.Path || prior.Format != candidate.Format ||
+			if prior.Location != candidate.Location || prior.Format != candidate.Format ||
 				prior.Hash != candidate.Hash || !sameLockSize(prior.Size, candidate.Size) ||
 				!reflect.DeepEqual(canonicalHostRequirements(prior.HostRequirements), canonicalHostRequirements(candidate.HostRequirements)) {
 				return lockInfo{}, fmt.Errorf("metadata refresh contradicts locked artifact %q", candidateIdentity)

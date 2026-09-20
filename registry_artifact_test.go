@@ -165,7 +165,29 @@ func TestResolvedRegistryReleaseKeepsSourceAndArtifactHostsSeparate(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, "https://registry.example.test", resolved.Source.Reference)
 	require.Len(t, resolved.Artifacts, 1)
-	assert.Equal(t, "https://packages.example.test/driver.tar.gz", resolved.Artifacts[0].URL)
+	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://packages.example.test/driver.tar.gz"}, resolved.Artifacts[0].Location)
+}
+
+func TestResolvedRegistryReleaseRejectsInvalidResolvedArtifactURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "file URL", url: "file:///tmp/archive.tar.gz"},
+		{name: "userinfo URL", url: "https://user@example.test/archive.tar.gz"},
+		{name: "fragment URL", url: "https://example.test/archive.tar.gz#part"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			release := pkginfo{
+				Version:  semver.MustParse("1.2.3"),
+				Packages: []registryPackage{{PlatformTuple: "linux_amd64", URL: test.url}},
+			}
+			driver := Driver{Path: "example-driver", Registry: &Registry{BaseURL: mustParseURL("https://registry.example.test")}}
+			_, err := release.resolvedRelease(driver)
+			assert.ErrorContains(t, err, "invalid artifact URL")
+		})
+	}
 }
 
 func TestResolvedRegistryReleaseSourceIdentityIncludesRegistry(t *testing.T) {
@@ -213,7 +235,7 @@ func TestResolvedRegistryReleaseMatchesGetPackageURLs(t *testing.T) {
 		pkg, err := driver.GetPackage(version, rawPackage.PlatformTuple, false)
 		require.NoError(t, err)
 		require.NotNil(t, pkg.Path)
-		assert.Equal(t, pkg.Path.String(), artifact.URL)
+		assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: pkg.Path.String()}, artifact.Location)
 	}
 }
 
@@ -231,7 +253,7 @@ func TestRegistryTupleAliasesCanonicalizeWithoutChangingImplicitAssetURL(t *test
 	require.NoError(t, err)
 	require.Len(t, resolved.Artifacts, 1)
 	assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, resolved.Artifacts[0].Target)
-	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_linux_x86_64-1.2.3.tar.gz", resolved.Artifacts[0].URL,
+	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/example-driver/1.2.3/example-driver_linux_x86_64-1.2.3.tar.gz"}, resolved.Artifacts[0].Location,
 		"implicit asset filenames retain the raw registry tuple")
 }
 

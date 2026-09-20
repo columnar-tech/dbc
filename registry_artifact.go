@@ -89,7 +89,10 @@ func (p pkginfo) resolvedRelease(d Driver) (resolution.ResolvedRelease, error) {
 		if err != nil {
 			return resolution.ResolvedRelease{}, err
 		}
-		artifact.URL = uri.String()
+		artifact.Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: uri.String()}
+		if err := resolution.ValidateArtifactLocation(artifact.Location); err != nil {
+			return resolution.ResolvedRelease{}, fmt.Errorf("invalid artifact URL for platform %q: %w", pkg.PlatformTuple, err)
+		}
 		release.Artifacts = append(release.Artifacts, artifact)
 	}
 	return release, nil
@@ -125,7 +128,6 @@ func (p registryPackage) resolveArtifact() (resolution.Artifact, error) {
 	}
 	return resolution.Artifact{
 		Target: target,
-		URL:    p.URL,
 		Hash:   hash,
 		Size:   size,
 	}, nil

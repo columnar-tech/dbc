@@ -71,13 +71,15 @@ type lockEvidence struct {
 }
 
 type lockArtifact struct {
-	Target           resolution.Target    `toml:"target"`
-	Format           string               `toml:"format,omitempty"`
-	URL              string               `toml:"url,omitempty"`
-	Path             string               `toml:"path,omitempty"`
-	Hash             string               `toml:"hash"`
-	Size             *int64               `toml:"size"`
-	HostRequirements lockHostRequirements `toml:"host_requirements,omitempty"`
+	Target           resolution.Target           `toml:"target"`
+	Format           string                      `toml:"format,omitempty"`
+	Location         resolution.ArtifactLocation `toml:"location"`
+	Hash             string                      `toml:"hash"`
+	Size             *int64                      `toml:"size"`
+	HostRequirements lockHostRequirements        `toml:"host_requirements,omitempty"`
+	// These fields detect and reject the pre-location v2 wire form.
+	LegacyURL  *string `toml:"url,omitempty"`
+	LegacyPath *string `toml:"path,omitempty"`
 	// These fields exist only to detect and reject obsolete v2 wire selectors.
 	// New lock entries never populate or serialize them; Target is the only
 	// artifact selector accepted for version 2 files.
@@ -284,8 +286,11 @@ func validateHTTPURL(field, raw string) error {
 
 func validateLockArtifacts(artifacts []lockArtifact) error {
 	seenTargets := make(map[resolution.Target]struct{}, len(artifacts))
-	seenLocations := make(map[string]lockArtifact, len(artifacts))
+	seenLocations := make(map[resolution.ArtifactLocation]lockArtifact, len(artifacts))
 	for i, artifact := range artifacts {
+		if artifact.LegacyURL != nil || artifact.LegacyPath != nil {
+			return fmt.Errorf("artifact %d uses obsolete direct URL or path fields; use the location table", i)
+		}
 		if artifact.LegacyPlatform != nil || artifact.LegacyOS != nil || artifact.LegacyArch != nil ||
 			artifact.LegacyLibC != nil || artifact.LegacyVariant != nil {
 			return fmt.Errorf("artifact %d uses obsolete selector fields; use the target table", i)
@@ -296,8 +301,8 @@ func validateLockArtifacts(artifacts []lockArtifact) error {
 		if canonical := resolution.CanonicalTarget(artifact.Target); canonical != artifact.Target {
 			return fmt.Errorf("artifact %d target is not canonical", i)
 		}
-		if (artifact.URL == "") == (artifact.Path == "") {
-			return fmt.Errorf("artifact %d must have exactly one of URL or path", i)
+		if err := resolution.ValidateArtifactLocation(artifact.Location); err != nil {
+			return fmt.Errorf("artifact %d has invalid location: %w", i, err)
 		}
 		if artifact.Hash == "" || artifact.Size == nil {
 			return fmt.Errorf("artifact %d must have a finalized hash and size", i)
@@ -308,25 +313,16 @@ func validateLockArtifacts(artifacts []lockArtifact) error {
 		if *artifact.Size < 0 {
 			return fmt.Errorf("artifact %d has negative size", i)
 		}
-		if artifact.URL != "" {
-			if err := validateHTTPURL("artifact URL", artifact.URL); err != nil {
-				return fmt.Errorf("artifact %d: %w", i, err)
-			}
-		}
 		if _, exists := seenTargets[artifact.Target]; exists {
 			return fmt.Errorf("duplicate artifact target %q", artifactSelectorIdentity(artifact))
 		}
 		seenTargets[artifact.Target] = struct{}{}
-		location := "url:" + artifact.URL
-		if artifact.Path != "" {
-			location = "path:" + artifact.Path
-		}
-		if prior, exists := seenLocations[location]; exists {
+		if prior, exists := seenLocations[artifact.Location]; exists {
 			if prior.Hash != artifact.Hash || !sameLockSize(prior.Size, artifact.Size) {
-				return fmt.Errorf("artifacts sharing location %q have conflicting hash or size", location)
+				return fmt.Errorf("artifacts sharing location %q have conflicting hash or size", artifact.Location.Value)
 			}
 		} else {
-			seenLocations[location] = artifact
+			seenLocations[artifact.Location] = artifact
 		}
 	}
 	return nil

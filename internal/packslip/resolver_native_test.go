@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/packslipverify"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/stretchr/testify/require"
 )
 
@@ -204,7 +205,7 @@ func TestResolverUsesSignedListDigestAndBuildsResolvedRelease(t *testing.T) {
 	require.Equal(t, server.URL+"/acme/driver/HEAD/.well-known/packslip.json", resolved.Evidence.ReleaseListURL)
 	require.Equal(t, server.URL+"/assets/release.json", resolved.Evidence.BundleURL)
 	require.Len(t, resolved.Artifacts, 1, "a resolution contains the artifact selected for its requested target")
-	require.Equal(t, "https://downloads.example/driver-linux.tar.gz", resolved.Artifacts[0].URL)
+	require.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://downloads.example/driver-linux.tar.gz"}, resolved.Artifacts[0].Location)
 	require.Equal(t, "sha256:"+strings.Repeat("a", 64), resolved.Artifacts[0].Hash)
 	require.Equal(t, int64(10), *resolved.Artifacts[0].Size)
 	require.Equal(t, Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, resolved.Artifacts[0].Target)
@@ -214,7 +215,7 @@ func TestResolverUsesSignedListDigestAndBuildsResolvedRelease(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, macos.Artifacts, 1)
 	require.Equal(t, Target{OS: "macos", Arch: "arm64"}, macos.Artifacts[0].Target)
-	require.Equal(t, "https://downloads.example/driver-macos.tgz", macos.Artifacts[0].URL)
+	require.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://downloads.example/driver-macos.tgz"}, macos.Artifacts[0].Location)
 	require.Equal(t, int32(2), fixture.apiHits.Load())
 }
 

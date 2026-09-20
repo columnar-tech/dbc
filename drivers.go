@@ -346,8 +346,6 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 			if err != nil {
 				return PkgInfo{}, err
 			}
-			artifact.URL = uri.String()
-
 			return PkgInfo{
 				Driver:        d,
 				Version:       p.Version,

@@ -319,15 +319,15 @@ func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 }
 
 func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {
-	if artifact.Path != "" || artifact.URL == "" {
+	if artifact.Location.Kind != resolution.ArtifactLocationURL || artifact.Location.Value == "" {
 		return installItem{}, fmt.Errorf("locked registry artifact for %s is not a remote URL artifact", name)
 	}
 	if artifact.Format != "" && artifact.Format != "tar.gz" {
 		return installItem{}, fmt.Errorf("locked artifact format %q for %s is not supported by sync yet", artifact.Format, name)
 	}
-	packageURL, err := url.Parse(artifact.URL)
+	packageURL, err := url.Parse(artifact.Location.Value)
 	if err != nil || !packageURL.IsAbs() || packageURL.Hostname() == "" {
-		return installItem{}, fmt.Errorf("invalid locked artifact URL for %s: %q", name, artifact.URL)
+		return installItem{}, fmt.Errorf("invalid locked artifact URL for %s: %q", name, artifact.Location.Value)
 	}
 	registryURL, err := url.Parse(entry.Source.URL)
 	if err != nil || !registryURL.IsAbs() || registryURL.Hostname() == "" {
@@ -472,10 +472,14 @@ func canReuseLockedEntry(item installItem) bool {
 		return false
 	}
 	artifact, err := selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)
-	if err != nil || artifact.URL == "" || item.Package.Path == nil || item.Package.ArtifactSize == nil {
+	if err != nil || artifact.Location.Kind != resolution.ArtifactLocationURL || artifact.Location.Value == "" || item.Package.Path == nil || item.Package.ArtifactSize == nil {
 		return false
 	}
-	return item.Package.Path.String() == artifact.URL &&
+	lockedURL, err := url.Parse(artifact.Location.Value)
+	if err != nil || lockedURL == nil {
+		return false
+	}
+	return item.Package.Path.String() == lockedURL.String() &&
 		item.Package.ArtifactHash == artifact.Hash && *item.Package.ArtifactSize == *artifact.Size
 }
 
@@ -567,11 +571,11 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		Version:  item.Package.Version.String(),
 		Source:   resolution.SourceSpec{Type: source.Type, Reference: source.URL},
 		Artifacts: []resolution.Artifact{{
-			Target: target,
-			Format: "tar.gz",
-			URL:    item.Package.Path.String(),
-			Hash:   hash,
-			Size:   &size,
+			Target:   target,
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: item.Package.Path.String()},
+			Hash:     hash,
+			Size:     &size,
 		}},
 	}
 	candidate, err := lockInfoFromResolvedRelease(item.Driver.Path, release)

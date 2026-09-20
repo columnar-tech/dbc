@@ -36,11 +36,11 @@ func TestValidateResolvedRelease(t *testing.T) {
 			BundleHash: "sha256:" + strings.Repeat("a", 64),
 		},
 		Artifacts: []Artifact{{
-			Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
-			Format: "tar.gz",
-			URL:    "https://example.test/driver.tar.gz",
-			Hash:   "sha256:" + strings.Repeat("b", 64),
-			Size:   &size,
+			Target:   Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+			Format:   "tar.gz",
+			Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
+			Hash:     "sha256:" + strings.Repeat("b", 64),
+			Size:     &size,
 			HostRequirements: HostRequirements{
 				OSMin:    "1.0",
 				GLibCMin: "2.17",
@@ -59,10 +59,10 @@ func TestValidateResolvedRelease(t *testing.T) {
 func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 	size := int64(12)
 	base := ResolvedRelease{Artifacts: []Artifact{{
-		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
-		URL:    "https://example.test/driver.tar.gz",
-		Hash:   "sha256:" + strings.Repeat("a", 64),
-		Size:   &size,
+		Target:   Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+		Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
+		Hash:     "sha256:" + strings.Repeat("a", 64),
+		Size:     &size,
 	}}}
 
 	tests := []struct {
@@ -72,7 +72,7 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 	}{
 		{name: "missing hash", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Hash = "" }, wantErr: "no finalized hash"},
 		{name: "missing size", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Size = nil }, wantErr: "no finalized size"},
-		{name: "missing URL", mutate: func(r *ResolvedRelease) { r.Artifacts[0].URL = "" }, wantErr: "no resolved URL"},
+		{name: "missing location", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Location = ArtifactLocation{} }, wantErr: "invalid location"},
 		{name: "duplicate target", mutate: func(r *ResolvedRelease) {
 			duplicate := r.Artifacts[0]
 			r.Artifacts = append(r.Artifacts, duplicate)
@@ -92,9 +92,9 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 func TestValidateResolvedReleaseKeepsRegistryCandidateWithoutHashValid(t *testing.T) {
 	size := int64(12)
 	candidate := ResolvedRelease{Artifacts: []Artifact{{
-		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
-		URL:    "https://registry.example.test/driver.tar.gz",
-		Size:   &size,
+		Target:   Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+		Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://registry.example.test/driver.tar.gz"},
+		Size:     &size,
 	}}}
 
 	assert.ErrorContains(t, ValidateResolvedRelease(candidate), "no finalized hash")
@@ -129,13 +129,55 @@ func TestEmptyConcreteTargetIsNotAWildcard(t *testing.T) {
 func TestResolvedReleaseAllowsSharedLocationButRejectsConflictingMetadata(t *testing.T) {
 	size := int64(12)
 	base := Artifact{
-		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, URL: "https://example.test/shared.tar.gz",
+		Target: Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/shared.tar.gz"},
 		Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,
 	}
 	release := ResolvedRelease{Artifacts: []Artifact{base, {
-		Target: Target{OS: "macos", Arch: "arm64"}, URL: base.URL, Hash: base.Hash, Size: &size,
+		Target: Target{OS: "macos", Arch: "arm64"}, Location: base.Location, Hash: base.Hash, Size: &size,
 	}}}
 	assert.NoError(t, ValidateResolvedRelease(release))
 	release.Artifacts[1].Hash = "sha256:" + strings.Repeat("b", 64)
 	assert.ErrorContains(t, ValidateResolvedRelease(release), "conflicting hash or size")
+}
+
+func TestValidateArtifactLocation(t *testing.T) {
+	tests := []struct {
+		name     string
+		location ArtifactLocation
+		wantErr  string
+	}{
+		{name: "http URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "http://example.test/a%2Fb?token=x%2Fy"}},
+		{name: "HTTPS URL spelling preserved", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "HTTPS://Example.test/a%2Fb?token=x%2Fy"}},
+		{name: "relative path", location: ArtifactLocation{Kind: ArtifactLocationPath, Value: "./packages/archive.tar.gz"}},
+		{name: "absolute path", location: ArtifactLocation{Kind: ArtifactLocationPath, Value: "/var/cache/archive.tar.gz"}},
+		{name: "Windows path", location: ArtifactLocation{Kind: ArtifactLocationPath, Value: `C:\cache\archive.tar.gz`}},
+		{name: "empty kind", location: ArtifactLocation{Value: "https://example.test/a"}, wantErr: "unsupported artifact location kind"},
+		{name: "unknown kind", location: ArtifactLocation{Kind: "other", Value: "anything"}, wantErr: "unsupported artifact location kind"},
+		{name: "empty value", location: ArtifactLocation{Kind: ArtifactLocationPath}, wantErr: "value is empty"},
+		{name: "relative URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "/archive.tar.gz"}, wantErr: "absolute HTTP(S)"},
+		{name: "file URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "file:///tmp/archive.tar.gz"}, wantErr: "absolute HTTP(S)"},
+		{name: "opaque URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https:archive.tar.gz"}, wantErr: "absolute HTTP(S)"},
+		{name: "userinfo URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://user:pass@example.test/archive"}, wantErr: "without userinfo"},
+		{name: "fragment URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/archive#section"}, wantErr: "without userinfo"},
+		{name: "empty fragment URL", location: ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/archive#"}, wantErr: "without userinfo"},
+		{name: "path NUL", location: ArtifactLocation{Kind: ArtifactLocationPath, Value: "archive\x00.tar.gz"}, wantErr: "NUL"},
+		{name: "path URL", location: ArtifactLocation{Kind: ArtifactLocationPath, Value: "https://example.test/archive"}, wantErr: "URI syntax"},
+		{name: "path file URI", location: ArtifactLocation{Kind: ArtifactLocationPath, Value: "file:///tmp/archive"}, wantErr: "URI syntax"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateArtifactLocation(test.location)
+			if test.wantErr != "" {
+				assert.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestResolvedReleaseLocationIdentityIncludesKind(t *testing.T) {
+	urlLocation := ArtifactLocation{Kind: ArtifactLocationURL, Value: "https://example.test/archive"}
+	pathLocation := ArtifactLocation{Kind: ArtifactLocationPath, Value: urlLocation.Value}
+	assert.NotEqual(t, urlLocation, pathLocation, "location identity includes its kind")
 }

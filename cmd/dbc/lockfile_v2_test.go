@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -34,11 +35,11 @@ import (
 
 func testLockArtifact(platform, digest string, size int64) lockArtifact {
 	return lockArtifact{
-		Target: testTarget(platform),
-		URL:    "https://example.test/" + platform + ".tar.gz",
-		Hash:   "sha256:" + strings.Repeat(digest, 64),
-		Size:   &size,
-		Format: "tar.gz",
+		Target:   testTarget(platform),
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/" + platform + ".tar.gz"},
+		Hash:     "sha256:" + strings.Repeat(digest, 64),
+		Size:     &size,
+		Format:   "tar.gz",
 	}
 }
 
@@ -63,7 +64,7 @@ func testLockEntry() lockInfo {
 		Artifacts: []lockArtifact{
 			{
 				Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
-				URL: "https://example.test/linux.tar.gz", Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(128),
+				Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(128),
 				HostRequirements: lockHostRequirements{
 					OSMin: "3.2.0", GLibCMin: "2.17", Libs: []string{"libssl.so.3", "libc.so.6"},
 					Bins: []lockNamedRequirement{{Name: "git", Min: "2.40"}},
@@ -71,7 +72,7 @@ func testLockEntry() lockInfo {
 			},
 			{
 				Target: resolution.Target{OS: "macos", Arch: "arm64"}, Format: "tar.gz",
-				URL: "https://example.test/macos.tar.gz", Hash: "sha256:" + strings.Repeat("b", 64), Size: int64Pointer(256),
+				Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: int64Pointer(256),
 			},
 		},
 	}
@@ -82,11 +83,14 @@ func int64Pointer(value int64) *int64 { return &value }
 func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T) {
 	dir := t.TempDir()
 	entry := testLockEntry()
+	entry.Artifacts[0].Location.Value = "HTTPS://Example.test/a%2Fb?token=x%2Fy"
 	lock := LockFile{Version: lockFileVersion, Revision: 0, Drivers: []lockInfo{entry, {
 		Name: "local", Version: semver.MustParse("0.1.0"),
 		Source: lockSource{Type: "path", Path: "./packages/local.tar.gz"},
 		Artifacts: []lockArtifact{{
-			Target: resolution.Target{OS: "windows", Arch: "amd64"}, Path: "./packages/local.tar.gz", Hash: "sha256:" + strings.Repeat("c", 64), Size: int64Pointer(0), Format: "tar.gz",
+			Target: resolution.Target{OS: "windows", Arch: "amd64"}, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./packages/local.tar.gz"}, Hash: "sha256:" + strings.Repeat("c", 64), Size: int64Pointer(0), Format: "tar.gz",
+		}, {
+			Target: resolution.Target{OS: "macos", Arch: "arm64"}, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "/var/cache/local.tar.gz"}, Hash: "sha256:" + strings.Repeat("d", 64), Size: int64Pointer(1), Format: "tar.gz",
 		}},
 	}}}
 	firstPath := filepath.Join(dir, "first.lock")
@@ -108,17 +112,59 @@ func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T)
 	linux := loaded.lockinfo["example"].Artifacts[0]
 	assert.Equal(t, "gnu", linux.Target.LibC)
 	assert.Equal(t, "v1", linux.Target.Variant)
+	assert.Equal(t, "HTTPS://Example.test/a%2Fb?token=x%2Fy", linux.Location.Value,
+		"URL case, percent encoding, query, and spelling are preserved")
 	assert.Equal(t, []string{"libc.so.6", "libssl.so.3"}, linux.HostRequirements.Libs)
 	assert.Equal(t, "2.17", linux.HostRequirements.GLibCMin)
 	assert.Equal(t, []lockNamedRequirement{{Name: "git", Min: "2.40"}}, linux.HostRequirements.Bins)
-	assert.Equal(t, "./packages/local.tar.gz", loaded.lockinfo["local"].Artifacts[0].Path)
+	locations := []resolution.ArtifactLocation{
+		loaded.lockinfo["local"].Artifacts[0].Location,
+		loaded.lockinfo["local"].Artifacts[1].Location,
+	}
+	assert.Contains(t, locations, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./packages/local.tar.gz"})
+	assert.Contains(t, locations, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "/var/cache/local.tar.gz"})
 	assert.NotContains(t, string(first), "platform =")
 	assert.Contains(t, string(first), "[drivers.artifacts.target]")
-	assert.Zero(t, *loaded.lockinfo["local"].Artifacts[0].Size, "an explicit zero size is distinct from an omitted size")
+	var zeroSizePreserved bool
+	for _, artifact := range loaded.lockinfo["local"].Artifacts {
+		if artifact.Target == (resolution.Target{OS: "windows", Arch: "amd64"}) {
+			zeroSizePreserved = artifact.Size != nil && *artifact.Size == 0
+		}
+	}
+	assert.True(t, zeroSizePreserved, "an explicit zero size is distinct from an omitted size")
 	localRelease := loaded.lockinfo["local"].resolvedRelease()
 	localRoundTrip, err := lockInfoFromResolvedRelease("local", localRelease)
 	require.NoError(t, err)
-	assert.Equal(t, "./packages/local.tar.gz", localRoundTrip.Artifacts[0].Path)
+	locations = []resolution.ArtifactLocation{localRoundTrip.Artifacts[0].Location, localRoundTrip.Artifacts[1].Location}
+	assert.Contains(t, locations, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./packages/local.tar.gz"})
+	assert.Contains(t, locations, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "/var/cache/local.tar.gz"})
+}
+
+func TestLockArtifactRejectsInvalidLocations(t *testing.T) {
+	tests := []struct {
+		name     string
+		location resolution.ArtifactLocation
+	}{
+		{name: "empty kind", location: resolution.ArtifactLocation{Value: "https://example.test/archive"}},
+		{name: "unknown kind", location: resolution.ArtifactLocation{Kind: "other", Value: "value"}},
+		{name: "empty URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL}},
+		{name: "relative URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "archive.tar.gz"}},
+		{name: "file URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "file:///tmp/archive.tar.gz"}},
+		{name: "opaque URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https:archive.tar.gz"}},
+		{name: "userinfo URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://user@example.test/archive"}},
+		{name: "fragment URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/archive#part"}},
+		{name: "empty fragment URL", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/archive#"}},
+		{name: "empty path", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath}},
+		{name: "NUL path", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "archive\x00.tar.gz"}},
+		{name: "URI path", location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "https://example.test/archive"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			artifact := testLockArtifact("linux_amd64", "a", 10)
+			artifact.Location = test.location
+			assert.Error(t, validateLockArtifacts([]lockArtifact{artifact}))
+		})
+	}
 }
 
 func TestLockFileV2AllowsPartialArtifactSetAndReplayNeedsNoDiscovery(t *testing.T) {
@@ -183,7 +229,7 @@ func TestLockFileV2RejectsObsoleteArtifactSelectorFields(t *testing.T) {
 				targetCase = "with_target"
 			}
 			t.Run(field.name+"/"+targetCase, func(t *testing.T) {
-				contents := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n\n[[drivers.artifacts]]\nformat = 'tar.gz'\nurl = 'https://assets.example.test/archive.tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n" + field.value + "\n"
+				contents := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n\n[[drivers.artifacts]]\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n" + field.value + "\n\n[drivers.artifacts.location]\nkind = 'url'\nvalue = 'https://assets.example.test/archive.tar.gz'\n"
 				if withTarget {
 					contents += "[drivers.artifacts.target]\nos = 'linux'\narch = 'amd64'\nlibc = 'gnu'\n"
 				}
@@ -191,6 +237,24 @@ func TestLockFileV2RejectsObsoleteArtifactSelectorFields(t *testing.T) {
 				require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
 				_, err := loadLockFile(path)
 				assert.ErrorContains(t, err, "obsolete selector fields")
+			})
+		}
+	}
+}
+
+func TestLockFileV2RejectsObsoleteDirectArtifactLocationFields(t *testing.T) {
+	for _, field := range []string{"url", "path"} {
+		for _, withLocation := range []bool{false, true} {
+			t.Run(field+"/with_location="+strconv.FormatBool(withLocation), func(t *testing.T) {
+				contents := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n\n[[drivers.artifacts]]\n"
+				contents += field + " = ''\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n[drivers.artifacts.target]\nos = 'linux'\narch = 'amd64'\nlibc = 'gnu'\n"
+				if withLocation {
+					contents += "\n[drivers.artifacts.location]\nkind = 'url'\nvalue = 'https://assets.example.test/archive.tar.gz'\n"
+				}
+				path := filepath.Join(t.TempDir(), "dbc.lock")
+				require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+				_, err := loadLockFile(path)
+				assert.ErrorContains(t, err, "obsolete direct URL or path")
 			})
 		}
 	}
@@ -266,7 +330,7 @@ func TestRefreshCannotReplaceSameTargetArtifactMetadata(t *testing.T) {
 		name   string
 		mutate func(*lockArtifact)
 	}{
-		{name: "location", mutate: func(a *lockArtifact) { a.URL = "https://other.example.test/archive.tar.gz" }},
+		{name: "location", mutate: func(a *lockArtifact) { a.Location.Value = "https://other.example.test/archive.tar.gz" }},
 		{name: "format", mutate: func(a *lockArtifact) { a.Format = "tgz" }},
 		{name: "requirements", mutate: func(a *lockArtifact) { a.HostRequirements.OSMin = "99" }},
 	}
@@ -307,13 +371,16 @@ func TestRefreshAcceptsEquivalentHostRequirementsAfterLockRoundTrip(t *testing.T
 func TestLockArtifactsAllowSharedLocationOnlyWithConsistentMetadata(t *testing.T) {
 	first := testLockArtifact("linux_amd64", "a", 10)
 	second := testLockArtifact("macos_arm64", "a", 10)
-	second.URL = first.URL
+	second.Location = first.Location
 	assert.NoError(t, validateLockArtifacts([]lockArtifact{first, second}))
 	second.Size = int64Pointer(11)
 	assert.ErrorContains(t, validateLockArtifacts([]lockArtifact{first, second}), "conflicting hash or size")
 	second.Size = int64Pointer(10)
 	second.Hash = "sha256:" + strings.Repeat("b", 64)
 	assert.ErrorContains(t, validateLockArtifacts([]lockArtifact{first, second}), "conflicting hash or size")
+	second = testLockArtifact("macos_arm64", "b", 11)
+	second.Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: first.Location.Value}
+	assert.NotEqual(t, first.Location, second.Location, "same value with distinct kinds has a distinct identity")
 }
 
 func TestVersionUpgradeIsSeparateFromMetadataRefresh(t *testing.T) {
@@ -356,8 +423,8 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 		Version: semver.MustParse("1.2.3"),
 		Source:  lockSource{Type: "registry", URL: registryURL.String()},
 		Artifacts: []lockArtifact{{
-			Target: testTarget(platform),
-			URL:    "https://assets.example.test/archive.tar.gz", Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10), Format: "tar.gz",
+			Target:   testTarget(platform),
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/archive.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10), Format: "tar.gz",
 		}},
 	}
 	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
@@ -381,6 +448,33 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 		"post-install lock rewrite must keep the archive snapshot rather than the installed-library hash")
 }
 
+func TestSyncAdapterPreservesLockedURLSpellingWhenReusingSnapshot(t *testing.T) {
+	platform := config.PlatformTuple()
+	const rawURL = "HTTPS://Example.test/a%2Fb?token=x%2Fy"
+	registryURL, err := url.Parse("https://registry.example.test")
+	require.NoError(t, err)
+	entry := lockInfo{
+		Name:    "example",
+		Version: semver.MustParse("1.2.3"),
+		Source:  lockSource{Type: "registry", URL: registryURL.String()},
+		Artifacts: []lockArtifact{{
+			Target: testTarget(platform),
+			Location: resolution.ArtifactLocation{
+				Kind: resolution.ArtifactLocationURL, Value: rawURL,
+			},
+			Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10), Format: "tar.gz",
+		}},
+	}
+	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
+	require.NoError(t, err)
+
+	updated, err := lockEntryForItem(item)
+	require.NoError(t, err)
+	require.Len(t, updated.Artifacts, 1)
+	assert.Equal(t, rawURL, updated.Artifacts[0].Location.Value,
+		"reusing a locked artifact must preserve the original URL spelling")
+}
+
 func TestSyncAdapterRejectsFreshEntryWithoutArchiveMetadata(t *testing.T) {
 	registryURL, err := url.Parse("https://registry.example.test")
 	require.NoError(t, err)
@@ -395,6 +489,13 @@ func TestSyncAdapterRejectsFreshEntryWithoutArchiveMetadata(t *testing.T) {
 	assert.Contains(t, err.Error(), "no finalized hash")
 }
 
+func TestSyncAdapterRejectsPathArtifactForRegistryReplay(t *testing.T) {
+	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+	entry.Artifacts[0].Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./archive.tar.gz"}
+	_, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
+	assert.ErrorContains(t, err, "not a remote URL artifact")
+}
+
 func TestSyncAdapterVerifiesLegacyLibraryProofBeforeReusingV2Entry(t *testing.T) {
 	platform := config.PlatformTuple()
 	registryURL, err := url.Parse("https://registry.example.test")
@@ -407,8 +508,8 @@ func TestSyncAdapterVerifiesLegacyLibraryProofBeforeReusingV2Entry(t *testing.T)
 		Source:  lockSource{Type: "registry", URL: registryURL.String()},
 		Legacy:  &legacyLibraryProof{Platform: platform, LibraryHash: strings.Repeat("d", 64)},
 		Artifacts: []lockArtifact{{
-			Target: testTarget(platform),
-			URL:    "https://registry.example.test/archive.tar.gz", Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
+			Target:   testTarget(platform),
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
 		}},
 	}
 	item := installItem{
@@ -502,7 +603,7 @@ func TestV2RegistryReplaySkipsDiscoveryAndUsesLockedURLAndMetadata(t *testing.T)
 	require.True(t, ok, "expected lock replay install items, got %T", msg)
 	require.Len(t, items, 1)
 	assert.Zero(t, discoveryCalls, "registry discovery must not run for a complete v2 registry artifact")
-	assert.Equal(t, entry.Artifacts[0].URL, items[0].Package.Path.String())
+	assert.Equal(t, entry.Artifacts[0].Location.Value, items[0].Package.Path.String())
 	assert.Equal(t, entry.Artifacts[0].Hash, items[0].Package.ArtifactHash)
 	assert.Equal(t, *entry.Artifacts[0].Size, *items[0].Package.ArtifactSize)
 	assert.Equal(t, entry.Source.URL, items[0].Driver.Registry.BaseURL.String())
@@ -527,7 +628,7 @@ func testRegistryLockEntryForPlatform(platform string) lockInfo {
 		Source:  lockSource{Type: "registry", URL: "https://registry.example.test"},
 		Artifacts: []lockArtifact{{
 			Target: testTarget(platform),
-			Format: "tar.gz", URL: "https://assets.example.test/" + platform + ".tar.gz",
+			Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/" + platform + ".tar.gz"},
 			Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
 		}},
 	}
@@ -596,7 +697,7 @@ func TestV2RegistryReplayAllowsExplicitPrereleaseConstraintOffline(t *testing.T)
 func TestLockReplayRejectsMuslForGenericLinuxTargetAndAmbiguousArtifacts(t *testing.T) {
 	entry := testLockEntry()
 	entry.Artifacts = []lockArtifact{{
-		Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "musl"}, URL: "https://example.test/musl.tar.gz",
+		Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "musl"}, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/musl.tar.gz"},
 		Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
 	}}
 	_, err := selectLockedArtifact(entry, "linux_amd64", false)
@@ -632,7 +733,7 @@ func testResolvedRelease() resolution.ResolvedRelease {
 		},
 		Artifacts: []resolution.Artifact{{
 			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
-			URL: "https://example.test/linux.tar.gz", Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,
 			HostRequirements: resolution.HostRequirements{
 				GLibCMin: "2.17", Libs: []string{"libc.so.6"},
 				Bins: []resolution.NamedRequirement{{Name: "git", Min: "2.40"}},
