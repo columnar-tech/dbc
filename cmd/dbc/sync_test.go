@@ -48,6 +48,35 @@ func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
 	}
 }
 
+func TestAcquireSyncProjectLockDeadlineIsContentionButCancelIsNot(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), ".dbc.project.lock")
+	held, err := fslock.Acquire(lockPath, time.Second)
+	if err != nil {
+		t.Fatalf("acquire holder lock: %v", err)
+	}
+	defer held.Release()
+
+	deadlineCtx, cancelDeadline := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	_, err = acquireSyncProjectLock(deadlineCtx, lockPath)
+	cancelDeadline()
+	if !errors.Is(err, fslock.ErrLockContended) {
+		t.Fatalf("deadline while waiting for held project lock should be contention, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "another dbc operation is in progress") {
+		t.Fatalf("expected contention-specific message, got: %v", err)
+	}
+
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = acquireSyncProjectLock(cancelCtx, lockPath)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("explicit cancellation should remain context.Canceled, got: %v", err)
+	}
+	if errors.Is(err, fslock.ErrLockContended) {
+		t.Fatalf("explicit cancellation must not be classified as contention: %v", err)
+	}
+}
+
 func (suite *SubcommandTestSuite) TestSync() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
 	suite.runCmd(m)

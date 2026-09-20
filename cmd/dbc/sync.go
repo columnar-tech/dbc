@@ -768,13 +768,16 @@ func acquireSyncProjectLock(ctx context.Context, lockPath string) (fslock.Lock, 
 	if err == nil {
 		return lock, nil
 	}
-	if errors.Is(err, fslock.ErrLockContended) {
-		return fslock.Lock{}, fmt.Errorf("another dbc operation is in progress: %w", err)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return fslock.Lock{}, ctx.Err()
 	}
 	if errors.Is(err, os.ErrPermission) {
 		return fslock.Lock{}, fmt.Errorf(
 			"cannot write to %s: permission denied.\nThis command requires elevated privileges; try %s.",
 			filepath.Dir(lockPath), elevationHint())
+	}
+	if errors.Is(err, fslock.ErrLockContended) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fslock.Lock{}, fmt.Errorf("another dbc operation is in progress: %w: %v", fslock.ErrLockContended, err)
 	}
 	return fslock.Lock{}, fmt.Errorf("could not acquire lock in %s: %w", filepath.Dir(lockPath), err)
 }
