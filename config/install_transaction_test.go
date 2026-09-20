@@ -516,6 +516,9 @@ func TestUninstallDriverWaitsForInstallLock(t *testing.T) {
 	if _, err := os.Stat(libraryPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("installed library still exists after uninstall: %v", err)
 	}
+	if _, err := os.Stat(filepath.Dir(libraryPath)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("receipt-owned generation directory remains after uninstall: %v", err)
+	}
 }
 
 func TestDriverInstallLockLocation(t *testing.T) {
@@ -684,6 +687,10 @@ func TestInstallPackageManifestOnlyKeepsExternalLibrary(t *testing.T) {
 	if err := os.WriteFile(externalLibrary, []byte("external library"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	externalSibling := filepath.Join(externalDir, "LICENSE")
+	if err := os.WriteFile(externalSibling, []byte("external license"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	legacyManifest := []byte(fmt.Sprintf(`manifest_version = 1
 name = "Manifest Only"
 version = "1.0.0"
@@ -719,6 +726,167 @@ shared = %q
 	}
 	if got, err := os.ReadFile(externalLibrary); err != nil || string(got) != "external library" {
 		t.Fatalf("external library was altered: %q, %v", got, err)
+	}
+	info, err := GetDriver(cfg, "manifest-only")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriver(cfg, info); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(externalLibrary); err != nil || string(got) != "external library" {
+		t.Fatalf("uninstall altered external library: %q, %v", got, err)
+	}
+	if got, err := os.ReadFile(externalSibling); err != nil || string(got) != "external license" {
+		t.Fatalf("uninstall altered external sibling: %q, %v", got, err)
+	}
+	if got := countInstallGenerations(t, root, "manifest-only"); got != 0 {
+		t.Fatalf("managed receipt generations after uninstall = %d, want 0", got)
+	}
+}
+
+func TestUninstallDriverRemovesOnlyProvenLegacyPackageGeneration(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	legacy := createLegacyInstall(t, root, "example", "1.0.0", "")
+	info, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriver(cfg, info); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("proven legacy generation remains after uninstall: %v", err)
+	}
+}
+
+func TestUninstallDriverRetainsUnprovenLegacyDirectories(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(t *testing.T, root string) (DriverInfo, string)
+	}{
+		{name: "unknown directory name", setup: func(t *testing.T, root string) (DriverInfo, string) {
+			directory := filepath.Join(root, "example-unrecognized")
+			if err := os.Mkdir(directory, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			library := filepath.Join(directory, "old-library.so")
+			if err := os.WriteFile(library, []byte("old library"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			driver := DriverInfo{ID: "example", Name: "Example", Version: semver.MustParse("1.0.0"), Source: "dbc"}
+			driver.Driver.Shared.defaultPath = library
+			if err := CreateManifest(Config{Level: ConfigEnv, Location: root}, driver); err != nil {
+				t.Fatal(err)
+			}
+			info, err := GetDriver(Config{Level: ConfigEnv, Location: root}, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return info, library
+		}},
+		{name: "corrupt receipt", setup: func(t *testing.T, root string) (DriverInfo, string) {
+			legacy := createLegacyInstall(t, root, "example", "1.0.0", "")
+			library := filepath.Join(legacy, "old-library.so")
+			if err := os.WriteFile(filepath.Join(legacy, installReceiptName), []byte("broken"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			info, err := GetDriver(Config{Level: ConfigEnv, Location: root}, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return info, library
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			info, library := test.setup(t, root)
+			if err := UninstallDriver(Config{Level: ConfigEnv, Location: root}, info); err != nil {
+				t.Fatal(err)
+			}
+			if data, err := os.ReadFile(library); err != nil || string(data) != "old library" {
+				t.Fatalf("uninstall removed or changed unproven library: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestRelativeNestedEnvironmentInstallUpdateUninstall(t *testing.T) {
+	absRoot := filepath.Join(t.TempDir(), "nested", "drivers")
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeRoot, err := filepath.Rel(workingDirectory, absRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Level: ConfigEnv, Location: relativeRoot}
+
+	firstArchive := makeInstallArchive(t, "example", "1.0.0", "first.so", []byte("first library"))
+	firstFile := writeInstallArchive(t, firstArchive, "relative-first")
+	first, err := InstallPackage(cfg, "example", firstFile, installExpected("example", "relative-first", firstArchive), InstallOptions{})
+	_ = firstFile.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstGeneration := filepath.Dir(first.Driver.Shared.Get(PlatformTuple()))
+	if _, err := os.Stat(filepath.Join(absRoot, "example.toml")); err != nil {
+		t.Fatalf("runtime manifest missing after first install: %v", err)
+	}
+	link := filepath.Join(filepath.Dir(absRoot), "example.toml")
+	linkTarget, err := os.Readlink(link)
+	if err != nil {
+		t.Fatalf("manifest compatibility symlink missing after first install: %v", err)
+	}
+	if !filepath.IsAbs(linkTarget) {
+		linkTarget = filepath.Join(filepath.Dir(absRoot), linkTarget)
+	}
+	resolvedLinkTarget, err := filepath.Abs(linkTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath, err := filepath.Abs(filepath.Join(absRoot, "example.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(resolvedLinkTarget) != filepath.Clean(manifestPath) {
+		t.Fatalf("manifest symlink resolves to %q, want %q", resolvedLinkTarget, manifestPath)
+	}
+
+	if err := installVersionTwo(t, cfg, "example", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(firstGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("old owned generation remains after update: %v", err)
+	}
+	secondInfo, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondGeneration := filepath.Dir(secondInfo.Driver.Shared.Get(PlatformTuple()))
+	if _, err := os.Stat(secondGeneration); err != nil {
+		t.Fatalf("new owned generation missing after update: %v", err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("manifest symlink missing after update: %v", err)
+	}
+
+	if err := UninstallDriver(cfg, secondInfo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(absRoot, "example.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime manifest remains after uninstall: %v", err)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("manifest symlink remains after uninstall: %v", err)
+	}
+	if _, err := os.Stat(secondGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("owned generation remains after uninstall: %v", err)
+	}
+	if got := countInstallGenerations(t, absRoot, "example"); got != 0 {
+		t.Fatalf("owned package generation count after uninstall = %d, want 0", got)
 	}
 }
 

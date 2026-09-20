@@ -358,8 +358,7 @@ func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 		return Manifest{}, fmt.Errorf("could not register driver manifest: %w", err)
 	}
 
-	cleanupManagedPackageDirectories(loc, runtimeID, finalDir, manifest.DriverInfo)
-	cleanupLegacyPackageDirectory(loc, runtimeID, previous, manifest.DriverInfo)
+	cleanupOwnedPackageDirectories(loc, runtimeID, previous, finalDir, manifest.DriverInfo)
 	return manifest, nil
 }
 
@@ -508,6 +507,13 @@ func managedPackageDirectory(location, runtimeID string, info DriverInfo) (strin
 }
 
 func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, current DriverInfo) {
+	cleanupOwnedPackageDirectories(location, runtimeID, nil, currentDir, current)
+}
+
+func cleanupOwnedPackageDirectories(location, runtimeID string, previous *DriverInfo, currentDir string, current DriverInfo) {
+	if validateFlatName(runtimeID) != nil {
+		return
+	}
 	entries, err := os.ReadDir(location)
 	if err != nil {
 		return
@@ -518,7 +524,7 @@ func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, cu
 			continue
 		}
 		dir := filepath.Join(location, entry.Name())
-		if filepath.Clean(dir) == currentDir || runtimeReferencesDirectory(current, dir) {
+		if (currentDir != "." && filepath.Clean(dir) == currentDir) || runtimeReferencesPackageDirectory(current, location, dir) {
 			continue
 		}
 		if _, ok := readManagedPackageReceipt(location, runtimeID, dir); !ok {
@@ -526,6 +532,7 @@ func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, cu
 		}
 		_ = os.RemoveAll(dir)
 	}
+	cleanupLegacyPackageDirectory(location, runtimeID, previous, current)
 }
 
 // cleanupLegacyPackageDirectory removes a pre-receipt package generation only
@@ -630,26 +637,6 @@ func runtimeReferencesPackageDirectory(info DriverInfo, location, directory stri
 	return false
 }
 
-func cleanupUninstalledManagedPackageDirectories(location, runtimeID string) {
-	if err := validateFlatName(runtimeID); err != nil {
-		return
-	}
-	entries, err := os.ReadDir(location)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), ".dbc-package-"+runtimeID+"-") {
-			continue
-		}
-		directory := filepath.Join(location, entry.Name())
-		if _, ok := readManagedPackageReceipt(location, runtimeID, directory); !ok {
-			continue
-		}
-		_ = os.RemoveAll(directory)
-	}
-}
-
 func readManagedPackageReceipt(location, runtimeID, directory string) (InstallReceipt, bool) {
 	var receipt InstallReceipt
 	absLocation, err := filepath.Abs(location)
@@ -718,19 +705,6 @@ func parseReceiptMetadata(receipt InstallReceipt) error {
 		return fmt.Errorf("invalid receipt archive hash: %w", err)
 	}
 	return nil
-}
-
-func runtimeReferencesDirectory(info DriverInfo, directory string) bool {
-	for sharedPath := range info.Driver.Shared.Paths() {
-		if sharedPath == "" {
-			continue
-		}
-		sharedPath = filepath.Clean(sharedPath)
-		if sharedPath == filepath.Clean(directory) || filepath.Dir(sharedPath) == filepath.Clean(directory) {
-			return true
-		}
-	}
-	return false
 }
 
 func validateExpectedPackage(expected ExpectedPackageMetadata) error {

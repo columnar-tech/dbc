@@ -333,6 +333,10 @@ func UninstallDriverShared(info DriverInfo) error {
 	} else if strings.Contains(info.FilePath, "HKLM\\") {
 		filesystemLocation = ConfigSystem.ConfigLocation()
 	}
+	if info.Source == "dbc" {
+		cleanupOwnedPackageDirectories(filesystemLocation, info.ID, &info, "", DriverInfo{})
+		return nil
+	}
 
 	root, err := os.OpenRoot(filesystemLocation)
 	if err != nil {
@@ -350,49 +354,17 @@ func UninstallDriverShared(info DriverInfo) error {
 			continue
 		}
 
-		// dbc installs drivers in a folder, other tools may not so we handle each
-		// differently.
-		if info.Source == "dbc" {
-			sharedDir := filepath.Dir(sharedPath)
-			// Edge case when manifest is ill-formed: if sharedPath is set to the
-			// folder containing the shared library instead of the shared library
-			// itself, sharedDir is info.FilePath and we definitely don't want to
-			// remove that
-			if sharedDir == "." {
+		if err := root.Remove(sharedPath); err != nil {
+			// Ignore only when not found. This supports manifest-only drivers.
+			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-
-			if err := root.RemoveAll(sharedDir); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		} else {
-			if err := root.Remove(sharedPath); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
+			return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 		}
 	}
 
-	// Special handling to clean up manifest-only drivers
-	//
-	// Manifest only drivers can come with extra files such as a LICENSE and we
-	// create a folder next to the driver manifest to store them, same as we'd
-	// store the actual driver shared library. Above, we find the path of this
-	// folder by looking at the Driver.shared path. For manifest-only drivers,
-	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
-	// work. We do want to clean this folder up so here we guess what it is and
-	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
+	// Preserve the historical non-dbc cleanup behavior for guessed directories.
+	// dbc packages use receipt or legacy ownership checks above.
 	extraFolder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
 	extraFolder = filepath.Clean(extraFolder)
 	finfo, err := root.Stat(extraFolder)
@@ -409,5 +381,5 @@ func cleanupUninstalledDriverPackages(cfg Config, info DriverInfo) {
 	if err != nil {
 		return
 	}
-	cleanupUninstalledManagedPackageDirectories(location, info.ID)
+	cleanupOwnedPackageDirectories(location, info.ID, &info, "", DriverInfo{})
 }

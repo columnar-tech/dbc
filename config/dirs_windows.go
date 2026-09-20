@@ -405,8 +405,10 @@ func registrationFailure(writeErr, rollbackErr error) error {
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
 	return uninstallDriverWithInstallLock(cfg, info, func() error {
-		if err := UninstallDriverShared(info); err != nil {
-			return fmt.Errorf("failed to delete driver shared object: %w", err)
+		if info.Source != "dbc" {
+			if err := UninstallDriverShared(info); err != nil {
+				return fmt.Errorf("failed to delete driver shared object: %w", err)
+			}
 		}
 
 		if cfg.Level != ConfigEnv {

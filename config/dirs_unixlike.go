@@ -124,8 +124,10 @@ func UninstallDriver(cfg Config, info DriverInfo) error {
 		// TODO: Remove this when the driver managers are fixed (>=1.8.1).
 		removeManifestSymlink(info.FilePath, info.ID)
 
-		if err := UninstallDriverShared(info); err != nil {
-			return fmt.Errorf("failed to delete driver shared object: %w", err)
+		if info.Source != "dbc" {
+			if err := UninstallDriverShared(info); err != nil {
+				return fmt.Errorf("failed to delete driver shared object: %w", err)
+			}
 		}
 		cleanupUninstalledDriverPackages(cfg, info)
 
