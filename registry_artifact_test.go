@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -80,6 +81,32 @@ packages:
 	require.Len(t, resolved.Artifacts, 2)
 	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_linux_amd64-1.2.3.tar.gz", resolved.Artifacts[0].URL)
 	assert.Equal(t, "https://registry.example.test/example-driver/1.2.3/example-driver_windows_amd64-1.2.3.tar.gz", resolved.Artifacts[1].URL)
+}
+
+func TestResolveRegistryPackageURLWithoutBaseURL(t *testing.T) {
+	driver := Driver{Title: "Example Driver", Registry: &Registry{}}
+
+	t.Run("absolute URL", func(t *testing.T) {
+		uri, err := resolveRegistryPackageURL(driver, nil, registryPackage{
+			URL: "https://packages.example.test/driver.tar.gz",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "https://packages.example.test/driver.tar.gz", uri.String())
+	})
+
+	t.Run("relative URL", func(t *testing.T) {
+		_, err := resolveRegistryPackageURL(driver, semver.MustParse("1.2.3"), registryPackage{
+			URL: "driver.tar.gz",
+		})
+		require.ErrorContains(t, err, "no registry URL")
+	})
+
+	t.Run("implicit URL", func(t *testing.T) {
+		_, err := resolveRegistryPackageURL(driver, semver.MustParse("1.2.3"), registryPackage{
+			PlatformTuple: "linux_amd64",
+		})
+		require.ErrorContains(t, err, "no registry URL")
+	})
 }
 
 func TestRegistryArtifactMetadataRejectsInvalidValues(t *testing.T) {

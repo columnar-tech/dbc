@@ -24,22 +24,25 @@ import (
 )
 
 func resolveRegistryPackageURL(d Driver, version *semver.Version, pkg registryPackage) (*url.URL, error) {
-	if d.Registry == nil || d.Registry.BaseURL == nil {
-		return nil, fmt.Errorf("cannot resolve package URL for %s: driver has no registry URL", d.Title)
-	}
-	if version == nil {
-		return nil, fmt.Errorf("cannot resolve package URL for %s: release has no version", d.Title)
-	}
-
 	if pkg.URL != "" {
 		uri, err := url.Parse(pkg.URL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid package URL %q: %w", pkg.URL, err)
 		}
-		if !uri.IsAbs() {
-			uri = d.Registry.BaseURL.JoinPath(pkg.URL)
+		if uri.IsAbs() {
+			return uri, nil
 		}
-		return uri, nil
+		if d.Registry == nil || d.Registry.BaseURL == nil {
+			return nil, fmt.Errorf("cannot resolve package URL for %s: driver has no registry URL", d.Title)
+		}
+		return d.Registry.BaseURL.JoinPath(pkg.URL), nil
+	}
+
+	if d.Registry == nil || d.Registry.BaseURL == nil {
+		return nil, fmt.Errorf("cannot resolve package URL for %s: driver has no registry URL", d.Title)
+	}
+	if version == nil {
+		return nil, fmt.Errorf("cannot resolve package URL for %s: release has no version", d.Title)
 	}
 
 	platform := pkg.PlatformTuple
