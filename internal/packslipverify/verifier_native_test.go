@@ -23,13 +23,19 @@ import (
 	"context"
 	"embed"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/sigstore/sigstore-go/pkg/root"
+	sigtuf "github.com/sigstore/sigstore-go/pkg/tuf"
 )
 
 //go:embed testdata/*.json
@@ -48,6 +54,15 @@ func readFixtureTrustedRoot(t *testing.T) *root.TrustedRoot {
 	return trustedRoot
 }
 
+func readFixtureTrustedRootJSON(t *testing.T) []byte {
+	t.Helper()
+	trustedRootJSON, err := bundleFixture.ReadFile("testdata/trusted-root-public-good.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return trustedRootJSON
+}
+
 func newFixtureVerifier(t *testing.T) PackslipVerifier {
 	t.Helper()
 	trustedRoot, err := bundleFixture.ReadFile("testdata/trusted-root-public-good.json")
@@ -61,147 +76,286 @@ func newFixtureVerifier(t *testing.T) PackslipVerifier {
 	return verifier
 }
 
-func TestTrustedRootWaitHonorsCallerCancellationAndReusesSuccess(t *testing.T) {
-	trustedRoot := readFixtureTrustedRoot(t)
-	loaderStarted := make(chan struct{})
-	allowLoadToFinish := make(chan struct{})
-	waiterStarted := make(chan struct{})
-	var releaseOnce sync.Once
-	defer releaseOnce.Do(func() { close(allowLoadToFinish) })
-	var calls atomic.Int32
+func newCacheVerifier(t *testing.T, cachePath string, disableCache bool) *nativeVerifier {
+	t.Helper()
+	verifier, err := New(Config{CachePath: cachePath, DisableLocalCache: disableCache})
+	if err != nil {
+		t.Fatal(err)
+	}
+	native, ok := verifier.(*nativeVerifier)
+	if !ok {
+		t.Fatalf("New returned %T, want *nativeVerifier", verifier)
+	}
+	return native
+}
 
-	verifier := &nativeVerifier{
-		rootLoader: func(ctx context.Context) (*root.TrustedRoot, error) {
-			calls.Add(1)
-			close(loaderStarted)
-			select {
-			case <-allowLoadToFinish:
-				return trustedRoot, nil
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
-		},
-		rootWaitHook: func() { close(waiterStarted) },
-	}
-	type rootResult struct {
-		root *root.TrustedRoot
-		err  error
-	}
-	firstResult := make(chan rootResult, 1)
-	go func() {
-		got, err := verifier.trustedRoot(context.Background())
-		firstResult <- rootResult{root: got, err: err}
-	}()
-	select {
-	case <-loaderStarted:
-	case <-time.After(time.Second):
-		t.Fatal("root loader did not start")
+func TestNewParsesConfiguredTrustedRootAndParallelVerifyNeedsNoNetwork(t *testing.T) {
+	if _, err := New(Config{TrustedRootJSON: []byte("{")}); err == nil {
+		t.Fatal("New accepted invalid trusted-root JSON")
 	}
 
-	waiterCtx, cancelWaiter := context.WithCancel(context.Background())
-	defer cancelWaiter()
-	waiterResult := make(chan rootResult, 1)
-	go func() {
-		got, err := verifier.trustedRoot(waiterCtx)
-		waiterResult <- rootResult{root: got, err: err}
-	}()
-	select {
-	case <-waiterStarted:
-	case <-time.After(time.Second):
-		t.Fatal("second caller did not join the in-flight root load")
+	fixture, err := bundleFixture.ReadFile("testdata/bundle-provenance.json")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	cancelWaiter()
-	select {
-	case result := <-waiterResult:
-		if !errors.Is(result.err, context.Canceled) {
-			t.Fatalf("second caller error = %v, want context cancellation", result.err)
+	var networkCalls atomic.Int32
+	httpClient := &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+		networkCalls.Add(1)
+		return nil, errors.New("unexpected TUF network request")
+	})}
+	verifier, err := New(Config{
+		TrustedRootJSON: readFixtureTrustedRootJSON(t),
+		HTTPClient:      httpClient,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := IdentityPolicy{Issuer: fixtureIssuer, SubjectRegex: fixtureSubject}
+	digest := ArtifactDigest{Algorithm: "sha512", Hex: fixtureDigest}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := verifier.Verify(context.Background(), fixture, identity, digest)
+			results <- err
+		}()
+	}
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Errorf("parallel Verify: %v", err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("second caller did not return promptly after cancellation")
 	}
-
-	releaseOnce.Do(func() { close(allowLoadToFinish) })
-	first := <-firstResult
-	if first.err != nil || first.root != trustedRoot {
-		t.Fatalf("first caller got root %p, error %v; want shared root %p", first.root, first.err, trustedRoot)
-	}
-	reused, err := verifier.trustedRoot(context.Background())
-	if err != nil || reused != trustedRoot {
-		t.Fatalf("cached root = %p, error %v; want shared root %p", reused, err, trustedRoot)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("root loader calls = %d, want 1", got)
+	if got := networkCalls.Load(); got != 0 {
+		t.Fatalf("configured trusted root caused %d network requests", got)
 	}
 }
 
-func TestTrustedRootFailureIsSharedThenRetried(t *testing.T) {
-	trustedRoot := readFixtureTrustedRoot(t)
-	temporaryFailure := errors.New("temporary trust root fetch failure")
-	loaderStarted := make(chan struct{})
-	allowFailure := make(chan struct{})
-	waiterStarted := make(chan struct{})
-	var releaseOnce sync.Once
-	defer releaseOnce.Do(func() { close(allowFailure) })
-	var calls atomic.Int32
+type roundTripperFunc func(*http.Request) (*http.Response, error)
 
-	verifier := &nativeVerifier{
-		rootLoader: func(context.Context) (*root.TrustedRoot, error) {
-			if calls.Add(1) == 1 {
-				close(loaderStarted)
-				<-allowFailure
-				return nil, temporaryFailure
-			}
-			return trustedRoot, nil
-		},
-		rootWaitHook: func() { close(waiterStarted) },
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestRequestContextHTTPClientCancelsBlockedRequest(t *testing.T) {
+	requestStarted := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
+		close(requestStarted)
+		<-req.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequest(http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	type rootResult struct {
+	result := make(chan error, 1)
+	go func() {
+		_, err := (requestContextHTTPClient{ctx: ctx, client: server.Client()}).Do(req)
+		result <- err
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP request did not reach the test server")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("HTTP error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked HTTP request did not stop after caller cancellation")
+	}
+}
+
+func TestCacheLockWaitHonorsContextWithoutStartingTUFFetch(t *testing.T) {
+	cachePath := t.TempDir()
+	lock, err := fslock.AcquireContext(context.Background(), filepath.Join(cachePath, "tuf.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+
+	verifier := newCacheVerifier(t, cachePath, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	defer cancel()
+	var calls atomic.Int32
+	_, err = verifier.trustedRootWithLoader(ctx, func(*sigtuf.Options) (*root.TrustedRoot, error) {
+		calls.Add(1)
+		return readFixtureTrustedRoot(t), nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("trustedRoot error = %v, want caller deadline", err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("TUF loader was called %d times while cache lock was held", got)
+	}
+}
+
+func TestSeparateVerifiersSerializeTUFCacheAccess(t *testing.T) {
+	cachePath := t.TempDir()
+	trustedRoot := readFixtureTrustedRoot(t)
+	firstEntered := make(chan struct{})
+	secondEntered := make(chan struct{})
+	allowFirstToFinish := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(allowFirstToFinish) })
+	var calls atomic.Int32
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	loader := func(*sigtuf.Options) (*root.TrustedRoot, error) {
+		call := calls.Add(1)
+		current := active.Add(1)
+		for previous := maxActive.Load(); current > previous && !maxActive.CompareAndSwap(previous, current); previous = maxActive.Load() {
+		}
+		defer active.Add(-1)
+		if call == 1 {
+			close(firstEntered)
+			<-allowFirstToFinish
+		} else {
+			close(secondEntered)
+		}
+		return trustedRoot, nil
+	}
+	firstVerifier := newCacheVerifier(t, cachePath, false)
+	secondVerifier := newCacheVerifier(t, cachePath, false)
+	type loadResult struct {
 		root *root.TrustedRoot
 		err  error
 	}
-	firstResult := make(chan rootResult, 1)
+	firstResult := make(chan loadResult, 1)
 	go func() {
-		got, err := verifier.trustedRoot(context.Background())
-		firstResult <- rootResult{root: got, err: err}
+		root, err := firstVerifier.trustedRootWithLoader(context.Background(), loader)
+		firstResult <- loadResult{root: root, err: err}
 	}()
 	select {
-	case <-loaderStarted:
+	case <-firstEntered:
 	case <-time.After(time.Second):
-		t.Fatal("root loader did not start")
+		t.Fatal("first TUF loader did not enter")
 	}
-	waiterResult := make(chan rootResult, 1)
+	secondStarted := make(chan struct{})
+	secondResult := make(chan loadResult, 1)
 	go func() {
-		got, err := verifier.trustedRoot(context.Background())
-		waiterResult <- rootResult{root: got, err: err}
+		close(secondStarted)
+		root, err := secondVerifier.trustedRootWithLoader(context.Background(), loader)
+		secondResult <- loadResult{root: root, err: err}
 	}()
+	<-secondStarted
 	select {
-	case <-waiterStarted:
-	case <-time.After(time.Second):
-		t.Fatal("second caller did not join the in-flight root load")
+	case <-secondEntered:
+		t.Fatal("second verifier entered TUF while the first held the cache lock")
+	case <-time.After(120 * time.Millisecond):
 	}
 
-	releaseOnce.Do(func() { close(allowFailure) })
-	for name, resultChannel := range map[string]<-chan rootResult{
-		"initializer": firstResult,
-		"waiter":      waiterResult,
+	releaseOnce.Do(func() { close(allowFirstToFinish) })
+	for name, resultChannel := range map[string]<-chan loadResult{
+		"first":  firstResult,
+		"second": secondResult,
 	} {
 		select {
 		case result := <-resultChannel:
-			if result.root != nil || !errors.Is(result.err, temporaryFailure) {
-				t.Errorf("%s got root %p, error %v; want the shared initialization error", name, result.root, result.err)
+			if result.err != nil || result.root != trustedRoot {
+				t.Errorf("%s verifier got root %p, error %v", name, result.root, result.err)
 			}
 		case <-time.After(time.Second):
-			t.Errorf("%s did not receive the initialization failure", name)
+			t.Errorf("%s verifier did not finish", name)
 		}
 	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("TUF loader calls = %d, want 2", got)
+	}
+	if got := maxActive.Load(); got != 1 {
+		t.Fatalf("maximum concurrent TUF loaders = %d, want 1", got)
+	}
+}
 
-	retried, err := verifier.trustedRoot(context.Background())
-	if err != nil || retried != trustedRoot {
-		t.Fatalf("retry got root %p, error %v; want root %p", retried, err, trustedRoot)
+func TestDisableLocalCacheDoesNotSerializeTUFFetches(t *testing.T) {
+	trustedRoot := readFixtureTrustedRoot(t)
+	entered := make(chan struct{}, 2)
+	allowLoadsToFinish := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(allowLoadsToFinish) })
+	var active atomic.Int32
+	var maxActive atomic.Int32
+	loader := func(*sigtuf.Options) (*root.TrustedRoot, error) {
+		current := active.Add(1)
+		for previous := maxActive.Load(); current > previous && !maxActive.CompareAndSwap(previous, current); previous = maxActive.Load() {
+		}
+		entered <- struct{}{}
+		<-allowLoadsToFinish
+		active.Add(-1)
+		return trustedRoot, nil
+	}
+	verifiers := []*nativeVerifier{
+		newCacheVerifier(t, "", true),
+		newCacheVerifier(t, "", true),
+	}
+	results := make(chan error, len(verifiers))
+	for _, verifier := range verifiers {
+		go func(verifier *nativeVerifier) {
+			_, err := verifier.trustedRootWithLoader(context.Background(), loader)
+			results <- err
+		}(verifier)
+	}
+	for range len(verifiers) {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("cache-disabled TUF fetches were unexpectedly serialized")
+		}
+	}
+	releaseOnce.Do(func() { close(allowLoadsToFinish) })
+	for range len(verifiers) {
+		if err := <-results; err != nil {
+			t.Errorf("cache-disabled TUF fetch: %v", err)
+		}
+	}
+	if got := maxActive.Load(); got != 2 {
+		t.Fatalf("maximum concurrent TUF loaders = %d, want 2", got)
+	}
+}
+
+func TestTUFCacheFailureCanRetryOnNextCall(t *testing.T) {
+	cachePath := t.TempDir()
+	verifier := newCacheVerifier(t, cachePath, false)
+	trustedRoot := readFixtureTrustedRoot(t)
+	failure := errors.New("temporary TUF target failure")
+	var calls atomic.Int32
+	loader := func(*sigtuf.Options) (*root.TrustedRoot, error) {
+		if calls.Add(1) == 1 {
+			return nil, failure
+		}
+		return trustedRoot, nil
+	}
+	if got, err := verifier.trustedRootWithLoader(context.Background(), loader); got != nil || !errors.Is(err, failure) {
+		t.Fatalf("first fetch got root %p, error %v; want transient failure", got, err)
+	}
+	if got, err := verifier.trustedRootWithLoader(context.Background(), loader); got != trustedRoot || err != nil {
+		t.Fatalf("second fetch got root %p, error %v; want successful retry", got, err)
 	}
 	if got := calls.Load(); got != 2 {
-		t.Fatalf("root loader calls = %d, want 2 after one retry", got)
+		t.Fatalf("TUF loader calls = %d, want 2", got)
+	}
+}
+
+func TestNewUsesDBCSpecificDefaultTUFCachePath(t *testing.T) {
+	configPath, err := internal.GetUserConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := New(Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	native := verifier.(*nativeVerifier)
+	want := filepath.Join(configPath, "cache", "sigstore")
+	if native.config.CachePath != want {
+		t.Fatalf("default cache path = %q, want dbc-specific %q", native.config.CachePath, want)
+	}
+	if strings.Contains(native.config.CachePath, filepath.Join(".sigstore", "root")) {
+		t.Fatalf("default cache path is shared with other Sigstore tools: %q", native.config.CachePath)
 	}
 }
 

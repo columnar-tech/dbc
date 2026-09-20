@@ -22,39 +22,56 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 
+	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/sigstore/sigstore-go/pkg/bundle"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	sigtuf "github.com/sigstore/sigstore-go/pkg/tuf"
+	"github.com/sigstore/sigstore-go/pkg/util"
 	"github.com/sigstore/sigstore-go/pkg/verify"
 	"github.com/theupdateframework/go-tuf/v2/metadata/fetcher"
 )
 
 type nativeVerifier struct {
-	config Config
-
-	rootMu       sync.Mutex
-	root         *root.TrustedRoot
-	rootLoad     *trustedRootLoad
-	rootLoader   trustedRootLoader // Optional loader seam for native tests.
-	rootWaitHook func()            // Optional synchronization hook for native tests.
+	config                Config
+	configuredTrustedRoot *root.TrustedRoot
 }
-
-type trustedRootLoad struct {
-	done chan struct{}
-	root *root.TrustedRoot
-	err  error
-}
-
-type trustedRootLoader func(context.Context) (*root.TrustedRoot, error)
 
 // New returns a native Sigstore bundle verifier.
 func New(config Config) (PackslipVerifier, error) {
-	config.TrustedRootJSON = append([]byte(nil), config.TrustedRootJSON...)
-	return &nativeVerifier{config: config}, nil
+	verifier := &nativeVerifier{config: config}
+	if config.TrustedRootJSON != nil {
+		trustedRoot, err := root.NewTrustedRootFromJSON(config.TrustedRootJSON)
+		if err != nil {
+			return nil, fmt.Errorf("parse configured Sigstore trusted root: %w", err)
+		}
+		verifier.configuredTrustedRoot = trustedRoot
+		verifier.config.TrustedRootJSON = nil
+		return verifier, nil
+	}
+
+	if !config.DisableLocalCache {
+		if config.CachePath == "" {
+			configPath, err := internal.GetUserConfigPath()
+			if err != nil {
+				return nil, fmt.Errorf("find dbc user config directory for Sigstore cache: %w", err)
+			}
+			// Keep TUF state separate from other Sigstore tools so the lock and
+			// cache format have one owner and one synchronization policy.
+			config.CachePath = filepath.Join(configPath, "cache", "sigstore")
+		}
+		if !filepath.IsAbs(config.CachePath) {
+			return nil, fmt.Errorf("Sigstore TUF cache path must be absolute: %q", config.CachePath)
+		}
+	}
+	verifier.config = config
+	return verifier, nil
 }
 
 func (v *nativeVerifier) Verify(ctx context.Context, bundleJSON []byte, identity IdentityPolicy, digest ArtifactDigest) (*VerifiedBundle, error) {
@@ -135,104 +152,123 @@ func (v *nativeVerifier) Verify(ctx context.Context, bundleJSON []byte, identity
 	return verified, nil
 }
 
-// trustedRoot shares each in-flight load with its current waiters. A successful
-// result is cached; a failed attempt is shared with its waiters and then
-// discarded so a later caller can retry.
+// trustedRoot returns a configured immutable root or performs a fresh,
+// caller-scoped TUF load. It retains no process-local TUF result.
 func (v *nativeVerifier) trustedRoot(ctx context.Context) (*root.TrustedRoot, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
-	v.rootMu.Lock()
-	if err := ctx.Err(); err != nil {
-		v.rootMu.Unlock()
-		return nil, err
-	}
-	if v.root != nil {
-		trustedRoot := v.root
-		v.rootMu.Unlock()
-		return trustedRoot, nil
-	}
-	if currentLoad := v.rootLoad; currentLoad != nil {
-		v.rootMu.Unlock()
-		if v.rootWaitHook != nil {
-			v.rootWaitHook()
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-currentLoad.done:
-			if err := ctx.Err(); err != nil {
-				return nil, err
-			}
-			return currentLoad.root, currentLoad.err
-		}
-	}
-
-	currentLoad := &trustedRootLoad{done: make(chan struct{})}
-	v.rootLoad = currentLoad
-	loader := v.rootLoader
-	v.rootMu.Unlock()
-
-	if loader == nil {
-		loader = v.loadTrustedRoot
-	}
-	trustedRoot, err := loader(ctx)
-	if err == nil {
-		switch {
-		case trustedRoot == nil:
-			err = errors.New("trusted root loader returned no root")
-		case ctx.Err() != nil:
-			trustedRoot = nil
-			err = ctx.Err()
-		}
-	}
-
-	v.rootMu.Lock()
-	currentLoad.root = trustedRoot
-	currentLoad.err = err
-	if err == nil {
-		v.root = trustedRoot
-	}
-	if v.rootLoad == currentLoad {
-		// Failed attempts are shared with their current waiters, then forgotten
-		// so a later Verify call can retry transient TUF/network failures.
-		v.rootLoad = nil
-	}
-	close(currentLoad.done)
-	v.rootMu.Unlock()
-	return trustedRoot, err
+	return v.trustedRootWithLoader(ctx, root.FetchTrustedRootWithOptions)
 }
 
-func (v *nativeVerifier) loadTrustedRoot(ctx context.Context) (*root.TrustedRoot, error) {
+// trustedRootWithLoader keeps the loader as a call argument so tests can
+// exercise the real per-call cache/lock path without adding shared verifier
+// state. Production always passes root.FetchTrustedRootWithOptions.
+func (v *nativeVerifier) trustedRootWithLoader(
+	ctx context.Context,
+	load func(*sigtuf.Options) (*root.TrustedRoot, error),
+) (*root.TrustedRoot, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	var trustedRoot *root.TrustedRoot
-	var err error
-	if len(v.config.TrustedRootJSON) > 0 {
-		trustedRoot, err = root.NewTrustedRootFromJSON(v.config.TrustedRootJSON)
-	} else {
-		opts := sigtuf.DefaultOptions()
-		if v.config.CachePath != "" {
-			opts.CachePath = v.config.CachePath
+	if v.configuredTrustedRoot != nil {
+		return v.configuredTrustedRoot, nil
+	}
+
+	opts := sigtuf.DefaultOptions()
+	opts.Context = ctx
+	opts.DisableLocalCache = v.config.DisableLocalCache
+	if !opts.DisableLocalCache {
+		opts.CachePath = v.config.CachePath
+	}
+
+	client := v.config.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	metadataFetcher := fetcher.NewDefaultFetcher()
+	metadataFetcher.SetHTTPUserAgent(util.ConstructUserAgent())
+	metadataFetcher.SetHTTPClient(requestContextHTTPClient{ctx: ctx, client: client})
+	opts.Fetcher = metadataFetcher
+
+	return loadTrustedRootWithCache(ctx, opts, load)
+}
+
+// loadTrustedRootWithCache serializes all TUF filesystem access for a cache
+// path, including client construction and target retrieval. Each call uses a
+// fresh TUF client; no process-local trusted-root state survives the call.
+func loadTrustedRootWithCache(
+	ctx context.Context,
+	opts *sigtuf.Options,
+	load func(*sigtuf.Options) (*root.TrustedRoot, error),
+) (*root.TrustedRoot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if load == nil {
+		return nil, errors.New("Sigstore trusted root loader is nil")
+	}
+	opts.Context = ctx
+	if opts.DisableLocalCache {
+		return fetchTrustedRoot(ctx, opts, load)
+	}
+	if !filepath.IsAbs(opts.CachePath) {
+		return nil, fmt.Errorf("Sigstore TUF cache path must be absolute: %q", opts.CachePath)
+	}
+	if err := os.MkdirAll(opts.CachePath, 0o700); err != nil {
+		return nil, fmt.Errorf("create Sigstore TUF cache directory: %w", err)
+	}
+	lock, err := fslock.AcquireContext(ctx, filepath.Join(opts.CachePath, "tuf.lock"))
+	if err != nil {
+		return nil, fmt.Errorf("acquire Sigstore TUF cache lock: %w", err)
+	}
+
+	trustedRoot, fetchErr := fetchTrustedRoot(ctx, opts, load)
+	releaseErr := lock.Release()
+	if fetchErr != nil {
+		if releaseErr != nil {
+			return nil, errors.Join(fetchErr, fmt.Errorf("release Sigstore TUF cache lock: %w", releaseErr))
 		}
-		opts.DisableLocalCache = v.config.DisableLocalCache
-		opts.Context = ctx
-		if v.config.HTTPClient != nil {
-			metadataFetcher := fetcher.NewDefaultFetcher()
-			metadataFetcher.SetHTTPClient(v.config.HTTPClient)
-			opts.Fetcher = metadataFetcher
-		}
-		trustedRoot, err = root.FetchTrustedRootWithOptions(opts)
+		return nil, fetchErr
+	}
+	if releaseErr != nil {
+		return nil, fmt.Errorf("release Sigstore TUF cache lock: %w", releaseErr)
+	}
+	return trustedRoot, nil
+}
+
+func fetchTrustedRoot(
+	ctx context.Context,
+	opts *sigtuf.Options,
+	load func(*sigtuf.Options) (*root.TrustedRoot, error),
+) (*root.TrustedRoot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	trustedRoot, err := load(opts)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
 	}
 	if err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if trustedRoot == nil {
+		return nil, errors.New("Sigstore trusted root loader returned no root")
 	}
 	return trustedRoot, nil
+}
+
+// requestContextHTTPClient adapts go-tuf's context-free Fetcher interface to
+// the caller's context without modifying the shared HTTP client or transport.
+type requestContextHTTPClient struct {
+	ctx    context.Context
+	client interface {
+		Do(*http.Request) (*http.Response, error)
+	}
+}
+
+func (c requestContextHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
+	return c.client.Do(req.Clone(c.ctx))
 }
 
 func validateIdentity(identity IdentityPolicy) error {

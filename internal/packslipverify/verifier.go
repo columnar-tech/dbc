@@ -26,9 +26,10 @@ import (
 var ErrUnsupported = errors.New("Sigstore bundle verification is unsupported on this target")
 
 // Config controls trusted-root retrieval. HTTPClient is used for Sigstore TUF
-// requests, and CachePath selects the persistent TUF metadata cache. A
-// TrustedRootJSON value is useful for offline verification and tests; when it
-// is present, TUF is not contacted.
+// requests, and CachePath selects the persistent TUF metadata cache. When
+// caching is enabled and CachePath is empty, dbc uses its own user config cache
+// directory. A TrustedRootJSON value is parsed when New is called and avoids
+// TUF network and cache access during verification.
 type Config struct {
 	HTTPClient        *http.Client
 	CachePath         string
