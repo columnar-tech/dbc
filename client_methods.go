@@ -285,11 +285,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer f.Close()
 	defer os.RemoveAll(filepath.Dir(f.Name()))
-
-	var manifest config.Manifest
-	if hasMetadata {
-		manifest, err = config.InstallPackageArchive(cfg, f, expected)
-	} else {
+	if !hasMetadata {
 		packageManifest, inspectErr := config.InspectPackageManifest(f)
 		if inspectErr != nil {
 			return nil, fmt.Errorf("failed to inspect package for driver %s: %w", driverName, inspectErr)
@@ -297,14 +293,15 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		if packageManifest.PackageVersion == 2 {
 			return nil, fmt.Errorf("failed to install driver %s: registry package v2 requires archive hash and size metadata", driverName)
 		}
-		manifest, err = config.InstallDriver(cfg, driverName, f)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
 	}
 
-	if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
-		return nil, fmt.Errorf("failed to create manifest for driver %s: %w", driverName, err)
+	manifest, err := config.InstallPackage(cfg, expected.ID, f, expected, config.InstallOptions{
+		Verify: func(stagingDir string, manifest config.Manifest) error {
+			return VerifyPackageSignature(stagingDir, manifest)
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
 	}
 
 	return &manifest, nil
@@ -315,9 +312,6 @@ func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadat
 	hasSize := pkg.ArtifactSize != nil
 	if hasHash != hasSize {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata must include both archive hash and size")
-	}
-	if !hasHash {
-		return config.ExpectedPackageMetadata{}, false, nil
 	}
 	if pkg.Version == nil {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its version")
@@ -331,11 +325,17 @@ func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadat
 	if strings.TrimSpace(pkg.Driver.Path) == "" {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its driver ID")
 	}
-	return config.ExpectedPackageMetadata{
-		ID: pkg.Driver.Path, Version: pkg.Version.String(), Platform: pkg.PlatformTuple,
+	expected := config.ExpectedPackageMetadata{
+		ID:         pkg.Driver.Path,
+		Version:    pkg.Version.String(),
+		Platform:   pkg.PlatformTuple,
 		SourceType: "registry", SourceIdentity: pkg.Driver.Registry.BaseURL.String(),
-		ArchiveHash: pkg.ArtifactHash, ArchiveSize: *pkg.ArtifactSize,
-	}, true, nil
+	}
+	if hasHash {
+		expected.ArchiveHash = pkg.ArtifactHash
+		expected.ArchiveSize = *pkg.ArtifactSize
+	}
+	return expected, hasHash, nil
 }
 
 // Uninstall uninstalls a driver with the given name from the specified configuration.

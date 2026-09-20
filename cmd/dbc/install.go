@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,42 +110,12 @@ func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
 }
 
-func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.PackageVersion == 2 || m.Files.Driver == "" || noVerify {
-		return nil
-	}
-
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
-
-	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
-	if err != nil {
-		return fmt.Errorf("could not open driver file: %w", err)
-	}
-	defer lib.Close()
-
-	sigFile := m.Files.Signature
-	if sigFile == "" {
-		sigFile = m.Files.Driver + ".sig"
-	}
-
-	sig, err := os.Open(filepath.Join(path, sigFile))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
-		}
-		return fmt.Errorf("failed to open signature file: %w", err)
-	}
-	defer sig.Close()
-
-	if err := dbc.SignedByColumnar(lib, sig); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return nil
-}
-
 type writeDriverManifestMsg struct {
 	DriverInfo config.DriverInfo
+}
+
+type installVerificationFailedMsg struct {
+	err error
 }
 
 type localInstallMsg struct{}
@@ -484,24 +453,19 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 		}
 		defer downloaded.Close()
 
-		if m.conflictingInfo.ID != "" {
-			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
-				return err
-			}
-		}
-
 		var (
-			manifest config.Manifest
-			err      error
+			expected  config.ExpectedPackageMetadata
+			runtimeID string
+			verify    func(string, config.Manifest) error
+			err       error
 		)
 		if !m.isLocal {
-			expected, hasMetadata, metadataErr := expectedRegistryPackageMetadata(m.DriverPackage)
-			if metadataErr != nil {
-				return metadataErr
+			var hasMetadata bool
+			expected, hasMetadata, err = expectedRegistryPackageMetadata(m.DriverPackage)
+			if err != nil {
+				return err
 			}
-			if hasMetadata {
-				manifest, err = config.InstallPackageArchive(m.cfg, downloaded, expected)
-			} else {
+			if !hasMetadata {
 				packageManifest, inspectErr := config.InspectPackageManifest(downloaded)
 				if inspectErr != nil {
 					return inspectErr
@@ -509,13 +473,46 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 				if packageManifest.PackageVersion == 2 {
 					return errors.New("registry package v2 requires archive hash and size metadata")
 				}
-				manifest, err = config.InstallDriver(m.cfg, m.Driver, downloaded)
 			}
+			runtimeID = expected.ID
 		} else {
-			manifest, err = config.InstallDriver(m.cfg, m.Driver, downloaded)
+			packageManifest, inspectErr := config.InspectPackageManifest(downloaded)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			runtimeID = m.Driver
+			if packageManifest.PackageVersion == 2 {
+				runtimeID = packageManifest.ID
+			}
+			if runtimeID == "" {
+				return errors.New("local package has no runtime driver id")
+			}
+			version := ""
+			if packageManifest.Version != nil {
+				version = packageManifest.Version.String()
+			}
+			sourcePath, absErr := filepath.Abs(downloaded.Name())
+			if absErr != nil {
+				return fmt.Errorf("could not resolve local package path: %w", absErr)
+			}
+			expected = config.ExpectedPackageMetadata{
+				ID: runtimeID, Version: version, Platform: config.PlatformTuple(),
+				SourceType: "local", SourceIdentity: sourcePath,
+			}
 		}
+		if !m.NoVerify {
+			verify = func(stagingDir string, manifest config.Manifest) error {
+				return dbc.VerifyPackageSignature(stagingDir, manifest)
+			}
+		}
+		manifest, err := config.InstallPackage(m.cfg, runtimeID, downloaded, expected, config.InstallOptions{
+			Verify: verify,
+		})
 		if err != nil {
-			return err
+			if isPackageVerificationFailure(err) {
+				return installVerificationFailedMsg{err: packageVerificationError(err)}
+			}
+			return packageVerificationError(err)
 		}
 		return manifest
 	}
@@ -526,9 +523,6 @@ func expectedRegistryPackageMetadata(pkg dbc.PkgInfo) (config.ExpectedPackageMet
 	hasSize := pkg.ArtifactSize != nil
 	if hasHash != hasSize {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata must include both archive hash and size")
-	}
-	if !hasHash {
-		return config.ExpectedPackageMetadata{}, false, nil
 	}
 	if pkg.Version == nil {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its version")
@@ -542,11 +536,42 @@ func expectedRegistryPackageMetadata(pkg dbc.PkgInfo) (config.ExpectedPackageMet
 	if strings.TrimSpace(pkg.Driver.Path) == "" {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its driver ID")
 	}
-	return config.ExpectedPackageMetadata{
-		ID: pkg.Driver.Path, Version: pkg.Version.String(), Platform: pkg.PlatformTuple,
+	expected := config.ExpectedPackageMetadata{
+		ID:         pkg.Driver.Path,
+		Version:    pkg.Version.String(),
+		Platform:   pkg.PlatformTuple,
 		SourceType: "registry", SourceIdentity: pkg.Driver.Registry.BaseURL.String(),
-		ArchiveHash: pkg.ArtifactHash, ArchiveSize: *pkg.ArtifactSize,
-	}, true, nil
+	}
+	if hasHash {
+		expected.ArchiveHash = pkg.ArtifactHash
+		expected.ArchiveSize = *pkg.ArtifactSize
+	}
+	return expected, hasHash, nil
+}
+
+func packageVerificationError(err error) error {
+	const prefix = "package verification failed: "
+	if strings.HasPrefix(err.Error(), prefix) {
+		return errors.New(strings.TrimPrefix(err.Error(), prefix))
+	}
+	return err
+}
+
+func isPackageVerificationFailure(err error) bool {
+	return strings.HasPrefix(err.Error(), "package verification failed: ")
+}
+
+func (m progressiveInstallModel) fail(err error) (tea.Model, tea.Cmd) {
+	m.status = 1
+	m.err = err
+	if m.jsonOutput {
+		m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
+			Code:    "install_failed",
+			Message: err.Error(),
+		})
+		return m, tea.Quit
+	}
+	return m, tea.Quit
 }
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -607,17 +632,13 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.DriverPackage.Version == nil {
 			m.DriverPackage = manifestToPackageInfo(msg)
 		}
+		m.Driver = msg.ID
 
 		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
 		m = m.addEvent("extract.complete")
 		m = m.addEvent("verify.start")
 		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.NoVerify); err != nil {
-				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
-				_ = os.RemoveAll(path)
-				return err
-			}
 			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
 		}
 	case writeDriverManifestMsg:
@@ -625,19 +646,13 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.installedDriverInfo = msg.DriverInfo
 		m = m.addEvent("verify.complete")
 		m = m.addEvent("manifest.create")
-		return m, tea.Sequence(func() tea.Msg {
-			return config.CreateManifest(m.cfg, msg.DriverInfo)
-		}, tea.Quit)
+		return m, tea.Quit
+	case installVerificationFailedMsg:
+		m = m.addEvent("extract.complete")
+		m = m.addEvent("verify.start")
+		return m.fail(msg.err)
 	case error:
-		m.status = 1
-		m.err = msg
-		if m.jsonOutput {
-			m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
-				Code:    "install_failed",
-				Message: msg.Error(),
-			})
-			return m, tea.Quit
-		}
+		return m.fail(msg)
 	}
 
 	base, cmd := m.baseModel.Update(msg)

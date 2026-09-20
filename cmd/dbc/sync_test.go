@@ -21,7 +21,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -146,6 +148,46 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 		"\nError: failed to verify signature: signature file 'test-driver-1-not-valid.so.sig' for driver is missing",
 		suite.runCmdErr(m))
 	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
+}
+
+func (suite *SubcommandTestSuite) TestSyncSignatureFailurePreservesExistingInstallation() {
+	oldArchive, err := os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	cfg := config.Config{Level: config.ConfigEnv, Location: suite.Dir()}
+	oldManifest, err := config.InstallPackage(cfg, "test-driver-no-sig", oldArchive, config.ExpectedPackageMetadata{
+		ID: "test-driver-no-sig", Version: "1.0.0", Platform: config.PlatformTuple(),
+		SourceType: "registry", SourceIdentity: testRegistry.BaseURL.String(),
+	}, config.InstallOptions{
+		Verify: func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
+		},
+	})
+	suite.Require().NoError(err)
+	oldManifest.Version = semver.MustParse("0.9.0")
+	suite.Require().NoError(config.CreateManifest(cfg, oldManifest.DriverInfo))
+	oldManifestBytes, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-no-sig.toml"))
+	suite.Require().NoError(err)
+	oldLibraryPath := oldManifest.Driver.Shared.Get(config.PlatformTuple())
+	oldLibraryBytes, err := os.ReadFile(oldLibraryPath)
+	suite.Require().NoError(err)
+
+	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
+	suite.runCmd(m)
+	m = AddCmd{Path: filepath.Join(suite.tempdir, "dbc.toml"), Driver: []string{"test-driver-no-sig"}}.GetModel()
+	suite.runCmd(m)
+	m = SyncCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModelCustom(testBaseModel())
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+
+	manifestBytes, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-no-sig.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(oldManifestBytes, manifestBytes)
+	libraryBytes, err := os.ReadFile(oldLibraryPath)
+	suite.Require().NoError(err)
+	suite.Equal(oldLibraryBytes, libraryBytes)
+	installed, err := config.GetDriver(cfg, "test-driver-no-sig")
+	suite.Require().NoError(err)
+	suite.Equal("0.9.0", installed.Version.String())
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {

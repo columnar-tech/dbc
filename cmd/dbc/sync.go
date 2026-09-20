@@ -21,7 +21,6 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -366,8 +365,6 @@ type alreadyInstalledDrvMsg struct {
 
 func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Factor this out into config package, remove duplication with
-		// config.InstallDriver
 		var removedDriver *config.DriverInfo
 		if cfg.Exists {
 			// is driver installed already?
@@ -379,10 +376,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 					}
 
 					if item.Checksum != "" {
-						// A v1 checksum proves only the installed library for its
-						// recorded platform. A v2 archive digest is intentionally not
-						// compared with this installed file; a separate install receipt
-						// will be needed to establish that relationship.
+						// A lockfile checksum proves only the installed library.
 						if chksum != item.Checksum {
 							return fmt.Errorf("checksum mismatch for driver %s: %s != %s",
 								item.Driver.Path, chksum, item.Checksum)
@@ -400,9 +394,6 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 
 					return alreadyInstalledDrvMsg{info: drv, item: item}
 				} else {
-					if err := config.UninstallDriver(cfg, drv); err != nil {
-						return fmt.Errorf("failed when deleting driver %s-%s: %w", drv.ID, drv.Version, err)
-					}
 					removedDriver = &drv
 				}
 			}
@@ -421,40 +412,37 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				return
 			}
 
-			var loc string
-			if loc, err = config.EnsureLocation(cfg); err != nil {
-				prog.Send(fmt.Errorf("failed to ensure config location: %w", err))
-				return
-			}
-
-			base := strings.TrimSuffix(path.Base(item.Package.Path.Path), ".tar.gz")
-			finalDir := filepath.Join(loc, base)
-			if err := os.MkdirAll(finalDir, 0o755); err != nil {
-				prog.Send(fmt.Errorf("failed to create driver directory %s: %w", finalDir, err))
-				return
-			}
-
-			output.Seek(0, io.SeekStart)
-			manifest, err := config.InflateTarball(output, finalDir)
+			expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
 			if err != nil {
-				prog.Send(fmt.Errorf("failed to extract tarball: %w", err))
+				prog.Send(err)
 				return
 			}
-
-			driverPath := filepath.Join(finalDir, manifest.Files.Driver)
-
-			manifest.DriverInfo.ID = item.Driver.Path
-			manifest.DriverInfo.Source = "dbc"
-			manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
-
-			if err := verifySignature(manifest, s.NoVerify); err != nil {
-				_ = os.RemoveAll(finalDir)
-				prog.Send(fmt.Errorf("failed to verify signature: %w", err))
-				return
+			if !hasMetadata {
+				packageManifest, inspectErr := config.InspectPackageManifest(output)
+				if inspectErr != nil {
+					prog.Send(inspectErr)
+					return
+				}
+				if packageManifest.PackageVersion == 2 {
+					prog.Send(errors.New("registry package v2 requires archive hash and size metadata"))
+					return
+				}
 			}
-
-			if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
-				prog.Send(fmt.Errorf("failed to create driver manifest: %w", err))
+			var verify func(string, config.Manifest) error
+			if !s.NoVerify {
+				verify = func(stagingDir string, manifest config.Manifest) error {
+					return dbc.VerifyPackageSignature(stagingDir, manifest)
+				}
+			}
+			manifest, err := config.InstallPackage(cfg, item.Driver.Path, output, expected, config.InstallOptions{
+				Verify: verify,
+			})
+			if err != nil {
+				if isPackageVerificationFailure(err) {
+					prog.Send(fmt.Errorf("failed to verify signature: %w", packageVerificationError(err)))
+				} else {
+					prog.Send(fmt.Errorf("failed to install driver: %w", err))
+				}
 				return
 			}
 

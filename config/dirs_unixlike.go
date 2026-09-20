@@ -112,20 +112,23 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	return createDriverManifest(loc, driver)
 }
 
-func UninstallDriver(_ Config, info DriverInfo) error {
-	manifest := filepath.Join(info.FilePath, info.ID+".toml")
-	if err := os.Remove(manifest); err != nil {
-		return fmt.Errorf("error removing manifest %s: %w", manifest, err)
-	}
+func UninstallDriver(cfg Config, info DriverInfo) error {
+	return uninstallDriverWithInstallLock(cfg, info, func() error {
+		manifest := filepath.Join(info.FilePath, info.ID+".toml")
+		if err := os.Remove(manifest); err != nil {
+			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+		}
 
-	// Remove the symlink created during installation (one level up from the
-	// manifest)
-	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	removeManifestSymlink(info.FilePath, info.ID)
+		// Remove the symlink created during installation (one level up from the
+		// manifest)
+		// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+		removeManifestSymlink(info.FilePath, info.ID)
 
-	if err := UninstallDriverShared(info); err != nil {
-		return fmt.Errorf("failed to delete driver shared object: %w", err)
-	}
+		if err := UninstallDriverShared(info); err != nil {
+			return fmt.Errorf("failed to delete driver shared object: %w", err)
+		}
+		cleanupUninstalledDriverPackages(cfg, info)
 
-	return nil
+		return nil
+	})
 }

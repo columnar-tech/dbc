@@ -404,29 +404,32 @@ func registrationFailure(writeErr, rollbackErr error) error {
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) error {
-	if err := UninstallDriverShared(info); err != nil {
-		return fmt.Errorf("failed to delete driver shared object: %w", err)
-	}
-
-	if cfg.Level != ConfigEnv {
-		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
-
-		if err := registry.DeleteKey(k, info.ID); err != nil {
-			return fmt.Errorf("failed to delete driver registry key: %w", err)
-		}
-	} else {
-		manifest := filepath.Join(info.FilePath, info.ID+".toml")
-		if err := os.Remove(manifest); err != nil {
-			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+	return uninstallDriverWithInstallLock(cfg, info, func() error {
+		if err := UninstallDriverShared(info); err != nil {
+			return fmt.Errorf("failed to delete driver shared object: %w", err)
 		}
 
-		// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-		removeManifestSymlink(info.FilePath, info.ID)
-	}
+		if cfg.Level != ConfigEnv {
+			k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
+			if err != nil {
+				return err
+			}
+			defer k.Close()
 
-	return nil
+			if err := registry.DeleteKey(k, info.ID); err != nil {
+				return fmt.Errorf("failed to delete driver registry key: %w", err)
+			}
+		} else {
+			manifest := filepath.Join(info.FilePath, info.ID+".toml")
+			if err := os.Remove(manifest); err != nil {
+				return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+			}
+
+			// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+			removeManifestSymlink(info.FilePath, info.ID)
+		}
+		cleanupUninstalledDriverPackages(cfg, info)
+
+		return nil
+	})
 }

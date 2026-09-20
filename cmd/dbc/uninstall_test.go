@@ -16,11 +16,11 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -175,20 +175,30 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 			"\n\nMust have libtest_driver installed to load this driver", suite.runCmd(m))
 	suite.driverIsInstalled("test-driver-manifest-only", false)
 
-	// Verify the sidecar folder exists before we uninstall
-	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
-	err := os.Rename(filepath.Join(suite.Dir(), "test-driver-manifest-only"), filepath.Join(suite.Dir(), new_sidecar_path))
-	if err != nil {
-		suite.Fail(fmt.Sprintf("Failed to rename sidecar folder. Something is wrong with this test: %v", err))
+	// Verify the receipt-owned package generation exists before uninstall.
+	entries, err := os.ReadDir(suite.Dir())
+	suite.Require().NoError(err)
+	var generationPath string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".dbc-package-test-driver-manifest-only-") {
+			generationPath = filepath.Join(suite.Dir(), entry.Name())
+			break
+		}
 	}
-	suite.DirExists(filepath.Join(suite.Dir(), new_sidecar_path))
+	suite.Require().NotEmpty(generationPath)
+	suite.DirExists(generationPath)
+	externalLibrary := filepath.Join(suite.Dir(), "test_driver")
+	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("shared external library"), 0o644))
 
 	// Now uninstall and verify we clean up
 	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r ", "Driver `test-driver-manifest-only` uninstalled successfully!", suite.runCmd(m))
 	suite.driverIsNotInstalled("test-driver-manifest-only")
-	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
+	suite.NoDirExists(generationPath)
+	externalContents, err := os.ReadFile(externalLibrary)
+	suite.Require().NoError(err)
+	suite.Equal("shared external library", string(externalContents))
 }
 
 // See https://github.com/columnar-tech/dbc/issues/37
@@ -204,7 +214,7 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	suite.FileExists(manifestPath)
 
 	// The legacy package explicitly declares a relative runtime load path. It must
-	// survive installation and remain separate from the package sidecar directory.
+	// remain separate from the managed package generation.
 	type partialManifest struct {
 		Driver struct {
 			Shared map[string]string `toml:"shared"`
@@ -218,6 +228,10 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 	suite.Require().NoError(f.Close())
 	value := invalidManifest.Driver.Shared[config.PlatformTuple()]
 	suite.Equal("libadbc_driver_invalid_manifest.so", value)
+	externalLibrary := filepath.Join(suite.Dir(), value)
+	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("external library"), 0o644))
+	packageEntries, err := os.ReadDir(suite.Dir())
+	suite.Require().NoError(err)
 	runtimeManifest, err := os.ReadFile(manifestPath)
 	suite.Require().NoError(err)
 	suite.Contains(string(runtimeManifest), value)
@@ -227,16 +241,21 @@ func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
 
 	suite.validateOutput("\r ", "Driver `test-driver-invalid-manifest` uninstalled successfully!", output)
 
-	// Ensure we don't nuke the installation directory which is the original (major) issue
+	// Ensure we don't nuke the installation directory which is the original (major) issue.
 	suite.DirExists(suite.Dir())
 
 	// We do remove the manifest
 	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-	// Legacy uninstall currently leaves the package sidecar and library because
-	// Driver.shared is a relative runtime name rather than an installed path.
-	packageDir := filepath.Join(suite.Dir(), "test-driver-invalid-manifest")
-	suite.DirExists(packageDir)
-	suite.FileExists(filepath.Join(packageDir, "libadbc_driver_invalid_manifest.so"))
+	// The receipt-owned package is removed, while the external runtime library is
+	// retained because it is not inside that package generation.
+	for _, entry := range packageEntries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".dbc-package-test-driver-invalid-manifest-") {
+			suite.NoDirExists(filepath.Join(suite.Dir(), entry.Name()))
+		}
+	}
+	externalContents, err := os.ReadFile(externalLibrary)
+	suite.Require().NoError(err)
+	suite.Equal("external library", string(externalContents))
 }
 
 func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {

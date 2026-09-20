@@ -383,6 +383,62 @@ func acquireDriverInstallLock(location, runtimeID string) (func(), error) {
 	return acquirePackageInstallLock(filepath.Join(location, ".dbc-package-install-"+hex.EncodeToString(lockHash[:])+".lock"))
 }
 
+func driverInstallLockLocation(cfg Config, info DriverInfo) (string, error) {
+	location := info.FilePath
+	registryPath := strings.HasPrefix(strings.ToUpper(location), "HKCU\\") || strings.HasPrefix(strings.ToUpper(location), "HKLM\\")
+	if cfg.Level == ConfigEnv {
+		paths := splitConfigList(cfg.Location)
+		if len(paths) == 0 {
+			return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
+		}
+		location = paths[0]
+	} else if registryPath || location == "" {
+		location = cfg.Location
+		if location == "" {
+			location = cfg.Level.ConfigLocation()
+		}
+	}
+	if location == "" {
+		return "", errors.New("driver registration location is empty")
+	}
+	return filepath.Abs(location)
+}
+
+func uninstallPackageCleanupLocation(cfg Config, info DriverInfo) (string, error) {
+	location := info.FilePath
+	registryPath := strings.HasPrefix(strings.ToUpper(location), "HKCU\\") || strings.HasPrefix(strings.ToUpper(location), "HKLM\\")
+	if registryPath || location == "" {
+		location = cfg.Location
+		if location == "" {
+			location = cfg.Level.ConfigLocation()
+		}
+		if cfg.Level == ConfigEnv {
+			paths := splitConfigList(location)
+			if len(paths) == 0 {
+				return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
+			}
+			location = paths[0]
+		}
+	}
+	if location == "" {
+		return "", errors.New("driver package cleanup location is empty")
+	}
+	return filepath.Abs(location)
+}
+
+func uninstallDriverWithInstallLock(cfg Config, info DriverInfo, uninstall func() error) error {
+	location, err := driverInstallLockLocation(cfg, info)
+	if err != nil {
+		return fmt.Errorf("could not resolve driver registration location: %w", err)
+	}
+	releaseLock, err := acquireDriverInstallLock(location, info.ID)
+	if err != nil {
+		return fmt.Errorf("could not lock driver installation: %w", err)
+	}
+	defer releaseLock()
+	return uninstall()
+}
+
 func managedPackageDirectory(location, runtimeID string, info DriverInfo) (string, bool) {
 	if info.Source != "dbc" {
 		return "", false
@@ -436,6 +492,26 @@ func cleanupManagedPackageDirectories(location, runtimeID, currentDir string, cu
 			continue
 		}
 		_ = os.RemoveAll(dir)
+	}
+}
+
+func cleanupUninstalledManagedPackageDirectories(location, runtimeID string) {
+	if err := validateFlatName(runtimeID); err != nil {
+		return
+	}
+	entries, err := os.ReadDir(location)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".dbc-package-"+runtimeID+"-") {
+			continue
+		}
+		directory := filepath.Join(location, entry.Name())
+		if _, ok := readManagedPackageReceipt(location, runtimeID, directory); !ok {
+			continue
+		}
+		_ = os.RemoveAll(directory)
 	}
 }
 

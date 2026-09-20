@@ -100,9 +100,15 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir,
 		suite.runCmd(m))
 
-	suite.Equal([]string{"test-driver-1.1/dbc-install-receipt.json",
-		"test-driver-1.1/test-driver-1-not-valid.so", "test-driver-1.1/test-driver-1-not-valid.so.sig",
-		"test-driver-1.toml"}, suite.getFilesInTempDir())
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+	suite.Require().NoError(err)
+	libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
+	relLibrary, err := filepath.Rel(suite.Dir(), libraryPath)
+	suite.Require().NoError(err)
+	relDir := filepath.ToSlash(filepath.Dir(relLibrary))
+	relLibrary = filepath.ToSlash(relLibrary)
+	suite.Equal([]string{filepath.ToSlash(filepath.Join(relDir, "dbc-install-receipt.json")),
+		relLibrary, relLibrary + ".sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
@@ -111,6 +117,9 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), suite.runCmd(m))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
+	previous, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+	suite.Require().NoError(err)
+	previousLibrary := previous.Driver.Shared.Get(config.PlatformTuple())
 
 	m = InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
@@ -119,9 +128,16 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 		suite.runCmd(m))
 
 	files := suite.getFilesInDir(suite.Dir())
-	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so")
-	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so.sig")
-	suite.NotContains(files, "test-driver-1.1/test-driver-1-not-valid.so")
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+	suite.Require().NoError(err)
+	currentLibrary := installed.Driver.Shared.Get(config.PlatformTuple())
+	currentRelative, err := filepath.Rel(suite.Dir(), currentLibrary)
+	suite.Require().NoError(err)
+	previousRelative, err := filepath.Rel(suite.Dir(), previousLibrary)
+	suite.Require().NoError(err)
+	suite.Contains(files, filepath.ToSlash(currentRelative))
+	suite.Contains(files, filepath.ToSlash(currentRelative)+".sig")
+	suite.NotContains(files, filepath.ToSlash(previousRelative))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
 }
 
@@ -203,7 +219,7 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[-] verifying signature\r\n",
-		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir, suite.runCmd(m))
 }
 
 func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
@@ -545,6 +561,73 @@ func openInstallArchive(t *testing.T, data []byte) *os.File {
 	return f
 }
 
+func TestInstallSignatureFailurePreservesExistingInstallation(t *testing.T) {
+	oldArchive, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldExpected := config.ExpectedPackageMetadata{
+		ID: "test-driver-1", Version: "1.0.0", Platform: config.PlatformTuple(),
+		SourceType: "registry", SourceIdentity: testRegistry.BaseURL.String(),
+	}
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	oldManifest, err := config.InstallPackage(cfg, "test-driver-1", openInstallArchive(t, oldArchive), oldExpected, config.InstallOptions{
+		Verify: func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldManifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldLibraryPath := oldManifest.Driver.Shared.Get(config.PlatformTuple())
+	oldLibraryBytes, err := os.ReadFile(oldLibraryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	badArchive, err := os.ReadFile(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := progressiveInstallModel{
+		Driver: "test-driver-1",
+		cfg:    cfg,
+		DriverPackage: dbc.PkgInfo{
+			Driver:        dbc.Driver{Path: "test-driver-1", Registry: &testRegistry},
+			Version:       semver.MustParse("1.1.0"),
+			PlatformTuple: config.PlatformTuple(),
+		},
+	}
+	_, install := model.startInstalling(openInstallArchive(t, badArchive))
+	message := install()
+	installErr, ok := message.(error)
+	if !ok {
+		t.Fatalf("startInstalling returned %T, want signature error", message)
+	}
+	if !strings.Contains(installErr.Error(), "signature file 'test-driver-1-not-valid.so.sig' for driver is missing") {
+		t.Fatalf("unexpected install error: %v", installErr)
+	}
+	manifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(oldManifestBytes, manifestBytes) {
+		t.Fatal("runtime manifest changed after signature failure")
+	}
+	libraryBytes, err := os.ReadFile(oldLibraryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(oldLibraryBytes, libraryBytes) {
+		t.Fatal("installed library changed after signature failure")
+	}
+}
+
 func TestStartInstallingRegistryPackageV2RequiresAndUsesMetadata(t *testing.T) {
 	archive := packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())
 	digest := sha256.Sum256(archive)
@@ -574,11 +657,11 @@ func TestStartInstallingRegistryPackageV2RequiresAndUsesMetadata(t *testing.T) {
 	if manifest.PackageVersion != 2 {
 		t.Fatalf("package marker = %d, want 2", manifest.PackageVersion)
 	}
-	if err := verifySignature(manifest, false); err != nil {
+	if err := dbc.VerifyPackageSignature("", manifest); err != nil {
 		t.Fatalf("package v2 must not require legacy PGP signature: %v", err)
 	}
 	var receipt config.InstallReceipt
-	receiptData, err := os.ReadFile(filepath.Join(root, "example", "dbc-install-receipt.json"))
+	receiptData, err := os.ReadFile(filepath.Join(filepath.Dir(manifest.Driver.Shared.Get(config.PlatformTuple())), "dbc-install-receipt.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,8 +694,42 @@ func TestStartInstallingRegistryV2WithoutArchiveMetadataIsRejected(t *testing.T)
 	if !ok || !strings.Contains(installErr.Error(), "requires archive hash and size metadata") {
 		t.Fatalf("startInstalling returned %v, want missing metadata error", message)
 	}
-	if _, err := os.Stat(filepath.Join(root, "example")); !os.IsNotExist(err) {
-		t.Fatalf("package was published despite missing registry metadata: stat error = %v", err)
+	if _, err := os.Stat(filepath.Join(root, "example.toml")); !os.IsNotExist(err) {
+		t.Fatalf("runtime manifest was published despite missing registry metadata: %v", err)
+	}
+}
+
+func TestStartInstallingLocalV2UsesManifestID(t *testing.T) {
+	archive := packageV2ArchiveForInstall(t, "declared-driver", "1.2.3", config.PlatformTuple())
+	root := t.TempDir()
+	packagePath := filepath.Join(root, "filename-driver.tar.gz")
+	if err := os.WriteFile(packagePath, archive, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	downloaded, err := os.Open(packagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := progressiveInstallModel{
+		Driver:           packagePath,
+		isLocal:          true,
+		localPackagePath: packagePath,
+		cfg:              config.Config{Level: config.ConfigEnv, Location: root},
+	}
+	_, install := model.startInstalling(downloaded)
+	message := install()
+	manifest, ok := message.(config.Manifest)
+	if !ok {
+		t.Fatalf("startInstalling returned %T, want config.Manifest", message)
+	}
+	if manifest.ID != "declared-driver" {
+		t.Fatalf("installed runtime ID = %q, want MANIFEST ID", manifest.ID)
+	}
+	if _, err := os.Stat(filepath.Join(root, "declared-driver.toml")); err != nil {
+		t.Fatalf("runtime manifest for MANIFEST ID was not registered: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "filename-driver.toml")); !os.IsNotExist(err) {
+		t.Fatalf("filename-derived runtime manifest was unexpectedly registered: %v", err)
 	}
 }
 

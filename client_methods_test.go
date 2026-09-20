@@ -98,6 +98,31 @@ func newV2InstallServer(t *testing.T, archive []byte, metadata string) *httptest
 	return server
 }
 
+func newLegacyInstallServer(t *testing.T, archive []byte) *httptest.Server {
+	t.Helper()
+	index := fmt.Sprintf(`drivers:
+  - name: Test Driver
+    path: test-driver-1
+    pkginfo:
+      - version: v1.1.0
+        packages:
+          - platform: %s
+            url: package.tar.gz
+`, config.PlatformTuple())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.yaml":
+			_, _ = w.Write([]byte(index))
+		case "/package.tar.gz":
+			_, _ = w.Write(archive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
 func newTestClientForServer(t *testing.T, serverURL string) *dbc.Client {
 	t.Helper()
 	c, err := dbc.NewClient(
@@ -114,7 +139,7 @@ func newInstallTestServer(t *testing.T) *httptest.Server {
 	indexData, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test_index.yaml"))
 	require.NoError(t, err)
 
-	tarballData, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	tarballData, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.1.tar.gz"))
 	require.NoError(t, err)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -200,6 +225,89 @@ func TestClientInstall(t *testing.T) {
 	})
 }
 
+func TestClientInstallSignatureFailurePreservesExistingInstallation(t *testing.T) {
+	oldArchive, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	badArchive, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-no-sig.tar.gz"))
+	require.NoError(t, err)
+	archivePath := filepath.Join(t.TempDir(), "old.tar.gz")
+	require.NoError(t, os.WriteFile(archivePath, oldArchive, 0o600))
+	oldFile, err := os.Open(archivePath)
+	require.NoError(t, err)
+	defer oldFile.Close()
+
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	oldExpected := config.ExpectedPackageMetadata{
+		ID: "test-driver-1", Version: "1.0.0", Platform: config.PlatformTuple(),
+		SourceType: "registry", SourceIdentity: "https://registry.example.test",
+	}
+	oldManifest, err := config.InstallPackage(cfg, "test-driver-1", oldFile, oldExpected, config.InstallOptions{
+		Verify: func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
+		},
+	})
+	require.NoError(t, err)
+	oldManifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
+	require.NoError(t, err)
+	oldLibraryPath := oldManifest.Driver.Shared.Get(config.PlatformTuple())
+	oldLibraryBytes, err := os.ReadFile(oldLibraryPath)
+	require.NoError(t, err)
+
+	server := newLegacyInstallServer(t, badArchive)
+	client := newTestClientForServer(t, server.URL)
+	_, err = client.Install(t.Context(), cfg, "test-driver-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+
+	manifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
+	require.NoError(t, err)
+	assert.Equal(t, oldManifestBytes, manifestBytes)
+	libraryBytes, err := os.ReadFile(oldLibraryPath)
+	require.NoError(t, err)
+	assert.Equal(t, oldLibraryBytes, libraryBytes)
+}
+
+func TestClientInstallLegacyMetadataMismatchPreservesExistingInstallation(t *testing.T) {
+	archive, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	archivePath := filepath.Join(t.TempDir(), "old.tar.gz")
+	require.NoError(t, os.WriteFile(archivePath, archive, 0o600))
+	oldFile, err := os.Open(archivePath)
+	require.NoError(t, err)
+	defer oldFile.Close()
+
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	oldManifest, err := config.InstallPackage(cfg, "test-driver-1", oldFile, config.ExpectedPackageMetadata{
+		ID: "test-driver-1", Version: "1.0.0", Platform: config.PlatformTuple(),
+		SourceType: "registry", SourceIdentity: "https://registry.example.test",
+	}, config.InstallOptions{
+		Verify: func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
+		},
+	})
+	require.NoError(t, err)
+	oldManifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
+	require.NoError(t, err)
+	oldLibraryPath := oldManifest.Driver.Shared.Get(config.PlatformTuple())
+	oldLibraryBytes, err := os.ReadFile(oldLibraryPath)
+	require.NoError(t, err)
+
+	server := newLegacyInstallServer(t, archive)
+	client := newTestClientForServer(t, server.URL)
+	_, err = client.Install(t.Context(), cfg, "test-driver-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `package version mismatch: archive declares "1.0.0", expected "1.1.0"`)
+
+	manifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
+	require.NoError(t, err)
+	assert.Equal(t, oldManifestBytes, manifestBytes)
+	libraryBytes, err := os.ReadFile(oldLibraryPath)
+	require.NoError(t, err)
+	assert.Equal(t, oldLibraryBytes, libraryBytes)
+}
+
 func TestClientInstallPackageV2UsesRegistryMetadata(t *testing.T) {
 	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
 	srv := newV2InstallServer(t, archive, "complete")
@@ -213,7 +321,7 @@ func TestClientInstallPackageV2UsesRegistryMetadata(t *testing.T) {
 	assert.Equal(t, 2, manifest.PackageVersion)
 
 	var receipt config.InstallReceipt
-	receiptBytes, err := os.ReadFile(filepath.Join(root, "v2-driver", "dbc-install-receipt.json"))
+	receiptBytes, err := os.ReadFile(filepath.Join(filepath.Dir(manifest.DriverInfo.Driver.Shared.Get(config.PlatformTuple())), "dbc-install-receipt.json"))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(receiptBytes, &receipt))
 	assert.Equal(t, "registry", receipt.SourceType)
@@ -237,7 +345,6 @@ func TestClientInstallPackageV2WithoutRegistryMetadataIsRejected(t *testing.T) {
 	_, err := c.Install(t.Context(), cfg, "v2-driver")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "registry package v2 requires archive hash and size metadata")
-	assert.NoDirExists(t, filepath.Join(root, "v2-driver"))
 	assert.NoFileExists(t, filepath.Join(root, "v2-driver.toml"))
 }
 

@@ -403,3 +403,11 @@ func UninstallDriverShared(info DriverInfo) error {
 
 	return nil
 }
+
+func cleanupUninstalledDriverPackages(cfg Config, info DriverInfo) {
+	location, err := uninstallPackageCleanupLocation(cfg, info)
+	if err != nil {
+		return
+	}
+	cleanupUninstalledManagedPackageDirectories(location, info.ID)
+}

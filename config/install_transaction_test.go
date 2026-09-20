@@ -29,6 +29,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type installArchiveEntry struct {
@@ -440,6 +441,233 @@ func TestInstallPackageConcurrentGenerationsShareDriverLock(t *testing.T) {
 	}
 	if (receipt.SourceIdentity == "source-0" && string(data) != "first") || (receipt.SourceIdentity == "source-1" && string(data) != "second") {
 		t.Fatalf("receipt source %q does not match installed library %q", receipt.SourceIdentity, data)
+	}
+}
+
+func TestUninstallDriverWaitsForInstallLock(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := makeInstallArchive(t, "example", "1.0.0", "library.so", []byte("installed library"))
+	file := writeInstallArchive(t, archive, "uninstall-lock")
+	installed, err := InstallPackage(cfg, "example", file, installExpected("example", "uninstall-lock", archive), InstallOptions{})
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	libraryPath := installed.Driver.Shared.Get(PlatformTuple())
+	if data, err := os.ReadFile(libraryPath); err != nil || string(data) != "installed library" {
+		t.Fatalf("installed library unavailable before uninstall: %q, %v", data, err)
+	}
+	location, err := driverInstallLockLocation(cfg, info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseLock, err := acquireDriverInstallLock(location, info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			releaseLock()
+		}
+	}()
+
+	started := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		close(started)
+		done <- UninstallDriver(cfg, info)
+	}()
+	<-started
+	select {
+	case err := <-done:
+		t.Fatalf("uninstall completed while the install lock was held: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	_, manifestErr := os.Stat(filepath.Join(root, "example.toml"))
+	libraryData, libraryErr := os.ReadFile(libraryPath)
+	releaseLock()
+	lockHeld = false
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("UninstallDriver returned an error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("UninstallDriver did not complete after the install lock was released")
+	}
+	if manifestErr != nil {
+		t.Fatalf("runtime manifest changed while the install lock was held: %v", manifestErr)
+	}
+	if libraryErr != nil || string(libraryData) != "installed library" {
+		t.Fatalf("installed library changed while the install lock was held: %q, %v", libraryData, libraryErr)
+	}
+	if _, err := os.Stat(filepath.Join(root, "example.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("runtime manifest still exists after uninstall: %v", err)
+	}
+	if _, err := os.Stat(libraryPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("installed library still exists after uninstall: %v", err)
+	}
+}
+
+func TestDriverInstallLockLocation(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	registryPath := filepath.Join(root, "registry-fallback")
+	for _, location := range []string{first, second, registryPath} {
+		if err := os.MkdirAll(location, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name string
+		cfg  Config
+		info DriverInfo
+		want string
+	}{
+		{
+			name: "environment uses install destination",
+			cfg:  Config{Level: ConfigEnv, Location: first + string(os.PathListSeparator) + second},
+			info: DriverInfo{ID: "example", FilePath: second},
+			want: first,
+		},
+		{
+			name: "filesystem manifest uses its actual location",
+			cfg:  Config{Level: ConfigUser, Location: first},
+			info: DriverInfo{ID: "example", FilePath: second},
+			want: second,
+		},
+		{
+			name: "registry manifest uses configured filesystem root",
+			cfg:  Config{Level: ConfigUser, Location: registryPath},
+			info: DriverInfo{ID: "example", FilePath: `HKCU\\SOFTWARE\\ADBC\\Drivers`},
+			want: registryPath,
+		},
+		{
+			name: "registry manifest defaults to config filesystem root",
+			cfg:  Config{Level: ConfigUser},
+			info: DriverInfo{ID: "example", FilePath: `HKCU\\SOFTWARE\\ADBC\\Drivers`},
+			want: ConfigUser.ConfigLocation(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := driverInstallLockLocation(test.cfg, test.info)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := filepath.Abs(test.want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Fatalf("driverInstallLockLocation() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestUninstallPackageCleanupLocation(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	registryPath := filepath.Join(root, "registry-fallback")
+	for _, location := range []string{first, second, registryPath} {
+		if err := os.MkdirAll(location, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name string
+		cfg  Config
+		info DriverInfo
+		want string
+	}{
+		{
+			name: "environment cleans the registered manifest directory",
+			cfg:  Config{Level: ConfigEnv, Location: first + string(os.PathListSeparator) + second},
+			info: DriverInfo{ID: "example", FilePath: second},
+			want: second,
+		},
+		{
+			name: "filesystem manifest cleans its actual directory",
+			cfg:  Config{Level: ConfigUser, Location: first},
+			info: DriverInfo{ID: "example", FilePath: second},
+			want: second,
+		},
+		{
+			name: "registry manifest falls back to configured filesystem root",
+			cfg:  Config{Level: ConfigUser, Location: registryPath},
+			info: DriverInfo{ID: "example", FilePath: `HKCU\\SOFTWARE\\ADBC\\Drivers`},
+			want: registryPath,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := uninstallPackageCleanupLocation(test.cfg, test.info)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := filepath.Abs(test.want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Fatalf("uninstallPackageCleanupLocation() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestUninstallDriverCleansOnlyRegisteredEnvironmentDirectory(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	for _, location := range []string{first, second} {
+		if err := os.MkdirAll(location, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	install := func(location, source string) Manifest {
+		t.Helper()
+		archive := makeInstallArchive(t, "example", "1.0.0", "library.so", []byte(source+" library"))
+		file := writeInstallArchive(t, archive, source)
+		manifest, err := InstallPackage(Config{Level: ConfigEnv, Location: location}, "example", file, installExpected("example", source, archive), InstallOptions{})
+		_ = file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return manifest
+	}
+	firstManifest := install(first, "first")
+	secondManifest := install(second, "second")
+	firstLibrary := firstManifest.Driver.Shared.Get(PlatformTuple())
+	secondLibrary := secondManifest.Driver.Shared.Get(PlatformTuple())
+	secondInfo, err := loadDriverFromManifest(second, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combinedConfig := Config{Level: ConfigEnv, Location: first + string(os.PathListSeparator) + second}
+	if err := UninstallDriver(combinedConfig, secondInfo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(first, "example.toml")); err != nil {
+		t.Fatalf("first-path runtime manifest was removed: %v", err)
+	}
+	if data, err := os.ReadFile(firstLibrary); err != nil || string(data) != "first library" {
+		t.Fatalf("first-path managed generation was removed or changed: %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(second, "example.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("second-path runtime manifest remains after uninstall: %v", err)
+	}
+	if _, err := os.Stat(secondLibrary); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("second-path managed generation remains after uninstall: %v", err)
 	}
 }
 
