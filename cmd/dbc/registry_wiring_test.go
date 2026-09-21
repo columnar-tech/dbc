@@ -739,6 +739,54 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
 }
 
+func TestAddAbortsOnConcurrentInvalidDriverSource(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	require.NoError(t, os.WriteFile(tomlPath, []byte("[drivers]\n"), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+
+	concurrentContent := "[drivers]\n" +
+		"[drivers.invalid]\n" +
+		"[drivers.invalid.source]\n" +
+		"type = 'path'\n" +
+		"path = '../packages/driver.tar.gz'\n" +
+		"project = 'owner/project'\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
+
+	close(unblock)
+	msgOut := <-done
+	err, ok := msgOut.(error)
+	require.True(t, ok, "AddCmd must reject an invalid source from the locked re-read")
+	assert.Contains(t, err.Error(), "error re-reading driver list under lock")
+	assert.Contains(t, err.Error(), `driver "invalid" source: path source contains fields for another source type`)
+
+	data, readErr := os.ReadFile(tomlPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, concurrentContent, string(data), "invalid concurrent content must remain unchanged")
+}
+
 // TestAddInitialReadIsAtomicAgainstTornState drives an actual torn-write
 // scenario: hold the project lock, truncate dbc.toml to invalid TOML,
 // start dbc add, then restore valid TOML and release. With the initial

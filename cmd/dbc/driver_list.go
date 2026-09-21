@@ -37,6 +37,18 @@ type DriversList struct {
 	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 }
 
+func (m DriversList) validateSources() error {
+	for id, spec := range m.Drivers {
+		if spec.Source == nil {
+			continue
+		}
+		if err := spec.Source.Validate(); err != nil {
+			return fmt.Errorf("driver %q source: %w", id, err)
+		}
+	}
+	return nil
+}
+
 // registriesChanged reports whether two DriversList values would produce
 // a different EFFECTIVE registry resolution when combined with the
 // current process-wide globalRegistryConfig and built-in defaults. This
@@ -171,12 +183,16 @@ func applyProjectRegistriesFromCWD() error {
 	if err := toml.NewDecoder(f).Decode(&list); err != nil {
 		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
 	}
+	if err := list.validateSources(); err != nil {
+		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
+	}
 	return applyProjectRegistries(list)
 }
 
 type driverSpec struct {
 	Prerelease string              `toml:"prerelease,omitempty"`
 	Version    *semver.Constraints `toml:"version"`
+	Source     *dbc.DriverSource   `toml:"source,omitempty"`
 }
 
 func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
@@ -187,6 +203,9 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	}
 	defer f.Close()
 	if err = toml.NewDecoder(f).Decode(&m); err != nil {
+		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
+	}
+	if err := m.validateSources(); err != nil {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
@@ -221,6 +240,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error finding version for driver %s: %w", name, err)
 		}
+		pkg.Source = spec.Source
 
 		pkgs = append(pkgs, pkg)
 	}

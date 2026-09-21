@@ -83,5 +83,8 @@ func openAndDecodeDriverList(path string) (DriversList, error) {
 	if err := toml.NewDecoder(f).Decode(&list); err != nil {
 		return DriversList{}, err
 	}
+	if err := list.validateSources(); err != nil {
+		return DriversList{}, err
+	}
 	return list, nil
 }

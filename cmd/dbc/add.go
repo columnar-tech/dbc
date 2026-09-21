@@ -152,6 +152,11 @@ func (m addModel) Init() tea.Cmd {
 			readLock.Release()
 			return err
 		}
+		if err := m.list.validateSources(); err != nil {
+			f.Close()
+			readLock.Release()
+			return err
+		}
 		f.Close()
 		readLock.Release()
 
@@ -255,6 +260,9 @@ func (m addModel) Init() tea.Cmd {
 			rf.Close()
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("error re-reading driver list at %s: %w", m.Path, err)
+		}
+		if err := current.validateSources(); err != nil {
+			return fmt.Errorf("error re-reading driver list under lock: %w", err)
 		}
 
 		// If the registry configuration changed while the (unlocked)

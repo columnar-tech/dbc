@@ -81,6 +81,77 @@ func TestUnmarshalDriverList(t *testing.T) {
 	}
 }
 
+func TestDriverSourceProjectConfigRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		toml string
+		want dbc.DriverSource
+	}{
+		{
+			name: "explicit registry",
+			toml: "[drivers.example]\n[drivers.example.source]\ntype = 'registry'\nurl = 'https://registry.example.test/custom'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test/custom"},
+		},
+		{
+			name: "packslip project",
+			toml: "[drivers.example]\n[drivers.example.source]\ntype = 'packslip'\nproject = 'owner/project'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "owner/project"},
+		},
+		{
+			name: "relative path",
+			toml: "[drivers.example]\n[drivers.example.source]\ntype = 'path'\npath = '../packages/driver.tar.gz'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "../packages/driver.tar.gz"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var list DriversList
+			require.NoError(t, toml.Unmarshal([]byte(tt.toml), &list))
+			require.NoError(t, list.validateSources())
+			require.NotNil(t, list.Drivers["example"].Source)
+			assert.Equal(t, tt.want, *list.Drivers["example"].Source)
+
+			encoded, err := toml.Marshal(list)
+			require.NoError(t, err)
+			var roundTrip DriversList
+			require.NoError(t, toml.Unmarshal(encoded, &roundTrip))
+			require.NoError(t, roundTrip.validateSources())
+			require.NotNil(t, roundTrip.Drivers["example"].Source)
+			assert.Equal(t, tt.want, *roundTrip.Drivers["example"].Source)
+		})
+	}
+}
+
+func TestDriverSourceProjectConfigValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+		wantErr  string
+	}{
+		{name: "legacy entry has no source", contents: "[drivers]\nexample = {version = '>=1.0.0'}"},
+		{name: "missing source type", contents: "[drivers.example.source]\nurl = 'https://registry.example.test'", wantErr: "driver source has no type"},
+		{name: "unknown source type", contents: "[drivers.example.source]\ntype = 'git'\nurl = 'https://example.test'", wantErr: `unsupported driver source type "git"`},
+		{name: "mutually exclusive fields", contents: "[drivers.example.source]\ntype = 'path'\npath = '../package.tar.gz'\nproject = 'owner/project'", wantErr: "path source contains fields for another source type"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var list DriversList
+			err := toml.Unmarshal([]byte(tt.contents), &list)
+			if err == nil {
+				err = list.validateSources()
+			}
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				assert.Nil(t, list.Drivers["example"].Source)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
 func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)
