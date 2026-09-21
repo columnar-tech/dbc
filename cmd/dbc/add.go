@@ -212,10 +212,13 @@ func (m addModel) Init() tea.Cmd {
 			}
 
 			current, ok := m.list.Drivers[spec.Name]
-			m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers}
+			updated := current
+			updated.Version = spec.Vers
+			updated.Prerelease = ""
 			if m.Pre {
-				m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers, Prerelease: "allow"}
+				updated.Prerelease = "allow"
 			}
+			m.list.Drivers[spec.Name] = updated
 
 			new := m.list.Drivers[spec.Name]
 			currentString := func() string {
@@ -283,7 +286,13 @@ func (m addModel) Init() tea.Cmd {
 			current.Drivers = make(map[string]driverSpec)
 		}
 		for _, spec := range specs {
-			current.Drivers[spec.Name] = m.list.Drivers[spec.Name]
+			updated := m.list.Drivers[spec.Name]
+			if latest, ok := current.Drivers[spec.Name]; ok {
+				// `add` only changes the version selection. Preserve the source
+				// from the locked re-read in case it changed during registry lookup.
+				updated.Source = latest.Source
+			}
+			current.Drivers[spec.Name] = updated
 		}
 
 		wf, err := os.Create(p)

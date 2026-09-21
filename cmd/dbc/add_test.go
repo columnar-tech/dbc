@@ -27,6 +27,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -156,6 +157,55 @@ func TestAddRepeatedNewWithConstraint(t *testing.T) {
 version = '>=1.0.0'
 `, string(data))
 	}
+}
+
+func TestAddUpdatingDriverPreservesSource(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dbc.toml")
+	const initial = "[drivers]\n" +
+		"[drivers.test-driver-1]\n" +
+		"version = '<=1.8.0'\n" +
+		"[drivers.test-driver-1.source]\n" +
+		"type = 'registry'\n" +
+		"url = 'https://registry.example.test/custom'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+	expectedSource := &dbc.DriverSource{
+		Type: dbc.DriverSourceRegistry,
+		URL:  "https://registry.example.test/custom",
+	}
+
+	runAdd := func(cmd AddCmd) DriversList {
+		t.Helper()
+		msg := runTeaCmdToCompletion(t, cmd.GetModelCustom(testBaseModel()).(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+		_, failed := msg.(error)
+		require.False(t, failed, "add failed: %v", msg)
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var list DriversList
+		require.NoError(t, toml.Unmarshal(data, &list))
+		require.NoError(t, list.validateSources())
+		return list
+	}
+
+	list := runAdd(AddCmd{Path: path, Driver: []string{"test-driver-1>=1.0.0"}})
+	got := list.Drivers["test-driver-1"]
+	require.NotNil(t, got.Source)
+	assert.Equal(t, *expectedSource, *got.Source)
+	require.NotNil(t, got.Version)
+	assert.Equal(t, ">=1.0.0", got.Version.String())
+	assert.Empty(t, got.Prerelease)
+
+	prereleaseList := runAdd(AddCmd{Path: path, Driver: []string{"test-driver-1"}, Pre: true})
+	got = prereleaseList.Drivers["test-driver-1"]
+	require.NotNil(t, got.Source)
+	assert.Equal(t, *expectedSource, *got.Source)
+	assert.Nil(t, got.Version)
+	assert.Equal(t, "allow", got.Prerelease)
 }
 
 func TestAddMultiple(t *testing.T) {
