@@ -349,6 +349,14 @@ type installItem struct {
 	AlreadyInstalled     *config.DriverInfo
 }
 
+type plannedSyncItem struct {
+	Name        string
+	Requirement sourceresolution.Requirement
+	Plan        sourceresolution.Plan
+	LockEntry   *lockInfo
+	LegacyLock  *lockInfo
+}
+
 func (item *installItem) selectedArtifact() (*resolution.Artifact, error) {
 	if item == nil || item.ArtifactIndex < 0 || item.ArtifactIndex >= len(item.Release.Artifacts) {
 		return nil, errors.New("install item has no selected artifact")
@@ -400,222 +408,343 @@ type preparedSyncMsg struct {
 
 type candidateLockSavedMsg struct{ lock LockFile }
 
-func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
-	// Load the lock file if it exists
+func (s syncModel) planSyncItems(list DriversList) ([]plannedSyncItem, bool, error) {
 	lf, err := loadLockFile(s.LockFilePath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, false, err
 	}
 
-	// construct our list of driver+version to install
-	var items []installItem
+	planned := make([]plannedSyncItem, 0, len(list.Drivers))
+	needsRegistry := false
 	for name, spec := range list.Drivers {
-		if err := requireRegistrySyncSource(name, spec); err != nil {
-			return nil, err
-		}
-		var info lockInfo
-		if lf.lockinfo != nil {
-			info = lf.lockinfo[name]
-		}
-		if lf.Version == lockFileVersion && info.Version != nil && !driverSourceMatchesLock(spec.Source, info.Source) {
-			// A lock entry for another source must not influence fallback
-			// resolution or be merged into the new source's candidate snapshot.
-			info = lockInfo{}
-		}
-		if lf.Version == lockFileVersion && info.Version != nil {
-			if info.Source.Type != "registry" {
-				return nil, fmt.Errorf("locked source type %q for driver %q is not supported by sync yet; source integration will follow", info.Source.Type, name)
-			}
-			if lockVersionSatisfiesSpec(info, spec) {
-				artifact, err := selectLockedArtifact(info, config.PlatformTuple(), false)
-				if err == nil {
-					item, err := installItemFromLockedArtifact(name, info, artifact)
-					if err != nil {
-						return nil, err
-					}
-					items = append(items, item)
-					continue
-				}
-				var refreshErr *LockRefreshRequiredError
-				if !errors.As(err, &refreshErr) {
-					return nil, err
-				}
-			}
-		}
-
-		// Locate the driver in its declared registry when the project pins one.
-		// Legacy/default registry entries retain the existing registry ordering.
-		drv, err := findDriverInDeclaredRegistry(name, s.driverIndex, spec.Source)
+		requirement, err := requirementForDriverSpec(name, spec)
 		if err != nil {
-			return nil, wrapWithRegistryContext(err, s.registryErrors)
+			return nil, false, err
 		}
 
-		var pkg dbc.PkgInfo
-		// if the lockfile specified a version and either the driver list doesn't
-		// specify a version constraint or the version in the locked file is valid
-		// for that constraint, then we want to install the version in the lockfile
-		if info.Version != nil && (spec.Version == nil || spec.Version.Check(info.Version)) {
-			// install the locked version and verify checksum
-			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple(), spec.Prerelease == "allow")
+		entry, hasEntry := lf.lockinfo[name]
+		var plan sourceresolution.Plan
+		var existing *lockInfo
+		var legacy *lockInfo
+		if lf.Version == lockFileVersion && hasEntry {
+			release := entry.resolvedRelease()
+			plan = requirement.Plan(&release, false)
+			if plan.Outcome() == sourceresolution.PlanReplay || plan.Outcome() == sourceresolution.PlanRefreshRequired {
+				copy := cloneLockInfo(entry)
+				existing = &copy
+			}
 		} else {
-			// no locked version or driver list version doesn't match locked file
-			if spec.Version != nil {
-				if spec.Prerelease == "allow" {
-					spec.Version.IncludePrerelease = true
-				}
-				pkg, err = drv.GetWithConstraint(spec.Version, config.PlatformTuple())
-			} else {
-				pkg, err = drv.GetPackage(nil, config.PlatformTuple(), spec.Prerelease == "allow")
+			plan = requirement.Plan(nil, false)
+			// v1 locks prove only a version and (optionally) installed library
+			// bytes. They are migration inputs, never replayable release snapshots.
+			// Without source identity, retain that proof only for the historical
+			// default-registry selection and verify the selected result later.
+			if lf.Version == lockFileVersionV1 && hasEntry &&
+				requirement.Source().Mode() == sourceresolution.DefaultRegistry {
+				copy := cloneLockInfo(entry)
+				legacy = &copy
 			}
 		}
 
+		switch plan.Outcome() {
+		case sourceresolution.PlanReplay:
+		case sourceresolution.PlanResolve, sourceresolution.PlanRefreshRequired:
+			needsRegistry = true
+		case sourceresolution.PlanLockedArtifactMissing:
+			return nil, false, &LockedModeArtifactMissingError{DriverID: name, Platform: config.PlatformTuple()}
+		case sourceresolution.PlanReject:
+			return nil, false, fmt.Errorf("cannot plan sync for driver %q: %w", name, plan.Err())
+		default:
+			return nil, false, fmt.Errorf("cannot plan sync for driver %q: invalid plan outcome %d", name, plan.Outcome())
+		}
+		planned = append(planned, plannedSyncItem{
+			Name: name, Requirement: requirement, Plan: plan,
+			LockEntry: existing, LegacyLock: legacy,
+		})
+	}
+	return planned, needsRegistry, nil
+}
+
+func requirementForDriverSpec(name string, spec driverSpec) (sourceresolution.Requirement, error) {
+	var selection sourceresolution.SourceSelection
+	if spec.Source == nil {
+		selection = sourceresolution.DefaultRegistrySelection()
+	} else {
+		if spec.Source.Type != dbc.DriverSourceRegistry {
+			return sourceresolution.Requirement{}, fmt.Errorf("source type %q for driver %q is not supported by sync yet; source integration will follow", spec.Source.Type, name)
+		}
+		key, err := driverSourceIdentity(spec.Source)
 		if err != nil {
-			return nil, err
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid declared registry source: %w", name, err)
 		}
-		var priorLock *lockInfo
-		if info.Version != nil {
-			priorLock = &info
-		}
-		item, err := installItemFromRegistryPackage(drv, pkg, priorLock)
+		selection, err = sourceresolution.ExplicitSourceSelection(key)
 		if err != nil {
-			return nil, err
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid declared registry source: %w", name, err)
 		}
-		items = append(items, item)
+	}
+
+	constraint := ""
+	if spec.Version != nil {
+		constraint = spec.Version.String()
+	}
+	policy := sourceresolution.PrereleaseForbidden
+	if spec.Prerelease == "allow" || (spec.Version != nil && spec.Version.IncludePrerelease) {
+		policy = sourceresolution.PrereleaseAllowed
+	}
+	version, err := sourceresolution.RegistryVersionRequirement(constraint, policy)
+	if err != nil {
+		return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid version requirement: %w", name, err)
+	}
+	target, err := resolution.TargetFromPlatformTuple(config.PlatformTuple())
+	if err != nil {
+		return sourceresolution.Requirement{}, fmt.Errorf("unsupported sync platform: %w", err)
+	}
+	return sourceresolution.NewRequirement(name, selection, version, target)
+}
+
+func (s syncModel) createInstallList(planned []plannedSyncItem) ([]installItem, error) {
+	items := make([]installItem, 0, len(planned))
+	for _, entry := range planned {
+		switch entry.Plan.Outcome() {
+		case sourceresolution.PlanReplay:
+			item, err := installItemFromPlan(entry)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		case sourceresolution.PlanResolve, sourceresolution.PlanRefreshRequired:
+			item, err := s.resolveRegistryPlan(entry)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		case sourceresolution.PlanReject:
+			return nil, fmt.Errorf("cannot plan sync for driver %q: %w", entry.Name, entry.Plan.Err())
+		case sourceresolution.PlanLockedArtifactMissing:
+			return nil, &LockedModeArtifactMissingError{DriverID: entry.Name, Platform: config.PlatformTuple()}
+		default:
+			return nil, fmt.Errorf("cannot resolve sync plan for driver %q: invalid outcome %d", entry.Name, entry.Plan.Outcome())
+		}
 	}
 	return items, nil
 }
 
-func (s syncModel) registryDiscoveryNeeded(list DriversList) (bool, error) {
-	for name, spec := range list.Drivers {
-		if err := requireRegistrySyncSource(name, spec); err != nil {
-			return false, err
+func installItemFromPlan(planned plannedSyncItem) (installItem, error) {
+	release, ok := planned.Plan.Release()
+	if !ok {
+		return installItem{}, fmt.Errorf("replay plan for %q has no release", planned.Name)
+	}
+	selected, ok := planned.Plan.Artifact()
+	if !ok {
+		return installItem{}, fmt.Errorf("replay plan for %q has no selected artifact", planned.Name)
+	}
+	for i := range release.Artifacts {
+		if release.Artifacts[i].Target == selected.Target {
+			return newInstallItem(release, i, config.PlatformTuple(), planned.LockEntry)
 		}
 	}
-	lf, err := loadLockFile(s.LockFilePath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return true, nil
+	return installItem{}, fmt.Errorf("replay plan for %q selected an artifact outside its release", planned.Name)
+}
+
+func (s syncModel) resolveRegistryPlan(planned plannedSyncItem) (installItem, error) {
+	allowPrerelease := false
+	if policy, ok := planned.Requirement.Version().PrereleasePolicy(); ok {
+		allowPrerelease = policy == sourceresolution.PrereleaseAllowed
+	}
+	var exactVersion string
+	var priorLock *lockInfo
+	refreshingSnapshot := false
+	var refreshSource *sourceidentity.Key
+	var expectedRefreshSource *sourceidentity.Key
+	if planned.Plan.Outcome() == sourceresolution.PlanRefreshRequired {
+		release, ok := planned.Plan.Release()
+		if !ok {
+			return installItem{}, fmt.Errorf("refresh plan for %q has no prior release", planned.Name)
+		}
+		key, err := sourceidentity.Parse(sourceidentity.Kind(release.Source.Type), release.Source.Reference)
+		if err != nil || key.Kind != sourceidentity.Registry {
+			return installItem{}, fmt.Errorf("refresh plan for %q has an invalid registry source identity", planned.Name)
+		}
+		keyCopy := key
+		expectedRefreshSource = &keyCopy
+		if planned.Requirement.Source().Mode() == sourceresolution.DefaultRegistry {
+			// A default-registry requirement normally respects configured registry
+			// order. Refreshing a locked release is different: complete that same
+			// source snapshot instead of selecting a different registry.
+			refreshSource = &key
+		}
+		exactVersion = release.Version
+		refreshingSnapshot = true
+		priorLock = planned.LockEntry
+	} else if planned.LegacyLock != nil && planned.LegacyLock.Version != nil &&
+		planned.Requirement.Source().Mode() == sourceresolution.DefaultRegistry &&
+		planned.Requirement.AcceptsVersion(planned.LegacyLock.Version.String()) {
+		// A v1 lock has no source identity, so its version may guide registry
+		// selection only under the historical default-registry policy.
+		exactVersion = planned.LegacyLock.Version.String()
+	}
+	driver, err := registryDriverForRequirement(planned.Requirement, s.driverIndex, refreshSource)
+	if err != nil {
+		return installItem{}, wrapWithRegistryContext(err, s.registryErrors)
+	}
+
+	var pkg dbc.PkgInfo
+	if exactVersion != "" {
+		version, err := semver.NewVersion(exactVersion)
+		if err != nil {
+			return installItem{}, fmt.Errorf("invalid locked version %q for %s: %w", exactVersion, planned.Name, err)
+		}
+		// Exact versions reach this path only after Requirement accepts them.
+		// Ask the legacy registry adapter for that exact prerelease as well;
+		// otherwise GetPackage's latest-selection filter would reject a version
+		// explicitly selected by the constraint.
+		pkg, err = driver.GetPackage(version, config.PlatformTuple(), true)
+	} else if constraint, ok := planned.Requirement.Version().Constraint(); ok && constraint != "" {
+		parsed, err := semver.NewConstraint(constraint)
+		if err != nil {
+			return installItem{}, fmt.Errorf("invalid registry constraint %q for %s: %w", constraint, planned.Name, err)
+		}
+		parsed.IncludePrerelease = allowPrerelease
+		pkg, err = driver.GetWithConstraint(parsed, config.PlatformTuple())
+	} else {
+		pkg, err = driver.GetPackage(nil, config.PlatformTuple(), allowPrerelease)
 	}
 	if err != nil {
-		return false, err
+		return installItem{}, err
 	}
-	for name, spec := range list.Drivers {
-		entry, ok := lf.lockinfo[name]
-		if lf.Version != lockFileVersion || !ok || entry.Version == nil {
-			return true, nil
+
+	release, err := resolvedReleaseFromRegistryPackage(driver, pkg)
+	if err != nil {
+		return installItem{}, err
+	}
+	if refreshingSnapshot {
+		resolvedSource, sourceErr := sourceidentity.Parse(sourceidentity.Kind(release.Source.Type), release.Source.Reference)
+		if sourceErr != nil || resolvedSource.Kind != sourceidentity.Registry {
+			return installItem{}, fmt.Errorf("registry refresh for %q returned an invalid source identity", planned.Name)
 		}
-		if !driverSourceMatchesLock(spec.Source, entry.Source) {
-			return true, nil
-		}
-		if !lockVersionSatisfiesSpec(entry, spec) {
-			return true, nil
-		}
-		if _, err := selectLockedArtifact(entry, config.PlatformTuple(), false); err != nil {
-			var refreshErr *LockRefreshRequiredError
-			if errors.As(err, &refreshErr) {
-				return true, nil
+		if expectedRefreshSource == nil || resolvedSource != *expectedRefreshSource {
+			expected := "unknown"
+			if expectedRefreshSource != nil {
+				expected = expectedRefreshSource.Reference
 			}
-			return false, err
+			return installItem{}, fmt.Errorf("registry refresh for %q returned source %q instead of locked source %q", planned.Name, resolvedSource.Reference, expected)
+		}
+		lockedVersion, lockErr := semver.NewVersion(exactVersion)
+		resolvedVersion, resolveErr := semver.NewVersion(release.Version)
+		if lockErr != nil || resolveErr != nil ||
+			!sourceresolution.SameReleaseVersion(sourceidentity.Registry, lockedVersion, resolvedVersion) {
+			return installItem{}, fmt.Errorf("registry refresh for %q resolved version %q instead of locked version %q", planned.Name, release.Version, exactVersion)
 		}
 	}
-	return false, nil
-}
-
-func requireRegistrySyncSource(name string, spec driverSpec) error {
-	if spec.Source == nil || spec.Source.Type == dbc.DriverSourceRegistry {
-		return nil
-	}
-	return fmt.Errorf("source type %q for driver %q is not supported by sync yet; source integration will follow", spec.Source.Type, name)
-}
-
-func findDriverInDeclaredRegistry(name string, drivers []dbc.Driver, source *dbc.DriverSource) (dbc.Driver, error) {
-	if source == nil || source.Type != dbc.DriverSourceRegistry {
-		return findDriver(name, drivers)
-	}
-
-	declaredKey, err := sourceidentity.Parse(sourceidentity.Registry, source.URL)
+	item, err := installItemFromResolverResult(planned.Requirement, release, priorLock)
 	if err != nil {
-		return dbc.Driver{}, fmt.Errorf("driver %q has invalid declared registry source: %w", name, err)
+		return installItem{}, err
+	}
+	if planned.LegacyLock != nil && planned.LegacyLock.Version != nil && priorLock == nil &&
+		planned.Requirement.Source().Mode() == sourceresolution.DefaultRegistry {
+		resolvedVersion, versionErr := semver.NewVersion(release.Version)
+		if versionErr == nil && sourceresolution.SameReleaseVersion(sourceidentity.Registry, planned.LegacyLock.Version, resolvedVersion) {
+			copy := cloneLockInfo(*planned.LegacyLock)
+			item.LockEntry = &copy
+		}
+	}
+	return item, nil
+}
+
+func registryDriverForRequirement(requirement sourceresolution.Requirement, drivers []dbc.Driver, refreshSource *sourceidentity.Key) (dbc.Driver, error) {
+	if requirement.Source().Mode() == sourceresolution.DefaultRegistry && refreshSource == nil {
+		return findDriver(requirement.DriverID(), drivers)
+	}
+	var key sourceidentity.Key
+	if requirement.Source().Mode() == sourceresolution.DefaultRegistry {
+		if refreshSource == nil || refreshSource.Kind != sourceidentity.Registry {
+			return dbc.Driver{}, fmt.Errorf("driver %q has an invalid pinned registry source", requirement.DriverID())
+		}
+		key = *refreshSource
+	} else {
+		var ok bool
+		key, ok = requirement.Source().Key()
+		if !ok || key.Kind != sourceidentity.Registry {
+			return dbc.Driver{}, fmt.Errorf("driver %q has an unsupported registry source selection", requirement.DriverID())
+		}
 	}
 	var matches []dbc.Driver
 	for _, driver := range drivers {
 		if driver.Registry == nil || driver.Registry.BaseURL == nil {
 			continue
 		}
-		key, err := sourceidentity.Parse(sourceidentity.Registry, driver.Registry.BaseURL.String())
-		if err == nil && key == declaredKey {
+		candidate, err := sourceidentity.Parse(sourceidentity.Registry, driver.Registry.BaseURL.String())
+		if err == nil && candidate == key {
 			matches = append(matches, driver)
 		}
 	}
-	driver, err := findDriver(name, matches)
+	driver, err := findDriver(requirement.DriverID(), matches)
 	if err != nil {
-		return dbc.Driver{}, fmt.Errorf("driver %q was not found in declared registry %q", name, source.URL)
+		if refreshSource != nil {
+			return dbc.Driver{}, fmt.Errorf("driver %q was not found in locked registry source %q", requirement.DriverID(), key.Reference)
+		}
+		return dbc.Driver{}, fmt.Errorf("driver %q was not found in declared registry %q", requirement.DriverID(), key.Reference)
 	}
 	return driver, nil
 }
 
-func installItemFromRegistryPackage(driver dbc.Driver, pkg dbc.PkgInfo, priorLock *lockInfo) (installItem, error) {
+func resolvedReleaseFromRegistryPackage(driver dbc.Driver, pkg dbc.PkgInfo) (resolution.ResolvedRelease, error) {
 	if driver.Path == "" || pkg.Version == nil || strings.TrimSpace(pkg.PlatformTuple) == "" {
-		return installItem{}, errors.New("registry package metadata is incomplete")
+		return resolution.ResolvedRelease{}, errors.New("registry package metadata is incomplete")
 	}
 	if driver.Registry == nil || driver.Registry.BaseURL == nil {
-		return installItem{}, fmt.Errorf("driver %q has no registry identity", driver.Path)
+		return resolution.ResolvedRelease{}, fmt.Errorf("driver %q has no registry identity", driver.Path)
+	}
+	registryKey, err := sourceidentity.Parse(sourceidentity.Registry, driver.Registry.BaseURL.String())
+	if err != nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("driver %q has invalid registry identity: %w", driver.Path, err)
+	}
+	if pkg.Driver.Path != "" && pkg.Driver.Path != driver.Path {
+		return resolution.ResolvedRelease{}, fmt.Errorf("registry resolver returned package for driver %q while resolving %q", pkg.Driver.Path, driver.Path)
+	}
+	if pkg.Driver.Registry != nil {
+		if pkg.Driver.Registry.BaseURL == nil {
+			return resolution.ResolvedRelease{}, fmt.Errorf("registry resolver returned package without registry identity for %q", driver.Path)
+		}
+		packageRegistry, err := sourceidentity.Parse(sourceidentity.Registry, pkg.Driver.Registry.BaseURL.String())
+		if err != nil || packageRegistry != registryKey {
+			return resolution.ResolvedRelease{}, fmt.Errorf("registry resolver returned package from a different source for %q", driver.Path)
+		}
 	}
 	if pkg.Path == nil {
-		return installItem{}, fmt.Errorf("registry package metadata for %q has no archive URL", driver.Path)
+		return resolution.ResolvedRelease{}, fmt.Errorf("registry package metadata for %q has no archive URL", driver.Path)
 	}
 	target, err := resolution.TargetFromPlatformTuple(pkg.PlatformTuple)
 	if err != nil {
-		return installItem{}, fmt.Errorf("invalid registry package platform %q: %w", pkg.PlatformTuple, err)
+		return resolution.ResolvedRelease{}, fmt.Errorf("invalid registry package platform %q: %w", pkg.PlatformTuple, err)
 	}
 	size := cloneInt64(pkg.ArtifactSize)
 	release := resolution.ResolvedRelease{
 		DriverID: driver.Path,
 		Version:  pkg.Version.String(),
-		Source:   resolution.SourceSpec{Type: "registry", Reference: driver.Registry.BaseURL.String()},
+		Source:   resolution.SourceSpec{Type: "registry", Reference: registryKey.Reference},
 		Artifacts: []resolution.Artifact{{
 			Target: target, Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: pkg.Path.String()},
 			Hash: pkg.ArtifactHash, Size: size,
 		}},
 	}
 	if err := resolution.ValidateResolvedReleaseCandidate(release); err != nil {
-		return installItem{}, fmt.Errorf("invalid registry package metadata: %w", err)
+		return resolution.ResolvedRelease{}, fmt.Errorf("invalid registry package metadata: %w", err)
 	}
-	return newInstallItem(release, 0, pkg.PlatformTuple, priorLock)
+	return release, nil
 }
 
-func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
-	if !driverSourceMatchesLock(spec.Source, entry.Source) {
-		return false
-	}
-	if entry.Version == nil {
-		return false
-	}
-	if spec.Version != nil {
-		if spec.Source != nil && spec.Source.Type == dbc.DriverSourcePackslip {
-			// This is a requirement check: Packslip's validated exact request is
-			// represented by a constraint, but lock reuse must preserve its full
-			// canonical version string, including build metadata.
-			return entry.Version.String() == spec.Version.String()
-		}
-		// An explicit constraint can name a prerelease directly. Let semver's
-		// constraint evaluation decide whether that locked version is allowed.
-		return spec.Version.Check(entry.Version)
-	}
-	return entry.Version.Prerelease() == "" || spec.Prerelease == "allow"
-}
-
-func driverSourceMatchesLock(source *dbc.DriverSource, locked lockSource) bool {
-	if source == nil {
-		// An omitted source selects the configured default-registry policy. It
-		// does not declare a source identity key or pin an undeclared registry.
-		return locked.Type == string(dbc.DriverSourceRegistry)
-	}
-	declaredKey, err := driverSourceIdentity(source)
+func installItemFromResolverResult(requirement sourceresolution.Requirement, release resolution.ResolvedRelease, priorLock *lockInfo) (installItem, error) {
+	selected, err := requirement.ValidateResolverResult(release)
 	if err != nil {
-		return false
+		return installItem{}, fmt.Errorf("registry resolver returned an invalid release: %w", err)
 	}
-	lockedKey, err := lockSourceIdentity(locked)
-	return err == nil && declaredKey == lockedKey
+	for i := range release.Artifacts {
+		if release.Artifacts[i].Target == selected.Target {
+			return newInstallItem(release, i, config.PlatformTuple(), priorLock)
+		}
+	}
+	return installItem{}, fmt.Errorf("validated resolver artifact for %q is not part of its release", requirement.DriverID())
 }
 
 func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {
@@ -1317,7 +1446,7 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 		return fail("sync_failed", err)
 	}
 
-	needsRegistry, err := s.registryDiscoveryNeeded(s.list)
+	planned, needsRegistry, err := s.planSyncItems(s.list)
 	if err != nil {
 		return fail("sync_failed", fmt.Errorf("failed to inspect lock file: %w", err))
 	}
@@ -1335,7 +1464,7 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 		s.driverIndex = drivers
 	}
 
-	items, err := s.createInstallList(s.list)
+	items, err := s.createInstallList(planned)
 	if err != nil {
 		return fail("sync_failed", err)
 	}
@@ -1543,13 +1672,13 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err := applyProjectRegistries(s.list); err != nil {
 			return s, errCmd("%v", err)
 		}
-		needsRegistry, err := s.registryDiscoveryNeeded(s.list)
+		planned, needsRegistry, err := s.planSyncItems(s.list)
 		if err != nil {
 			return s, errCmd("failed to inspect lock file: %w", err)
 		}
 		if !needsRegistry {
 			return s, func() tea.Msg {
-				returnItems, err := s.createInstallList(s.list)
+				returnItems, err := s.createInstallList(planned)
 				if err != nil {
 					return err
 				}

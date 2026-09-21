@@ -90,14 +90,14 @@ func TestRegistryVersionRequirementAppliesConstraintAndPrereleasePolicy(t *testi
 	require.Error(t, err)
 }
 
-func TestRegistryPrereleasePolicyOverridesPrereleaseComparators(t *testing.T) {
+func TestRegistryConstraintCanExplicitlySelectPrerelease(t *testing.T) {
 	constraint := ">=1.2.3-beta.1,<1.2.3"
 	for _, test := range []struct {
 		name      string
 		policy    PrereleasePolicy
 		wantMatch bool
 	}{
-		{name: "forbidden", policy: PrereleaseForbidden, wantMatch: false},
+		{name: "default policy", policy: PrereleaseForbidden, wantMatch: true},
 		{name: "allowed", policy: PrereleaseAllowed, wantMatch: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -39,6 +39,7 @@ import (
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceresolution"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,7 +67,10 @@ func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testi
 		LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
 		driverIndex:  drivers,
 	}
-	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{"test-driver-1": {}}})
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{"test-driver-1": {}}})
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	items, err := model.createInstallList(planned)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	selected, err := items[0].selectedArtifact()
@@ -132,6 +136,12 @@ func TestRegistrySourceChangeDiscardsOldLockEntryBeforeFallback(t *testing.T) {
 	entry.Name = "test-driver-1"
 	entry.Version = semver.MustParse("1.0.0")
 	entry.Source.URL = "https://registry-a.example.test"
+	entry.Evidence = []lockEvidence{{
+		Kind:     resolution.EvidenceKindReleaseMetadata,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry-a.example.test/release.json"},
+		Hash:     "sha256:" + strings.Repeat("b", 64),
+	}}
+	entry.Legacy = &legacyLibraryProof{Platform: config.PlatformTuple(), LibraryHash: strings.Repeat("c", 64)}
 	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
 
 	registryBURL, err := url.Parse("https://registry-b.example.test")
@@ -152,15 +162,336 @@ func TestRegistrySourceChangeDiscardsOldLockEntryBeforeFallback(t *testing.T) {
 		},
 	}}
 	model := syncModel{LockFilePath: lockPath, driverIndex: drivers}
-	needsRegistry, err := model.registryDiscoveryNeeded(list)
+	planned, needsRegistry, err := model.planSyncItems(list)
 	require.NoError(t, err)
 	assert.True(t, needsRegistry, "a lock for registry A cannot be reused for registry B")
 
-	items, err := model.createInstallList(list)
+	for _, plan := range planned {
+		assert.Equal(t, sourceresolution.PlanResolve, plan.Plan.Outcome())
+		assert.Nil(t, plan.LockEntry, "the old registry A entry must not influence registry B planning")
+	}
+	items, err := model.createInstallList(planned)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	assert.Nil(t, items[0].LockEntry, "the old registry A entry must not be merged into a registry B candidate")
 	assert.Equal(t, registryBURL.String(), items[0].Release.Source.Reference)
+}
+
+func TestRegistryVersionMismatchDoesNotCarryOldReleaseEvidenceOrLegacyProof(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+	entry.Name = "test-driver-1"
+	entry.Version = semver.MustParse("1.0.0")
+	entry.Source.URL = testRegistry.BaseURL.String()
+	entry.Evidence = []lockEvidence{{
+		Kind:     resolution.EvidenceKindReleaseMetadata,
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/old-release.json"},
+		Hash:     "sha256:" + strings.Repeat("b", 64),
+	}}
+	entry.Legacy = &legacyLibraryProof{Platform: config.PlatformTuple(), LibraryHash: strings.Repeat("c", 64)}
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+
+	constraint, err := semver.NewConstraint("=1.1.0")
+	require.NoError(t, err)
+	model := syncModel{LockFilePath: lockPath, driverIndex: mustTestRegistryDrivers(t)}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {Version: constraint},
+	}})
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Equal(t, sourceresolution.PlanResolve, planned[0].Plan.Outcome())
+	assert.Nil(t, planned[0].LockEntry, "a version-mismatched v2 snapshot is not refresh input")
+	assert.Nil(t, planned[0].LegacyLock, "v2 proof cannot be reinterpreted as a v1 migration proof")
+
+	items, err := model.createInstallList(planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Nil(t, items[0].LockEntry, "the mismatched release evidence must not reach the candidate")
+	assert.Equal(t, "1.1.0", items[0].Release.Version)
+}
+
+func TestRegistryTargetRefreshRetainsMatchingReleaseSnapshot(t *testing.T) {
+	otherPlatform := "linux_amd64"
+	if config.PlatformTuple() == otherPlatform {
+		otherPlatform = "macos_arm64"
+	}
+	entry := testRegistryLockEntryForPlatform(otherPlatform)
+	entry.Name = "test-driver-1"
+	entry.Source.URL = testRegistry.BaseURL.String()
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	model := syncModel{LockFilePath: lockPath, driverIndex: mustTestRegistryDrivers(t)}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {},
+	}})
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Equal(t, sourceresolution.PlanRefreshRequired, planned[0].Plan.Outcome())
+	require.NotNil(t, planned[0].LockEntry, "a matching release snapshot may supply prior artifacts for target refresh")
+}
+
+func TestDefaultRegistryRefreshStaysPinnedToLockedRegistry(t *testing.T) {
+	otherPlatform := "linux_amd64"
+	if config.PlatformTuple() == otherPlatform {
+		otherPlatform = "macos_arm64"
+	}
+	entry := testRegistryLockEntryForPlatform(otherPlatform)
+	entry.Name = "test-driver-1"
+	entry.Version = semver.MustParse("1.1.0")
+	entry.Source.URL = "https://registry-b.example.test"
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+
+	registryA := registryScopedTestDriver(t, "test-driver-1", "https://registry-a.example.test")
+	registryB := registryScopedTestDriver(t, "test-driver-1", "https://registry-b.example.test")
+	model := syncModel{LockFilePath: lockPath, driverIndex: []dbc.Driver{registryA, registryB}}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {},
+	}})
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Equal(t, sourceresolution.PlanRefreshRequired, planned[0].Plan.Outcome())
+
+	items, err := model.createInstallList(planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "https://registry-b.example.test", items[0].Release.Source.Reference,
+		"a refresh must resolve missing target metadata from the source already named by the lock")
+	require.NotNil(t, items[0].LockEntry)
+	assert.Equal(t, "https://registry-b.example.test", items[0].LockEntry.Source.URL)
+	selected, err := items[0].selectedArtifact()
+	require.NoError(t, err)
+	assert.Contains(t, selected.Location.Value, "registry-b.example.test")
+}
+
+func TestDefaultRegistryRefreshDoesNotFallbackWhenLockedRegistryLacksDriver(t *testing.T) {
+	otherPlatform := "linux_amd64"
+	if config.PlatformTuple() == otherPlatform {
+		otherPlatform = "macos_arm64"
+	}
+	entry := testRegistryLockEntryForPlatform(otherPlatform)
+	entry.Name = "test-driver-1"
+	entry.Version = semver.MustParse("1.1.0")
+	entry.Source.URL = "https://registry-b.example.test"
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	before, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+
+	registryA := registryScopedTestDriver(t, "test-driver-1", "https://registry-a.example.test")
+	registryBWithoutDriver := registryScopedTestDriver(t, "test-driver-2", "https://registry-b.example.test")
+	model := syncModel{LockFilePath: lockPath, driverIndex: []dbc.Driver{registryA, registryBWithoutDriver}}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {},
+	}})
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Equal(t, sourceresolution.PlanRefreshRequired, planned[0].Plan.Outcome())
+
+	items, err := model.createInstallList(planned)
+	require.ErrorContains(t, err, "was not found in locked registry source")
+	assert.Empty(t, items, "resolution must fail before the package enters preparation")
+	after, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a failed pinned-source refresh cannot mutate the existing lock")
+}
+
+func TestV1ProofIsNotCarriedAcrossUndeclaredToExplicitRegistrySource(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	proof := strings.Repeat("d", 64)
+	body := fmt.Sprintf("version = 1\n\n[[drivers]]\nname = %q\nversion = %q\nplatform = %q\nchecksum = %q\n",
+		"test-driver-1", "1.1.0", config.PlatformTuple(), proof)
+	require.NoError(t, os.WriteFile(lockPath, []byte(body), 0o600))
+
+	constraint, err := semver.NewConstraint("=1.1.0")
+	require.NoError(t, err)
+	list := DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {
+			Version: constraint,
+			Source:  &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: testRegistry.BaseURL.String()},
+		},
+	}}
+	model := syncModel{LockFilePath: lockPath, driverIndex: mustTestRegistryDrivers(t)}
+	planned, needsRegistry, err := model.planSyncItems(list)
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Nil(t, planned[0].LegacyLock, "v1 has no source key to prove it came from the newly explicit registry")
+
+	items, err := model.createInstallList(planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "1.1.0", items[0].Release.Version)
+	assert.Nil(t, items[0].LockEntry, "unattributed v1 library proof must not survive into the candidate")
+}
+
+func TestExplicitPrereleaseConstraintSyncsThroughReplayRefreshAndV1Migration(t *testing.T) {
+	constraint, err := semver.NewConstraint("=2.1.0-beta.1")
+	require.NoError(t, err)
+	list := DriversList{Drivers: map[string]driverSpec{
+		"test-driver-2": {Version: constraint},
+	}}
+	drivers := mustTestRegistryDrivers(t)
+
+	t.Run("fresh resolve", func(t *testing.T) {
+		model := syncModel{LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"), driverIndex: drivers}
+		planned, needsRegistry, err := model.planSyncItems(list)
+		require.NoError(t, err)
+		assert.True(t, needsRegistry)
+		items, err := model.createInstallList(planned)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		assert.Equal(t, "2.1.0-beta.1", items[0].Release.Version)
+	})
+
+	t.Run("complete v2 replay", func(t *testing.T) {
+		entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+		entry.Name = "test-driver-2"
+		entry.Version = semver.MustParse("2.1.0-beta.1")
+		entry.Source.URL = testRegistry.BaseURL.String()
+		lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+		require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+		model := syncModel{LockFilePath: lockPath}
+		planned, needsRegistry, err := model.planSyncItems(list)
+		require.NoError(t, err)
+		assert.False(t, needsRegistry)
+		items, err := model.createInstallList(planned)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		assert.Equal(t, "2.1.0-beta.1", items[0].Release.Version)
+	})
+
+	t.Run("target refresh", func(t *testing.T) {
+		otherPlatform := "linux_amd64"
+		if config.PlatformTuple() == otherPlatform {
+			otherPlatform = "macos_arm64"
+		}
+		entry := testRegistryLockEntryForPlatform(otherPlatform)
+		entry.Name = "test-driver-2"
+		entry.Version = semver.MustParse("2.1.0-beta.1")
+		entry.Source.URL = testRegistry.BaseURL.String()
+		lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+		require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+		model := syncModel{LockFilePath: lockPath, driverIndex: drivers}
+		planned, needsRegistry, err := model.planSyncItems(list)
+		require.NoError(t, err)
+		assert.True(t, needsRegistry)
+		require.Len(t, planned, 1)
+		assert.Equal(t, sourceresolution.PlanRefreshRequired, planned[0].Plan.Outcome())
+		items, err := model.createInstallList(planned)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		assert.Equal(t, "2.1.0-beta.1", items[0].Release.Version)
+		require.NotNil(t, items[0].LockEntry)
+	})
+
+	t.Run("v1 migration", func(t *testing.T) {
+		lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+		proof := strings.Repeat("d", 64)
+		body := fmt.Sprintf("version = 1\n\n[[drivers]]\nname = %q\nversion = %q\nplatform = %q\nchecksum = %q\n",
+			"test-driver-2", "2.1.0-beta.1", config.PlatformTuple(), proof)
+		require.NoError(t, os.WriteFile(lockPath, []byte(body), 0o600))
+		model := syncModel{LockFilePath: lockPath, driverIndex: drivers}
+		planned, needsRegistry, err := model.planSyncItems(list)
+		require.NoError(t, err)
+		assert.True(t, needsRegistry)
+		items, err := model.createInstallList(planned)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		assert.Equal(t, "2.1.0-beta.1", items[0].Release.Version)
+		require.NotNil(t, items[0].LockEntry)
+		require.NotNil(t, items[0].LockEntry.Legacy)
+		assert.Equal(t, proof, items[0].LockEntry.Legacy.LibraryHash)
+	})
+}
+
+func TestRegistryReplayPlansDefaultAndExplicitSourceWithoutDiscovery(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		name := "default"
+		if explicit {
+			name = "explicit"
+		}
+		t.Run(name, func(t *testing.T) {
+			entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+			entry.Name = "test-driver-1"
+			entry.Source.URL = testRegistry.BaseURL.String()
+			lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+			require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+			spec := driverSpec{}
+			if explicit {
+				spec.Source = &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: testRegistry.BaseURL.String()}
+			}
+			model := syncModel{LockFilePath: lockPath}
+			planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{"test-driver-1": spec}})
+			require.NoError(t, err)
+			assert.False(t, needsRegistry)
+			items, err := model.createInstallList(planned)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			require.NotNil(t, items[0].LockEntry)
+			assert.Nil(t, model.driverIndex, "complete v2 replay must not require registry discovery")
+		})
+	}
+}
+
+func TestRegistryResolverResultsAreValidatedBeforeInstallItemCreation(t *testing.T) {
+	constraint, err := semver.NewConstraint("=1.1.0")
+	require.NoError(t, err)
+	requirement, err := requirementForDriverSpec("test-driver-1", driverSpec{
+		Version: constraint,
+		Source:  &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: testRegistry.BaseURL.String()},
+	})
+	require.NoError(t, err)
+	base := resolution.ResolvedRelease{
+		DriverID: "test-driver-1", Version: "1.1.0",
+		Source: resolution.SourceSpec{Type: "registry", Reference: testRegistry.BaseURL.String()},
+		Artifacts: []resolution.Artifact{{
+			Target: testTarget(config.PlatformTuple()), Format: "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/driver.tar.gz"},
+		}},
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*resolution.ResolvedRelease)
+		want   string
+	}{
+		{name: "driver", change: func(release *resolution.ResolvedRelease) { release.DriverID = "other" }, want: "driver ID"},
+		{name: "source", change: func(release *resolution.ResolvedRelease) { release.Source.Reference = "https://other.example.test" }, want: "source"},
+		{name: "version", change: func(release *resolution.ResolvedRelease) { release.Version = "9.9.9" }, want: "version"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			release := cloneResolvedReleaseForSync(base)
+			test.change(&release)
+			item, err := installItemFromResolverResult(requirement, release, nil)
+			require.ErrorContains(t, err, test.want)
+			assert.Empty(t, item.Release.DriverID, "invalid resolver output cannot create an install candidate")
+		})
+	}
+}
+
+func TestRegistryPackageAdapterRejectsDifferentSourceIdentity(t *testing.T) {
+	driver := registryScopedTestDriver(t, "test-driver-1", "https://registry-a.example.test")
+	other := registryScopedTestDriver(t, "test-driver-1", "https://registry-b.example.test")
+	archiveURL, err := url.Parse("https://assets.example.test/archive.tar.gz")
+	require.NoError(t, err)
+	_, err = resolvedReleaseFromRegistryPackage(driver, dbc.PkgInfo{
+		Driver:        other,
+		Version:       semver.MustParse("1.1.0"),
+		PlatformTuple: config.PlatformTuple(),
+		Path:          archiveURL,
+	})
+	require.ErrorContains(t, err, "different source")
+}
+
+func mustTestRegistryDrivers(t *testing.T) []dbc.Driver {
+	t.Helper()
+	drivers, err := getTestDriverRegistry()
+	require.NoError(t, err)
+	return drivers
 }
 
 func registryScopedTestDriver(t *testing.T, driverID, registryURL string) dbc.Driver {
@@ -193,9 +524,12 @@ func TestCreateInstallListSelectsDriverFromDeclaredRegistry(t *testing.T) {
 		Type: dbc.DriverSourceRegistry,
 		URL:  "HTTPS://REGISTRY-B.EXAMPLE.TEST/",
 	}
-	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
 		"test-driver-1": {Source: declaredSource},
 	}})
+	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	items, err := model.createInstallList(planned)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	assert.Equal(t, "https://registry-b.example.test", items[0].Release.Source.Reference)
@@ -226,9 +560,12 @@ func TestCreateInstallListDoesNotFallbackOutsideDeclaredRegistry(t *testing.T) {
 					registryBWithoutDriver,
 				},
 			}
-			items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{
+			planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
 				"test-driver-1": {Source: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: tt.url}},
 			}})
+			require.NoError(t, err)
+			assert.True(t, needsRegistry)
+			items, err := model.createInstallList(planned)
 			require.ErrorContains(t, err, "driver \"test-driver-1\" was not found in declared registry")
 			assert.ErrorContains(t, err, tt.url)
 			assert.Empty(t, items)
@@ -243,133 +580,15 @@ func TestCreateInstallListPreservesDefaultRegistryPrecedence(t *testing.T) {
 		LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
 		driverIndex:  []dbc.Driver{registryA, registryB},
 	}
-	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
 		"test-driver-1": {},
 	}})
 	require.NoError(t, err)
+	assert.True(t, needsRegistry)
+	items, err := model.createInstallList(planned)
+	require.NoError(t, err)
 	require.Len(t, items, 1)
 	assert.Equal(t, "https://registry-a.example.test", items[0].Release.Source.Reference)
-}
-
-func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
-	requested, err := semver.NewConstraint("1.2.3+foo")
-	require.NoError(t, err)
-	entry := lockInfo{
-		Version: semver.MustParse("1.2.3+bar"),
-		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
-	}
-	packslipSpec := driverSpec{
-		Version: requested,
-		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"},
-	}
-	assert.False(t, lockVersionSatisfiesSpec(entry, packslipSpec), "Packslip lock reuse must compare the complete exact version string")
-	entry.Version = semver.MustParse("1.2.3+foo")
-	assert.True(t, lockVersionSatisfiesSpec(entry, packslipSpec))
-
-	registryConstraint, err := semver.NewConstraint(">=1.2.3")
-	require.NoError(t, err)
-	registryEntry := lockInfo{
-		Version: semver.MustParse("1.2.3+bar"),
-		Source:  lockSource{Type: "registry", URL: "https://registry.example.test"},
-	}
-	assert.True(t, lockVersionSatisfiesSpec(registryEntry, driverSpec{Version: registryConstraint}),
-		"registry constraints retain existing SemVer precedence behavior")
-}
-
-func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
-	version := semver.MustParse("1.2.3")
-	packslipConstraint, err := semver.NewConstraint("1.2.3")
-	require.NoError(t, err)
-	packslipSpec := driverSpec{
-		Version: packslipConstraint,
-		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/Example/Driver"},
-	}
-	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "registry", URL: "https://registry.example.test"},
-	}, packslipSpec), "a same-version registry lock cannot satisfy a Packslip declaration")
-	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
-	}, packslipSpec), "GitHub host, owner, and repo are canonicalized consistently")
-	packslipToolSpec := driverSpec{
-		Version: packslipConstraint,
-		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/EXAMPLE/DRIVER/Tools/Tool"},
-	}
-	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver/TOOLS/Tool"},
-	}, packslipToolSpec), "Packslip monorepo subpaths remain case-sensitive")
-
-	registryConstraint, err := semver.NewConstraint("1.2.3")
-	require.NoError(t, err)
-	defaultRegistrySpec := driverSpec{Version: registryConstraint}
-	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "registry", URL: "https://custom.example.test"},
-	}, defaultRegistrySpec), "legacy/default registry declarations do not pin an undeclared URL")
-	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
-	}, defaultRegistrySpec))
-
-	explicitRegistry := &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}
-	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "registry", URL: "https://registry.example.test/"},
-	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}))
-	caseInsensitiveRegistry := &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "HTTPS://REGISTRY.EXAMPLE.TEST/"}
-	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "registry", URL: explicitRegistry.URL},
-	}, driverSpec{Version: registryConstraint, Source: caseInsensitiveRegistry}),
-		"scheme/host case and trailing slash use registry URL normalization")
-	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "registry", URL: "https://other.example.test"},
-	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}))
-	for _, differentURL := range []string{
-		"https://registry.example.test/tenant",
-		"https://registry.example.test?tenant=b",
-	} {
-		assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-			Version: version,
-			Source:  lockSource{Type: "registry", URL: differentURL},
-		}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
-			"registry path/query differences remain part of source identity: %s", differentURL)
-	}
-	for _, differentURL := range []string{
-		"https://registry.example.test?",
-		"https://registry.example.test:443",
-		"https://registry.example.test/a%2Fb",
-		"https://u:p@registry.example.test",
-	} {
-		assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-			Version: version,
-			Source:  lockSource{Type: "registry", URL: differentURL},
-		}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
-			"registry source identity keeps ForceQuery, escaped separators, userinfo, and explicit ports: %s", differentURL)
-	}
-	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "registry", URL: "https://registry.example.test#fragment"},
-	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
-		"fragments do not change the HTTP registry identity")
-
-	pathSource := &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/driver.tgz"}
-	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "path", Path: pathSource.Path},
-	}, driverSpec{Version: registryConstraint, Source: pathSource}))
-	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "path", Path: "./packages/other.tgz"},
-	}, driverSpec{Version: registryConstraint, Source: pathSource}))
-	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
-		Version: version,
-		Source:  lockSource{Type: "path", Path: "./packages/../driver.tgz"},
-	}, driverSpec{Version: registryConstraint, Source: &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./driver.tgz"}}),
-		"path source identity does not resolve filesystem path aliases")
 }
 
 func TestExplicitRegistryURLNormalizationAllowsOfflineLockedReplay(t *testing.T) {
@@ -391,11 +610,11 @@ func TestExplicitRegistryURLNormalizationAllowsOfflineLockedReplay(t *testing.T)
 		},
 	}}
 	model := syncModel{LockFilePath: lockPath}
-	needsRegistry, err := model.registryDiscoveryNeeded(list)
+	planned, needsRegistry, err := model.planSyncItems(list)
 	require.NoError(t, err)
 	assert.False(t, needsRegistry, "normalized explicit registry identity should permit offline lock replay")
 
-	items, err := model.createInstallList(list)
+	items, err := model.createInstallList(planned)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	require.NotNil(t, items[0].LockEntry)

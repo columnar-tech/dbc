@@ -305,6 +305,13 @@ func (requirement Requirement) Version() VersionRequirement { return requirement
 // Target returns the canonical concrete target.
 func (requirement Requirement) Target() resolution.Target { return requirement.target }
 
+// AcceptsVersion reports whether an already-resolved canonical version
+// satisfies this requirement's version rule. It is primarily useful to
+// migrate legacy lock data that does not contain a complete release snapshot.
+func (requirement Requirement) AcceptsVersion(version string) bool {
+	return requirement.validate() == nil && requirement.version.matches(version)
+}
+
 // ValidateResolverResult checks a resolver result before it can be used to
 // build an install candidate. It validates source, driver, version, and
 // non-finalized release metadata, then returns the artifact for this
@@ -396,10 +403,10 @@ func (version VersionRequirement) matches(value string) bool {
 	}
 	switch version.mode {
 	case RegistryConstraint:
-		if parsed.Prerelease() != "" && version.prerelease == PrereleaseForbidden {
-			return false
-		}
 		if version.parsed != nil {
+			// An explicit prerelease comparator is itself an opt-in. Preserve
+			// SemVer constraint matching here; the policy flag governs implicit
+			// prerelease selection when no constraint was supplied.
 			return version.parsed.Check(parsed)
 		}
 		return parsed.Prerelease() == "" || version.prerelease == PrereleaseAllowed
