@@ -52,6 +52,7 @@ const (
 type ExpectedPackageMetadata struct {
 	ID             string
 	Version        string
+	PackageVersion int
 	Platform       string
 	SourceType     string
 	SourceIdentity string
@@ -68,6 +69,7 @@ type InstallReceipt struct {
 	DriverID                         string `json:"driver_id"`
 	DriverVersion                    string `json:"driver_version"`
 	Platform                         string `json:"platform"`
+	PackageVersion                   int    `json:"package_version"`
 	ArchiveHash                      string `json:"archive_hash"`
 	ArchiveSize                      int64  `json:"archive_size"`
 	InstalledLibrary                 string `json:"installed_library,omitempty"`
@@ -88,6 +90,7 @@ type InstallOptions struct {
 // driver library file.
 type PackageValidation struct {
 	VerifiedLibraryHash              string
+	PackageVersion                   int
 	Registration                     DriverInfo
 	RegistrationFingerprintAlgorithm string
 	RegistrationFingerprintVersion   int
@@ -758,7 +761,7 @@ func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPac
 		return PackageValidation{}, errors.New("could not read validated package receipt")
 	}
 	return PackageValidation{
-		VerifiedLibraryHash: receipt.InstalledLibraryHash, Registration: manifest.DriverInfo,
+		VerifiedLibraryHash: receipt.InstalledLibraryHash, PackageVersion: manifest.PackageVersion, Registration: manifest.DriverInfo,
 		RegistrationFingerprintAlgorithm: receipt.RegistrationFingerprintAlgorithm,
 		RegistrationFingerprintVersion:   receipt.RegistrationFingerprintVersion,
 		RegistrationFingerprint:          receipt.RegistrationFingerprint,
@@ -820,6 +823,20 @@ func InstallReceiptMatchesRuntimeRegistration(receipt InstallReceipt, current Dr
 		return err == nil && fingerprint == receipt.RegistrationFingerprint
 	}
 	return false
+}
+
+// InstallReceiptMatchesExpectedPackage checks the resolved package identity
+// recorded by a receipt. A zero expected package version preserves the
+// unspecified contract used by registry and local legacy sources; a nonzero
+// expectation requires an exact receipt match.
+func InstallReceiptMatchesExpectedPackage(receipt InstallReceipt, expected ExpectedPackageMetadata) bool {
+	return expected.ID != "" && expected.Version != "" && expected.Platform != "" &&
+		expected.SourceType != "" && expected.SourceIdentity != "" && expected.ArchiveHash != "" && expected.ArchiveSize > 0 &&
+		receipt.DriverID == expected.ID && receipt.DriverVersion == expected.Version &&
+		receipt.Platform == expected.Platform && receipt.SourceType == expected.SourceType &&
+		receipt.SourceIdentity == expected.SourceIdentity && receipt.ArchiveHash == expected.ArchiveHash &&
+		receipt.ArchiveSize == expected.ArchiveSize &&
+		(expected.PackageVersion == 0 || receipt.PackageVersion == expected.PackageVersion)
 }
 
 // PackageValidationMatchesRuntimeRegistration compares a current registration
@@ -966,6 +983,9 @@ func normalizePackageInstallMetadata(runtimeID string, expected ExpectedPackageM
 				return ExpectedPackageMetadata{}, fmt.Errorf("invalid expected package platform: %w", err)
 			}
 		}
+	}
+	if err := validateExpectedPackageVersion(expected.PackageVersion); err != nil {
+		return ExpectedPackageMetadata{}, err
 	}
 	if expected.SourceType == "" {
 		expected.SourceType = "local"
@@ -1595,6 +1615,9 @@ func readPackageReceiptEvidence(location, runtimeID, directory string) (InstallR
 }
 
 func parseReceiptMetadata(receipt InstallReceipt) error {
+	if err := validateExpectedPackageVersion(receipt.PackageVersion); err != nil {
+		return fmt.Errorf("invalid receipt package version: %w", err)
+	}
 	if _, err := semver.NewVersion(receipt.DriverVersion); err != nil {
 		return fmt.Errorf("invalid receipt driver version: %w", err)
 	}
@@ -1624,6 +1647,9 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	if _, err := semver.NewVersion(expected.Version); err != nil {
 		return fmt.Errorf("invalid expected package version %q: %w", expected.Version, err)
 	}
+	if err := validateExpectedPackageVersion(expected.PackageVersion); err != nil {
+		return err
+	}
 	if err := validatePlatformIdentifier(expected.Platform); err != nil {
 		return fmt.Errorf("invalid expected package platform: %w", err)
 	}
@@ -1632,6 +1658,13 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	}
 	if _, err := parseSHA256(expected.ArchiveHash); err != nil {
 		return fmt.Errorf("invalid expected archive hash: %w", err)
+	}
+	return nil
+}
+
+func validateExpectedPackageVersion(version int) error {
+	if version != 0 && version != 2 {
+		return fmt.Errorf("unsupported dbc package version %d", version)
 	}
 	return nil
 }
@@ -1792,6 +1825,9 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 	if expected.Version != "" && manifest.Version.String() != expected.Version {
 		return result, "", sharedIdentity, fmt.Errorf("package version mismatch: archive declares %q, expected %q", manifest.Version, expected.Version)
 	}
+	if expected.PackageVersion != 0 && expected.PackageVersion != manifest.PackageVersion {
+		return result, "", sharedIdentity, fmt.Errorf("dbc package version mismatch: archive declares %d, expected %d", manifest.PackageVersion, expected.PackageVersion)
+	}
 	platform := expected.Platform
 	if meta.v2 {
 		if platform != "" && meta.platform != platform {
@@ -1856,7 +1892,8 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 	receipt := InstallReceipt{
 		SourceType: expected.SourceType, SourceIdentity: expected.SourceIdentity,
 		DriverID: runtimeID, DriverVersion: manifest.Version.String(), Platform: platform,
-		ArchiveHash: archiveHash, ArchiveSize: archiveSize, InstalledLibrary: installedLibrary,
+		PackageVersion: manifest.PackageVersion,
+		ArchiveHash:    archiveHash, ArchiveSize: archiveSize, InstalledLibrary: installedLibrary,
 		InstalledLibraryHash:             installedHash,
 		RegistrationFingerprintAlgorithm: registrationFingerprintAlgorithm,
 		RegistrationFingerprintVersion:   registrationFingerprintVersion,

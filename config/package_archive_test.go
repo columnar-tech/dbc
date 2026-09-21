@@ -101,7 +101,7 @@ func openPackageArchive(t *testing.T, data []byte) *os.File {
 func expectedPackage(id, version, platform, source string, archive []byte) config.ExpectedPackageMetadata {
 	digest := sha256.Sum256(archive)
 	return config.ExpectedPackageMetadata{
-		ID: id, Version: version, Platform: platform,
+		ID: id, Version: version, PackageVersion: 2, Platform: platform,
 		SourceType: "packslip", SourceIdentity: source,
 		ArchiveHash: "sha256:" + hex.EncodeToString(digest[:]), ArchiveSize: int64(len(archive)),
 	}
@@ -498,6 +498,45 @@ func TestInstallPackageArchiveChecksMetadataAndDigests(t *testing.T) {
 	}
 }
 
+func TestPackslipPackageVersionRejectsLegacyArchiveBeforeRuntimeMutation(t *testing.T) {
+	legacy := []byte(`name = "Legacy Driver"
+version = "1.2.3"
+
+[Driver]
+shared = "external-driver"
+`)
+	archive := makePackageArchive(t, archiveEntry{name: "MANIFEST", data: legacy})
+	root := t.TempDir()
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	existingArchive := validV2Archive(t, []byte("existing"))
+	existingFile := openPackageArchive(t, existingArchive)
+	installed, err := config.InstallPackage(cfg, "example", existingFile,
+		expectedPackage("example", "1.2.3", config.PlatformTuple(), "existing", existingArchive), config.InstallOptions{})
+	require.NoError(t, err)
+	require.NoError(t, existingFile.Close())
+	beforeManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	require.NoError(t, err)
+	beforeLibrary, err := os.ReadFile(installed.Driver.Shared.Get(config.PlatformTuple()))
+	require.NoError(t, err)
+
+	candidate := expectedPackage("example", "1.2.3", config.PlatformTuple(), "packslip-project", archive)
+	candidateFile := openPackageArchive(t, archive)
+	_, err = config.ValidatePackage("example", candidateFile, candidate, config.InstallOptions{})
+	require.ErrorContains(t, err, "dbc package version mismatch: archive declares 0, expected 2")
+	_, err = candidateFile.Seek(0, 0)
+	require.NoError(t, err)
+	_, err = config.InstallPackage(cfg, "example", candidateFile, candidate, config.InstallOptions{})
+	require.ErrorContains(t, err, "dbc package version mismatch")
+	require.NoError(t, candidateFile.Close())
+
+	afterManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	require.NoError(t, err)
+	afterLibrary, err := os.ReadFile(installed.Driver.Shared.Get(config.PlatformTuple()))
+	require.NoError(t, err)
+	assert.Equal(t, beforeManifest, afterManifest)
+	assert.Equal(t, beforeLibrary, afterLibrary)
+}
+
 func TestValidatePackageIsNonMutatingAndArchiveCanBeInstalledAfterward(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
@@ -629,6 +668,8 @@ func TestInstallPackageArchiveReceiptReplacementAndRuntimeManifest(t *testing.T)
 	require.NoError(t, json.Unmarshal(firstReceiptBytes, &firstReceipt))
 	assert.Equal(t, "github.com/first/source", firstReceipt.SourceIdentity)
 	assert.Equal(t, first.ArchiveHash, firstReceipt.ArchiveHash)
+	assert.Equal(t, 2, firstReceipt.PackageVersion)
+	assert.True(t, config.InstallReceiptMatchesExpectedPackage(firstReceipt, first), "the new package version is part of the receipt proof")
 	assert.NotEqual(t, firstReceipt.ArchiveHash, firstReceipt.InstalledLibraryHash)
 	installedDigest := sha256.Sum256([]byte("first library"))
 	assert.Equal(t, "sha256:"+hex.EncodeToString(installedDigest[:]), firstReceipt.InstalledLibraryHash)
@@ -667,6 +708,24 @@ func TestInstallPackageArchiveReceiptReplacementAndRuntimeManifest(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, "dbc", loaded.Source)
 	assert.Equal(t, filepath.Join(root, "example", "libexample.so"), loaded.Driver.Shared.Get(config.PlatformTuple()))
+}
+
+func TestInstallReceiptPackageVersionProofPreservesUnspecifiedSources(t *testing.T) {
+	expected := config.ExpectedPackageMetadata{
+		ID: "example", Version: "1.2.3", PackageVersion: 2, Platform: config.PlatformTuple(),
+		SourceType: "packslip", SourceIdentity: "github.com/example/driver",
+		ArchiveHash: "sha256:" + strings.Repeat("a", 64), ArchiveSize: 10,
+	}
+	receipt := config.InstallReceipt{
+		DriverID: "example", DriverVersion: "1.2.3", PackageVersion: 2, Platform: config.PlatformTuple(),
+		SourceType: "packslip", SourceIdentity: "github.com/example/driver",
+		ArchiveHash: expected.ArchiveHash, ArchiveSize: expected.ArchiveSize,
+	}
+	assert.True(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected))
+	receipt.PackageVersion = 0
+	assert.False(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected), "old receipts cannot prove the Packslip package contract")
+	expected.PackageVersion = 0
+	assert.True(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected), "registry and local legacy sources retain unspecified package-version matching")
 }
 
 func TestFailedReplacementPreservesExistingPackage(t *testing.T) {
