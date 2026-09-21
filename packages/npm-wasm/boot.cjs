@@ -111,7 +111,7 @@ function curateGoEnv(env, platform) {
   }
   if (isWin) {
     for (const k of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"]) {
-      if (out[k] !== undefined) out[k] = norm(out[k]);
+      if (out[k] !== undefined && out[k] !== "") out[k] = norm(out[k]);
     }
   }
   return out;

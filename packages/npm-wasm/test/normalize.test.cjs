@@ -102,6 +102,17 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
   assert.strictEqual(win.TMPDIR, "/X:/explicit", "win TMPDIR precedence");
 }
 
+// Empty Windows XDG values remain empty instead of becoming the process cwd.
+{
+  const win = curateGoEnv(
+    { XDG_CONFIG_HOME: "", XDG_DATA_HOME: "", XDG_CACHE_HOME: "" },
+    "win32"
+  );
+  assert.strictEqual(win.XDG_CONFIG_HOME, "", "empty XDG_CONFIG_HOME stays empty");
+  assert.strictEqual(win.XDG_DATA_HOME, "", "empty XDG_DATA_HOME stays empty");
+  assert.strictEqual(win.XDG_CACHE_HOME, "", "empty XDG_CACHE_HOME stays empty");
+}
+
 // POSIX: HOME wins over USERPROFILE; XDG_* forwarded; PATH dropped; backslashes
 // are NOT rewritten (legal filename chars on POSIX).
 {
