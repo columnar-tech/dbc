@@ -338,6 +338,7 @@ type installItem struct {
 	Driver               dbc.Driver
 	Package              dbc.PkgInfo
 	ArtifactFormat       string
+	PackageVersion       int
 	HostRequirements     resolution.HostRequirements
 	Checksum             string
 	ArchiveHash          string
@@ -590,13 +591,15 @@ func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArt
 	}
 	copy := cloneLockInfo(entry)
 	item := installItem{
-		Driver:    driver,
-		Package:   pkg,
-		Checksum:  entry.legacyChecksumFor(config.PlatformTuple()),
-		LockEntry: &copy,
+		Driver:         driver,
+		Package:        pkg,
+		PackageVersion: artifact.PackageVersion,
+		Checksum:       entry.legacyChecksumFor(config.PlatformTuple()),
+		LockEntry:      &copy,
 	}
 	if err := setSelectedArtifactMetadata(&item, resolution.Artifact{
 		Format:           artifact.Format,
+		PackageVersion:   artifact.PackageVersion,
 		HostRequirements: requirements,
 	}); err != nil {
 		return installItem{}, err
@@ -615,6 +618,7 @@ func setSelectedArtifactMetadata(item *installItem, artifact resolution.Artifact
 		return err
 	}
 	item.ArtifactFormat = artifact.Format
+	item.PackageVersion = artifact.PackageVersion
 	item.HostRequirements = cloneHostRequirements(artifact.HostRequirements)
 	return nil
 }
@@ -794,7 +798,7 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 				if installed.Version != nil && item.Package.Version.String() == installed.Version.String() {
 					installedCopy := installed
 					sameVersionInstalled = &installedCopy
-					expected, _, err := expectedRegistryPackageMetadata(item.Package)
+					expected, _, err := expectedSyncPackageMetadata(*item)
 					if err != nil {
 						return prepared, err
 					}
@@ -841,7 +845,7 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 			}
 		} else {
 			// The exact locked artifact is already proven by its managed receipt.
-			expected, _, err := expectedRegistryPackageMetadata(item.Package)
+			expected, _, err := expectedSyncPackageMetadata(*item)
 			if err != nil {
 				return prepared, err
 			}
@@ -890,7 +894,7 @@ func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installIte
 	if err := snapshotDownloadedArchive(item, archive); err != nil {
 		return fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
 	}
-	expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+	expected, hasMetadata, err := expectedSyncPackageMetadata(*item)
 	if err != nil {
 		return err
 	}
@@ -902,6 +906,8 @@ func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installIte
 		if inspectErr != nil {
 			return inspectErr
 		}
+		item.PackageVersion = packageManifest.PackageVersion
+		expected.PackageVersion = item.PackageVersion
 		if packageManifest.PackageVersion == 2 {
 			return errors.New("registry package v2 requires archive hash and size metadata")
 		}
@@ -927,6 +933,9 @@ func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installIte
 		}
 		return fmt.Errorf("failed to validate driver package: %w", err)
 	}
+	item.PackageVersion = validation.PackageVersion
+	expected.PackageVersion = validation.PackageVersion
+	item.Expected = expected
 	item.Validation = &validation
 	item.ValidatedLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
 	if item.ValidatedLibraryHash == "" {
@@ -951,7 +960,7 @@ func (s syncModel) itemCurrentMatches(item *installItem, current *config.DriverI
 	}
 	libraryPath := current.Driver.Shared.Get(config.PlatformTuple())
 	if managed && present {
-		if !valid || !installReceiptMatchesExpected(receipt, item.Expected) ||
+		if !valid || !config.InstallReceiptMatchesExpectedPackage(receipt, item.Expected) ||
 			!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) ||
 			!config.InstallReceiptMatchesRuntimeRegistration(receipt, *current, config.PlatformTuple()) {
 			return false, nil
@@ -1073,7 +1082,7 @@ func (s syncModel) validateEnsureResult(item *installItem, result config.EnsureP
 		return fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
 	}
 	libraryPath := result.Installed.Driver.Shared.Get(config.PlatformTuple())
-	if !managed || !present || !valid || !installReceiptMatchesExpected(receipt, item.Expected) ||
+	if !managed || !present || !valid || !config.InstallReceiptMatchesExpectedPackage(receipt, item.Expected) ||
 		receipt.InstalledLibraryHash != item.Validation.VerifiedLibraryHash ||
 		!config.InstallReceiptMatchesRuntimeRegistration(receipt, *result.Installed, config.PlatformTuple()) ||
 		!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
@@ -1089,13 +1098,13 @@ func (s syncModel) validateEnsureResult(item *installItem, result config.EnsureP
 	return nil
 }
 
-func installReceiptMatchesExpected(receipt config.InstallReceipt, expected config.ExpectedPackageMetadata) bool {
-	return expected.ID != "" && expected.Version != "" && expected.Platform != "" &&
-		expected.SourceType != "" && expected.SourceIdentity != "" && expected.ArchiveHash != "" && expected.ArchiveSize > 0 &&
-		receipt.DriverID == expected.ID && receipt.DriverVersion == expected.Version &&
-		receipt.Platform == expected.Platform && receipt.SourceType == expected.SourceType &&
-		receipt.SourceIdentity == expected.SourceIdentity && receipt.ArchiveHash == expected.ArchiveHash &&
-		receipt.ArchiveSize == expected.ArchiveSize
+func expectedSyncPackageMetadata(item installItem) (config.ExpectedPackageMetadata, bool, error) {
+	expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+	if err != nil {
+		return config.ExpectedPackageMetadata{}, false, err
+	}
+	expected.PackageVersion = item.PackageVersion
+	return expected, hasMetadata, nil
 }
 
 func markAlreadyInstalled(item *installItem, installed config.DriverInfo, libraryHash string) {
@@ -1380,6 +1389,7 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		Artifacts: []resolution.Artifact{{
 			Target:           target,
 			Format:           item.ArtifactFormat,
+			PackageVersion:   item.PackageVersion,
 			Location:         resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: item.Package.Path.String()},
 			Hash:             hash,
 			Size:             &size,

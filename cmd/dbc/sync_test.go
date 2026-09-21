@@ -1582,6 +1582,52 @@ func (suite *SubcommandTestSuite) TestSyncSameVersionRequiresMatchingManagedRece
 	}
 }
 
+func (suite *SubcommandTestSuite) TestSyncLockedPackageVersionMismatchDoesNotReuseReceiptOrMutateInstall() {
+	t := suite.T()
+	root := t.TempDir()
+	t.Setenv("ADBC_DRIVER_PATH", root)
+	driverListPath := filepath.Join(root, "dbc.toml")
+	lockPath := filepath.Join(root, "dbc.lock")
+	require.NoError(t, os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	before, err := config.GetDriver(cfg, "test-driver-1")
+	require.NoError(t, err)
+	beforeLibrary := before.Driver.Shared.Get(config.PlatformTuple())
+	lock, err := loadLockFile(lockPath)
+	require.NoError(t, err)
+	entry := lock.lockinfo["test-driver-1"]
+	require.Len(t, entry.Artifacts, 1)
+	entry.Artifacts[0].PackageVersion = 2
+	lock.Drivers = []lockInfo{entry}
+	require.NoError(t, writeLockFileAtomic(lockPath, lock))
+
+	downloadCalls, installCalls := 0, 0
+	model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			return nil, errors.New("exact locked replay must not discover registries")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls++
+			return downloadTestPkg(pkg)
+		},
+	}).(syncModel)
+	model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		installCalls++
+		return config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+	}
+
+	output := suite.runCmdErr(model)
+	require.Contains(t, output, "dbc package version mismatch")
+	require.Equal(t, 1, downloadCalls, "a receipt for another package format must not skip archive validation")
+	require.Zero(t, installCalls, "package format validation must fail before package installation")
+	after, err := config.GetDriver(cfg, "test-driver-1")
+	require.NoError(t, err)
+	assert.Equal(t, before.FilePath, after.FilePath)
+	assert.Equal(t, beforeLibrary, after.Driver.Shared.Get(config.PlatformTuple()), "failed validation must leave the installed generation untouched")
+}
+
 func writeSyncReceipt(t *testing.T, path string, receipt config.InstallReceipt) {
 	t.Helper()
 	data, err := json.Marshal(receipt)
