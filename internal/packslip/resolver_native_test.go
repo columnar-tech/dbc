@@ -138,6 +138,7 @@ type resolverHTTPFixtures struct {
 	customReleaseAssets bool
 	apiHits             atomic.Int32
 	requestHits         atomic.Int32
+	bundleHits          atomic.Int32
 	archiveHits         atomic.Int32
 }
 
@@ -166,6 +167,7 @@ func newResolverTestServer(t *testing.T, project, tag string, listBytes, release
 			}
 			_, _ = w.Write(mustJSON([]githubRelease{{TagName: fixture.tag, Assets: assets}}))
 		case r.URL.Path == "/assets/release.json":
+			fixture.bundleHits.Add(1)
 			_, _ = w.Write(fixture.release)
 		case r.URL.Path == "/assets/driver.tar.gz":
 			fixture.archiveHits.Add(1)
@@ -516,6 +518,60 @@ func TestResolveRequiresExactSemVerBeforeDiscovery(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "exact SemVer 2.0.0", "valid prerelease and build metadata must pass input validation")
 	require.Positive(t, fixture.requestHits.Load(), "a valid exact SemVer may proceed to discovery")
+}
+
+func TestResolverUsesVersionBearingTagAndKeepsProjectAsSourceIdentity(t *testing.T) {
+	release := makeBundle(setSignerAndTag(t, validRelease("1.2.3"), testProject, "1.2.3", fakeSigner, "v1.2.3"))
+	_, resolver, _ := newResolverTestServer(t, testProject, "v1.2.3", nil, release, "")
+
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "driver", Version: "1.2.3",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "1.2.3", resolved.Version)
+	require.Equal(t, resolution.SourceSpec{Type: "packslip", Reference: testProject}, resolved.Source)
+	require.NotEqual(t, "https://downloads.example/driver-linux.tar.gz", resolved.Source.Reference)
+	require.NotEqual(t, "https://github.com/acme/driver/releases/download/v1.2.3/packslip.sigstore.json", resolved.Source.Reference)
+	require.Equal(t, "https://dl.example/driver-linux.tar.gz", resolved.Artifacts[0].Location.Value)
+}
+
+func TestResolverRejectsVersionBearingTagWhenSignedVersionDiffers(t *testing.T) {
+	release := makeBundle(setSignerAndTag(t, validRelease("2.0.0"), testProject, "2.0.0", fakeSigner, "v1.2.3"))
+	_, resolver, fixture := newResolverTestServer(t, testProject, "v1.2.3", nil, release, "")
+
+	_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "driver", Version: "1.2.3",
+	})
+	require.ErrorContains(t, err, `GitHub release tag "v1.2.3" maps to 1.2.3 but signed packslip says 2.0.0`)
+	require.Equal(t, int32(1), fixture.bundleHits.Load())
+	require.Zero(t, fixture.archiveHits.Load())
+}
+
+func TestResolverDoesNotDiscoverArbitraryTagWithoutSignedList(t *testing.T) {
+	release := makeBundle(setSignerAndTag(t, validRelease("1.2.3"), testProject, "1.2.3", fakeSigner, "nightly"))
+	_, resolver, fixture := newResolverTestServer(t, testProject, "nightly", nil, release, "")
+
+	_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "driver", Version: "1.2.3",
+	})
+	require.ErrorIs(t, err, ErrReleaseNotFound)
+	require.Zero(t, fixture.bundleHits.Load(), "unmapped tags must not cause a candidate bundle fetch")
+	require.Zero(t, fixture.archiveHits.Load(), "resolution must not fall back to downloading an artifact")
+}
+
+func TestResolverUsesSignedListToMapArbitraryTagToExactVersion(t *testing.T) {
+	release := makeBundle(setSignerAndTag(t, validRelease("1.2.3"), testProject, "1.2.3", fakeSigner, "nightly"))
+	server, resolver, fixture := newResolverTestServer(t, testProject, "nightly", nil, release, "")
+	fixture.list = makeSignedList(t, testProject, 1, "2026-10-01T00:00:00Z", server.URL+"/assets/release.json", release, fakeSigner, "1.2.3", "nightly", "")
+
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
+		DriverID: "driver", Version: "1.2.3",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "1.2.3", resolved.Version)
+	require.Equal(t, resolution.SourceSpec{Type: "packslip", Reference: testProject}, resolved.Source)
+	require.Equal(t, "https://dl.example/driver-linux.tar.gz", resolved.Artifacts[0].Location.Value)
+	require.Equal(t, int32(1), fixture.bundleHits.Load(), "the signed list must authorize fetching the pinned release bundle")
 }
 
 func TestResolverDoesNotFallBackToGenericGitHubArchive(t *testing.T) {

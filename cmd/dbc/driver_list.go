@@ -45,6 +45,15 @@ func (m DriversList) validateSources() error {
 		if err := spec.Source.Validate(); err != nil {
 			return fmt.Errorf("driver %q source: %w", id, err)
 		}
+		if spec.Source.Type == dbc.DriverSourcePackslip {
+			if spec.Version == nil {
+				return fmt.Errorf("driver %q packslip source requires an exact SemVer 2.0.0 version", id)
+			}
+			versionText := spec.Version.String()
+			if _, err := semver.StrictNewVersion(versionText); err != nil {
+				return fmt.Errorf("driver %q packslip source requires an exact SemVer 2.0.0 version, got %q", id, versionText)
+			}
+		}
 	}
 	return nil
 }

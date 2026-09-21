@@ -94,7 +94,7 @@ func TestDriverSourceProjectConfigRoundTrip(t *testing.T) {
 		},
 		{
 			name: "packslip project",
-			toml: "[drivers.example]\n[drivers.example.source]\ntype = 'packslip'\nproject = 'owner/project'\n",
+			toml: "[drivers.example]\nversion = '1.2.3'\n[drivers.example.source]\ntype = 'packslip'\nproject = 'owner/project'\n",
 			want: dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "owner/project"},
 		},
 		{
@@ -149,6 +149,63 @@ func TestDriverSourceProjectConfigValidation(t *testing.T) {
 			}
 			require.ErrorContains(t, err, tt.wantErr)
 		})
+	}
+}
+
+func TestPackslipSourceRequiresExactStrictSemVer(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		wantErr bool
+	}{
+		{name: "exact release", version: "1.2.3"},
+		{name: "exact prerelease", version: "1.2.3-rc.1"},
+		{name: "exact build metadata", version: "1.2.3+build.5"},
+		{name: "exact prerelease and build metadata", version: "1.2.3-rc.1+build.5"},
+		{name: "explicit equality operator", version: "=1.2.3", wantErr: true},
+		{name: "range", version: ">=1.2.3", wantErr: true},
+		{name: "latest", version: "latest", wantErr: true},
+		{name: "v prefix", version: "v1.2.3", wantErr: true},
+		{name: "abbreviated version", version: "1.2", wantErr: true},
+		{name: "leading zero", version: "01.2.3", wantErr: true},
+		{name: "missing version", version: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			contents := "[drivers.example]\n"
+			if tt.version != "" {
+				contents += "version = '" + tt.version + "'\n"
+			}
+			contents += "[drivers.example.source]\ntype = 'packslip'\nproject = 'owner/project'\n"
+
+			var list DriversList
+			err := toml.Unmarshal([]byte(contents), &list)
+			if err == nil {
+				err = list.validateSources()
+			}
+			if tt.wantErr {
+				require.Error(t, err)
+				if list.Drivers["example"].Source != nil && list.Drivers["example"].Version != nil {
+					require.ErrorContains(t, err, "exact SemVer 2.0.0",
+						"a parsed constraint must retain enough spelling for strict validation")
+				}
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+
+	// Packslip's exact-version requirement must not tighten the legacy source
+	// behavior: registry constraints and unconstrained registry entries remain
+	// valid.
+	for _, contents := range []string{
+		"[drivers.example]\nversion = '>=1.2.3'\n",
+		"[drivers.example]\n",
+	} {
+		var list DriversList
+		require.NoError(t, toml.Unmarshal([]byte(contents), &list))
+		require.NoError(t, list.validateSources())
 	}
 }
 
