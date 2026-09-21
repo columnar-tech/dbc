@@ -134,18 +134,18 @@ func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
 }
 
 func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
-	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+	m := InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir(), suite.runCmd(m))
 
-	m = InstallCmd{Driver: "test-driver-1"}.
+	m = InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir,
+		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
-	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+	installed, err := config.GetDriver(config.Config{Level: suite.configLevel, Location: suite.Dir()}, "test-driver-1")
 	suite.Require().NoError(err)
 	libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
 	relLibrary, err := filepath.Rel(suite.Dir(), libraryPath)
@@ -153,7 +153,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 	relDir := filepath.ToSlash(filepath.Dir(relLibrary))
 	relLibrary = filepath.ToSlash(relLibrary)
 	suite.Equal([]string{filepath.ToSlash(filepath.Join(relDir, "dbc-install-receipt.json")),
-		relLibrary, relLibrary + ".sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+		relLibrary, relLibrary + ".sig", "test-driver-1.toml"}, suite.getFilesInDir(suite.Dir()))
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {

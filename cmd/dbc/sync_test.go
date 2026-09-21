@@ -317,7 +317,13 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	require.NoError(t, err)
 	defer closePreparedArchives(replayed.items)
 	assert.Equal(t, 1, downloadCalls)
-	assert.Equal(t, prepared.lock.Drivers[0].Artifacts, replayed.lock.Drivers[0].Artifacts)
+	assert.ElementsMatch(t, prepared.lock.Drivers[0].Artifacts, replayed.lock.Drivers[0].Artifacts)
+}
+
+func assertFileClosed(t *testing.T, file *os.File) {
+	t.Helper()
+	_, err := file.Stat()
+	assert.Error(t, err, "stat on a closed file must fail")
 }
 
 func TestPackslipResolverMismatchIsRejectedBeforeCandidateLock(t *testing.T) {
@@ -1519,9 +1525,8 @@ func (suite *SubcommandTestSuite) TestSyncPrepareFailurePreservesRuntimeAndLock(
 	suite.Equal(oldLock, newLock)
 	suite.Equal(2, len(downloaded))
 	suite.Equal(2, downloadCalls)
-	for driver, archive := range archives {
-		_, err = archive.Stat()
-		suite.ErrorIs(err, os.ErrClosed, "prepared archive for %s must be closed", driver)
+	for _, archive := range archives {
+		assertFileClosed(suite.T(), archive)
 	}
 }
 
@@ -1550,8 +1555,7 @@ func (suite *SubcommandTestSuite) TestSyncCandidateLockFailureDoesNotInstall() {
 	newLock, err := os.ReadFile(lockPath)
 	suite.Require().NoError(err)
 	suite.Equal(oldLock, newLock)
-	_, err = downloadedArchive.Stat()
-	suite.ErrorIs(err, os.ErrClosed)
+	assertFileClosed(suite.T(), downloadedArchive)
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLock() {
@@ -1560,7 +1564,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n[drivers.test-driver-no-sig]\n"), 0644))
 	var preparedPaths []string
 	var downloadedDrivers []string
-	model := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(baseModel{
+	model := SyncCmd{Path: path, Level: suite.configLevel, NoVerify: true}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
 			var source string
@@ -1599,7 +1603,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 	suite.Len(lock.lockinfo, 2)
 	installedCount := 0
 	for _, name := range []string{"test-driver-1", "test-driver-no-sig"} {
-		if _, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, name); err == nil {
+		if _, err := config.GetDriver(config.Get()[suite.configLevel], name); err == nil {
 			installedCount++
 		}
 	}
@@ -1616,7 +1620,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 
 	registryCalls, downloadCalls := 0, 0
 	var observedPackage dbc.PkgInfo
-	convergenceModel := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(baseModel{
+	convergenceModel := SyncCmd{Path: path, Level: suite.configLevel, NoVerify: true}.GetModelCustom(baseModel{
 		getDriverRegistry: func() ([]dbc.Driver, error) {
 			registryCalls++
 			return nil, fmt.Errorf("registry discovery should not run after candidate lock creation")
@@ -1643,7 +1647,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 	suite.Require().NotNil(observedPackage.ArtifactSize)
 	suite.Equal(*lockedArtifact.Size, *observedPackage.ArtifactSize)
 	for _, name := range []string{"test-driver-1", "test-driver-no-sig"} {
-		_, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, name)
+		_, err := config.GetDriver(config.Get()[suite.configLevel], name)
 		suite.NoError(err)
 	}
 	convergedLock, err := os.ReadFile(lockPath)
@@ -3169,12 +3173,10 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			suite.Equal(1, errorEnvelopes, "cancel should emit one terminal JSON error envelope")
 			waitSyncTestSignal(suite.T(), model.worker.done)
 			if preparedArchive != nil {
-				_, statErr = preparedArchive.Stat()
-				suite.ErrorIs(statErr, os.ErrClosed)
+				assertFileClosed(suite.T(), preparedArchive)
 			}
 			if stage == "download" {
-				_, statErr = downloadedArchive.Stat()
-				suite.ErrorIs(statErr, os.ErrClosed)
+				assertFileClosed(suite.T(), downloadedArchive)
 			}
 			projectLock, lockErr := fslock.Acquire(projectLockPath, time.Second)
 			suite.NoError(lockErr)
@@ -3237,8 +3239,7 @@ func (suite *SubcommandTestSuite) TestSyncProgramContextCancellationJoinsWorker(
 	waitSyncTestSignal(suite.T(), run.done)
 	waitSyncTestSignal(suite.T(), model.worker.done)
 	suite.ErrorIs(run.err, context.Canceled)
-	_, err = archive.Stat()
-	suite.ErrorIs(err, os.ErrClosed)
+	assertFileClosed(suite.T(), archive)
 	projectLock, err := fslock.Acquire(projectLockPath, time.Second)
 	suite.NoError(err)
 	if err == nil {

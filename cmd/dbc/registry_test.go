@@ -50,12 +50,14 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 	var err error
 	m, err = p.Run()
 	s.Require().NoError(err)
-	s.Equal(0, m.(HasStatus).Status(), "exited with a non-zero status")
 
 	var extra string
 	if fo, ok := m.(HasFinalOutput); ok {
 		extra = fo.FinalOutput()
 	}
+	status := m.(HasStatus)
+	s.Equal(0, status.Status(), "exited with a non-zero status: error=%v, final output=%q, captured output=%q",
+		status.Err(), extra, out.String())
 	return out.String() + extra
 }
 
@@ -111,7 +113,7 @@ func (s *RegistryTestSuite) assertRegisteredPackagePath() {
 }
 
 func (s *RegistryTestSuite) TestInstallDriver() {
-	m := InstallCmd{Driver: "test-driver-1"}.
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(testBaseModel())
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
@@ -130,7 +132,7 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 
 func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	// First install the driver normally.
-	m := InstallCmd{Driver: "test-driver-1"}.
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(testBaseModel())
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
@@ -138,7 +140,7 @@ func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	s.clearRegistry()
 
 	// Now reinstall the driver, which should succeed even though the registry key is missing.
-	m = InstallCmd{Driver: "test-driver-1"}.
+	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(testBaseModel())
 	out = s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
