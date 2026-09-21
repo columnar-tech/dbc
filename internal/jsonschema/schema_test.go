@@ -16,6 +16,7 @@ package jsonschema_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -86,6 +87,7 @@ func TestInstallStatus(t *testing.T) {
 				Message:  "post-install note",
 				Conflict: "snowflake (version: 1.0.0)",
 				Checksum: "abc123",
+				Source:   &jsonschema.InstallSource{Type: "packslip", Reference: "github.com/example/driver"},
 			},
 		},
 		{
@@ -110,7 +112,7 @@ func TestInstallStatus(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := roundTrip(t, tc.in)
-			if got != tc.in {
+			if !reflect.DeepEqual(got, tc.in) {
 				t.Errorf("round-trip mismatch:\n want %+v\n  got %+v", tc.in, got)
 			}
 		})
@@ -122,7 +124,7 @@ func TestInstallStatus_OmitemptyAbsent(t *testing.T) {
 	b, _ := json.Marshal(v)
 	var m map[string]interface{}
 	_ = json.Unmarshal(b, &m)
-	for _, key := range []string{"message", "conflict", "checksum"} {
+	for _, key := range []string{"message", "conflict", "checksum", "source"} {
 		if _, ok := m[key]; ok {
 			t.Errorf("omitempty field %q should be absent", key)
 		}

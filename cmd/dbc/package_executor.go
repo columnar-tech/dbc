@@ -235,8 +235,12 @@ func (e *packageExecutor) openRegistryArtifact(ctx context.Context, item install
 	if err != nil {
 		return nil, fmt.Errorf("invalid resolved package version %q: %w", item.Release.Version, err)
 	}
+	registryURL, err := url.Parse(item.Release.Source.Reference)
+	if err != nil || registryURL.Host == "" {
+		return nil, fmt.Errorf("invalid resolved registry identity %q", item.Release.Source.Reference)
+	}
 	pkg := dbc.PkgInfo{
-		Driver:        dbc.Driver{Path: item.Release.DriverID, Title: item.Release.DriverID},
+		Driver:        dbc.Driver{Path: item.Release.DriverID, Title: item.Release.DriverID, Registry: &dbc.Registry{BaseURL: registryURL}},
 		Version:       version,
 		PlatformTuple: item.Platform,
 		Path:          artifactURL,

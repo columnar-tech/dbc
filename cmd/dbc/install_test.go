@@ -18,10 +18,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -29,11 +32,53 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/columnar-tech/dbc/internal/packslip"
+	"github.com/columnar-tech/dbc/internal/resolution"
 )
+
+type installPackslipResolverStub struct {
+	release resolution.ResolvedRelease
+	calls   int
+	project string
+	request packslip.Request
+}
+
+func (stub *installPackslipResolverStub) Resolve(_ context.Context, source packslip.PackslipSource, request packslip.Request) (resolution.ResolvedRelease, error) {
+	stub.calls++
+	stub.project = source.Project
+	stub.request = request
+	return cloneResolvedReleaseForSync(stub.release), nil
+}
+
+func packslipInstallRelease(t *testing.T, id, version, artifactURL string, archive []byte) resolution.ResolvedRelease {
+	t.Helper()
+	target, err := resolution.TargetFromPlatformTuple(config.PlatformTuple())
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(archive)
+	size := int64(len(archive))
+	return resolution.ResolvedRelease{
+		DriverID: id,
+		Version:  version,
+		Source:   resolution.SourceSpec{Type: "packslip", Reference: "github.com/example/repo"},
+		Evidence: []resolution.Evidence{{
+			Kind: resolution.EvidenceKindReleaseMetadata,
+			Location: resolution.ArtifactLocation{
+				Kind: resolution.ArtifactLocationURL, Value: "https://github.com/example/repo/releases/download/v1.2.3/packslip.sigstore.json",
+			},
+			Hash: "sha256:" + strings.Repeat("a", 64),
+		}},
+		Artifacts: []resolution.Artifact{{
+			Target: target, Format: "tgz", PackageVersion: 2,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
+			Hash:     "sha256:" + hex.EncodeToString(digest[:]), Size: &size,
+		}},
+	}
+}
 
 func (suite *SubcommandTestSuite) TestInstall() {
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
@@ -374,6 +419,259 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageFixUpName() {
 	suite.driverIsInstalled("test-driver-1", true)
 }
 
+func (suite *SubcommandTestSuite) TestInstallPackslipDirectUsesSignedIDWithoutRegistryLookup() {
+	archive := packageV2ArchiveForInstall(suite.T(), "signed-driver-id", "1.2.3", config.PlatformTuple())
+	artifactURL := "https://assets.example.test/releases/package.tgz?sig=preserve-me"
+	resolver := &installPackslipResolverStub{release: packslipInstallRelease(suite.T(), "signed-driver-id", "1.2.3", artifactURL, archive)}
+	base := testBaseModel()
+	registryCalls, artifactCalls := 0, 0
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		registryCalls++
+		return nil, errors.New("registry lookup must not be used for Packslip")
+	}
+	base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
+	base.fetchPackslipArtifact = func(_ context.Context, resolvedURL *url.URL) (io.ReadCloser, error) {
+		artifactCalls++
+		suite.Equal("sig=preserve-me", resolvedURL.RawQuery)
+		return io.NopCloser(bytes.NewReader(archive)), nil
+	}
+	projectDir := suite.T().TempDir()
+	originalDir, err := os.Getwd()
+	suite.Require().NoError(err)
+	suite.Require().NoError(os.Chdir(projectDir))
+	suite.T().Cleanup(func() { suite.Require().NoError(os.Chdir(originalDir)) })
+
+	model := InstallCmd{Driver: "github.com/example/repo=1.2.3", Level: suite.configLevel, Json: true}.
+		GetModelCustom(base)
+	out := suite.runCmd(model)
+	suite.Equal(0, registryCalls)
+	suite.Equal(1, resolver.calls)
+	suite.Equal("github.com/example/repo", resolver.project)
+	suite.Empty(resolver.request.DriverID, "direct install must adopt the signed driver ID")
+	suite.Equal("1.2.3", resolver.request.Version)
+	suite.Equal(1, artifactCalls)
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var envelope jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lines[len(lines)-1]), &envelope))
+	suite.Equal("install.status", envelope.Kind)
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(envelope.Payload, &status))
+	suite.Equal("signed-driver-id", status.Driver)
+	suite.Equal("1.2.3", status.Version)
+	suite.Equal(&jsonschema.InstallSource{Type: "packslip", Reference: "github.com/example/repo"}, status.Source)
+	suite.driverIsInstalled("signed-driver-id", true)
+	for _, path := range []string{"dbc.toml", "dbc.lock", ".dbc.project.lock"} {
+		_, statErr := os.Stat(filepath.Join(projectDir, path))
+		suite.True(os.IsNotExist(statErr), "%s should not be created by direct install", path)
+	}
+}
+
+func (suite *SubcommandTestSuite) TestInstallPackslipDirectFailsClosedBeforeRuntimeMutation() {
+	tests := []struct {
+		name          string
+		packageID     string
+		badHash       bool
+		hostReq       bool
+		wantError     string
+		wantFetchCall int
+	}{
+		{name: "package ID mismatch", packageID: "different-id", wantError: "package id mismatch", wantFetchCall: 1},
+		{name: "signed archive hash mismatch despite skip flags", packageID: "bad-hash-id", badHash: true, wantError: "does not match expected hash", wantFetchCall: 1},
+		{name: "unsupported host requirements", packageID: "host-req-id", hostReq: true, wantError: "unsupported host requirements", wantFetchCall: 0},
+	}
+	for _, tc := range tests {
+		suite.Run(tc.name, func() {
+			archiveID := tc.packageID
+			if tc.name == "package ID mismatch" {
+				archiveID = "archive-id"
+			}
+			archive := packageV2ArchiveForInstall(suite.T(), archiveID, "1.2.3", config.PlatformTuple())
+			artifactURL := "https://assets.example.test/releases/" + tc.packageID + ".tgz"
+			resolver := &installPackslipResolverStub{release: packslipInstallRelease(suite.T(), tc.packageID, "1.2.3", artifactURL, archive)}
+			if tc.badHash {
+				resolver.release.Artifacts[0].Hash = "sha256:" + strings.Repeat("0", 64)
+			}
+			if tc.hostReq {
+				resolver.release.Artifacts[0].HostRequirements.OSMin = "99"
+			}
+			base := testBaseModel()
+			registryCalls, fetchCalls := 0, 0
+			base.getDriverRegistry = func() ([]dbc.Driver, error) {
+				registryCalls++
+				return nil, errors.New("registry lookup must not be used")
+			}
+			base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
+			base.fetchPackslipArtifact = func(context.Context, *url.URL) (io.ReadCloser, error) {
+				fetchCalls++
+				return io.NopCloser(bytes.NewReader(archive)), nil
+			}
+			command := InstallCmd{
+				Driver: "github.com/example/repo=1.2.3", Level: suite.configLevel,
+				NoVerify: true, InsecureNoChecksum: true,
+			}.GetModelCustom(base)
+			out := suite.runCmdErr(command)
+			suite.Contains(out, tc.wantError)
+			suite.Equal(0, registryCalls)
+			suite.Equal(tc.wantFetchCall, fetchCalls)
+			_, err := config.GetDriver(config.Config{Level: suite.configLevel, Location: suite.Dir()}, tc.packageID)
+			suite.Error(err, "failed Packslip proof must not create a runtime registration")
+		})
+	}
+}
+
+func (suite *SubcommandTestSuite) TestInstallPackslipRejectsInvalidInputsAndPreBeforeResolver() {
+	for _, input := range []string{
+		"github.com/example/repo>=1.2.3",
+		"github.com/example/repo=latest",
+		"github.com/example/repo=v1.2.3",
+		"https://github.com/example/repo/releases/download/v1.2.3/package.tgz",
+	} {
+		suite.Run(input, func() {
+			resolverCalls, registryCalls := 0, 0
+			base := testBaseModel()
+			base.newPackslipResolver = func() (packslip.Resolver, error) {
+				resolverCalls++
+				return nil, errors.New("resolver must not be created")
+			}
+			base.getDriverRegistry = func() ([]dbc.Driver, error) {
+				registryCalls++
+				return nil, errors.New("registry must not be queried")
+			}
+			out := suite.runCmdErr(InstallCmd{Driver: input, Level: suite.configLevel}.GetModelCustom(base))
+			suite.Contains(out, "Packslip")
+			suite.Zero(resolverCalls)
+			suite.Zero(registryCalls)
+		})
+	}
+	resolverCalls, registryCalls := 0, 0
+	base := testBaseModel()
+	base.newPackslipResolver = func() (packslip.Resolver, error) {
+		resolverCalls++
+		return nil, errors.New("resolver must not be created")
+	}
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		registryCalls++
+		return nil, errors.New("registry must not be queried")
+	}
+	out := suite.runCmdErr(InstallCmd{Driver: "github.com/example/repo=1.2.3", Level: suite.configLevel, Pre: true}.GetModelCustom(base))
+	suite.Contains(out, "--pre does not apply")
+	suite.Zero(resolverCalls)
+	suite.Zero(registryCalls)
+}
+
+func (suite *SubcommandTestSuite) TestInstallLocalPackageV2UsesMetadataIDAndDoesNotReadProjectFiles() {
+	archive := packageV2ArchiveForInstall(suite.T(), "declared-driver-id", "1.2.3", config.PlatformTuple())
+	projectDir := suite.T().TempDir()
+	originalDir, err := os.Getwd()
+	suite.Require().NoError(err)
+	suite.Require().NoError(os.Chdir(projectDir))
+	suite.T().Cleanup(func() { suite.Require().NoError(os.Chdir(originalDir)) })
+	suite.Require().NoError(os.WriteFile("misleading-name.tgz", archive, 0o600))
+	registryCalls := 0
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		registryCalls++
+		return nil, errors.New("registry lookup must not be used for a local package")
+	}
+	out := suite.runCmd(InstallCmd{Driver: "misleading-name.tgz", Level: suite.configLevel, Json: true}.GetModelCustom(base))
+	suite.Equal(0, registryCalls)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var envelope jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lines[len(lines)-1]), &envelope))
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(envelope.Payload, &status))
+	suite.Equal("declared-driver-id", status.Driver)
+	suite.Equal(&jsonschema.InstallSource{Type: "path", Reference: "misleading-name.tgz"}, status.Source)
+	suite.driverIsInstalled("declared-driver-id", true)
+	for _, path := range []string{"dbc.toml", "dbc.lock", ".dbc.project.lock"} {
+		_, statErr := os.Stat(filepath.Join(projectDir, path))
+		suite.True(os.IsNotExist(statErr), "%s should not be created by direct install", path)
+	}
+}
+
+func TestParsePackslipInstallArgumentUsesCanonicalExactVersion(t *testing.T) {
+	project, version, matched, err := parsePackslipInstallArgument("github.com/owner/repo/tool=1.2.3-rc.1+build.5")
+	if err != nil || !matched || project != "github.com/owner/repo/tool" || version != "1.2.3-rc.1+build.5" {
+		t.Fatalf("valid Packslip direct argument parsed as %q, %q, %v, %v", project, version, matched, err)
+	}
+	for _, input := range []string{
+		"github.com/owner/repo>=1.2.3",
+		"github.com/owner/repo=1.2",
+		"github.com/owner/repo=01.2.3",
+		"github.com/owner/repo=v1.2.3",
+		"github.com/owner/repo=latest",
+	} {
+		_, _, matched, err := parsePackslipInstallArgument(input)
+		if !matched || err == nil {
+			t.Errorf("invalid Packslip direct argument %q was not rejected before registry fallback", input)
+		}
+	}
+	if _, _, matched, err := parsePackslipInstallArgument("owner/repo=1.2.3"); matched || err != nil {
+		t.Fatalf("short owner/repo syntax should not be interpreted as Packslip: matched=%v err=%v", matched, err)
+	}
+}
+
+func TestDirectLocalPackageRejectsReplacementAfterResolution(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "driver.tgz")
+	first := packageV2ArchiveForInstall(t, "local-driver", "1.2.3", config.PlatformTuple())
+	if err := os.WriteFile(path, first, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model := progressiveInstallModel{
+		isLocal:          true,
+		localPackagePath: path,
+		NoVerify:         true,
+		cfg:              config.Config{Level: config.ConfigEnv, Location: filepath.Join(root, "install")},
+	}
+	item, err := model.resolveDirectInstall(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = makeSyncPackageV2Archive(t, path, "local-driver", "1.2.3", config.PlatformTuple())
+	executor, err := model.newDirectInstallExecutor(item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.prepareItem(context.Background(), &item); err == nil || !strings.Contains(err.Error(), "does not match expected hash") {
+		t.Fatalf("replacement archive error = %v, want expected-hash mismatch", err)
+	}
+	if item.Archive != nil {
+		if err := item.Archive.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: filepath.Join(root, "install")}, "local-driver"); err == nil {
+		t.Fatal("replacement archive should not mutate the runtime installation")
+	}
+}
+
+func TestInstallConfigForEnsurePreservesPrimaryWithMissingSecondary(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "primary")
+	secondary := filepath.Join(root, "secondary")
+	missing := filepath.Join(root, "missing")
+	if err := os.MkdirAll(secondary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := installConfigForEnsure(config.Config{
+		Level:    config.ConfigEnv,
+		Location: strings.Join([]string{primary, secondary, missing}, string(filepath.ListSeparator)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join([]string{primary, secondary}, string(filepath.ListSeparator))
+	if cfg.Location != want {
+		t.Fatalf("ensure install roots = %q, want %q", cfg.Location, want)
+	}
+	if info, err := os.Stat(primary); err != nil || !info.IsDir() {
+		t.Fatalf("primary install root was not created: info=%v err=%v", info, err)
+	}
+}
+
 func (suite *SubcommandTestSuite) TestInstallWithPreOnlyPrereleaseDriver() {
 	// Install test-driver-only-pre with --pre flag, should succeed
 	m := InstallCmd{Driver: "test-driver-only-pre", Level: suite.configLevel, Pre: true}.
@@ -561,198 +859,6 @@ func openInstallArchive(t *testing.T, data []byte) *os.File {
 	return f
 }
 
-func TestInstallSignatureFailurePreservesExistingInstallation(t *testing.T) {
-	oldArchive, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldExpected := config.ExpectedPackageMetadata{
-		ID: "test-driver-1", Version: "1.0.0", Platform: config.PlatformTuple(),
-		SourceType: "registry", SourceIdentity: testRegistry.BaseURL.String(),
-	}
-	root := t.TempDir()
-	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-	oldManifest, err := config.InstallPackage(cfg, "test-driver-1", openInstallArchive(t, oldArchive), oldExpected, config.InstallOptions{
-		Verify: func(stagingDir string, manifest config.Manifest) error {
-			return dbc.VerifyPackageSignature(stagingDir, manifest)
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldManifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldLibraryPath := oldManifest.Driver.Shared.Get(config.PlatformTuple())
-	oldLibraryBytes, err := os.ReadFile(oldLibraryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	badArchive, err := os.ReadFile(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	model := progressiveInstallModel{
-		Driver: "test-driver-1",
-		cfg:    cfg,
-		DriverPackage: dbc.PkgInfo{
-			Driver:        dbc.Driver{Path: "test-driver-1", Registry: &testRegistry},
-			Version:       semver.MustParse("1.1.0"),
-			PlatformTuple: config.PlatformTuple(),
-		},
-	}
-	_, install := model.startInstalling(openInstallArchive(t, badArchive))
-	message := install()
-	verificationFailure, ok := message.(installVerificationFailedMsg)
-	if !ok {
-		t.Fatalf("startInstalling returned %T, want installVerificationFailedMsg", message)
-	}
-	installErr := verificationFailure.err
-	if !strings.Contains(installErr.Error(), "signature file 'test-driver-1-not-valid.so.sig' for driver is missing") {
-		t.Fatalf("unexpected install error: %v", installErr)
-	}
-	manifestBytes, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(oldManifestBytes, manifestBytes) {
-		t.Fatal("runtime manifest changed after signature failure")
-	}
-	libraryBytes, err := os.ReadFile(oldLibraryPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(oldLibraryBytes, libraryBytes) {
-		t.Fatal("installed library changed after signature failure")
-	}
-}
-
-func TestStartInstallingRegistryPackageV2RequiresAndUsesMetadata(t *testing.T) {
-	archive := packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())
-	digest := sha256.Sum256(archive)
-	size := int64(len(archive))
-	baseURL, err := url.Parse("https://registry.example.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	root := t.TempDir()
-	model := progressiveInstallModel{
-		Driver: "example",
-		cfg:    config.Config{Level: config.ConfigEnv, Location: root},
-		DriverPackage: dbc.PkgInfo{
-			Driver:        dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: baseURL}},
-			Version:       semver.MustParse("1.2.3"),
-			PlatformTuple: config.PlatformTuple(),
-			ArtifactHash:  "sha256:" + hex.EncodeToString(digest[:]),
-			ArtifactSize:  &size,
-		},
-	}
-	_, install := model.startInstalling(openInstallArchive(t, archive))
-	message := install()
-	manifest, ok := message.(config.Manifest)
-	if !ok {
-		t.Fatalf("startInstalling returned %T, want config.Manifest", message)
-	}
-	if manifest.PackageVersion != 2 {
-		t.Fatalf("package marker = %d, want 2", manifest.PackageVersion)
-	}
-	if err := dbc.VerifyPackageSignature("", manifest); err != nil {
-		t.Fatalf("package v2 must not require legacy PGP signature: %v", err)
-	}
-	var receipt config.InstallReceipt
-	receiptData, err := os.ReadFile(filepath.Join(filepath.Dir(manifest.Driver.Shared.Get(config.PlatformTuple())), "dbc-install-receipt.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(receiptData, &receipt); err != nil {
-		t.Fatal(err)
-	}
-	if receipt.SourceType != "registry" || receipt.SourceIdentity != baseURL.String() {
-		t.Fatalf("receipt source = %q %q, want registry %q", receipt.SourceType, receipt.SourceIdentity, baseURL)
-	}
-	if receipt.ArchiveHash != "sha256:"+hex.EncodeToString(digest[:]) || receipt.ArchiveSize != size {
-		t.Fatalf("receipt archive metadata = %q/%d, want %q/%d", receipt.ArchiveHash, receipt.ArchiveSize, "sha256:"+hex.EncodeToString(digest[:]), size)
-	}
-}
-
-func TestStartInstallingRegistryV2WithoutArchiveMetadataIsRejected(t *testing.T) {
-	archive := packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())
-	root := t.TempDir()
-	model := progressiveInstallModel{
-		Driver: "example",
-		cfg:    config.Config{Level: config.ConfigEnv, Location: root},
-		DriverPackage: dbc.PkgInfo{
-			Driver:        dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: must(url.Parse("https://registry.example.test"))}},
-			Version:       semver.MustParse("1.2.3"),
-			PlatformTuple: config.PlatformTuple(),
-		},
-	}
-	_, install := model.startInstalling(openInstallArchive(t, archive))
-	message := install()
-	installErr, ok := message.(error)
-	if !ok || !strings.Contains(installErr.Error(), "requires archive hash and size metadata") {
-		t.Fatalf("startInstalling returned %v, want missing metadata error", message)
-	}
-	if _, err := os.Stat(filepath.Join(root, "example.toml")); !os.IsNotExist(err) {
-		t.Fatalf("runtime manifest was published despite missing registry metadata: %v", err)
-	}
-}
-
-func TestStartInstallingLocalV2UsesPackageMetadataID(t *testing.T) {
-	archive := packageV2ArchiveForInstall(t, "declared-driver", "1.2.3", config.PlatformTuple())
-	root := t.TempDir()
-	packagePath := filepath.Join(root, "filename-driver.tar.gz")
-	if err := os.WriteFile(packagePath, archive, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	downloaded, err := os.Open(packagePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	model := progressiveInstallModel{
-		Driver:           packagePath,
-		isLocal:          true,
-		localPackagePath: packagePath,
-		cfg:              config.Config{Level: config.ConfigEnv, Location: root},
-	}
-	_, install := model.startInstalling(downloaded)
-	message := install()
-	manifest, ok := message.(config.Manifest)
-	if !ok {
-		t.Fatalf("startInstalling returned %T, want config.Manifest", message)
-	}
-	if manifest.ID != "declared-driver" {
-		t.Fatalf("installed runtime ID = %q, want package metadata ID", manifest.ID)
-	}
-	if _, err := os.Stat(filepath.Join(root, "declared-driver.toml")); err != nil {
-		t.Fatalf("runtime manifest for package metadata ID was not registered: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "filename-driver.toml")); !os.IsNotExist(err) {
-		t.Fatalf("filename-derived runtime manifest was unexpectedly registered: %v", err)
-	}
-}
-
-func TestStartInstallingRejectsPartialRegistryArchiveMetadata(t *testing.T) {
-	model := progressiveInstallModel{
-		Driver: "example",
-		DriverPackage: dbc.PkgInfo{
-			Driver:        dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: must(url.Parse("https://registry.example.test"))}},
-			Version:       semver.MustParse("1.2.3"),
-			PlatformTuple: config.PlatformTuple(),
-			ArtifactHash:  "sha256:" + strings.Repeat("0", 64),
-		},
-		cfg: config.Config{Level: config.ConfigEnv, Location: t.TempDir()},
-	}
-	_, install := model.startInstalling(openInstallArchive(t, packageV2ArchiveForInstall(t, "example", "1.2.3", config.PlatformTuple())))
-	message := install()
-	installErr, ok := message.(error)
-	if !ok || !strings.Contains(installErr.Error(), "must include both archive hash and size") {
-		t.Fatalf("startInstalling returned %v, want partial metadata error", message)
-	}
-}
-
 func (suite *SubcommandTestSuite) TestInstallJSON() {
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
@@ -773,6 +879,7 @@ func (suite *SubcommandTestSuite) TestInstallJSON() {
 	suite.Equal("test-driver-1", status.Driver)
 	suite.NotEmpty(status.Version)
 	suite.NotEmpty(status.Location)
+	suite.Equal(&jsonschema.InstallSource{Type: "registry", Reference: testRegistry.BaseURL.String()}, status.Source)
 }
 
 func (suite *SubcommandTestSuite) TestInstall_ChecksumInStatus() {
@@ -848,17 +955,15 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	suite.True(hasDownloadStart, "expected download.start event")
 }
 
-// TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the
-// fix that gates FinalOutput() on m.status. When the driver binary is missing
-// the checksum computation fails, the model exits with status 1, and
-// FinalOutput() must not emit an install.status success envelope.
-func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailure() {
+// TestInstallJSON_AlreadyInstalledLibraryTamperingIsRepaired verifies that
+// receipt/library integrity changes force repair instead of version-only skip.
+func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledLibraryTamperingIsRepaired() {
 	// First install the driver normally.
 	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	suite.runCmd(m)
 
-	// Locate and delete the shared library so checksum() will fail.
+	// Locate and delete the shared library to simulate runtime tampering.
 	cfg := config.Get()[suite.configLevel]
 	driver, err := config.GetDriver(cfg, "test-driver-1")
 	suite.Require().NoError(err)
@@ -866,33 +971,19 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	suite.Require().NotEmpty(sharedPath, "shared library path should not be empty")
 	suite.Require().NoError(os.Remove(sharedPath))
 
-	// Reinstall with --json. The already-installed path fires, but checksum
-	// fails because the file is gone. runCmdErr now appends FinalOutput() so
-	// the JSON error envelope is captured through the shared harness path,
-	// matching how main.go emits it.
+	// Reinstall with --json. The package executor must notice that the current
+	// library no longer matches its receipt and repair it from the registry.
 	m2 := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Json: true}.
 		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
-	out := suite.runCmdErr(m2)
-
-	// The combined output must contain the structured error envelope.
-	suite.NotEmpty(out, "expected error output from install JSON error path")
-	suite.NotContains(out, `"install.status"`, "must not emit success envelope when checksum fails")
-
-	// Decode the envelope and assert the correct kind and code.
-	// runCmdErr appends FinalOutput(), so the last non-empty line is the JSON.
+	out := suite.runCmd(m2)
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	var jsonLine string
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(strings.TrimSpace(lines[i]), "{") {
-			jsonLine = strings.TrimSpace(lines[i])
-			break
-		}
-	}
-	suite.NotEmpty(jsonLine, "expected a JSON line in output: %s", out)
-	var errEnv jsonschema.Envelope
-	suite.Require().NoError(json.Unmarshal([]byte(jsonLine), &errEnv), "must be valid JSON: %s", jsonLine)
-	suite.Equal("error", errEnv.Kind, "expected kind=error")
-	var errPayload jsonschema.ErrorResponse
-	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
-	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(lines[len(lines)-1]), &env))
+	suite.Equal("install.status", env.Kind)
+	var status jsonschema.InstallStatus
+	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
+	suite.Equal("installed", status.Status)
+	repaired, err := config.GetDriver(config.Get()[suite.configLevel], "test-driver-1")
+	suite.Require().NoError(err)
+	suite.FileExists(repaired.Driver.Shared.Get(config.PlatformTuple()))
 }

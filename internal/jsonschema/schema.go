@@ -57,6 +57,14 @@ type InstallStatus struct {
 	Conflict string `json:"conflict,omitempty"`
 	// Checksum is the hex-encoded checksum of the installed artifact (added for T7).
 	Checksum string `json:"checksum,omitempty"`
+	// Source identifies the resolved release source when available.
+	Source *InstallSource `json:"source,omitempty"`
+}
+
+// InstallSource is the source provenance of a resolved package release.
+type InstallSource struct {
+	Type      string `json:"type"`
+	Reference string `json:"reference"`
 }
 
 // InstallProgressEvent is a single line in the NDJSON progress stream emitted
