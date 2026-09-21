@@ -2549,6 +2549,126 @@ func (suite *SubcommandTestSuite) TestSyncPathInstallFailureConvergesFromCandida
 	suite.Equal("1.0.0", installed.Version.String())
 }
 
+func (suite *SubcommandTestSuite) TestSyncPathReplayUsesReceiptBeforeOpeningChangedArchive() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	projectPath := filepath.Join(root, "dbc.toml")
+	lockPath := filepath.Join(root, "dbc.lock")
+	archivePath := filepath.Join(root, "packages", "driver.tar.gz")
+	declaredPath := "./packages/driver.tar.gz"
+	suite.Require().NoError(os.MkdirAll(filepath.Dir(archivePath), 0o700))
+	makeSyncPackageV2Archive(suite.T(), archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	suite.Require().NoError(os.WriteFile(projectPath, []byte("[drivers.test-driver-1.source]\ntype = 'path'\npath = '"+declaredPath+"'\n"), 0o600))
+
+	registryCalls := 0
+	newModel := func() syncModel {
+		return SyncCmd{Path: projectPath, NoVerify: true}.GetModelCustom(baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				registryCalls++
+				return nil, errors.New("path lock replay must not discover registries")
+			},
+		}).(syncModel)
+	}
+	suite.runCmd(newModel())
+	suite.Zero(registryCalls)
+	lockBeforeReplay, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	locked, err := loadLockFile(lockPath)
+	suite.Require().NoError(err)
+	entry := locked.lockinfo["test-driver-1"]
+	suite.Equal("path", entry.Source.Type)
+	suite.Equal(declaredPath, entry.Source.Path)
+	suite.Equal("1.2.3", entry.Version.String())
+	suite.Require().Len(entry.Artifacts, 1)
+	suite.Equal(declaredPath, entry.Artifacts[0].Location.Value)
+
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	installed, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
+	registrationPath := filepath.Join(root, "test-driver-1.toml")
+	receiptPath := filepath.Join(filepath.Dir(libraryPath), "dbc-install-receipt.json")
+	registrationBefore, err := os.ReadFile(registrationPath)
+	suite.Require().NoError(err)
+	receiptBefore, err := os.ReadFile(receiptPath)
+	suite.Require().NoError(err)
+	libraryBefore, err := os.ReadFile(libraryPath)
+	suite.Require().NoError(err)
+
+	// A healthy receipt and matching runtime registration allow exact lock replay
+	// to skip without opening the path artifact, even if it has since changed.
+	suite.Require().NoError(os.WriteFile(archivePath, []byte("changed archive bytes"), 0o600))
+	second := newModel()
+	second.worker.hooks.duringPrepare = func(_ context.Context, _ int, item installItem) error {
+		if item.AlreadyInstalled == nil {
+			return errors.New("valid path receipt should mark the locked package as already installed")
+		}
+		if item.Archive != nil {
+			return errors.New("path artifact was opened despite a valid locked receipt")
+		}
+		return nil
+	}
+	ensureCalls := 0
+	second.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		ensureCalls++
+		result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+		if err == nil && !result.Skipped {
+			return result, errors.New("healthy path receipt should skip package installation")
+		}
+		return result, err
+	}
+	suite.runCmd(second)
+	suite.Equal(1, ensureCalls)
+	suite.Zero(registryCalls)
+	lockAfterReplay, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal(lockBeforeReplay, lockAfterReplay)
+	registrationAfter, err := os.ReadFile(registrationPath)
+	suite.Require().NoError(err)
+	receiptAfter, err := os.ReadFile(receiptPath)
+	suite.Require().NoError(err)
+	libraryAfter, err := os.ReadFile(libraryPath)
+	suite.Require().NoError(err)
+	suite.Equal(registrationBefore, registrationAfter)
+	suite.Equal(receiptBefore, receiptAfter)
+	suite.Equal(libraryBefore, libraryAfter)
+
+	// If repair is needed, the changed path must be reopened and the locked hash
+	// mismatch must fail before either runtime state or lock state is published.
+	var receipt config.InstallReceipt
+	suite.Require().NoError(json.Unmarshal(receiptAfter, &receipt))
+	receipt.SourceIdentity = "./packages/changed-driver.tar.gz"
+	writeSyncReceipt(suite.T(), receiptPath, receipt)
+	registrationBefore, err = os.ReadFile(registrationPath)
+	suite.Require().NoError(err)
+	receiptBefore, err = os.ReadFile(receiptPath)
+	suite.Require().NoError(err)
+	libraryBefore, err = os.ReadFile(libraryPath)
+	suite.Require().NoError(err)
+
+	third := newModel()
+	ensureCalls = 0
+	third.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		ensureCalls++
+		return config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+	}
+	suite.Contains(suite.runCmdErr(third), "does not match expected hash")
+	suite.Equal(0, ensureCalls, "archive validation must fail before installation")
+	suite.Zero(registryCalls)
+	lockAfterFailure, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal(lockBeforeReplay, lockAfterFailure)
+	registrationAfter, err = os.ReadFile(registrationPath)
+	suite.Require().NoError(err)
+	receiptAfterFailure, err := os.ReadFile(receiptPath)
+	suite.Require().NoError(err)
+	libraryAfter, err = os.ReadFile(libraryPath)
+	suite.Require().NoError(err)
+	suite.Equal(registrationBefore, registrationAfter)
+	suite.Equal(receiptBefore, receiptAfterFailure)
+	suite.Equal(libraryBefore, libraryAfter)
+}
+
 func (suite *SubcommandTestSuite) TestSyncReceiptRepairUsesSelectedMultiPathRegistrationRoot() {
 	tests := []struct {
 		name   string
