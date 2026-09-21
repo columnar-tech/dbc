@@ -850,6 +850,7 @@ func openInstallArchive(t *testing.T, data []byte) *os.File {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = f.Close() })
 	if _, err := f.Write(data); err != nil {
 		t.Fatal(err)
 	}

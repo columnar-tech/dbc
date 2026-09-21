@@ -140,6 +140,7 @@ func TestRemoveManifestSymlinkOnlyRemovesTargetRegistration(t *testing.T) {
 
 func TestManifestSymlinkHandlesRelativeNestedLocations(t *testing.T) {
 	root := t.TempDir()
+	t.Chdir(root)
 	location := filepath.Join(root, "nested", "registered")
 	parent := filepath.Dir(location)
 	manifest := filepath.Join(location, "example.toml")
@@ -195,6 +196,7 @@ func TestRemoveManifestSymlinkDoesNotResolveForeignTargetFromWorkingDirectory(t 
 	manifest := filepath.Join(location, "example.toml")
 	parent := filepath.Dir(location)
 	require.NoError(t, os.MkdirAll(location, 0755))
+	t.Chdir(root)
 	require.NoError(t, os.WriteFile(manifest, []byte("registered"), 0644))
 
 	workingDirectory, err := os.Getwd()

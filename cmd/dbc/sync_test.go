@@ -102,7 +102,7 @@ driver = "driver.so"
 
 func makeSyncPackslipRelease(id, version, url, hash string, size int64) resolution.ResolvedRelease {
 	primary := testTarget(config.PlatformTuple())
-	secondary := resolution.Target{OS: "macos", Arch: "arm64"}
+	secondary := testTarget(differentTestPlatformTuple(config.PlatformTuple()))
 	otherSize := int64(9)
 	return resolution.ResolvedRelease{
 		DriverID: id,
@@ -117,6 +117,35 @@ func makeSyncPackslipRelease(id, version, url, hash string, size int64) resoluti
 			{Target: primary, Format: "tgz", PackageVersion: 2, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: url}, Hash: hash, Size: &size},
 			{Target: secondary, Format: "tar.gz", PackageVersion: 2, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: &otherSize},
 		},
+	}
+}
+
+func differentTestPlatformTuple(platform string) string {
+	host, err := resolution.TargetFromPlatformTuple(platform)
+	if err != nil {
+		panic(err)
+	}
+	for _, candidate := range []string{"linux_amd64", "linux_arm64", "macos_amd64", "macos_arm64", "windows_amd64"} {
+		target, err := resolution.TargetFromPlatformTuple(candidate)
+		if err != nil {
+			panic(err)
+		}
+		if target != host {
+			return candidate
+		}
+	}
+	panic("no alternate test platform is available")
+}
+
+func TestDifferentTestPlatformTupleAvoidsDuplicateTargets(t *testing.T) {
+	for _, host := range []string{"linux_amd64", "linux_arm64", "macos_amd64", "macos_arm64", "windows_amd64"} {
+		t.Run(host, func(t *testing.T) {
+			got, err := resolution.TargetFromPlatformTuple(differentTestPlatformTuple(host))
+			require.NoError(t, err)
+			want, err := resolution.TargetFromPlatformTuple(host)
+			require.NoError(t, err)
+			assert.NotEqual(t, want, got, "secondary artifact target must differ from the current host")
+		})
 	}
 }
 
@@ -238,9 +267,19 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	assert.Equal(t, version, locked.Version.String())
 	assert.Equal(t, release.Evidence[0].Hash, locked.Evidence[0].Hash)
 	require.Len(t, locked.Artifacts, 2)
-	assert.Equal(t, 2, locked.Artifacts[0].PackageVersion)
-	assert.Equal(t, release.Artifacts[1].Location, locked.Artifacts[1].Location)
-	assert.Equal(t, "tgz", locked.Artifacts[0].Format)
+	lockedByLocation := make(map[string]lockArtifact, len(locked.Artifacts))
+	for _, artifact := range locked.Artifacts {
+		lockedByLocation[artifact.Location.Value] = artifact
+	}
+	primaryArtifact, ok := lockedByLocation[release.Artifacts[0].Location.Value]
+	require.True(t, ok, "the lock retains the selected host artifact regardless of canonical artifact order")
+	assert.Equal(t, release.Artifacts[0].Target, primaryArtifact.Target)
+	assert.Equal(t, 2, primaryArtifact.PackageVersion)
+	assert.Equal(t, "tgz", primaryArtifact.Format)
+	secondaryArtifact, ok := lockedByLocation[release.Artifacts[1].Location.Value]
+	require.True(t, ok, "the lock retains the secondary artifact regardless of canonical artifact order")
+	assert.Equal(t, release.Artifacts[1].Target, secondaryArtifact.Target)
+	assert.Equal(t, "tar.gz", secondaryArtifact.Format)
 	require.NoError(t, writeLockFileAtomic(model.LockFilePath, prepared.lock))
 
 	var resolverConstructions, registryCalls, downloadCalls int

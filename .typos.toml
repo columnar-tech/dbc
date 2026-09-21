@@ -13,7 +13,7 @@
 # limitations under the License.
 
 [files]
-extend-exclude = ["columnar.pubkey", "go.mod", "go.sum", "pixi.lock"]
+extend-exclude = ["columnar.pubkey", "go.mod", "go.sum", "pixi.lock", "internal/packslipverify/testdata/bundle-provenance.json"]
 
 [type.fo]
 extend-glob = ["*.go", ".goreleaser.yaml"]

@@ -1121,12 +1121,10 @@ func TestUninstallDriverRetainsUnprovenLegacyDirectories(t *testing.T) {
 }
 
 func TestRelativeNestedEnvironmentInstallUpdateUninstall(t *testing.T) {
-	absRoot := filepath.Join(t.TempDir(), "nested", "drivers")
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	relativeRoot, err := filepath.Rel(workingDirectory, absRoot)
+	root := t.TempDir()
+	t.Chdir(root)
+	absRoot := filepath.Join(root, "nested", "drivers")
+	relativeRoot, err := filepath.Rel(root, absRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

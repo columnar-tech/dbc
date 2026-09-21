@@ -24,7 +24,7 @@ func TestDBCReleaseExtensionRequiresExactDeclaration(t *testing.T) {
 	}{
 		{name: "missing", missing: true, want: "missing predicate.extensions.dbc"},
 		{name: "null", raw: json.RawMessage("null"), want: "non-null object"},
-		{name: "malformed", raw: json.RawMessage("{"), want: "unexpected end of JSON input"},
+		{name: "malformed", raw: json.RawMessage("{"), want: "invalid packslip predicate.extensions.dbc declaration"},
 		{name: "array", raw: json.RawMessage("[]"), want: "non-null object"},
 		{name: "unknown field", raw: json.RawMessage(`{"schema_version":1,"driver_id":"driver","future":true}`), want: "unknown field"},
 		{name: "unknown schema", raw: json.RawMessage(`{"schema_version":2,"driver_id":"driver"}`), want: "unsupported dbc release extension schema_version"},
@@ -59,7 +59,7 @@ func TestDBCArtifactExtensionRequiresExactPackageMarker(t *testing.T) {
 		want string
 	}{
 		{name: "null", raw: json.RawMessage("null"), want: "non-null object"},
-		{name: "malformed", raw: json.RawMessage("{"), want: "unexpected end of JSON input"},
+		{name: "malformed", raw: json.RawMessage("{"), want: "invalid packslip artifact"},
 		{name: "array", raw: json.RawMessage("[]"), want: "non-null object"},
 		{name: "unknown field", raw: json.RawMessage(`{"package_version":2,"future":true}`), want: "unknown field"},
 		{name: "missing package version", raw: json.RawMessage(`{}`), want: "package_version 0"},

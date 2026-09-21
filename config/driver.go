@@ -214,6 +214,11 @@ func removeManifestSymlink(filePath, driverID string) {
 	if err != nil {
 		return
 	}
+	symlinkAbs, symlinkErr := filepath.Abs(symlink)
+	if symlinkErr != nil {
+		return
+	}
+	symlinkParentAbs := filepath.Dir(symlinkAbs)
 	expected, expectedErr := filepath.Abs(filepath.Join(filePath, safeDriverID+".toml"))
 	if expectedErr != nil {
 		return
@@ -229,8 +234,9 @@ func removeManifestSymlink(filePath, driverID string) {
 		// New links are relative to their parent directory. Older links may
 		// contain the original relative manifestPath. Only the exact original
 		// value is accepted for that legacy form; do not reinterpret arbitrary
-		// relative targets from the process working directory.
-		isTargetRegistration = targetsExpectedManifest(filepath.Join(parentDir, target))
+		// relative targets from the process working directory. Resolve the link
+		// target against the symlink's absolute parent, as the filesystem does.
+		isTargetRegistration = targetsExpectedManifest(filepath.Join(symlinkParentAbs, target))
 		legacyManifestPath := filepath.Join(filePath, safeDriverID+".toml")
 		isTargetRegistration = isTargetRegistration || target == legacyManifestPath
 	}

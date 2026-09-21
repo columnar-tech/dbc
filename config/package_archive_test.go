@@ -91,11 +91,29 @@ func openPackageArchive(t *testing.T, data []byte) *os.File {
 	t.Helper()
 	file, err := os.CreateTemp(t.TempDir(), "package-*.tar.gz")
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
 	_, err = file.Write(data)
 	require.NoError(t, err)
 	_, err = file.Seek(0, 0)
 	require.NoError(t, err)
 	return file
+}
+
+func differentPackagePlatform() string {
+	switch config.PlatformTuple() {
+	case "linux_amd64":
+		return "linux_arm64"
+	case "linux_arm64":
+		return "linux_amd64"
+	case "macos_amd64":
+		return "macos_arm64"
+	case "macos_arm64":
+		return "macos_amd64"
+	case "windows_amd64":
+		return "linux_amd64"
+	default:
+		return "linux_amd64"
+	}
 }
 
 func expectedPackage(id, version, platform, source string, archive []byte) config.ExpectedPackageMetadata {
@@ -479,7 +497,7 @@ func TestInstallPackageArchiveChecksMetadataAndDigests(t *testing.T) {
 	}{
 		{name: "id mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.ID = "other" }},
 		{name: "version mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.Version = "1.2.4" }},
-		{name: "platform mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.Platform = "macos_arm64" }},
+		{name: "platform mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.Platform = differentPackagePlatform() }},
 		{name: "archive hash mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.ArchiveHash = "sha256:" + strings.Repeat("0", 63) + "1" }},
 		{name: "archive size mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.ArchiveSize++ }},
 	}
@@ -607,7 +625,7 @@ func TestValidatePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
 	}{
 		{name: "id", mutate: func(expected *config.ExpectedPackageMetadata) { expected.ID = "other" }},
 		{name: "version", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Version = "1.2.4" }},
-		{name: "platform", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Platform = "macos_arm64" }},
+		{name: "platform", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Platform = differentPackagePlatform() }},
 		{name: "archive hash", mutate: func(expected *config.ExpectedPackageMetadata) {
 			expected.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
 		}},

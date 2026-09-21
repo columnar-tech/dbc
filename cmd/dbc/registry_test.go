@@ -21,7 +21,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -94,6 +93,23 @@ func (s *RegistryTestSuite) TearDownTest() {
 	os.RemoveAll(s.cfgUserPath)
 }
 
+func (s *RegistryTestSuite) assertRegisteredPackagePath() {
+	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
+	s.Require().NoError(err)
+	defer k.Close()
+
+	path, _, err := k.GetStringValue("driver")
+	s.Require().NoError(err)
+	s.FileExists(path)
+
+	receipt, managed, present, valid := config.InspectInstallReceipt(s.cfgUserPath, "test-driver-1", path)
+	s.Require().True(managed, "registry driver path should point into a dbc-managed package generation: %s", path)
+	s.Require().True(present, "managed package generation should contain an install receipt: %s", path)
+	s.Require().True(valid, "managed package receipt should match the registered library path: %s", path)
+	s.Equal("test-driver-1", receipt.DriverID)
+	s.Equal("1.1.0", receipt.DriverVersion)
+}
+
 func (s *RegistryTestSuite) TestInstallDriver() {
 	m := InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(testBaseModel())
@@ -109,9 +125,7 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 	s.Require().NoError(err)
 	s.Equal("1.1.0", val)
 
-	val, _, err = k.GetStringValue("driver")
-	s.Require().NoError(err)
-	s.Equal(filepath.Join(s.cfgUserPath, "test-driver-1.1", "test-driver-1-not-valid.so"), val)
+	s.assertRegisteredPackagePath()
 }
 
 func (s *RegistryTestSuite) TestPartialReinstallDriver() {
@@ -128,6 +142,7 @@ func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 		GetModelCustom(testBaseModel())
 	out = s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
+	s.assertRegisteredPackagePath()
 }
 
 func TestRegistryKeyHandling(t *testing.T) {
