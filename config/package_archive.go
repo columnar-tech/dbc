@@ -125,12 +125,12 @@ type packageManifest struct {
 }
 
 type packageManifestV2Wire struct {
-	PackageVersion  int64           `toml:"package_version"`
-	ManifestVersion *int64          `toml:"manifest_version"`
-	ID              string          `toml:"id"`
-	Name            string          `toml:"name"`
-	Version         *semver.Version `toml:"version"`
-	Platform        string          `toml:"platform"`
+	PackageVersion  int64  `toml:"package_version"`
+	ManifestVersion *int64 `toml:"manifest_version"`
+	ID              string `toml:"id"`
+	Name            string `toml:"name"`
+	Version         string `toml:"version"`
+	Platform        string `toml:"platform"`
 	Driver          struct {
 		Entrypoint string `toml:"entrypoint"`
 	} `toml:"Driver"`
@@ -214,8 +214,12 @@ func decodePackageV2Metadata(data []byte) (packageManifest, error) {
 	if strings.TrimSpace(wire.Name) == "" {
 		return packageManifest{}, fmt.Errorf("%w: name is required", ErrInvalidManifest)
 	}
-	if wire.Version == nil {
+	if wire.Version == "" {
 		return packageManifest{}, fmt.Errorf("%w: version is required", ErrInvalidManifest)
+	}
+	parsedVersion, err := semver.StrictNewVersion(wire.Version)
+	if err != nil {
+		return packageManifest{}, fmt.Errorf("%w: version %q must be valid SemVer 2.0.0: %v", ErrInvalidManifest, wire.Version, err)
 	}
 	if err := validatePlatformIdentifier(wire.Platform); err != nil {
 		return packageManifest{}, fmt.Errorf("%w: invalid platform: %v", ErrInvalidManifest, err)
@@ -233,7 +237,7 @@ func decodePackageV2Metadata(data []byte) (packageManifest, error) {
 			DriverInfo: DriverInfo{
 				ID:      wire.ID,
 				Name:    wire.Name,
-				Version: wire.Version,
+				Version: parsedVersion,
 				Driver: struct {
 					Entrypoint string
 					Shared     driverMap

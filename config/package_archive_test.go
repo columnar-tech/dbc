@@ -235,6 +235,73 @@ entrypoint = "AdbcDriverLegacyTableInit"
 	})
 }
 
+func TestPackageV2RequiresStrictSemVer(t *testing.T) {
+	for _, version := range []string{
+		"1.2.3",
+		"1.2.3-rc.1",
+		"1.2.3+build.5",
+		"1.2.3-rc.1+build.5",
+	} {
+		t.Run("accepts "+version, func(t *testing.T) {
+			archive := makePackageArchive(t,
+				archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", version, config.PlatformTuple(), "driver.so")},
+				archiveEntry{name: "driver.so", data: []byte("library")},
+			)
+			for name, inspect := range map[string]func(*os.File) (config.Manifest, error){
+				"inspect": config.InspectPackageMetadata,
+				"extract": func(file *os.File) (config.Manifest, error) {
+					return config.InflateTarball(file, t.TempDir())
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					manifest, err := inspect(openPackageArchive(t, archive))
+					require.NoError(t, err)
+					require.NotNil(t, manifest.Version)
+					assert.Equal(t, version, manifest.Version.String())
+				})
+			}
+		})
+	}
+
+	for _, version := range []string{"v1.2.3", "1.2", "01.2.3"} {
+		t.Run("rejects "+version, func(t *testing.T) {
+			archive := makePackageArchive(t,
+				archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", version, config.PlatformTuple(), "driver.so")},
+				archiveEntry{name: "driver.so", data: []byte("library")},
+			)
+			for name, inspect := range map[string]func(*os.File) error{
+				"inspect": func(file *os.File) error {
+					_, err := config.InspectPackageMetadata(file)
+					return err
+				},
+				"extract": func(file *os.File) error {
+					_, err := config.InflateTarball(file, t.TempDir())
+					return err
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					err := inspect(openPackageArchive(t, archive))
+					require.ErrorIs(t, err, config.ErrInvalidManifest)
+					assert.Contains(t, err.Error(), "must be valid SemVer 2.0.0")
+				})
+			}
+		})
+	}
+
+	t.Run("legacy manifest keeps permissive version parsing", func(t *testing.T) {
+		archive := makePackageArchive(t, archiveEntry{name: "MANIFEST", data: []byte(`name = "Legacy Driver"
+version = "1.2"
+
+[Driver]
+shared = "legacy_driver"
+`)})
+		manifest, err := config.InspectPackageMetadata(openPackageArchive(t, archive))
+		require.NoError(t, err)
+		require.NotNil(t, manifest.Version)
+		assert.Equal(t, "1.2.0", manifest.Version.String())
+	})
+}
+
 func TestPackageArchiveMetadataFilenames(t *testing.T) {
 	legacy := []byte("name = 'Legacy Driver'\nversion = '1.0.0'\n")
 	v2 := packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "driver.so")
