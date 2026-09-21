@@ -152,8 +152,14 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 	suite.Require().NoError(err)
 	relDir := filepath.ToSlash(filepath.Dir(relLibrary))
 	relLibrary = filepath.ToSlash(relLibrary)
-	suite.Equal([]string{filepath.ToSlash(filepath.Join(relDir, "dbc-install-receipt.json")),
-		relLibrary, relLibrary + ".sig", "test-driver-1.toml"}, suite.getFilesInDir(suite.Dir()))
+	expectedFiles := []string{filepath.ToSlash(filepath.Join(relDir, "dbc-install-receipt.json")),
+		relLibrary, relLibrary + ".sig", "test-driver-1.toml"}
+	if runtime.GOOS == "windows" && (suite.configLevel == config.ConfigUser || suite.configLevel == config.ConfigSystem) {
+		// User- and system-level Windows installs register the driver in the
+		// registry rather than writing a manifest alongside the package files.
+		expectedFiles = expectedFiles[:len(expectedFiles)-1]
+	}
+	suite.Equal(expectedFiles, suite.getFilesInDir(suite.Dir()))
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
@@ -162,7 +168,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), suite.runCmd(m))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
-	previous, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+	previous, err := config.GetDriver(config.Get()[suite.configLevel], "test-driver-1")
 	suite.Require().NoError(err)
 	previousLibrary := previous.Driver.Shared.Get(config.PlatformTuple())
 
@@ -173,7 +179,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 		suite.runCmd(m))
 
 	files := suite.getFilesInDir(suite.Dir())
-	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, "test-driver-1")
+	installed, err := config.GetDriver(config.Get()[suite.configLevel], "test-driver-1")
 	suite.Require().NoError(err)
 	currentLibrary := installed.Driver.Shared.Get(config.PlatformTuple())
 	currentRelative, err := filepath.Rel(suite.Dir(), currentLibrary)
