@@ -401,8 +401,9 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 			}
 		}
 
-		// locate the driver info in the CDN driver registry index
-		drv, err := findDriver(name, s.driverIndex)
+		// Locate the driver in its declared registry when the project pins one.
+		// Legacy/default registry entries retain the existing registry ordering.
+		drv, err := findDriverInDeclaredRegistry(name, s.driverIndex, spec.Source)
 		if err != nil {
 			return nil, wrapWithRegistryContext(err, s.registryErrors)
 		}
@@ -488,6 +489,28 @@ func requireRegistrySyncSource(name string, spec driverSpec) error {
 		return nil
 	}
 	return fmt.Errorf("source type %q for driver %q is not supported by sync yet; source integration will follow", spec.Source.Type, name)
+}
+
+func findDriverInDeclaredRegistry(name string, drivers []dbc.Driver, source *dbc.DriverSource) (dbc.Driver, error) {
+	if source == nil || source.Type != dbc.DriverSourceRegistry {
+		return findDriver(name, drivers)
+	}
+
+	declaredURL := normalizeRegistryURL(source.URL)
+	var matches []dbc.Driver
+	for _, driver := range drivers {
+		if driver.Registry == nil || driver.Registry.BaseURL == nil {
+			continue
+		}
+		if normalizeRegistryURL(driver.Registry.BaseURL.String()) == declaredURL {
+			matches = append(matches, driver)
+		}
+	}
+	driver, err := findDriver(name, matches)
+	if err != nil {
+		return dbc.Driver{}, fmt.Errorf("driver %q was not found in declared registry %q", name, source.URL)
+	}
+	return driver, nil
 }
 
 func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {

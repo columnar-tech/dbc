@@ -155,6 +155,98 @@ func TestRegistrySourceChangeDiscardsOldLockEntryBeforeFallback(t *testing.T) {
 	assert.Equal(t, registryBURL.String(), resolvedSource.URL)
 }
 
+func registryScopedTestDriver(t *testing.T, driverID, registryURL string) dbc.Driver {
+	t.Helper()
+	drivers, err := getTestDriverRegistry()
+	require.NoError(t, err)
+	baseURL, err := url.Parse(registryURL)
+	require.NoError(t, err)
+	for _, driver := range drivers {
+		if driver.Path != driverID {
+			continue
+		}
+		registry := *driver.Registry
+		registry.BaseURL = baseURL
+		driver.Registry = &registry
+		return driver
+	}
+	t.Fatalf("test registry has no driver %q", driverID)
+	return dbc.Driver{}
+}
+
+func TestCreateInstallListSelectsDriverFromDeclaredRegistry(t *testing.T) {
+	registryA := registryScopedTestDriver(t, "test-driver-1", "https://registry-a.example.test")
+	registryB := registryScopedTestDriver(t, "test-driver-1", "https://registry-b.example.test")
+	model := syncModel{
+		LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
+		driverIndex:  []dbc.Driver{registryA, registryB},
+	}
+	declaredSource := &dbc.DriverSource{
+		Type: dbc.DriverSourceRegistry,
+		URL:  "HTTPS://REGISTRY-B.EXAMPLE.TEST/",
+	}
+	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {Source: declaredSource},
+	}})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "https://registry-b.example.test", items[0].Driver.Registry.BaseURL.String())
+
+	resolvedSource, err := packageLockSource(items[0])
+	require.NoError(t, err)
+	assert.Equal(t, "https://registry-b.example.test", resolvedSource.URL)
+	expected, _, err := expectedRegistryPackageMetadata(items[0].Package)
+	require.NoError(t, err)
+	assert.Equal(t, "https://registry-b.example.test", expected.SourceIdentity)
+}
+
+func TestCreateInstallListDoesNotFallbackOutsideDeclaredRegistry(t *testing.T) {
+	registryA := registryScopedTestDriver(t, "test-driver-1", "https://registry-a.example.test")
+	registryBWithoutDriver := registryScopedTestDriver(t, "test-driver-2", "https://registry-b.example.test")
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "driver missing in declared registry", url: "https://registry-b.example.test"},
+		{name: "path mismatch", url: "https://registry-b.example.test/tenant"},
+		{name: "query mismatch", url: "https://registry-b.example.test?tenant=b"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := syncModel{
+				LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
+				driverIndex: []dbc.Driver{
+					{Path: "test-driver-1"},
+					{Path: "test-driver-1", Registry: &dbc.Registry{}},
+					registryA,
+					registryBWithoutDriver,
+				},
+			}
+			items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{
+				"test-driver-1": {Source: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: tt.url}},
+			}})
+			require.ErrorContains(t, err, "driver \"test-driver-1\" was not found in declared registry")
+			assert.ErrorContains(t, err, tt.url)
+			assert.Empty(t, items)
+		})
+	}
+}
+
+func TestCreateInstallListPreservesDefaultRegistryPrecedence(t *testing.T) {
+	registryA := registryScopedTestDriver(t, "test-driver-1", "https://registry-a.example.test")
+	registryB := registryScopedTestDriver(t, "test-driver-1", "https://registry-b.example.test")
+	model := syncModel{
+		LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
+		driverIndex:  []dbc.Driver{registryA, registryB},
+	}
+	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {},
+	}})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "https://registry-a.example.test", items[0].Driver.Registry.BaseURL.String())
+}
+
 func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
 	requested, err := semver.NewConstraint("1.2.3+foo")
 	require.NoError(t, err)
