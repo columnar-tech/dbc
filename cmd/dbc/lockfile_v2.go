@@ -412,6 +412,9 @@ func selectLockedArtifact(entry lockInfo, platform string, locked bool) (lockArt
 	}
 	if len(matches) == 1 {
 		if entry.Source.Type == "packslip" && matches[0].PackageVersion != 2 {
+			if locked {
+				return lockArtifact{}, &LockedModeArtifactMissingError{DriverID: entry.Name, Platform: platform}
+			}
 			return lockArtifact{}, &LockRefreshRequiredError{
 				DriverID: entry.Name, Platform: platform,
 				Reason: "locked Packslip artifact is missing its signed dbc package_version declaration",

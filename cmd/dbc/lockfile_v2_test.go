@@ -222,6 +222,20 @@ func TestPackslipLockWithoutPackageVersionRequiresRefresh(t *testing.T) {
 	require.ErrorAs(t, err, &refreshErr)
 	require.Contains(t, err.Error(), "missing its signed dbc package_version declaration")
 	require.ErrorIs(t, err, ErrLockRefreshRequired)
+	require.NotErrorIs(t, err, ErrLockedModeArtifactMissing)
+}
+
+func TestPackslipLockWithoutPackageVersionFailsInLockedMode(t *testing.T) {
+	entry := testLockEntry()
+	entry.Artifacts[0].PackageVersion = 0 // Old prototype Packslip lock did not record this proof.
+
+	_, err := selectLockedArtifact(entry, "linux_amd64_gnu_v1", true)
+	var lockedErr *LockedModeArtifactMissingError
+	require.ErrorAs(t, err, &lockedErr)
+	require.ErrorIs(t, err, ErrLockedModeArtifactMissing)
+	require.ErrorIs(t, err, ErrLockedArtifactMissing)
+	require.NotErrorIs(t, err, ErrLockRefreshRequired)
+	require.Contains(t, err.Error(), "locked mode")
 }
 
 func TestLockFileV2RejectsUnknownVersion(t *testing.T) {
