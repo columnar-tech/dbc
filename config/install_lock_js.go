@@ -16,11 +16,33 @@
 
 package config
 
-import "sync"
+import (
+	"context"
+	"path/filepath"
+	"sync"
+)
 
-var packageInstallLock sync.Mutex
+var packageInstallLocksMu sync.Mutex
+var packageInstallLocks = map[string]chan struct{}{}
 
-func acquirePackageInstallLock(_ string) (func(), error) {
-	packageInstallLock.Lock()
-	return packageInstallLock.Unlock, nil
+func acquirePackageInstallLock(path string) (func(), error) {
+	return acquirePackageInstallLockContext(context.Background(), path)
+}
+
+func acquirePackageInstallLockContext(ctx context.Context, path string) (func(), error) {
+	key := filepath.Clean(path)
+	packageInstallLocksMu.Lock()
+	lock := packageInstallLocks[key]
+	if lock == nil {
+		lock = make(chan struct{}, 1)
+		packageInstallLocks[key] = lock
+	}
+	packageInstallLocksMu.Unlock()
+
+	select {
+	case lock <- struct{}{}:
+		return func() { <-lock }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }

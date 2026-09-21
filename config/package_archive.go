@@ -17,6 +17,7 @@ package config
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -27,7 +28,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/pelletier/go-toml/v2"
@@ -335,6 +339,294 @@ func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 	return installPackage(cfg, runtimeID, downloaded, expected, options, CreateManifest)
 }
 
+// EnsurePackageCallbacks contains the narrow decisions and resources needed
+// to atomically reuse or install a selected package while its driver locks are
+// held. CurrentMatches receives the latest registration (nil when absent).
+// Archive is called at most once and only when the registration does not
+// match. ValidateResult runs before the locks are released; if it fails after
+// installation, the installed generation remains committed and is described
+// by the returned result. All three callbacks execute synchronously while the
+// driver's install locks are held. They must not call InstallPackage,
+// EnsurePackage, UninstallDriver, or another API that reacquires a lock for
+// the same driver, because that would deadlock.
+type EnsurePackageCallbacks struct {
+	CurrentMatches func(current *DriverInfo) (bool, error)
+	Archive        func() (*os.File, error)
+	ValidateResult func(result EnsurePackageResult) error
+}
+
+// EnsurePackageResult separates the registration observed before the action,
+// the registration present afterwards, any registration physically replaced
+// at the installation root, and an install manifest (nil on a skip).
+type EnsurePackageResult struct {
+	Skipped   bool
+	Current   *DriverInfo
+	Installed *DriverInfo
+	Previous  *DriverInfo
+	Manifest  *Manifest
+}
+
+// EnsurePackage rechecks the effective runtime registration under all
+// configured driver install locks. It returns a skip only when CurrentMatches
+// accepts that latest registration; otherwise it obtains one caller-owned
+// archive and installs it while retaining the locks. The archive is never
+// closed here. Provider and installation work are synchronous and, once
+// started, complete before the locks are released even if ctx is canceled.
+// CurrentMatches, Archive, and ValidateResult all run synchronously while the
+// driver's install locks are held. They must not call InstallPackage,
+// EnsurePackage, UninstallDriver, or another API that reacquires a lock for
+// the same driver, because that would deadlock.
+func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks) (EnsurePackageResult, error) {
+	var result EnsurePackageResult
+	if ctx == nil {
+		return result, errors.New("package ensure context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if callbacks.CurrentMatches == nil {
+		return result, errors.New("package current-registration predicate is nil")
+	}
+	expected, err := normalizePackageInstallMetadata(runtimeID, expected)
+	if err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	primary, precedenceRoots, err := resolvePackageInstallRoots(cfg)
+	if err != nil {
+		return result, err
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	releaseLocks, err := acquireDriverInstallLocks(ctx, precedenceRoots, runtimeID)
+	if err != nil {
+		return result, fmt.Errorf("could not lock driver installation: %w", err)
+	}
+	defer releaseLocks()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+
+	current, err := loadEffectiveInstalledDriver(cfg, precedenceRoots, runtimeID)
+	if err != nil {
+		return result, fmt.Errorf("could not inspect current driver registration: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	result.Current = cloneDriverInfo(current)
+	matches, err := callbacks.CurrentMatches(cloneDriverInfo(current))
+	if err != nil {
+		return result, fmt.Errorf("could not compare current driver registration: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if matches {
+		if current == nil {
+			return result, errors.New("current-registration predicate accepted a missing registration")
+		}
+		result.Skipped = true
+		result.Installed = cloneDriverInfo(current)
+		if callbacks.ValidateResult != nil {
+			if err := callbacks.ValidateResult(result); err != nil {
+				return result, fmt.Errorf("could not validate ensured driver registration: %w", err)
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		return result, nil
+	}
+	if callbacks.Archive == nil {
+		return result, errors.New("package archive provider is nil")
+	}
+	archive, providerErr := callbacks.Archive()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if providerErr != nil {
+		return result, fmt.Errorf("could not provide package archive: %w", providerErr)
+	}
+	if archive == nil {
+		return result, errors.New("package archive provider returned nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	manifest, previous, err := installPackageLocked(cfg, runtimeID, primary, archive, expected, installOptions, CreateManifest, cleanupOwnedPackageDirectories)
+	if err != nil {
+		return result, err
+	}
+	if previous != nil {
+		result.Previous = cloneDriverInfo(previous)
+	}
+	manifestCopy := manifest
+	result.Manifest = &manifestCopy
+	installed, err := loadEffectiveInstalledDriver(cfg, precedenceRoots, runtimeID)
+	if err != nil {
+		return result, fmt.Errorf("package was installed but its runtime registration could not be reloaded: %w", err)
+	}
+	if installed == nil {
+		return result, errors.New("package was installed but no runtime registration was found")
+	}
+	result.Installed = cloneDriverInfo(installed)
+	if callbacks.ValidateResult != nil {
+		if err := callbacks.ValidateResult(result); err != nil {
+			return result, fmt.Errorf("package was installed but result validation failed: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func resolvePackageInstallRoots(cfg Config) (string, []string, error) {
+	var configured []string
+	if cfg.Level == ConfigEnv {
+		configured = splitConfigList(cfg.Location)
+		if len(configured) == 0 {
+			return "", nil, errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
+		}
+		for _, root := range configured {
+			if root == "" {
+				return "", nil, errors.New("ADBC_DRIVER_PATH contains an empty config root")
+			}
+		}
+	} else {
+		configured = []string{cfg.Location}
+	}
+	primary, err := EnsureLocation(cfg)
+	if err != nil {
+		return "", nil, err
+	}
+	primary, err = absoluteCleanLocation(primary)
+	if err != nil {
+		return "", nil, fmt.Errorf("could not resolve primary config root: %w", err)
+	}
+
+	roots := make([]string, 0, len(configured))
+	seen := make(map[string]struct{}, len(configured))
+	for _, configuredRoot := range configured {
+		root, err := absoluteCleanLocation(configuredRoot)
+		if err != nil {
+			return "", nil, fmt.Errorf("could not resolve config root %q: %w", configuredRoot, err)
+		}
+		identity := packageInstallRootKey(root, runtime.GOOS == "windows")
+		if _, exists := seen[identity]; exists {
+			continue
+		}
+		seen[identity] = struct{}{}
+		info, err := os.Stat(root)
+		if err != nil {
+			return "", nil, fmt.Errorf("configured driver config root %s is unavailable: %w", root, err)
+		}
+		if !info.IsDir() {
+			return "", nil, fmt.Errorf("configured driver config root %s is not a directory", root)
+		}
+		roots = append(roots, root)
+	}
+	if len(roots) == 0 || roots[0] != primary {
+		return "", nil, errors.New("primary driver config root is not present in configured roots")
+	}
+	return primary, roots, nil
+}
+
+func packageInstallRootKey(root string, caseInsensitive bool) string {
+	root = filepath.Clean(root)
+	if caseInsensitive {
+		return strings.ToLower(root)
+	}
+	return root
+}
+
+func absoluteCleanLocation(location string) (string, error) {
+	if location == "" {
+		return "", errors.New("location is empty")
+	}
+	abs, err := filepath.Abs(location)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
+func acquireDriverInstallLocks(ctx context.Context, roots []string, runtimeID string) (func(), error) {
+	lockRoots := slices.Clone(roots)
+	slices.Sort(lockRoots)
+	releases := make([]func(), 0, len(lockRoots))
+	var releaseOnce sync.Once
+	releaseAll := func() {
+		releaseOnce.Do(func() {
+			for i := len(releases) - 1; i >= 0; i-- {
+				releases[i]()
+			}
+		})
+	}
+	for _, root := range lockRoots {
+		if err := ctx.Err(); err != nil {
+			releaseAll()
+			return nil, err
+		}
+		release, err := acquireDriverInstallLockContext(ctx, root, runtimeID)
+		if err != nil {
+			releaseAll()
+			return nil, err
+		}
+		releases = append(releases, release)
+	}
+	return releaseAll, nil
+}
+
+func loadEffectiveInstalledDriver(cfg Config, roots []string, runtimeID string) (*DriverInfo, error) {
+	if cfg.Level == ConfigEnv {
+		for _, root := range roots {
+			info, err := loadDriverFromManifest(root, runtimeID)
+			if err == nil {
+				return cloneDriverInfo(&info), nil
+			}
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, err
+		}
+		return nil, nil
+	}
+	info, err := loadInstalledDriver(cfg, roots[0], runtimeID)
+	if err != nil {
+		return nil, err
+	}
+	return cloneDriverInfo(info), nil
+}
+
+func cloneDriverInfo(info *DriverInfo) *DriverInfo {
+	if info == nil {
+		return nil
+	}
+	clone := *info
+	if info.Version != nil {
+		version := *info.Version
+		clone.Version = &version
+	}
+	if info.AdbcInfo.Version != nil {
+		version := *info.AdbcInfo.Version
+		clone.AdbcInfo.Version = &version
+	}
+	clone.AdbcInfo.Features.Supported = slices.Clone(info.AdbcInfo.Features.Supported)
+	clone.AdbcInfo.Features.Unsupported = slices.Clone(info.AdbcInfo.Features.Unsupported)
+	if info.Driver.Shared.platformMap != nil {
+		clone.Driver.Shared.platformMap = make(map[string]string, len(info.Driver.Shared.platformMap))
+		for platform, path := range info.Driver.Shared.platformMap {
+			clone.Driver.Shared.platformMap[platform] = path
+		}
+	}
+	return &clone
+}
+
 // ValidatePackage verifies and stages an already-downloaded package in a
 // private temporary directory without registering it or changing shared
 // configuration. The temporary directory is removed before ValidatePackage
@@ -415,49 +707,74 @@ func installPackageWithCleanup(cfg Config, runtimeID string, downloaded *os.File
 		return Manifest{}, fmt.Errorf("could not lock driver installation: %w", err)
 	}
 	defer releaseLock()
+	manifest, _, err := installPackageLocked(cfg, runtimeID, loc, downloaded, expected, options, registerManifest, cleanup)
+	return manifest, err
+}
 
+// installPackageLocked performs the package transaction while the caller owns
+// the driver install lock for location/runtimeID. It returns the registration
+// that was stored at the target location before this transaction.
+func installPackageLocked(cfg Config, runtimeID, loc string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error, cleanup func(string, string, *DriverInfo, string, DriverInfo) error) (Manifest, *DriverInfo, error) {
+	if downloaded == nil {
+		return Manifest{}, nil, errors.New("package archive is nil")
+	}
+	if registerManifest == nil {
+		return Manifest{}, nil, errors.New("package manifest registrar is nil")
+	}
+	if cleanup == nil {
+		return Manifest{}, nil, errors.New("package cleanup function is nil")
+	}
+	var err error
+	expected, err = normalizePackageInstallMetadata(runtimeID, expected)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	loc, err = filepath.Abs(loc)
+	if err != nil {
+		return Manifest{}, nil, fmt.Errorf("could not resolve config location: %w", err)
+	}
 	previous, err := loadInstalledDriver(cfg, loc, runtimeID)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("could not inspect existing driver registration: %w", err)
+		return Manifest{}, nil, fmt.Errorf("could not inspect existing driver registration: %w", err)
 	}
 	workDir, err := os.MkdirTemp(loc, ".dbc-install-")
 	if err != nil {
-		return Manifest{}, fmt.Errorf("could not create private installation staging directory: %w", err)
+		return Manifest{}, previous, fmt.Errorf("could not create private installation staging directory: %w", err)
 	}
 	defer os.RemoveAll(workDir)
 
 	reservedDir, err := os.MkdirTemp(loc, ".dbc-package-"+runtimeID+"-")
 	if err != nil {
-		return Manifest{}, fmt.Errorf("could not reserve package generation directory: %w", err)
+		return Manifest{}, previous, fmt.Errorf("could not reserve package generation directory: %w", err)
 	}
 	if err := os.Remove(reservedDir); err != nil {
-		return Manifest{}, fmt.Errorf("could not prepare package generation directory: %w", err)
+		return Manifest{}, previous, fmt.Errorf("could not prepare package generation directory: %w", err)
 	}
 	finalDir := reservedDir
 
 	manifest, payloadDir, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
 	if err != nil {
-		return Manifest{}, err
+		return Manifest{}, previous, err
 	}
 	if err := os.Rename(payloadDir, finalDir); err != nil {
-		return Manifest{}, fmt.Errorf("could not publish verified package generation: %w", err)
+		return Manifest{}, previous, fmt.Errorf("could not publish verified package generation: %w", err)
 	}
 	if err := registerManifest(cfg, manifest.DriverInfo); err != nil {
 		var rollbackErr *manifestRollbackError
 		if errors.As(err, &rollbackErr) {
-			return Manifest{}, fmt.Errorf("could not register driver manifest; preserving verified package at %s: %w", finalDir, err)
+			return Manifest{}, previous, fmt.Errorf("could not register driver manifest; preserving verified package at %s: %w", finalDir, err)
 		}
 		if removeErr := os.RemoveAll(finalDir); removeErr != nil {
-			return Manifest{}, fmt.Errorf("could not register driver manifest: %w; could not remove unregistered package at %s: %v", err, finalDir, removeErr)
+			return Manifest{}, previous, fmt.Errorf("could not register driver manifest: %w; could not remove unregistered package at %s: %v", err, finalDir, removeErr)
 		}
-		return Manifest{}, fmt.Errorf("could not register driver manifest: %w", err)
+		return Manifest{}, previous, fmt.Errorf("could not register driver manifest: %w", err)
 	}
 
 	// Replacing a registration is already complete. Removing an old generation
 	// is garbage collection, so its failure must not turn a successful install
 	// or update into an error.
 	_ = cleanup(loc, runtimeID, previous, finalDir, manifest.DriverInfo)
-	return manifest, nil
+	return manifest, previous, nil
 }
 
 func normalizePackageInstallMetadata(runtimeID string, expected ExpectedPackageMetadata) (ExpectedPackageMetadata, error) {
@@ -513,9 +830,19 @@ func loadInstalledDriver(cfg Config, loc, runtimeID string) (*DriverInfo, error)
 }
 
 func acquireDriverInstallLock(location, runtimeID string) (func(), error) {
+	return acquireDriverInstallLockWith(location, runtimeID, acquirePackageInstallLock)
+}
+
+func acquireDriverInstallLockContext(ctx context.Context, location, runtimeID string) (func(), error) {
+	return acquireDriverInstallLockWith(location, runtimeID, func(path string) (func(), error) {
+		return acquirePackageInstallLockContext(ctx, path)
+	})
+}
+
+func acquireDriverInstallLockWith(location, runtimeID string, acquire func(string) (func(), error)) (func(), error) {
 	lockTarget := filepath.Join(location, runtimeID)
 	lockHash := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(lockTarget))))
-	return acquirePackageInstallLock(filepath.Join(location, ".dbc-package-install-"+hex.EncodeToString(lockHash[:])+".lock"))
+	return acquire(filepath.Join(location, ".dbc-package-install-"+hex.EncodeToString(lockHash[:])+".lock"))
 }
 
 func driverInstallLockLocation(cfg Config, info DriverInfo) (string, error) {

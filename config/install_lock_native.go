@@ -17,6 +17,7 @@
 package config
 
 import (
+	"context"
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/fslock"
@@ -24,6 +25,14 @@ import (
 
 func acquirePackageInstallLock(path string) (func(), error) {
 	lock, err := fslock.Acquire(path, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return func() { _ = lock.Release() }, nil
+}
+
+func acquirePackageInstallLockContext(ctx context.Context, path string) (func(), error) {
+	lock, err := fslock.AcquireContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
