@@ -941,7 +941,7 @@ func InstallReceiptMatchesExpectedPackage(receipt InstallReceipt, expected Expec
 }
 
 // PackageValidationMatchesRuntimeRegistration compares a current registration
-// with evidence returned by ValidatePackage. The candidate's shared identity
+// with evidence returned by PreparePackage. The candidate's shared identity
 // is private validation output, so callers cannot label an arbitrary path as
 // a package-owned file. Library bytes and receipt identity remain separate
 // checks for callers that require them.
