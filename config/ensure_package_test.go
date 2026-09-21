@@ -302,15 +302,25 @@ func TestEnsurePackageCancellationReleasesPartiallyAcquiredLocks(t *testing.T) {
 		done <- err
 	}()
 	<-started
-	time.Sleep(120 * time.Millisecond)
-	contenderCtx, contenderCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	contenderRelease, contenderErr := acquireDriverInstallLockContext(contenderCtx, early, "example")
-	contenderCancel()
-	if contenderRelease != nil {
-		contenderRelease()
+	lockHeldDeadline := time.Now().Add(3 * time.Second)
+	earlyLockObserved := false
+	for time.Now().Before(lockHeldDeadline) {
+		probeCtx, probeCancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+		contenderRelease, contenderErr := acquireDriverInstallLockContext(probeCtx, early, "example")
+		probeCancel()
+		if contenderErr == nil {
+			contenderRelease()
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if !errors.Is(contenderErr, context.DeadlineExceeded) {
+			t.Fatalf("could not observe earlier driver lock acquisition: %v", contenderErr)
+		}
+		earlyLockObserved = true
+		break
 	}
-	if !errors.Is(contenderErr, context.DeadlineExceeded) {
-		t.Fatalf("earlier lock was not held while EnsurePackage waited on later root: %v", contenderErr)
+	if !earlyLockObserved {
+		t.Fatal("EnsurePackage did not acquire the earlier root lock before waiting on the later root")
 	}
 	cancel()
 	select {
