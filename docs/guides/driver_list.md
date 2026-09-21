@@ -131,9 +131,11 @@ For an implicit registry source, the selected registry URL is saved in the
 lock, and partial refresh remains pinned to it. A Packslip replay does not
 re-check a later release withdrawal or trust-store change; discovery and
 verification run again only during refresh. Path sources are also snapshotted:
-relative paths use the lockfile directory, and changed bytes fail verification
-instead of causing an implicit refresh. A dedicated refresh UX is not yet
-available, so review lockfile changes as deliberate dependency updates.
+relative paths use the lockfile directory. Changed bytes fail hash verification
+for an already-locked target; if the current target is absent from a partial
+lock, path resolution may snapshot the current bytes as a new target while
+retaining existing targets. A dedicated refresh UX is not yet available, so
+review lockfile changes as deliberate dependency updates.
 It's a good idea to track `dbc.lock` as well as `dbc.toml` in version control if you want to ensure a completely reproducible set of drivers.
 
 ## Version Constraints
