@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -315,7 +314,7 @@ func (m addModel) Init() tea.Cmd {
 			if original.present != present {
 				return fmt.Errorf("driver %q entry presence changed while resolving drivers; please retry `dbc add`", spec.Name)
 			}
-			if !reflect.DeepEqual(original.source, latest.Source) {
+			if !sameDriverSourceIdentity(original.source, latest.Source) {
 				return fmt.Errorf("driver %q source changed while resolving drivers; please retry `dbc add`", spec.Name)
 			}
 			if latest.Source != nil {

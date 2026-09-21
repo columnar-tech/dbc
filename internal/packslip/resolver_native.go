@@ -25,6 +25,7 @@ import (
 
 	"github.com/columnar-tech/dbc/internal/packslipverify"
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 )
 
 type nativeResolver struct {
@@ -79,10 +80,11 @@ func (r *nativeResolver) Resolve(ctx context.Context, source PackslipSource, req
 	if err := ctx.Err(); err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
-	project, err := normalizeProject(source.Project)
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, source.Project)
 	if err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
+	project := projectKey.Reference
 	if request.DriverID != "" {
 		if err := validateRuntimeDriverID(request.DriverID); err != nil {
 			return resolution.ResolvedRelease{}, fmt.Errorf("invalid expected driver ID %q: %w", request.DriverID, err)
@@ -449,10 +451,11 @@ func checkDeclaredIdentity(declared releaseIdentity, verified *packslipverify.Ve
 }
 
 func githubIdentityPolicy(project string) (packslipverify.IdentityPolicy, error) {
-	project, err := normalizeProject(project)
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, project)
 	if err != nil {
 		return packslipverify.IdentityPolicy{}, err
 	}
+	project = projectKey.Reference
 	owner, repo, _ := projectParts(project)
 	pattern := `^https://(?i:github\.com/` + regexp.QuoteMeta(owner) + `/` + regexp.QuoteMeta(repo) + `)/\.github/workflows/[^@]+@[^@]+$`
 	return packslipverify.IdentityPolicy{Issuer: GitHubOIDCIssuer, SubjectRegex: pattern}, nil

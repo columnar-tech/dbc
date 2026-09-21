@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 )
 
 const (
@@ -86,10 +88,11 @@ func parseBaseURL(value string) (*url.URL, error) {
 }
 
 func (d *GitHubPackslipDiscovery) ListReleases(ctx context.Context, source PackslipSource) ([]githubRelease, error) {
-	project, err := normalizeProject(source.Project)
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, source.Project)
 	if err != nil {
 		return nil, err
 	}
+	project := projectKey.Reference
 	owner, repo, _ := projectParts(project)
 	result := make([]githubRelease, 0)
 	seenTags := map[string]bool{}
@@ -132,10 +135,11 @@ func (d *GitHubPackslipDiscovery) ListReleases(ctx context.Context, source Packs
 }
 
 func (d *GitHubPackslipDiscovery) ReleaseListURL(source PackslipSource) (string, error) {
-	project, err := normalizeProject(source.Project)
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, source.Project)
 	if err != nil {
 		return "", err
 	}
+	project := projectKey.Reference
 	owner, repo, tool := projectParts(project)
 	u := *d.rawBase
 	path := []string{owner, repo, "HEAD", ".well-known"}

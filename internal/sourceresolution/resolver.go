@@ -23,6 +23,7 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 )
 
 // Request is the small amount of project context needed to resolve one source.
@@ -48,6 +49,10 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 	if resolver == nil {
 		return resolution.ResolvedRelease{}, errors.New("packslip resolver is nil")
 	}
+	declaredKey, err := sourceidentity.Parse(sourceidentity.Packslip, project)
+	if err != nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("invalid packslip project: %w", err)
+	}
 	requestedVersion, err := semver.StrictNewVersion(version)
 	if err != nil || requestedVersion.String() != version {
 		return resolution.ResolvedRelease{}, fmt.Errorf("requested packslip version %q must be an exact SemVer 2.0.0 version", version)
@@ -66,9 +71,9 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 	if release.Version != version {
 		return resolution.ResolvedRelease{}, fmt.Errorf("packslip release version %q does not match requested version %q", release.Version, version)
 	}
-	wantIdentity := canonicalPackslipProject(project)
-	if release.Source.Type != "packslip" || release.Source.Reference != wantIdentity {
-		return resolution.ResolvedRelease{}, fmt.Errorf("packslip release source identity %q does not match declared project %q", release.Source.Reference, wantIdentity)
+	lockedKey, identityErr := sourceidentity.Parse(sourceidentity.Packslip, release.Source.Reference)
+	if release.Source.Type != string(sourceidentity.Packslip) || identityErr != nil || lockedKey != declaredKey {
+		return resolution.ResolvedRelease{}, fmt.Errorf("packslip release source identity %q does not match declared project %q", release.Source.Reference, declaredKey.Reference)
 	}
 	if err := resolution.ValidateResolvedRelease(release); err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("packslip resolver returned an invalid release: %w", err)
@@ -79,14 +84,6 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 		}
 	}
 	return release, nil
-}
-
-func canonicalPackslipProject(project string) string {
-	parts := strings.Split(project, "/")
-	for i := 0; i < len(parts) && i < 3; i++ {
-		parts[i] = strings.ToLower(parts[i])
-	}
-	return strings.Join(parts, "/")
 }
 
 // ResolvePath inspects a local package archive and returns a release containing

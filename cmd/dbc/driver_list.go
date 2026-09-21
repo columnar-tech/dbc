@@ -18,13 +18,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
-	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -67,71 +66,101 @@ func (m DriversList) validateSources() error {
 // correctly NOT treated as drift.
 //
 // Implemented by running both lists through the same newDBCClient merge
-// path and comparing the resulting normalized URL sets. Display-only
+// path and comparing the resulting source identity keys. Display-only
 // fields like RegistryEntry.Name are ignored because they don't appear
-// in the merged URL comparison.
+// in the effective registry identity comparison.
 func registriesChanged(a, b DriversList) bool {
-	urlsA, errA := effectiveRegistryURLs(a)
-	urlsB, errB := effectiveRegistryURLs(b)
+	keysA, errA := effectiveRegistryKeys(a)
+	keysB, errB := effectiveRegistryKeys(b)
 	// If either side fails to produce a merged set (e.g. invalid config),
 	// treat as changed so the command aborts rather than writing against
 	// a config we can't analyze.
 	if errA != nil || errB != nil {
-		return errA != errB
-	}
-	if len(urlsA) != len(urlsB) {
 		return true
 	}
-	for i := range urlsA {
-		if urlsA[i] != urlsB[i] {
+	if len(keysA) != len(keysB) {
+		return true
+	}
+	for i := range keysA {
+		if keysA[i] != keysB[i] {
 			return true
 		}
 	}
 	return false
 }
 
-// effectiveRegistryURLs returns the normalized URL list the client would
-// use after merging the given DriversList with the current global config
-// and built-in defaults. It builds a throwaway client via newDBCClient
-// so merge semantics stay in sync with what NewClient actually uses.
-func effectiveRegistryURLs(list DriversList) ([]string, error) {
+// effectiveRegistryKeys returns the source identity keys the client would use
+// after merging the given DriversList with the current global config and
+// built-in defaults. It builds a throwaway client via newDBCClient so merge
+// semantics stay in sync with what NewClient actually uses.
+func effectiveRegistryKeys(list DriversList) ([]sourceidentity.Key, error) {
 	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
 	if err != nil {
 		return nil, err
 	}
 	regs := c.Registries()
-	out := make([]string, len(regs))
-	for i, r := range regs {
-		if r.BaseURL != nil {
-			out[i] = normalizeRegistryURL(r.BaseURL.String())
+	out := make([]sourceidentity.Key, 0, len(regs))
+	for _, r := range regs {
+		if r.BaseURL == nil {
+			continue
 		}
+		key, err := sourceidentity.Parse(sourceidentity.Registry, r.BaseURL.String())
+		if err != nil {
+			return nil, fmt.Errorf("invalid effective registry URL %q: %w", r.BaseURL.String(), err)
+		}
+		out = append(out, key)
 	}
 	return out, nil
 }
 
-// normalizeRegistryURL returns a canonical form of a registry URL for
-// equality comparisons. Only truly no-op differences are collapsed:
-//
-//   - scheme and host are lowercased (case-insensitive per RFC 3986)
-//   - a trailing slash on the path is stripped
-//   - fragments are dropped (not sent on HTTP requests)
-//
-// Query, userinfo, and path segments are preserved because they can
-// change the effective registry endpoint (tenant selector in query,
-// credential-bearing userinfo, path-addressed registry mount points).
-// A concurrent edit that flips any of those MUST still trigger the
-// config-drift abort in dbc add.
-func normalizeRegistryURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
+func driverSourceIdentity(source *dbc.DriverSource) (sourceidentity.Key, error) {
+	if source == nil {
+		return sourceidentity.Key{}, errors.New("driver source is omitted")
 	}
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	u.Path = strings.TrimRight(u.Path, "/")
-	u.Fragment = ""
-	u.RawFragment = ""
-	return u.String()
+	switch source.Type {
+	case dbc.DriverSourceRegistry:
+		return sourceidentity.Parse(sourceidentity.Registry, source.URL)
+	case dbc.DriverSourcePackslip:
+		return sourceidentity.Parse(sourceidentity.Packslip, source.Project)
+	case dbc.DriverSourcePath:
+		return sourceidentity.Parse(sourceidentity.Path, source.Path)
+	default:
+		return sourceidentity.Key{}, fmt.Errorf("unsupported driver source type %q", source.Type)
+	}
+}
+
+func lockSourceIdentity(source lockSource) (sourceidentity.Key, error) {
+	switch source.Type {
+	case string(sourceidentity.Registry):
+		return sourceidentity.Parse(sourceidentity.Registry, source.URL)
+	case string(sourceidentity.Packslip):
+		return sourceidentity.Parse(sourceidentity.Packslip, source.Project)
+	case string(sourceidentity.Path):
+		return sourceidentity.Parse(sourceidentity.Path, source.Path)
+	default:
+		return sourceidentity.Key{}, fmt.Errorf("unsupported driver source type %q", source.Type)
+	}
+}
+
+func sameDriverSourceIdentity(a, b *dbc.DriverSource) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	keyA, err := driverSourceIdentity(a)
+	if err != nil {
+		return false
+	}
+	keyB, err := driverSourceIdentity(b)
+	return err == nil && keyA == keyB
+}
+
+func sameLockSourceIdentity(a, b lockSource) bool {
+	keyA, err := lockSourceIdentity(a)
+	if err != nil {
+		return false
+	}
+	keyB, err := lockSourceIdentity(b)
+	return err == nil && keyA == keyB
 }
 
 // applyProjectRegistries rebuilds the process-wide dbc client with the

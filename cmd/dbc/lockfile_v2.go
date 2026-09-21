@@ -311,7 +311,7 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 	if existing.Name != refreshed.Name || existing.Version == nil || refreshed.Version == nil || !existing.Version.Equal(refreshed.Version) {
 		return lockInfo{}, errors.New("metadata refresh must keep the locked driver version")
 	}
-	if existing.Source != refreshed.Source {
+	if !sameLockSourceIdentity(existing.Source, refreshed.Source) {
 		return lockInfo{}, errors.New("metadata refresh must keep the locked source identity")
 	}
 	if err := validateLockInfo(existing); err != nil {

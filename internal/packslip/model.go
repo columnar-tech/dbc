@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 )
 
 var (
@@ -179,15 +180,17 @@ func parseRelease(payload []byte, expectedProject string) (*parsedRelease, error
 	if err := decodeWire(envelope.Predicate, &predicate); err != nil {
 		return nil, fmt.Errorf("decode packslip release predicate: %w", err)
 	}
-	canonicalProject, err := normalizeProject(predicate.Project)
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, predicate.Project)
 	if err != nil {
 		return nil, fmt.Errorf("packslip project %q is invalid: %w", predicate.Project, err)
 	}
+	canonicalProject := projectKey.Reference
 	if expectedProject != "" {
-		expectedProject, err = normalizeProject(expectedProject)
+		expectedKey, err := sourceidentity.Parse(sourceidentity.Packslip, expectedProject)
 		if err != nil {
 			return nil, err
 		}
+		expectedProject = expectedKey.Reference
 		if canonicalProject != expectedProject {
 			return nil, fmt.Errorf("packslip project %q does not match requested project %q", predicate.Project, expectedProject)
 		}
@@ -363,14 +366,16 @@ func parseList(payload []byte, expectedProject string) (*parsedList, error) {
 	if err := decodeWire(envelope.Predicate, &predicate); err != nil {
 		return nil, fmt.Errorf("decode packslip release-list predicate: %w", err)
 	}
-	canonicalProject, err := normalizeProject(predicate.Project)
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, predicate.Project)
 	if err != nil {
 		return nil, fmt.Errorf("release-list project %q is invalid: %w", predicate.Project, err)
 	}
-	expectedProject, err = normalizeProject(expectedProject)
+	canonicalProject := projectKey.Reference
+	expectedKey, err := sourceidentity.Parse(sourceidentity.Packslip, expectedProject)
 	if err != nil {
 		return nil, err
 	}
+	expectedProject = expectedKey.Reference
 	if canonicalProject != expectedProject {
 		return nil, fmt.Errorf("release-list project %q does not match requested project %q", predicate.Project, expectedProject)
 	}
@@ -721,30 +726,6 @@ func peekBundleDigest(bundleJSON []byte) (string, string, []byte, error) {
 		}
 	}
 	return "", "", nil, errors.New("Sigstore statement has no supported SHA-256 or SHA-512 subject for verification")
-}
-
-func normalizeProject(value string) (string, error) {
-	if value != strings.TrimSpace(value) || strings.Contains(value, "://") || strings.HasSuffix(value, "/") {
-		return "", fmt.Errorf("project must be a canonical host path without URL scheme: %q", value)
-	}
-	parts := strings.Split(value, "/")
-	if len(parts) < 3 || !strings.EqualFold(parts[0], "github.com") {
-		return "", fmt.Errorf("only GitHub projects of the form github.com/owner/repo are supported: %q", value)
-	}
-	for i, part := range parts {
-		if part == "" || part == "." || part == ".." {
-			return "", fmt.Errorf("project contains an invalid path segment: %q", value)
-		}
-		for _, ch := range part {
-			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("._-", ch)) {
-				return "", fmt.Errorf("project contains an invalid path segment: %q", value)
-			}
-		}
-		if i < 3 {
-			parts[i] = strings.ToLower(part)
-		}
-	}
-	return strings.Join(parts, "/"), nil
 }
 
 func projectParts(project string) (owner, repo string, tool []string) {

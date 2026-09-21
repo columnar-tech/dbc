@@ -298,6 +298,16 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.True(t, registriesChanged(a, b))
 	})
 
+	t.Run("both invalid configs fail closed", func(t *testing.T) {
+		invalid := DriversList{Registries: []dbc.RegistryEntry{{URL: "ftp://registry.example.com"}}}
+		_, errA := effectiveRegistryKeys(invalid)
+		_, errB := effectiveRegistryKeys(invalid)
+		require.Error(t, errA)
+		require.Error(t, errB)
+		assert.True(t, registriesChanged(invalid, invalid),
+			"two unanalyzable registry configs must be treated as changed")
+	})
+
 	t.Run("name-only changes are ignored (display-only field)", func(t *testing.T) {
 		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com", Name: "prod"}}}
 		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com", Name: "production"}}}
@@ -344,6 +354,18 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.True(t, registriesChanged(a, b))
 	})
 
+	t.Run("escaped separator differs from literal separator", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/a%2Fb"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/a/b"}}}
+		assert.True(t, registriesChanged(a, b))
+	})
+
+	t.Run("empty force query is significant", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com?"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		assert.True(t, registriesChanged(a, b))
+	})
+
 	t.Run("replace_defaults tri-state differences compare unequal", func(t *testing.T) {
 		a := DriversList{ReplaceDefaults: bp(true), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
 		b := DriversList{ReplaceDefaults: bp(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
@@ -384,6 +406,50 @@ func TestRegistriesChanged(t *testing.T) {
 		}}
 		assert.False(t, registriesChanged(a, b))
 	})
+}
+
+func TestDriverSourceIdentityComparison(t *testing.T) {
+	tests := []struct {
+		name string
+		a    *dbc.DriverSource
+		b    *dbc.DriverSource
+		want bool
+	}{
+		{name: "both omitted sources match", want: true},
+		{name: "omitted source remains distinct from explicit registry", b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}},
+		{name: "registry canonical equivalences match", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "HTTPS://REGISTRY.EXAMPLE.TEST/#one"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}, want: true},
+		{name: "registry escaped path distinction is preserved", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test/a%2Fb"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test/a/b"}},
+		{name: "registry force query distinction is preserved", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test?"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}},
+		{name: "packslip owner and repo case normalize", a: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "GitHub.com/Example/Driver/Tools"}, b: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver/Tools"}, want: true},
+		{name: "packslip tool path case is preserved", a: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver/Tools"}, b: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver/tools"}},
+		{name: "path is exact string identity", a: &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/../driver.tgz"}, b: &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./driver.tgz"}},
+		{name: "invalid source does not fall back to raw comparison", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "not a URL"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "not a URL"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, sameDriverSourceIdentity(test.a, test.b))
+		})
+	}
+}
+
+func TestLockSourceIdentityComparison(t *testing.T) {
+	tests := []struct {
+		name string
+		a    lockSource
+		b    lockSource
+		want bool
+	}{
+		{name: "registry URL canonical equivalences match", a: lockSource{Type: "registry", URL: "HTTPS://REGISTRY.EXAMPLE.TEST/a/#one"}, b: lockSource{Type: "registry", URL: "https://registry.example.test/a"}, want: true},
+		{name: "escaped separator remains distinct", a: lockSource{Type: "registry", URL: "https://registry.example.test/a%2Fb"}, b: lockSource{Type: "registry", URL: "https://registry.example.test/a/b"}},
+		{name: "packslip owner and repo case normalize", a: lockSource{Type: "packslip", Project: "GitHub.com/Example/Driver/Tools"}, b: lockSource{Type: "packslip", Project: "github.com/example/driver/Tools"}, want: true},
+		{name: "path aliases stay distinct", a: lockSource{Type: "path", Path: "./packages/../driver.tgz"}, b: lockSource{Type: "path", Path: "./driver.tgz"}},
+		{name: "malformed identity has no raw fallback", a: lockSource{Type: "registry", URL: "not a URL"}, b: lockSource{Type: "registry", URL: "not a URL"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, sameLockSourceIdentity(test.a, test.b))
+		})
+	}
 }
 
 func TestDriversListRegistries(t *testing.T) {

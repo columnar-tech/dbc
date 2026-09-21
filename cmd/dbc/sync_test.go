@@ -288,6 +288,14 @@ func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
 		Version: version,
 		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
 	}, packslipSpec), "GitHub host, owner, and repo are canonicalized consistently")
+	packslipToolSpec := driverSpec{
+		Version: packslipConstraint,
+		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/EXAMPLE/DRIVER/Tools/Tool"},
+	}
+	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver/TOOLS/Tool"},
+	}, packslipToolSpec), "Packslip monorepo subpaths remain case-sensitive")
 
 	registryConstraint, err := semver.NewConstraint("1.2.3")
 	require.NoError(t, err)
@@ -326,6 +334,23 @@ func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
 		}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
 			"registry path/query differences remain part of source identity: %s", differentURL)
 	}
+	for _, differentURL := range []string{
+		"https://registry.example.test?",
+		"https://registry.example.test:443",
+		"https://registry.example.test/a%2Fb",
+		"https://u:p@registry.example.test",
+	} {
+		assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+			Version: version,
+			Source:  lockSource{Type: "registry", URL: differentURL},
+		}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
+			"registry source identity keeps ForceQuery, escaped separators, userinfo, and explicit ports: %s", differentURL)
+	}
+	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "registry", URL: "https://registry.example.test#fragment"},
+	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
+		"fragments do not change the HTTP registry identity")
 
 	pathSource := &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/driver.tgz"}
 	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
@@ -336,6 +361,11 @@ func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
 		Version: version,
 		Source:  lockSource{Type: "path", Path: "./packages/other.tgz"},
 	}, driverSpec{Version: registryConstraint, Source: pathSource}))
+	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "path", Path: "./packages/../driver.tgz"},
+	}, driverSpec{Version: registryConstraint, Source: &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./driver.tgz"}}),
+		"path source identity does not resolve filesystem path aliases")
 }
 
 func TestExplicitRegistryURLNormalizationAllowsOfflineLockedReplay(t *testing.T) {

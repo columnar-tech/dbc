@@ -18,12 +18,12 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -255,6 +255,9 @@ func validateLockSource(source lockSource) error {
 		if source.Project == "" {
 			return fmt.Errorf("packslip source has no project")
 		}
+		if _, err := sourceidentity.Parse(sourceidentity.Packslip, source.Project); err != nil {
+			return err
+		}
 		if source.URL != "" || source.Path != "" {
 			return fmt.Errorf("packslip source contains fields for another source type")
 		}
@@ -262,30 +265,21 @@ func validateLockSource(source lockSource) error {
 		if source.URL == "" {
 			return fmt.Errorf("registry source has no URL")
 		}
-		if err := validateHTTPURL("registry source URL", source.URL); err != nil {
+		if _, err := sourceidentity.Parse(sourceidentity.Registry, source.URL); err != nil {
 			return err
 		}
 		if source.Project != "" || source.Path != "" {
 			return fmt.Errorf("registry source contains fields for another source type")
 		}
 	case "path":
-		if source.Path == "" {
-			return fmt.Errorf("path source has no path")
+		if _, err := sourceidentity.Parse(sourceidentity.Path, source.Path); err != nil {
+			return err
 		}
 		if source.Project != "" || source.URL != "" {
 			return fmt.Errorf("path source contains fields for another source type")
 		}
 	default:
 		return fmt.Errorf("unsupported source type %q", source.Type)
-	}
-	return nil
-}
-
-func validateHTTPURL(field, raw string) error {
-	parsed, err := url.Parse(raw)
-	if err != nil || !parsed.IsAbs() ||
-		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) || parsed.Hostname() == "" {
-		return fmt.Errorf("%s must be an absolute HTTP(S) URL with a host", field)
 	}
 	return nil
 }

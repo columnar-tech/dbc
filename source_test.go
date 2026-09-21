@@ -35,6 +35,8 @@ func TestDriverSourceValidation(t *testing.T) {
 		{name: "empty type", wantErr: "driver source has no type"},
 		{name: "unknown type", source: DriverSource{Type: "other", URL: "https://example.test"}, wantErr: `unsupported driver source type "other"`},
 		{name: "registry missing url", source: DriverSource{Type: DriverSourceRegistry}, wantErr: "registry source has no URL"},
+		{name: "registry invalid URL", source: DriverSource{Type: DriverSourceRegistry, URL: "ftp://registry.example.test"}, wantErr: "scheme must be http or https"},
+		{name: "registry URL requires a host", source: DriverSource{Type: DriverSourceRegistry, URL: "https:///registry"}, wantErr: "missing host"},
 		{name: "registry with project", source: DriverSource{Type: DriverSourceRegistry, URL: "https://registry.example.test", Project: "owner/project"}, wantErr: "registry source contains fields for another source type"},
 		{name: "packslip missing project", source: DriverSource{Type: DriverSourcePackslip}, wantErr: "packslip source has no project"},
 		{name: "packslip with url", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/project", URL: "https://registry.example.test"}, wantErr: "packslip source contains fields for another source type"},

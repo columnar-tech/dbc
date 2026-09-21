@@ -28,6 +28,7 @@ import (
 	"github.com/columnar-tech/dbc/internal"
 	"github.com/columnar-tech/dbc/internal/atomicfile"
 	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 )
 
 const trustStoreVersion = 1
@@ -315,8 +316,8 @@ func (s *TrustStore) read() (trustDocument, error) {
 		return trustDocument{}, fmt.Errorf("unsupported or incomplete packslip trust-store format")
 	}
 	for project, state := range doc.Projects {
-		canonical, err := normalizeProject(project)
-		if err != nil || canonical != project || state == nil {
+		key, err := sourceidentity.Parse(sourceidentity.Packslip, project)
+		if err != nil || key.Reference != project || state == nil {
 			return trustDocument{}, fmt.Errorf("invalid project entry in packslip trust store: %q", project)
 		}
 		acceptedCount := 0

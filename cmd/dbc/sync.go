@@ -39,6 +39,7 @@ import (
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 )
 
 type SyncCmd struct {
@@ -497,13 +498,17 @@ func findDriverInDeclaredRegistry(name string, drivers []dbc.Driver, source *dbc
 		return findDriver(name, drivers)
 	}
 
-	declaredURL := normalizeRegistryURL(source.URL)
+	declaredKey, err := sourceidentity.Parse(sourceidentity.Registry, source.URL)
+	if err != nil {
+		return dbc.Driver{}, fmt.Errorf("driver %q has invalid declared registry source: %w", name, err)
+	}
 	var matches []dbc.Driver
 	for _, driver := range drivers {
 		if driver.Registry == nil || driver.Registry.BaseURL == nil {
 			continue
 		}
-		if normalizeRegistryURL(driver.Registry.BaseURL.String()) == declaredURL {
+		key, err := sourceidentity.Parse(sourceidentity.Registry, driver.Registry.BaseURL.String())
+		if err == nil && key == declaredKey {
 			matches = append(matches, driver)
 		}
 	}
@@ -534,31 +539,16 @@ func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 
 func driverSourceMatchesLock(source *dbc.DriverSource, locked lockSource) bool {
 	if source == nil {
+		// An omitted source selects the configured default-registry policy. It
+		// does not declare a source identity key or pin an undeclared registry.
 		return locked.Type == string(dbc.DriverSourceRegistry)
 	}
-	switch source.Type {
-	case dbc.DriverSourceRegistry:
-		return locked.Type == string(dbc.DriverSourceRegistry) &&
-			normalizeRegistryURL(locked.URL) == normalizeRegistryURL(source.URL)
-	case dbc.DriverSourcePackslip:
-		return locked.Type == string(dbc.DriverSourcePackslip) &&
-			canonicalPackslipProject(locked.Project) == canonicalPackslipProject(source.Project)
-	case dbc.DriverSourcePath:
-		return locked.Type == string(dbc.DriverSourcePath) && locked.Path == source.Path
-	default:
+	declaredKey, err := driverSourceIdentity(source)
+	if err != nil {
 		return false
 	}
-}
-
-func canonicalPackslipProject(project string) string {
-	parts := strings.Split(project, "/")
-	if len(parts) < 3 {
-		return project
-	}
-	for i := 0; i < 3; i++ {
-		parts[i] = strings.ToLower(parts[i])
-	}
-	return strings.Join(parts, "/")
+	lockedKey, err := lockSourceIdentity(locked)
+	return err == nil && declaredKey == lockedKey
 }
 
 func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {
@@ -712,7 +702,7 @@ func canReuseLockedEntry(item installItem) bool {
 		return false
 	}
 	source, err := packageLockSource(item)
-	if err != nil || item.LockEntry.Source != source {
+	if err != nil || !sameLockSourceIdentity(item.LockEntry.Source, source) {
 		return false
 	}
 	artifact, err := selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)

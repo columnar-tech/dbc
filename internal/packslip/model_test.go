@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 	"github.com/stretchr/testify/require"
 )
 
@@ -256,15 +257,16 @@ func optionalToken(value string) *string {
 }
 
 func TestNormalizeProjectAndTagVersion(t *testing.T) {
-	project, err := normalizeProject("GitHub.COM/Acme/driver/Tools/Tool")
+	projectKey, err := sourceidentity.Parse(sourceidentity.Packslip, "GitHub.COM/Acme/driver/Tools/Tool")
 	require.NoError(t, err)
+	project := projectKey.Reference
 	require.Equal(t, "github.com/acme/driver/Tools/Tool", project)
 	version, ok := tagVersion("Tool_v1.2.0", project)
 	require.True(t, ok)
 	require.Equal(t, "1.2.0", version)
 	_, ok = tagVersion("tool_v1.2.0", project)
 	require.False(t, ok, "monorepo subpaths preserve case")
-	_, err = normalizeProject("https://github.com/acme/driver")
+	_, err = sourceidentity.Parse(sourceidentity.Packslip, "https://github.com/acme/driver")
 	require.Error(t, err)
 }
 
