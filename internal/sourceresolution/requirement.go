@@ -149,6 +149,29 @@ func PathMetadataVersionRequirement() VersionRequirement {
 	return VersionRequirement{mode: PathMetadataDerived}
 }
 
+// SameReleaseVersion compares two already-resolved versions according to the
+// identity rules of their source. Registry versions retain SemVer precedence
+// equality; Packslip and path releases use their complete canonical strings,
+// including build metadata.
+func SameReleaseVersion(source sourceidentity.Kind, left, right *semver.Version) bool {
+	if left == nil || right == nil {
+		return false
+	}
+	switch source {
+	case sourceidentity.Registry:
+		return left.Equal(right)
+	case sourceidentity.Packslip, sourceidentity.Path:
+		leftString := left.String()
+		rightString := right.String()
+		if validateCanonicalVersion(leftString) != nil || validateCanonicalVersion(rightString) != nil {
+			return false
+		}
+		return leftString == rightString
+	default:
+		return false
+	}
+}
+
 // Mode reports the version rule used by this requirement.
 func (version VersionRequirement) Mode() VersionMode {
 	return version.mode

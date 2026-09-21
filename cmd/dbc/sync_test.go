@@ -412,8 +412,13 @@ func TestPackageVersionIdentityDependsOnSource(t *testing.T) {
 	assert.True(t, packageVersionsMatch("packslip", locked, resolvedSame))
 	assert.False(t, packageVersionsMatch("packslip", locked, resolvedDifferent),
 		"Packslip artifact identity includes build metadata")
+	assert.True(t, packageVersionsMatch("path", locked, resolvedSame))
+	assert.False(t, packageVersionsMatch("path", locked, resolvedDifferent),
+		"path artifact identity includes build metadata")
 	assert.True(t, packageVersionsMatch("registry", locked, resolvedDifferent),
 		"registry keeps the existing SemVer equality semantics")
+	assert.False(t, packageVersionsMatch("unknown", locked, resolvedSame),
+		"unsupported source types have no release version identity rule")
 }
 
 func TestAcquireSyncProjectLockDeadlineIsContentionButCancelIsNot(t *testing.T) {

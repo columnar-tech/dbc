@@ -24,6 +24,8 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/atomicfile"
 	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
+	"github.com/columnar-tech/dbc/internal/sourceresolution"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -318,7 +320,9 @@ func verifyLegacyLibraryProof(entry lockInfo, platform, installedLibraryHash str
 // artifacts are immutable: a refresh may add a target but cannot replace an
 // existing target's location, format, digest, size, or host requirements.
 func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
-	if existing.Name != refreshed.Name || existing.Version == nil || refreshed.Version == nil || !existing.Version.Equal(refreshed.Version) {
+	if existing.Name != refreshed.Name || !sourceresolution.SameReleaseVersion(
+		sourceidentity.Kind(existing.Source.Type), existing.Version, refreshed.Version,
+	) {
 		return lockInfo{}, errors.New("metadata refresh must keep the locked driver version")
 	}
 	if !sameLockSourceIdentity(existing.Source, refreshed.Source) {
@@ -393,7 +397,7 @@ func upgradeLockEntry(existing lockInfo, upgraded lockInfo) (lockInfo, error) {
 	if existing.Name != upgraded.Name || existing.Version == nil || upgraded.Version == nil {
 		return lockInfo{}, errors.New("version upgrade must keep the driver identity")
 	}
-	if existing.Version.Equal(upgraded.Version) {
+	if sourceresolution.SameReleaseVersion(sourceidentity.Kind(existing.Source.Type), existing.Version, upgraded.Version) {
 		return lockInfo{}, errors.New("version upgrade requires a different version")
 	}
 	if upgraded.Legacy != nil {

@@ -40,6 +40,7 @@ import (
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/columnar-tech/dbc/internal/sourceidentity"
+	"github.com/columnar-tech/dbc/internal/sourceresolution"
 )
 
 type SyncCmd struct {
@@ -528,6 +529,9 @@ func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 	}
 	if spec.Version != nil {
 		if spec.Source != nil && spec.Source.Type == dbc.DriverSourcePackslip {
+			// This is a requirement check: Packslip's validated exact request is
+			// represented by a constraint, but lock reuse must preserve its full
+			// canonical version string, including build metadata.
 			return entry.Version.String() == spec.Version.String()
 		}
 		// An explicit constraint can name a prerelease directly. Let semver's
@@ -722,13 +726,7 @@ func canReuseLockedEntry(item installItem) bool {
 }
 
 func packageVersionsMatch(sourceType string, locked, resolved *semver.Version) bool {
-	if locked == nil || resolved == nil {
-		return false
-	}
-	if sourceType == string(dbc.DriverSourcePackslip) {
-		return locked.String() == resolved.String()
-	}
-	return locked.Equal(resolved)
+	return sourceresolution.SameReleaseVersion(sourceidentity.Kind(sourceType), locked, resolved)
 }
 
 func packageLockSource(item installItem) (lockSource, error) {

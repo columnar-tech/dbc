@@ -625,6 +625,41 @@ func TestVersionUpgradeIsSeparateFromMetadataRefresh(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestRefreshAndUpgradeUseSourceAwareReleaseVersionIdentity(t *testing.T) {
+	for _, source := range []lockSource{
+		{Type: "packslip", Project: "github.com/example/driver"},
+		{Type: "path", Path: "./driver.tgz"},
+	} {
+		t.Run(source.Type, func(t *testing.T) {
+			existing := testLockEntry()
+			existing.Source = source
+			existing.Version = semver.MustParse("1.2.3+foo")
+			refreshed := cloneLockInfo(existing)
+			refreshed.Version = semver.MustParse("1.2.3+bar")
+
+			_, err := refreshLockEntry(existing, refreshed)
+			assert.ErrorContains(t, err, "must keep the locked driver version")
+
+			upgraded, err := upgradeLockEntry(existing, refreshed)
+			require.NoError(t, err)
+			assert.Equal(t, "1.2.3+bar", upgraded.Version.String(), "different exact source release is a valid upgrade")
+		})
+	}
+
+	t.Run("registry retains precedence equality", func(t *testing.T) {
+		existing := testLockEntry()
+		existing.Source = lockSource{Type: "registry", URL: "https://registry.example.test"}
+		existing.Version = semver.MustParse("1.2.3+foo")
+		refreshed := cloneLockInfo(existing)
+		refreshed.Version = semver.MustParse("1.2.3+bar")
+
+		_, err := refreshLockEntry(existing, refreshed)
+		assert.NoError(t, err, "registry metadata refresh keeps SemVer precedence equality")
+		_, err = upgradeLockEntry(existing, refreshed)
+		assert.ErrorContains(t, err, "requires a different version")
+	})
+}
+
 func TestLockSnapshotRequiresFinalizedArtifactMetadata(t *testing.T) {
 	release := testResolvedRelease()
 	release.Artifacts[0].Hash = ""
