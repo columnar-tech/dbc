@@ -504,6 +504,12 @@ func requirementForDriverSpec(name string, spec driverSpec) (sourceresolution.Re
 			return sourceresolution.Requirement{}, fmt.Errorf("driver %q packslip source does not support prerelease policy", name)
 		}
 		if spec.Version == nil {
+			// TODO: Exact versions are required only for the current Packslip PoC.
+			// Before Packslip support is generally available, allow omitted versions
+			// for GitHub-hosted projects by discovering eligible releases and resolving
+			// the latest one to an exact ResolvedRelease. Requirements may then be
+			// moving, but ResolvedRelease and dbc.lock must remain exact. Non-GitHub
+			// projects can use signed Packslip release lists for version discovery.
 			return sourceresolution.Requirement{}, fmt.Errorf("driver %q packslip source requires an exact SemVer 2.0.0 version", name)
 		}
 		version, err = sourceresolution.PackslipVersionRequirement(spec.Version.String())

@@ -117,6 +117,8 @@ func TestPackslipSourceRequiresExactStrictSemVer(t *testing.T) {
 		{name: "v prefix", version: "v1.2.3", wantErr: true},
 		{name: "abbreviated version", version: "1.2", wantErr: true},
 		{name: "leading zero", version: "01.2.3", wantErr: true},
+		// This pins the current PoC limitation only; omitted Packslip versions
+		// should be supported before GA by resolving to an exact release.
 		{name: "missing version", version: "", wantErr: true},
 	}
 
