@@ -294,9 +294,17 @@ func (m progressiveInstallModel) startDirectInstall(item installItem) (tea.Model
 		if err != nil {
 			return err
 		}
+		installCfg, err := installConfigForEnsure(executor.cfg)
+		if err != nil {
+			if closeErr := closeDirectInstallArchive(&item); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close prepared package: %w", closeErr))
+			}
+			return err
+		}
+		executor.cfg = installCfg
 		if err := executor.prepareItem(context.Background(), &item); err != nil {
 			if closeErr := closeDirectInstallArchive(&item); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("close prepared package archive: %w", closeErr))
+				err = errors.Join(err, fmt.Errorf("close prepared package: %w", closeErr))
 			}
 			return err
 		}
@@ -311,17 +319,9 @@ func (m progressiveInstallModel) startDirectEnsure(item installItem, executor *p
 	}
 	m.state = stInstalling
 	return m, func() tea.Msg {
-		installCfg, err := installConfigForEnsure(executor.cfg)
-		if err != nil {
-			if closeErr := closeDirectInstallArchive(&item); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("close prepared package archive: %w", closeErr))
-			}
-			return directInstallFinishedMsg{item: item, err: err}
-		}
-		executor.cfg = installCfg
 		result, err := executor.ensurePreparedPackage(context.Background(), &item)
 		if closeErr := closeDirectInstallArchive(&item); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("close prepared package archive: %w", closeErr))
+			err = errors.Join(err, fmt.Errorf("close prepared package: %w", closeErr))
 		}
 		return directInstallFinishedMsg{item: item, result: result, err: err}
 	}

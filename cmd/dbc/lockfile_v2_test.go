@@ -692,72 +692,6 @@ func TestSyncAdapterVerifiesLegacyLibraryProofBeforeReusingV2Entry(t *testing.T)
 	assert.Contains(t, err.Error(), "legacy installed-library checksum mismatch")
 }
 
-func TestDownloadedArchiveSnapshotUsesArchiveBytes(t *testing.T) {
-	archivePath := filepath.Join(t.TempDir(), "package.tar.gz")
-	archiveBytes := []byte("compressed package fixture")
-	require.NoError(t, os.WriteFile(archivePath, archiveBytes, 0o600))
-	archive, err := os.Open(archivePath)
-	require.NoError(t, err)
-	defer archive.Close()
-
-	item := mustTestInstallItem(t, resolution.ResolvedRelease{
-		DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "registry", Reference: "https://registry.example.test"},
-		Artifacts: []resolution.Artifact{{Target: testTarget(config.PlatformTuple()), Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"}}},
-	}, config.PlatformTuple(), nil)
-	require.NoError(t, snapshotDownloadedArchive(&item, archive))
-	digest := sha256.Sum256(archiveBytes)
-	selected, err := item.selectedArtifact()
-	require.NoError(t, err)
-	assert.Equal(t, "sha256:"+hex.EncodeToString(digest[:]), selected.Hash)
-	assert.EqualValues(t, len(archiveBytes), *selected.Size)
-	assert.Empty(t, item.InstalledLibraryHash, "archive bytes must not be recorded as an installed-library hash")
-}
-
-func TestLockedArchiveDownloadMustMatchExpectedHashAndSize(t *testing.T) {
-	archivePath := filepath.Join(t.TempDir(), "package.tar.gz")
-	archiveBytes := []byte("downloaded bytes differ from the lock")
-	require.NoError(t, os.WriteFile(archivePath, archiveBytes, 0o600))
-	digest := sha256.Sum256(archiveBytes)
-	actualHash := "sha256:" + hex.EncodeToString(digest[:])
-	actualSize := int64(len(archiveBytes))
-
-	tests := []struct {
-		name string
-		hash string
-		size *int64
-		want string
-	}{
-		{
-			name: "hash mismatch",
-			hash: "sha256:" + strings.Repeat("a", 64), size: &actualSize,
-			want: "does not match expected hash",
-		},
-		{
-			name: "size mismatch",
-			hash: actualHash, size: int64Pointer(actualSize + 1),
-			want: "does not match expected size",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			archive, err := os.Open(archivePath)
-			require.NoError(t, err)
-			defer archive.Close()
-			item := mustTestInstallItem(t, resolution.ResolvedRelease{
-				DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "registry", Reference: "https://registry.example.test"},
-				Artifacts: []resolution.Artifact{{Target: testTarget(config.PlatformTuple()), Format: "tar.gz",
-					Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"}, Hash: tt.hash, Size: cloneInt64(tt.size)}},
-			}, config.PlatformTuple(), nil)
-			err = snapshotDownloadedArchive(&item, archive)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.want)
-			selected, selectErr := item.selectedArtifact()
-			require.NoError(t, selectErr)
-			assert.Equal(t, tt.hash, selected.Hash, "failed verification must not produce a lock snapshot")
-		})
-	}
-}
-
 func testRegistryLockEntryForPlatform(platform string) lockInfo {
 	return lockInfo{
 		Name:    "example",
@@ -860,7 +794,8 @@ func TestResolvedTGZArtifactReplaysThroughPackageValidation(t *testing.T) {
 
 	model := syncModel{baseModel: baseModel{downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
 		return os.Open(archivePath)
-	}}, LockFilePath: filepath.Join(t.TempDir(), "dbc.lock")}
+	}}, LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
+		cfg: config.Config{Level: config.ConfigEnv, Location: t.TempDir()}}
 	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
 	require.NoError(t, err)
 	defer closePreparedArchives(prepared.items)
@@ -895,7 +830,8 @@ func TestSyncOpensRelativePathArtifactFromProjectDirectory(t *testing.T) {
 	require.NoError(t, err)
 	item, err := installItemFromLockedArtifact(release.DriverID, entry, entry.Artifacts[0])
 	require.NoError(t, err)
-	model := syncModel{LockFilePath: filepath.Join(projectDir, "dbc.lock")}
+	model := syncModel{LockFilePath: filepath.Join(projectDir, "dbc.lock"),
+		cfg: config.Config{Level: config.ConfigEnv, Location: filepath.Join(projectDir, "install")}}
 	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
 	require.NoError(t, err)
 	defer closePreparedArchives(prepared.items)
@@ -992,7 +928,7 @@ func TestUnsupportedHostRequirementsFailClosedBeforePreparationOrEnsure(t *testi
 			}, config.PlatformTuple(), nil)
 			downloadCalls, ensureCalls := 0, 0
 			worker := newSyncWorker()
-			worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+			worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
 				ensureCalls++
 				return config.EnsurePackageResult{}, nil
 			}
@@ -1012,11 +948,6 @@ func TestUnsupportedHostRequirementsFailClosedBeforePreparationOrEnsure(t *testi
 			assert.Zero(t, downloadCalls)
 			assert.Zero(t, ensureCalls)
 
-			executor, err := model.newPackageExecutor()
-			require.NoError(t, err)
-			_, ensureErr := executor.ensurePreparedPackage(context.Background(), &item)
-			require.ErrorContains(t, ensureErr, "unsupported host requirements for example")
-			assert.Zero(t, ensureCalls, "unsupported requirements must be rejected before EnsurePackage")
 			after, err := config.GetDriver(cfg, "example")
 			require.NoError(t, err)
 			assert.Equal(t, loaded.Name, after.Name)

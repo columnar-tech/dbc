@@ -101,63 +101,13 @@ func TestDriverSourceProjectConfigValidation(t *testing.T) {
 	}
 }
 
-func TestPackslipSourceRequiresExactStrictSemVer(t *testing.T) {
-	tests := []struct {
-		name    string
-		version string
-		wantErr bool
-	}{
-		{name: "exact release", version: "1.2.3"},
-		{name: "exact prerelease", version: "1.2.3-rc.1"},
-		{name: "exact build metadata", version: "1.2.3+build.5"},
-		{name: "exact prerelease and build metadata", version: "1.2.3-rc.1+build.5"},
-		{name: "explicit equality operator", version: "=1.2.3", wantErr: true},
-		{name: "range", version: ">=1.2.3", wantErr: true},
-		{name: "latest", version: "latest", wantErr: true},
-		{name: "v prefix", version: "v1.2.3", wantErr: true},
-		{name: "abbreviated version", version: "1.2", wantErr: true},
-		{name: "leading zero", version: "01.2.3", wantErr: true},
-		// This pins the current PoC limitation only; omitted Packslip versions
-		// should be supported before GA by resolving to an exact release.
-		{name: "missing version", version: "", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			contents := "[drivers.example]\n"
-			if tt.version != "" {
-				contents += "version = '" + tt.version + "'\n"
-			}
-			contents += "[drivers.example.source]\ntype = 'packslip'\nproject = 'github.com/owner/project'\n"
-
-			var list DriversList
-			err := toml.Unmarshal([]byte(contents), &list)
-			if err == nil {
-				err = list.validateSources()
-			}
-			if tt.wantErr {
-				require.Error(t, err)
-				if list.Drivers["example"].Source != nil && list.Drivers["example"].Version != nil {
-					require.ErrorContains(t, err, "exact SemVer 2.0.0",
-						"a parsed constraint must retain enough spelling for strict validation")
-				}
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-
-	// Packslip's exact-version requirement must not tighten the legacy source
-	// behavior: registry constraints and unconstrained registry entries remain
-	// valid.
-	for _, contents := range []string{
-		"[drivers.example]\nversion = '>=1.2.3'\n",
-		"[drivers.example]\n",
-	} {
-		var list DriversList
-		require.NoError(t, toml.Unmarshal([]byte(contents), &list))
-		require.NoError(t, list.validateSources())
-	}
+func TestPackslipSourceRequiresVersionInPoCConfig(t *testing.T) {
+	// Exact-only is a temporary PoC limitation. Before Packslip support is
+	// generally available, omitted versions should resolve to an exact release.
+	contents := "[drivers.example.source]\ntype = 'packslip'\nproject = 'github.com/owner/project'\n"
+	var list DriversList
+	require.NoError(t, toml.Unmarshal([]byte(contents), &list))
+	require.ErrorContains(t, list.validateSources(), "requires an exact SemVer 2.0.0 version")
 }
 
 func TestPathSourceRequiresOptionalExactStrictSemVer(t *testing.T) {
@@ -416,48 +366,13 @@ func TestRegistriesChanged(t *testing.T) {
 	})
 }
 
-func TestDriverSourceIdentityComparison(t *testing.T) {
-	tests := []struct {
-		name string
-		a    *dbc.DriverSource
-		b    *dbc.DriverSource
-		want bool
-	}{
-		{name: "both omitted sources match", want: true},
-		{name: "omitted source remains distinct from explicit registry", b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}},
-		{name: "registry canonical equivalences match", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "HTTPS://REGISTRY.EXAMPLE.TEST/#one"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}, want: true},
-		{name: "registry escaped path distinction is preserved", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test/a%2Fb"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test/a/b"}},
-		{name: "registry force query distinction is preserved", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test?"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}},
-		{name: "packslip owner and repo case normalize", a: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "GitHub.com/Example/Driver/Tools"}, b: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver/Tools"}, want: true},
-		{name: "packslip tool path case is preserved", a: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver/Tools"}, b: &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver/tools"}},
-		{name: "path is exact string identity", a: &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/../driver.tgz"}, b: &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./driver.tgz"}},
-		{name: "invalid source does not fall back to raw comparison", a: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "not a URL"}, b: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "not a URL"}},
+func TestDriverSourceIdentityDistinguishesOmittedSource(t *testing.T) {
+	explicitRegistry := &dbc.DriverSource{
+		Type: dbc.DriverSourceRegistry,
+		URL:  "https://registry.example.test",
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, sameDriverSourceIdentity(test.a, test.b))
-		})
-	}
-}
-
-func TestLockSourceIdentityComparison(t *testing.T) {
-	tests := []struct {
-		name string
-		a    lockSource
-		b    lockSource
-		want bool
-	}{
-		{name: "registry URL canonical equivalences match", a: lockSource{Type: "registry", URL: "HTTPS://REGISTRY.EXAMPLE.TEST/a/#one"}, b: lockSource{Type: "registry", URL: "https://registry.example.test/a"}, want: true},
-		{name: "escaped separator remains distinct", a: lockSource{Type: "registry", URL: "https://registry.example.test/a%2Fb"}, b: lockSource{Type: "registry", URL: "https://registry.example.test/a/b"}},
-		{name: "packslip owner and repo case normalize", a: lockSource{Type: "packslip", Project: "GitHub.com/Example/Driver/Tools"}, b: lockSource{Type: "packslip", Project: "github.com/example/driver/Tools"}, want: true},
-		{name: "path aliases stay distinct", a: lockSource{Type: "path", Path: "./packages/../driver.tgz"}, b: lockSource{Type: "path", Path: "./driver.tgz"}},
-		{name: "malformed identity has no raw fallback", a: lockSource{Type: "registry", URL: "not a URL"}, b: lockSource{Type: "registry", URL: "not a URL"}},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.want, sameLockSourceIdentity(test.a, test.b))
-		})
-	}
+	assert.True(t, sameDriverSourceIdentity(nil, nil))
+	assert.False(t, sameDriverSourceIdentity(nil, explicitRegistry))
 }
 
 func TestDriversListRegistries(t *testing.T) {

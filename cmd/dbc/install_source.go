@@ -193,11 +193,18 @@ func (reader *installProgressReadCloser) Read(p []byte) (int, error) {
 }
 
 func closeDirectInstallArchive(item *installItem) error {
-	if item == nil || item.Archive == nil {
+	if item == nil {
 		return nil
 	}
-	err := item.Archive.Close()
-	item.Archive = nil
+	var err error
+	if item.Archive != nil {
+		err = errors.Join(err, item.Archive.Close())
+		item.Archive = nil
+	}
+	if item.Validation != nil && item.Validation.Prepared != nil {
+		err = errors.Join(err, item.Validation.Prepared.Close())
+		item.Validation.Prepared = nil
+	}
 	return err
 }
 

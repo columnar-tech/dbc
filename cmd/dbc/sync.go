@@ -186,7 +186,7 @@ type syncModel struct {
 type syncWorkerHooks struct {
 	duringPrepare       func(context.Context, int, installItem) error
 	beforeCandidateSave func(context.Context) error
-	ensurePackage       func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
+	ensurePackage       func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
 }
 
 type syncWorker struct {
@@ -219,13 +219,6 @@ type syncWorkerResultMsg struct {
 type syncResolvingMsg struct{ driver string }
 
 type syncItemsMsg struct{ items []installItem }
-
-// driversListMsg is retained for focused lock-resolution tests. The production
-// sync path reads the driver list inside the project-lock-owning worker.
-type driversListMsg struct {
-	path string
-	list DriversList
-}
 
 func (s syncModel) Init() tea.Cmd {
 	return func() tea.Msg {
@@ -966,7 +959,7 @@ func canReuseLockedEntry(item installItem) bool {
 		return false
 	}
 	version, err := semver.NewVersion(item.Release.Version)
-	if err != nil || !packageVersionsMatch(item.LockEntry.Source.Type, item.LockEntry.Version, version) {
+	if err != nil || !sourceresolution.SameReleaseVersion(sourceidentity.Kind(item.LockEntry.Source.Type), item.LockEntry.Version, version) {
 		return false
 	}
 	source, err := lockSourceForResolvedRelease(item.Release)
@@ -981,10 +974,6 @@ func canReuseLockedEntry(item installItem) bool {
 		locked.Hash == selected.Hash && sameLockSize(locked.Size, selected.Size) &&
 		locked.Format == selected.Format && locked.PackageVersion == selected.PackageVersion &&
 		reflect.DeepEqual(canonicalHostRequirements(locked.HostRequirements), canonicalHostRequirements(lockHostRequirementsFromResolution(selected.HostRequirements)))
-}
-
-func packageVersionsMatch(sourceType string, locked, resolved *semver.Version) bool {
-	return sourceresolution.SameReleaseVersion(sourceidentity.Kind(sourceType), locked, resolved)
 }
 
 func lockSourceForResolvedRelease(release resolution.ResolvedRelease) (lockSource, error) {
@@ -1039,38 +1028,6 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 	return prepared, nil
 }
 
-func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installItem) error {
-	executor, err := s.newPackageExecutor()
-	if err != nil {
-		return err
-	}
-	return executor.downloadAndValidateItem(ctx, item)
-}
-
-func (s syncModel) itemCurrentMatches(item *installItem, current *config.DriverInfo) (bool, error) {
-	executor, err := s.newPackageExecutor()
-	if err != nil {
-		return false, err
-	}
-	return executor.itemCurrentMatches(item, current)
-}
-
-func (s syncModel) ensurePreparedPackage(ctx context.Context, item *installItem) (config.EnsurePackageResult, error) {
-	executor, err := s.newPackageExecutor()
-	if err != nil {
-		return config.EnsurePackageResult{}, err
-	}
-	return executor.ensurePreparedPackage(ctx, item)
-}
-
-func (s syncModel) validateEnsureResult(item *installItem, result config.EnsurePackageResult) error {
-	executor, err := s.newPackageExecutor()
-	if err != nil {
-		return err
-	}
-	return executor.validateEnsureResult(item, result)
-}
-
 type syncChecksumError struct{ err error }
 
 func (e syncChecksumError) Error() string { return e.err.Error() }
@@ -1095,8 +1052,8 @@ func acquireSyncProjectLock(ctx context.Context, lockPath string) (fslock.Lock, 
 	return fslock.Lock{}, fmt.Errorf("could not acquire lock in %s: %w", filepath.Dir(lockPath), err)
 }
 
-func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
-	result := syncWorkerResultMsg{code: "sync_failed"}
+func (s syncModel) runSyncWorker(worker *syncWorker) (result syncWorkerResultMsg) {
+	result = syncWorkerResultMsg{code: "sync_failed"}
 	fail := func(code string, err error) syncWorkerResultMsg {
 		result.code = code
 		result.err = err
@@ -1175,7 +1132,14 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 	}
 
 	prepared, err := s.prepareInstallItems(ctx, items)
-	defer closePreparedArchives(prepared.items)
+	defer func() {
+		if cleanupErr := closePreparedArchives(prepared.items); cleanupErr != nil {
+			result.err = errors.Join(result.err, fmt.Errorf("failed to clean up prepared package workspaces: %w", cleanupErr))
+			if result.code == "" {
+				result.code = "sync_failed"
+			}
+		}
+	}()
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return fail("sync_failed", err)
@@ -1198,12 +1162,16 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 	}
 	result.lock = prepared.lock
 
+	executor, err := s.newPackageExecutor()
+	if err != nil {
+		return fail("sync_failed", err)
+	}
 	for i := range prepared.items {
 		if err := ctx.Err(); err != nil {
 			return fail("sync_failed", err)
 		}
 		item := &prepared.items[i]
-		ensured, err := s.ensurePreparedPackage(ctx, item)
+		ensured, err := executor.ensurePreparedPackage(ctx, item)
 		if err != nil {
 			var checksumErr syncChecksumError
 			if errors.As(err, &checksumErr) {
@@ -1244,13 +1212,23 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 	return result
 }
 
-func closePreparedArchives(items []installItem) {
+func closePreparedArchives(items []installItem) error {
+	var closeErr error
 	for i := range items {
 		if items[i].Archive != nil {
-			_ = items[i].Archive.Close()
+			if err := items[i].Archive.Close(); err != nil {
+				closeErr = errors.Join(closeErr, fmt.Errorf("could not close downloaded artifact: %w", err))
+			}
 			items[i].Archive = nil
 		}
+		if items[i].Validation != nil && items[i].Validation.Prepared != nil {
+			if err := items[i].Validation.Prepared.Close(); err != nil {
+				closeErr = errors.Join(closeErr, fmt.Errorf("could not close prepared package: %w", err))
+			}
+			items[i].Validation.Prepared = nil
+		}
 	}
+	return closeErr
 }
 
 func syncProgressPercent(index, total int) float64 {
@@ -1276,14 +1254,7 @@ func (s syncModel) fail(code string, err error) (syncModel, tea.Cmd) {
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {
-	selected, err := item.selectedArtifact()
-	if err != nil {
-		return lockInfo{}, err
-	}
-	if err := validateInstallableArtifactFormat(selected.Format); err != nil {
-		return lockInfo{}, fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
-	}
-	if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
+	if _, err := item.selectedArtifact(); err != nil {
 		return lockInfo{}, err
 	}
 	legacyProofMatches := true
@@ -1306,7 +1277,7 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		return lockInfo{}, err
 	}
 	if item.LockEntry == nil || item.LockEntry.Version == nil ||
-		!packageVersionsMatch(candidate.Source.Type, item.LockEntry.Version, candidate.Version) {
+		!sourceresolution.SameReleaseVersion(sourceidentity.Kind(candidate.Source.Type), item.LockEntry.Version, candidate.Version) {
 		return candidate, nil
 	}
 	if len(item.LockEntry.Artifacts) == 0 {
@@ -1331,7 +1302,9 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 
 func hasValidatedReplacementEvidence(item installItem) bool {
 	selected, err := item.selectedArtifact()
-	if err != nil || item.AlreadyInstalled != nil || item.Archive == nil || selected.Hash == "" || selected.Size == nil || *selected.Size <= 0 || item.ValidatedLibraryHash == "" {
+	if err != nil || item.AlreadyInstalled != nil || item.Validation == nil || item.Validation.Prepared == nil ||
+		!item.Validation.Prepared.MatchesExpected(item.Expected) ||
+		selected.Hash == "" || selected.Size == nil || *selected.Size <= 0 || item.ValidatedLibraryHash == "" {
 		return false
 	}
 	if validateLegacyLibraryHash(item.ValidatedLibraryHash) != nil ||
@@ -1341,8 +1314,7 @@ func hasValidatedReplacementEvidence(item installItem) bool {
 		item.Expected.ArchiveHash != selected.Hash || item.Expected.ArchiveSize != *selected.Size {
 		return false
 	}
-	archiveInfo, err := item.Archive.File.Stat()
-	return err == nil && archiveInfo.Size() == *selected.Size
+	return true
 }
 
 func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1357,32 +1329,6 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		s.progress, cmd = s.progress.Update(msg)
 		return s, cmd
-	case driversListMsg:
-		// This adapter exists for focused lock-resolution tests. Runtime syncs
-		// keep this entire sequence in runSyncWorker under the project lock.
-		s.Path = msg.path
-		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
-		s.list = msg.list
-		if err := applyProjectRegistries(s.list); err != nil {
-			return s, errCmd("%v", err)
-		}
-		planned, needsRegistry, err := s.planSyncItems(s.list)
-		if err != nil {
-			return s, errCmd("failed to inspect lock file: %w", err)
-		}
-		if !needsRegistry {
-			return s, func() tea.Msg {
-				returnItems, err := s.createInstallList(planned)
-				if err != nil {
-					return err
-				}
-				return returnItems
-			}
-		}
-		return s, func() tea.Msg {
-			drivers, err := s.getDriverRegistry()
-			return driversWithRegistryError{drivers: drivers, err: err}
-		}
 	case syncItemsMsg:
 		s.spinner = spinner.New()
 		s.progress = progress.New(
@@ -1426,18 +1372,6 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			tea.Sequence(tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version), s.worker.nextEvent()),
 		)
 	case installedDrvMsg:
-		// Production workers verify the post-install checksum before publishing
-		// this progress event. Retain the direct-update path for isolated model
-		// tests and embedders that inject the event without a worker.
-		if s.worker == nil {
-			chksum, err := checksum(msg.info.Driver.Shared.Get(msg.item.Platform))
-			if err != nil {
-				return s.fail("checksum_failed", err)
-			}
-			if msg.item.InstalledLibraryHash != "" && msg.item.InstalledLibraryHash != chksum {
-				return s.fail("checksum_failed", errors.New("installed library checksum does not match validated package"))
-			}
-		}
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),

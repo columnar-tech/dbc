@@ -42,14 +42,14 @@ type packageExecutor struct {
 	downloadArtifact func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
 	downloadPkg      func(dbc.PkgInfo) (*os.File, error)
 	fetchPackslip    func(context.Context, *url.URL) (io.ReadCloser, error)
-	ensurePackage    func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
+	ensurePackage    func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
 }
 
 func newPackageExecutor(cfg config.Config, baseDir string, noVerify bool,
 	downloadArtifact func(context.Context, dbc.PkgInfo) (io.ReadCloser, error),
 	downloadPkg func(dbc.PkgInfo) (*os.File, error),
 	fetchPackslip func(context.Context, *url.URL) (io.ReadCloser, error),
-	ensurePackage func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error),
+	ensurePackage func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error),
 ) *packageExecutor {
 	if ensurePackage == nil {
 		ensurePackage = config.EnsurePackage
@@ -74,7 +74,7 @@ func (s syncModel) newPackageExecutor() (*packageExecutor, error) {
 			return nil, err
 		}
 	}
-	var ensurePackage func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
+	var ensurePackage func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
 	if s.worker != nil {
 		ensurePackage = s.worker.hooks.ensurePackage
 	}
@@ -157,47 +157,6 @@ func expectedSyncPackageMetadata(item installItem) (config.ExpectedPackageMetada
 		expected.ArchiveSize = *selected.Size
 	}
 	return expected, hasHash, nil
-}
-
-func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
-	if archive == nil {
-		return fmt.Errorf("download returned no archive")
-	}
-	selected, err := item.selectedArtifact()
-	if err != nil {
-		return err
-	}
-	if (selected.Hash == "") != (selected.Size == nil) {
-		return errors.New("artifact hash and size must either both be present or both be absent")
-	}
-	if err := resolution.ValidateArtifactMetadata(selected.Hash, selected.Size); err != nil {
-		return err
-	}
-	info, err := archive.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat downloaded archive: %w", err)
-	}
-	actualSize := info.Size()
-	actualHash, err := checksumFile(archive, archive.Name())
-	if err != nil {
-		return err
-	}
-	actualHash = "sha256:" + actualHash
-	if err := resolution.ValidateArtifactMetadata(actualHash, &actualSize); err != nil {
-		return err
-	}
-	if selected.Hash != "" && selected.Hash != actualHash {
-		return fmt.Errorf("downloaded archive hash %s does not match expected hash %s", actualHash, selected.Hash)
-	}
-	if selected.Size != nil && *selected.Size != actualSize {
-		return fmt.Errorf("downloaded archive size %d does not match expected size %d", actualSize, *selected.Size)
-	}
-	selected.Hash = actualHash
-	selected.Size = cloneInt64(&actualSize)
-	if _, err := archive.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to rewind downloaded archive: %w", err)
-	}
-	return nil
 }
 
 func (e *packageExecutor) openResolvedArtifact(ctx context.Context, item installItem) (*sourceresolution.OpenedArtifact, error) {
@@ -338,17 +297,10 @@ func (e *packageExecutor) downloadAndValidateItem(ctx context.Context, item *ins
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	selected, err := item.selectedArtifact()
-	if err != nil {
+	if _, err := item.selectedArtifact(); err != nil {
 		return err
 	}
-	if err := validateInstallableArtifactFormat(selected.Format); err != nil {
-		return fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
-	}
-	if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
-		return err
-	}
-	expected, hasMetadata, err := expectedSyncPackageMetadata(*item)
+	expected, _, err := expectedSyncPackageMetadata(*item)
 	if err != nil {
 		return err
 	}
@@ -363,50 +315,40 @@ func (e *packageExecutor) downloadAndValidateItem(ctx context.Context, item *ins
 		item.Archive = archive
 	}
 	archive := item.Archive.File
-	if err := snapshotDownloadedArchive(item, archive); err != nil {
-		return fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
-	}
-	selected, err = item.selectedArtifact()
-	if err != nil {
-		return err
-	}
-	if !hasMetadata {
-		if _, err := archive.Seek(0, io.SeekStart); err != nil {
-			return fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
-		}
-		packageManifest, inspectErr := config.InspectPackageMetadata(archive)
-		if inspectErr != nil {
-			return inspectErr
-		}
-		selected.PackageVersion = packageManifest.PackageVersion
-		expected.PackageVersion = selected.PackageVersion
-		if packageManifest.PackageVersion == 2 {
-			return errors.New("package v2 requires archive hash and size metadata")
-		}
-	}
-	expected.ArchiveHash = selected.Hash
-	expected.ArchiveSize = *selected.Size
-	item.Expected = expected
-	if _, err := archive.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
-	}
 	var verify func(string, config.Manifest) error
 	if !e.noVerify {
 		verify = func(stagingDir string, manifest config.Manifest) error {
 			return dbc.VerifyPackageSignature(stagingDir, manifest)
 		}
 	}
-	validation, err := config.ValidatePackage(item.Release.DriverID, archive, expected, config.InstallOptions{Verify: verify})
+	validation, err := config.PreparePackage(e.cfg, item.Release.DriverID, archive, expected, config.InstallOptions{Verify: verify})
 	if err != nil {
 		if isPackageVerificationFailure(err) {
 			return fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
 		}
-		return fmt.Errorf("failed to validate driver package: %w", err)
+		return fmt.Errorf("failed to prepare driver package: %w", err)
+	}
+	prepared := validation.Prepared
+	preparedAccepted := false
+	defer func() {
+		if !preparedAccepted && prepared != nil {
+			_ = prepared.Close()
+		}
+	}()
+	selected, err := item.selectedArtifact()
+	if err != nil {
+		return err
+	}
+	if selected.Hash == "" {
+		selected.Hash = validation.ArchiveHash
+		selected.Size = cloneInt64(&validation.ArchiveSize)
 	}
 	selected.PackageVersion = validation.PackageVersion
-	expected.PackageVersion = validation.PackageVersion
+	expected, _, err = expectedSyncPackageMetadata(*item)
+	if err != nil {
+		return err
+	}
 	item.Expected = expected
-	item.Validation = &validation
 	item.ValidatedLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
 	if item.ValidatedLibraryHash == "" {
 		candidateLibrary := validation.Registration.Driver.Shared.Get(item.Platform)
@@ -416,6 +358,14 @@ func (e *packageExecutor) downloadAndValidateItem(ctx context.Context, item *ins
 			}
 		}
 	}
+	if item.Archive != nil {
+		if err := item.Archive.Close(); err != nil {
+			return fmt.Errorf("could not close downloaded package archive: %w", err)
+		}
+		item.Archive = nil
+	}
+	item.Validation = &validation
+	preparedAccepted = true
 	return nil
 }
 
@@ -466,48 +416,35 @@ func (e *packageExecutor) itemCurrentMatches(item *installItem, current *config.
 }
 
 func (e *packageExecutor) ensurePreparedPackage(ctx context.Context, item *installItem) (config.EnsurePackageResult, error) {
+	if item != nil && item.Validation != nil && item.Validation.Prepared != nil {
+		defer func() { _ = item.Validation.Prepared.Close() }()
+	}
 	if err := ctx.Err(); err != nil {
 		return config.EnsurePackageResult{}, err
 	}
-	selected, err := item.selectedArtifact()
-	if err != nil {
-		return config.EnsurePackageResult{}, err
-	}
-	if err := validateInstallableArtifactFormat(selected.Format); err != nil {
-		return config.EnsurePackageResult{}, fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
-	}
-	if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
+	if _, err := item.selectedArtifact(); err != nil {
 		return config.EnsurePackageResult{}, err
 	}
 	callbacks := config.EnsurePackageCallbacks{
 		CurrentMatches: func(current *config.DriverInfo) (bool, error) {
 			return e.itemCurrentMatches(item, current)
 		},
-		Archive: func(ctx context.Context) (*os.File, error) {
-			if item.Archive == nil || item.Validation == nil {
+		Prepare: func(ctx context.Context) (*config.PreparedPackage, error) {
+			if item.Validation == nil || item.Validation.Prepared == nil {
 				if err := e.downloadAndValidateItem(ctx, item); err != nil {
 					return nil, err
 				}
 			}
-			if err := ctx.Err(); err != nil {
-				return nil, err
+			if item.Validation == nil || item.Validation.Prepared == nil {
+				return nil, errors.New("package preparation completed without a prepared payload")
 			}
-			if _, err := item.Archive.File.Seek(0, io.SeekStart); err != nil {
-				return nil, fmt.Errorf("failed to rewind prepared driver archive: %w", err)
-			}
-			return item.Archive.File, nil
+			return item.Validation.Prepared, nil
 		},
 		ValidateResult: func(result config.EnsurePackageResult) error {
 			return e.validateEnsureResult(item, result)
 		},
 	}
-	var verify func(string, config.Manifest) error
-	if !e.noVerify {
-		verify = func(stagingDir string, manifest config.Manifest) error {
-			return dbc.VerifyPackageSignature(stagingDir, manifest)
-		}
-	}
-	result, err := e.ensurePackage(ctx, e.cfg, item.Release.DriverID, item.Expected, config.InstallOptions{Verify: verify}, callbacks)
+	result, err := e.ensurePackage(ctx, e.cfg, item.Release.DriverID, item.Expected, callbacks)
 	if err != nil && isPackageVerificationFailure(err) {
 		return result, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
 	}
@@ -557,13 +494,6 @@ func (e *packageExecutor) validateEnsureResult(item *installItem, result config.
 		!config.InstallReceiptMatchesRuntimeRegistration(receipt, *result.Installed, item.Platform) ||
 		!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
 		return errors.New("installed package receipt does not match the validated package")
-	}
-	actualHash, err := checksum(libraryPath)
-	if err != nil {
-		return syncChecksumError{err: err}
-	}
-	if actualHash != item.ValidatedLibraryHash {
-		return syncChecksumError{err: errors.New("installed library checksum does not match validated package")}
 	}
 	return nil
 }

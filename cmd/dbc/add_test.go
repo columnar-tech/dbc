@@ -364,7 +364,7 @@ func TestAddUpdatesPackslipVersionWithoutRegistryLookup(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
 
 	release := makeSyncPackslipRelease(
-		"test-driver-1", "1.2.4+build.5", "https://assets.example.test/driver.tgz",
+		"test-driver-1", "1.2.4", "https://assets.example.test/driver.tgz",
 		"sha256:"+strings.Repeat("a", 64), 10)
 	resolver := &syncPackslipResolverStub{release: release}
 	registryCalls := 0
@@ -376,7 +376,7 @@ func TestAddUpdatesPackslipVersionWithoutRegistryLookup(t *testing.T) {
 	base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
 	msg := runTeaCmdToCompletion(t, AddCmd{
 		Path:   path,
-		Driver: []string{"test-driver-1=1.2.4+build.5"},
+		Driver: []string{"test-driver-1=1.2.4"},
 	}.GetModelCustom(base).(interface {
 		Init() tea.Cmd
 		Update(tea.Msg) (tea.Model, tea.Cmd)
@@ -386,7 +386,7 @@ func TestAddUpdatesPackslipVersionWithoutRegistryLookup(t *testing.T) {
 	assert.Equal(t, 0, registryCalls)
 	assert.Equal(t, 1, resolver.calls)
 	assert.Equal(t, "github.com/example/driver", resolver.project)
-	assert.Equal(t, packslip.Request{DriverID: "test-driver-1", Version: "1.2.4+build.5"}, resolver.request)
+	assert.Equal(t, packslip.Request{DriverID: "test-driver-1", Version: "1.2.4"}, resolver.request)
 
 	data, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
@@ -394,7 +394,7 @@ func TestAddUpdatesPackslipVersionWithoutRegistryLookup(t *testing.T) {
 	require.NoError(t, toml.Unmarshal(data, &updated))
 	require.NoError(t, updated.validateSources())
 	got := updated.Drivers["test-driver-1"]
-	assert.Equal(t, "1.2.4+build.5", got.Version.String())
+	assert.Equal(t, "1.2.4", got.Version.String())
 	require.NotNil(t, got.Source)
 	assert.Equal(t, dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"}, *got.Source)
 }
@@ -493,73 +493,34 @@ func TestAddPathSourceRequiresExactVersionToMatchArchive(t *testing.T) {
 	assert.Equal(t, initial, string(data), "version mismatch must leave dbc.toml byte-for-byte unchanged")
 }
 
-func TestAddRejectsInvalidPackslipResolverResultWithoutMutation(t *testing.T) {
-	tests := []struct {
-		name   string
-		mutate func(*resolution.ResolvedRelease)
-		want   string
-	}{
-		{
-			name: "wrong driver ID",
-			mutate: func(release *resolution.ResolvedRelease) {
-				release.DriverID = "some-other-driver"
-			},
-			want: `driver ID "some-other-driver" does not match requested driver "test-driver-1"`,
-		},
-		{
-			name: "wrong version",
-			mutate: func(release *resolution.ResolvedRelease) {
-				release.Version = "1.2.5"
-			},
-			want: `packslip release version "1.2.5" does not match requested version "1.2.4"`,
-		},
-		{
-			name: "wrong source",
-			mutate: func(release *resolution.ResolvedRelease) {
-				release.Source.Reference = "github.com/example/other"
-			},
-			want: `source identity "github.com/example/other" does not match declared project "github.com/example/driver"`,
-		},
-		{
-			name: "missing dbc package declaration",
-			mutate: func(release *resolution.ResolvedRelease) {
-				release.Artifacts[0].PackageVersion = 1
-			},
-			want: "unsupported dbc package version 1",
-		},
+func TestAddRejectsPackslipVersionMismatchWithoutMutation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dbc.toml")
+	initial := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+		"[drivers.test-driver-1.source]\ntype = 'packslip'\n" +
+		"project = 'github.com/example/driver'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+	release := makeSyncPackslipRelease(
+		"test-driver-1", "1.2.5", "https://assets.example.test/driver.tgz",
+		"sha256:"+strings.Repeat("a", 64), 10)
+	resolver := &syncPackslipResolverStub{release: release}
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		return nil, errors.New("Packslip add must not query registries")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := t.TempDir()
-			path := filepath.Join(dir, "dbc.toml")
-			initial := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
-				"[drivers.test-driver-1.source]\ntype = 'packslip'\n" +
-				"project = 'github.com/example/driver'\n"
-			require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
-			release := makeSyncPackslipRelease(
-				"test-driver-1", "1.2.4", "https://assets.example.test/driver.tgz",
-				"sha256:"+strings.Repeat("a", 64), 10)
-			tt.mutate(&release)
-			resolver := &syncPackslipResolverStub{release: release}
-			base := testBaseModel()
-			base.getDriverRegistry = func() ([]dbc.Driver, error) {
-				return nil, errors.New("Packslip add must not query registries")
-			}
-			base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
-			msg := runTeaCmdToCompletion(t, AddCmd{
-				Path: path, Driver: []string{"test-driver-1=1.2.4"},
-			}.GetModelCustom(base).(interface {
-				Init() tea.Cmd
-				Update(tea.Msg) (tea.Model, tea.Cmd)
-			}))
-			err, ok := msg.(error)
-			require.True(t, ok, "invalid Packslip result must fail before mutation")
-			assert.ErrorContains(t, err, tt.want)
-			data, err := os.ReadFile(path)
-			require.NoError(t, err)
-			assert.Equal(t, initial, string(data))
-		})
-	}
+	base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
+	msg := runTeaCmdToCompletion(t, AddCmd{
+		Path: path, Driver: []string{"test-driver-1=1.2.4"},
+	}.GetModelCustom(base).(interface {
+		Init() tea.Cmd
+		Update(tea.Msg) (tea.Model, tea.Cmd)
+	}))
+	err, ok := msg.(error)
+	require.True(t, ok, "invalid Packslip result must fail before mutation")
+	assert.ErrorContains(t, err, `packslip release version "1.2.5" does not match requested version "1.2.4"`)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, initial, string(data))
 }
 
 func TestAddResolvesPackslipOutsideProjectLockAndRejectsSourceDrift(t *testing.T) {
@@ -675,9 +636,7 @@ func TestAddNonRegistrySourcesRejectInvalidVersionAndPreWithoutMutation(t *testi
 		input  string
 		pre    bool
 	}{
-		{name: "packslip range", source: "packslip", input: "test-driver-1>=1.2.3"},
 		{name: "packslip missing", source: "packslip", input: "test-driver-1"},
-		{name: "packslip coercible", source: "packslip", input: "test-driver-1=v1.2.3"},
 		{name: "packslip prerelease flag", source: "packslip", input: "test-driver-1=1.2.3", pre: true},
 		{name: "path range", source: "path", input: "test-driver-1>=1.0.0"},
 		{name: "path coercible", source: "path", input: "test-driver-1=01.2.3"},

@@ -90,12 +90,90 @@ type InstallOptions struct {
 // driver library file.
 type PackageValidation struct {
 	VerifiedLibraryHash              string
+	ArchiveHash                      string
+	ArchiveSize                      int64
 	PackageVersion                   int
 	Registration                     DriverInfo
 	RegistrationFingerprintAlgorithm string
 	RegistrationFingerprintVersion   int
 	RegistrationFingerprint          string
 	registrationSharedIdentity       registrationSharedIdentity
+	Prepared                         *PreparedPackage
+}
+
+// PreparedPackage owns a validated package payload that has not yet been
+// published to the runtime. Its fields are intentionally private: callers may
+// only pass it back to EnsurePackage or close it.
+type PreparedPackage struct {
+	mu         sync.Mutex
+	root       string
+	runtimeID  string
+	requested  ExpectedPackageMetadata
+	expected   ExpectedPackageMetadata
+	workDir    string
+	payloadDir string
+	finalDir   string
+	manifest   Manifest
+	used       bool
+	closed     bool
+	closeErr   error
+}
+
+// Close removes the private prepared-package workspace. It is safe to call
+// more than once.
+func (p *PreparedPackage) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return p.closeErr
+	}
+	p.closed = true
+	if err := os.RemoveAll(p.workDir); err != nil {
+		p.closeErr = fmt.Errorf("could not remove prepared package workspace: %w", err)
+	}
+	return p.closeErr
+}
+
+// MatchesExpected reports whether this unconsumed prepared payload was
+// validated for the supplied expected package metadata. It also accepts the
+// finalized metadata whose archive hash, size, and package version were
+// measured while preparing the package.
+func (p *PreparedPackage) MatchesExpected(expected ExpectedPackageMetadata) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || p.used {
+		return false
+	}
+	normalized, err := normalizePackageInstallMetadata(p.runtimeID, expected)
+	if err != nil {
+		return false
+	}
+	return p.requested == normalized || p.expected == normalized
+}
+
+func (p *PreparedPackage) claim(root, runtimeID string, expected ExpectedPackageMetadata) error {
+	if p == nil {
+		return errors.New("prepared package is nil")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return errors.New("prepared package is closed")
+	}
+	if p.used {
+		return errors.New("prepared package has already been used")
+	}
+	if p.root != root || p.runtimeID != runtimeID || (p.requested != expected && p.expected != expected) {
+		return errors.New("prepared package does not match the requested installation")
+	}
+	p.used = true
+	return nil
 }
 
 type registrationSharedIdentity struct {
@@ -381,18 +459,20 @@ func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 // EnsurePackageCallbacks contains the narrow decisions and resources needed
 // to atomically reuse or install a selected package. CurrentMatches receives
 // the latest registration (nil when absent) once before and, if needed, once
-// after obtaining the archive. Archive runs at most once and outside the
+// after preparing a package. Prepare runs at most once and outside the
 // driver's install locks. ValidateResult runs before the final lock release;
 // if it fails after installation, the installed generation remains committed
 // and is described by the returned result. CurrentMatches and ValidateResult
 // run synchronously while the driver's install locks are held. They must not
 // call InstallPackage, EnsurePackage, UninstallDriver, or another API that
-// reacquires a lock for the same driver, because that would deadlock. Archive
+// reacquires a lock for the same driver, because that would deadlock. Prepare
 // receives the operation context and should honor its cancellation.
 // CurrentMatches may be called twice and must be pure and side-effect-free.
 type EnsurePackageCallbacks struct {
 	CurrentMatches func(current *DriverInfo) (bool, error)
-	Archive        func(context.Context) (*os.File, error)
+	// Prepare is called outside install locks only if the initial registration
+	// does not match. The returned payload is owned and closed by EnsurePackage.
+	Prepare        func(context.Context) (*PreparedPackage, error)
 	ValidateResult func(result EnsurePackageResult) error
 }
 
@@ -410,31 +490,36 @@ type EnsurePackageResult struct {
 
 // EnsurePackage checks the effective runtime registration under all
 // configured driver install locks. If it does not match, EnsurePackage
-// releases those locks, obtains one archive, reacquires all locks, and checks
+// releases those locks, prepares one package, reacquires all locks, and checks
 // the latest registration again before deciding to skip or install. This
-// prevents archive retrieval from blocking unrelated driver operations while
+// prevents package preparation from blocking unrelated driver operations while
 // ensuring no stale registration snapshot is used for the final decision.
-// The archive is caller-owned and is never closed here, including when phase
+// EnsurePackage owns and closes the prepared payload, including when phase
 // two finds that it is no longer needed. CurrentMatches runs up to twice and
 // ValidateResult runs under the driver install locks. Neither callback may
 // call InstallPackage, EnsurePackage, UninstallDriver, or another API that
-// reacquires a lock for the same driver, because that would deadlock. Archive
+// reacquires a lock for the same driver, because that would deadlock. Prepare
 // runs once outside the locks and receives ctx so it can cancel its work.
 // CurrentMatches must be pure and side-effect-free because it may run once
-// before archive retrieval and again against the latest registration after.
+// before preparation and again against the latest registration after.
 // Result.Current is the most recently inspected registration: it remains the
-// phase-one snapshot on provider or phase-two lock acquisition failure.
+// phase-one snapshot on preparation or phase-two lock acquisition failure.
 // TODO: Review after the prototype whether this callback transaction should remain public or move behind a higher-level/internal API.
-func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks) (EnsurePackageResult, error) {
-	return ensurePackageWithLockObserver(ctx, cfg, runtimeID, expected, installOptions, callbacks, nil)
+func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, callbacks EnsurePackageCallbacks) (EnsurePackageResult, error) {
+	return ensurePackageWithLockObserver(ctx, cfg, runtimeID, expected, callbacks, nil)
 }
 
 // ensurePackageWithLockObserver is the internal lock-acquisition seam used by
 // tests to synchronize with each phase's lock acquisition. The observer is
 // called after each successful root acquisition, synchronously while that
 // root lock remains held.
-func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks, lockObserver func(root string)) (EnsurePackageResult, error) {
-	var result EnsurePackageResult
+func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, callbacks EnsurePackageCallbacks, lockObserver func(root string)) (result EnsurePackageResult, returnErr error) {
+	var prepared *PreparedPackage
+	defer func() {
+		if prepared != nil {
+			returnErr = errors.Join(returnErr, prepared.Close())
+		}
+	}()
 	if ctx == nil {
 		return result, errors.New("package ensure context is nil")
 	}
@@ -475,20 +560,17 @@ func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID st
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if callbacks.Archive == nil {
-		return result, errors.New("package archive provider is nil")
+	if callbacks.Prepare == nil {
+		return result, errors.New("package preparer is nil")
 	}
-	archive, providerErr := callbacks.Archive(ctx)
-	if err := ctx.Err(); err != nil {
-		return result, err
+	prepared, err = callbacks.Prepare(ctx)
+	if err != nil {
+		return result, fmt.Errorf("could not prepare package: %w", err)
 	}
-	if providerErr != nil {
-		return result, fmt.Errorf("could not provide package archive: %w", providerErr)
+	if prepared == nil {
+		return result, errors.New("package preparer returned nil")
 	}
-	if archive == nil {
-		return result, errors.New("package archive provider returned nil")
-	}
-	if err := ctx.Err(); err != nil {
+	if err := prepared.claim(primary, runtimeID, expected); err != nil {
 		return result, err
 	}
 
@@ -511,7 +593,7 @@ func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID st
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	manifest, previous, err := installPackageLocked(cfg, runtimeID, primary, archive, expected, installOptions, CreateManifest, cleanupOwnedPackageDirectories)
+	manifest, previous, err := installPreparedPackageLocked(cfg, runtimeID, primary, expected, prepared, CreateManifest, cleanupOwnedPackageDirectories)
 	if err != nil {
 		return result, err
 	}
@@ -727,11 +809,82 @@ func cloneDriverInfo(info *DriverInfo) *DriverInfo {
 	return &clone
 }
 
-// ValidatePackage verifies and stages an already-downloaded package in a
-// private temporary directory without registering it or changing shared
-// configuration. The temporary directory is removed before ValidatePackage
-// returns. The archive remains open and can be passed to InstallPackage after
-// validation.
+// PreparePackage verifies and stages an already-downloaded package under its
+// selected install root without registering it or changing runtime
+// configuration. The returned prepared payload can later be atomically
+// published by EnsurePackage; callers must close it if they do not pass it to
+// EnsurePackage. The downloaded archive remains open for the caller.
+func PreparePackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions) (validation PackageValidation, err error) {
+	if downloaded == nil {
+		return PackageValidation{}, errors.New("package archive is nil")
+	}
+	requested, err := normalizePackageInstallMetadata(runtimeID, expected)
+	if err != nil {
+		return PackageValidation{}, err
+	}
+	root, _, err := resolvePackageInstallRoots(cfg)
+	if err != nil {
+		return PackageValidation{}, fmt.Errorf("could not resolve package installation root: %w", err)
+	}
+	root, err = filepath.Abs(root)
+	if err != nil {
+		return PackageValidation{}, fmt.Errorf("could not resolve package installation root: %w", err)
+	}
+	workDir, err := os.MkdirTemp(root, ".dbc-install-")
+	if err != nil {
+		return PackageValidation{}, fmt.Errorf("could not create private package preparation directory: %w", err)
+	}
+	keepWorkspace := false
+	defer func() {
+		if !keepWorkspace {
+			if cleanupErr := os.RemoveAll(workDir); cleanupErr != nil {
+				validation = PackageValidation{}
+				err = errors.Join(err, fmt.Errorf("could not remove package preparation directory: %w", cleanupErr))
+			}
+		}
+	}()
+	reservedDir, err := os.MkdirTemp(root, ".dbc-package-"+runtimeID+"-")
+	if err != nil {
+		return PackageValidation{}, fmt.Errorf("could not reserve package generation directory: %w", err)
+	}
+	if err := os.Remove(reservedDir); err != nil {
+		return PackageValidation{}, fmt.Errorf("could not prepare package generation directory: %w", err)
+	}
+	finalDir := reservedDir
+	manifest, payloadDir, sharedIdentity, err := stagePackageArchive(root, runtimeID, finalDir, downloaded, requested, options.Verify, workDir)
+	if err != nil {
+		return PackageValidation{}, err
+	}
+	receipt, ok := readPackageReceiptEvidence(workDir, runtimeID, payloadDir)
+	if !ok {
+		return PackageValidation{}, errors.New("could not read prepared package receipt")
+	}
+	if manifest.PackageVersion == 2 && requested.ArchiveHash == "" {
+		return PackageValidation{}, errors.New("package v2 requires archive hash and size metadata")
+	}
+	finalExpected := requested
+	finalExpected.PackageVersion = manifest.PackageVersion
+	finalExpected.ArchiveHash = receipt.ArchiveHash
+	finalExpected.ArchiveSize = receipt.ArchiveSize
+	prepared := &PreparedPackage{
+		root: root, runtimeID: runtimeID, requested: requested, expected: finalExpected,
+		workDir: workDir, payloadDir: payloadDir, finalDir: finalDir, manifest: manifest,
+	}
+	keepWorkspace = true
+	return PackageValidation{
+		VerifiedLibraryHash: receipt.InstalledLibraryHash,
+		ArchiveHash:         receipt.ArchiveHash, ArchiveSize: receipt.ArchiveSize,
+		PackageVersion: manifest.PackageVersion, Registration: manifest.DriverInfo,
+		RegistrationFingerprintAlgorithm: receipt.RegistrationFingerprintAlgorithm,
+		RegistrationFingerprintVersion:   receipt.RegistrationFingerprintVersion,
+		RegistrationFingerprint:          receipt.RegistrationFingerprint,
+		registrationSharedIdentity:       sharedIdentity,
+		Prepared:                         prepared,
+	}, nil
+}
+
+// ValidatePackage verifies an already-downloaded archive without retaining a
+// staged payload. The archive remains open for the caller.
 func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions) (validation PackageValidation, err error) {
 	if downloaded == nil {
 		return PackageValidation{}, errors.New("package archive is nil")
@@ -756,12 +909,14 @@ func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPac
 	if err != nil {
 		return PackageValidation{}, err
 	}
-	receipt, ok := readPackageReceipt(workDir, runtimeID, payloadDir)
+	receipt, ok := readPackageReceiptEvidence(workDir, runtimeID, payloadDir)
 	if !ok {
 		return PackageValidation{}, errors.New("could not read validated package receipt")
 	}
 	return PackageValidation{
-		VerifiedLibraryHash: receipt.InstalledLibraryHash, PackageVersion: manifest.PackageVersion, Registration: manifest.DriverInfo,
+		VerifiedLibraryHash: receipt.InstalledLibraryHash,
+		ArchiveHash:         receipt.ArchiveHash, ArchiveSize: receipt.ArchiveSize,
+		PackageVersion: manifest.PackageVersion, Registration: manifest.DriverInfo,
 		RegistrationFingerprintAlgorithm: receipt.RegistrationFingerprintAlgorithm,
 		RegistrationFingerprintVersion:   receipt.RegistrationFingerprintVersion,
 		RegistrationFingerprint:          receipt.RegistrationFingerprint,
@@ -937,6 +1092,51 @@ func installPackageLocked(cfg Config, runtimeID, loc string, downloaded *os.File
 	if err != nil {
 		return Manifest{}, previous, err
 	}
+	return publishStagedPackageLocked(cfg, runtimeID, loc, manifest, payloadDir, finalDir, previous, registerManifest, cleanup)
+}
+
+func installPreparedPackageLocked(cfg Config, runtimeID, loc string, expected ExpectedPackageMetadata, prepared *PreparedPackage, registerManifest func(Config, DriverInfo) error, cleanup func(string, string, *DriverInfo, string, DriverInfo) error) (Manifest, *DriverInfo, error) {
+	if prepared == nil {
+		return Manifest{}, nil, errors.New("prepared package is nil")
+	}
+	if registerManifest == nil {
+		return Manifest{}, nil, errors.New("package manifest registrar is nil")
+	}
+	if cleanup == nil {
+		return Manifest{}, nil, errors.New("package cleanup function is nil")
+	}
+	var err error
+	expected, err = normalizePackageInstallMetadata(runtimeID, expected)
+	if err != nil {
+		return Manifest{}, nil, err
+	}
+	loc, err = filepath.Abs(loc)
+	if err != nil {
+		return Manifest{}, nil, fmt.Errorf("could not resolve config location: %w", err)
+	}
+	prepared.mu.Lock()
+	preparedValid := prepared.used && !prepared.closed && prepared.root == loc && prepared.runtimeID == runtimeID &&
+		(prepared.requested == expected || prepared.expected == expected)
+	manifest := prepared.manifest
+	payloadDir := prepared.payloadDir
+	finalDir := prepared.finalDir
+	prepared.mu.Unlock()
+	if !preparedValid {
+		return Manifest{}, nil, errors.New("prepared package does not match the requested installation")
+	}
+	if _, err := os.Lstat(finalDir); err == nil {
+		return Manifest{}, nil, fmt.Errorf("package generation path already exists: %s", finalDir)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return Manifest{}, nil, fmt.Errorf("could not inspect package generation path: %w", err)
+	}
+	previous, err := loadInstalledDriver(cfg, loc, runtimeID)
+	if err != nil {
+		return Manifest{}, nil, fmt.Errorf("could not inspect existing driver registration: %w", err)
+	}
+	return publishStagedPackageLocked(cfg, runtimeID, loc, manifest, payloadDir, finalDir, previous, registerManifest, cleanup)
+}
+
+func publishStagedPackageLocked(cfg Config, runtimeID, loc string, manifest Manifest, payloadDir, finalDir string, previous *DriverInfo, registerManifest func(Config, DriverInfo) error, cleanup func(string, string, *DriverInfo, string, DriverInfo) error) (Manifest, *DriverInfo, error) {
 	if err := os.Rename(payloadDir, finalDir); err != nil {
 		return Manifest{}, previous, fmt.Errorf("could not publish verified package generation: %w", err)
 	}
