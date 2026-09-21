@@ -320,7 +320,11 @@ func (m addModel) Init() tea.Cmd {
 					return fmt.Errorf("path resolver returned an invalid package: %w", err)
 				}
 			default:
-				drv, err := findDriver(spec.Name, drivers)
+				requirement, err := requirementForDriverSpec(spec.Name, current)
+				if err != nil {
+					return err
+				}
+				drv, err := registryDriverForRequirement(requirement, drivers, nil)
 				if err != nil {
 					return wrapWithRegistryContext(err, registryErrors)
 				}

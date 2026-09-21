@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,7 +189,11 @@ func TestAddUpdatingDriverPreservesSource(t *testing.T) {
 
 	runAdd := func(cmd AddCmd) DriversList {
 		t.Helper()
-		msg := runTeaCmdToCompletion(t, cmd.GetModelCustom(testBaseModel()).(interface {
+		base := testBaseModel()
+		base.getDriverRegistry = func() ([]dbc.Driver, error) {
+			return []dbc.Driver{addTestRegistryDriver(t, expectedSource.URL, "1.0.0", "1.1.0")}, nil
+		}
+		msg := runTeaCmdToCompletion(t, cmd.GetModelCustom(base).(interface {
 			Init() tea.Cmd
 			Update(tea.Msg) (tea.Model, tea.Cmd)
 		}))
@@ -216,6 +221,136 @@ func TestAddUpdatingDriverPreservesSource(t *testing.T) {
 	assert.Equal(t, *expectedSource, *got.Source)
 	assert.Nil(t, got.Version)
 	assert.Equal(t, "allow", got.Prerelease)
+}
+
+func addTestRegistryDriver(t *testing.T, registryURL string, versions ...string) dbc.Driver {
+	t.Helper()
+
+	drivers, err := getTestDriverRegistry()
+	require.NoError(t, err)
+	for _, driver := range drivers {
+		if driver.Path != "test-driver-1" {
+			continue
+		}
+
+		allowed := make(map[string]bool, len(versions))
+		for _, version := range versions {
+			allowed[version] = true
+		}
+		filtered := driver.PkgInfo[:0]
+		for _, pkg := range driver.PkgInfo {
+			if allowed[pkg.Version.String()] {
+				filtered = append(filtered, pkg)
+			}
+		}
+		driver.PkgInfo = filtered
+
+		baseURL, err := url.Parse(registryURL)
+		require.NoError(t, err)
+		driver.Registry = &dbc.Registry{BaseURL: baseURL}
+		return driver
+	}
+	t.Fatal("test driver test-driver-1 is missing from the fixture registry")
+	return dbc.Driver{}
+}
+
+func TestAddExplicitRegistryUsesDeclaredRegistryForVersionValidation(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	const registryA = "https://registry-a.example.test"
+	const registryB = "https://registry-b.example.test"
+	tests := []struct {
+		name        string
+		declaredURL string
+		drivers     []dbc.Driver
+		wantSuccess bool
+	}{
+		{
+			name:        "explicit B does not accept a version found only in A",
+			declaredURL: registryB,
+			drivers: []dbc.Driver{
+				addTestRegistryDriver(t, registryA, "1.1.0"),
+				addTestRegistryDriver(t, registryB, "1.0.0"),
+			},
+		},
+		{
+			name:        "explicit B accepts its version and preserves source",
+			declaredURL: registryB,
+			drivers: []dbc.Driver{
+				addTestRegistryDriver(t, registryA, "1.0.0"),
+				addTestRegistryDriver(t, registryB, "1.1.0"),
+			},
+			wantSuccess: true,
+		},
+		{
+			name:        "explicit B does not fall back when the driver is absent",
+			declaredURL: registryB,
+			drivers: []dbc.Driver{
+				addTestRegistryDriver(t, registryA, "1.1.0"),
+			},
+		},
+		{
+			name: "omitted source keeps A precedence",
+			drivers: []dbc.Driver{
+				addTestRegistryDriver(t, registryA, "1.0.0"),
+				addTestRegistryDriver(t, registryB, "1.1.0"),
+			},
+		},
+		{
+			name:        "canonical equivalent URL selects B",
+			declaredURL: "HTTPS://REGISTRY-B.EXAMPLE.TEST/#client-fragment",
+			drivers: []dbc.Driver{
+				addTestRegistryDriver(t, registryA, "1.0.0"),
+				addTestRegistryDriver(t, registryB, "1.1.0"),
+			},
+			wantSuccess: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "dbc.toml")
+			initial := "[drivers.test-driver-1]\n"
+			if tt.declaredURL != "" {
+				initial += "[drivers.test-driver-1.source]\n" +
+					"type = 'registry'\n" +
+					"url = '" + tt.declaredURL + "'\n"
+			}
+			require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+
+			model := AddCmd{Path: path, Driver: []string{"test-driver-1=1.1.0"}}.GetModelCustom(baseModel{
+				getDriverRegistry: func() ([]dbc.Driver, error) { return tt.drivers, nil },
+			})
+			msg := runTeaCmdToCompletion(t, model.(interface {
+				Init() tea.Cmd
+				Update(tea.Msg) (tea.Model, tea.Cmd)
+			}))
+			_, failed := msg.(error)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+
+			if !tt.wantSuccess {
+				require.True(t, failed, "add unexpectedly succeeded: %v", msg)
+				assert.Equal(t, initial, string(data), "failed add must leave dbc.toml unchanged")
+				return
+			}
+
+			require.False(t, failed, "add failed: %v", msg)
+			var updated DriversList
+			require.NoError(t, toml.Unmarshal(data, &updated))
+			require.NoError(t, updated.validateSources())
+			driver := updated.Drivers["test-driver-1"]
+			require.NotNil(t, driver.Version)
+			assert.Equal(t, "=1.1.0", driver.Version.String())
+			if tt.declaredURL == "" {
+				assert.Nil(t, driver.Source)
+				return
+			}
+			require.NotNil(t, driver.Source)
+			assert.Equal(t, tt.declaredURL, driver.Source.URL)
+		})
+	}
 }
 
 func TestAddUpdatesPackslipVersionWithoutRegistryLookup(t *testing.T) {
