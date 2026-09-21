@@ -98,30 +98,42 @@ $ dbc sync
 Done!
 ```
 
+{{ since_version('v0.4.0') }}
+
+The following lockfile replay behavior is planned for dbc 0.4.0.
+
 The first time you run `dbc sync`, dbc creates a [lockfile](#lockfile) in the same directory as the driver list.
 By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.
 
-When you run `dbc sync` and a lockfile already exists, dbc will install the exact versions in the lockfile.
-To upgrade the versions in the lockfile, delete the lockfile and run `dbc sync`.
+When a complete lock entry exists, `dbc sync` replays the exact version and
+artifact, verifying its digest and size without registry or Packslip discovery.
+If the current platform is absent, the lock is partial: a refresh may add that
+target for the same source and version, but existing target entries are
+immutable.
 
 ## Lockfile
 
 `dbc sync` automatically creates a lockfile file in the same directory as the driver list. By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.
 
-The lockfile records the exact version of the drivers that were installed, including version, platform, and a checksum:
+The v2 lockfile records an exact version, source identity, verification
+evidence, and concrete target artifacts with their location, SHA-256 digest,
+and size. A missing target is not evidence that the target is available.
 
-```console
-$ cat dbc.lock
-version = 1
+For example, a source can be pinned explicitly:
 
-[[drivers]]
-name = 'mysql'
-version = '0.1.0'
-platform = 'macos_arm64'
-checksum = 'e989f8c49262359093f03e2f43a796b163d2774de519e07cef14ebd63590c81d'
+```toml
+[drivers.mysql.source]
+type = 'registry'
+url = 'https://registry.example.test'
 ```
 
-Every time you run `dbc sync`, this file is updated with the exact information about each driver that was installed.
+For an implicit registry source, the selected registry URL is saved in the
+lock, and partial refresh remains pinned to it. A Packslip replay does not
+re-check a later release withdrawal or trust-store change; discovery and
+verification run again only during refresh. Path sources are also snapshotted:
+relative paths use the lockfile directory, and changed bytes fail verification
+instead of causing an implicit refresh. A dedicated refresh UX is not yet
+available, so review lockfile changes as deliberate dependency updates.
 It's a good idea to track `dbc.lock` as well as `dbc.toml` in version control if you want to ensure a completely reproducible set of drivers.
 
 ## Version Constraints

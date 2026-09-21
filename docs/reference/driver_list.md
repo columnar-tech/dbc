@@ -18,6 +18,11 @@ limitations under the License.
 
 `dbc.toml` is the default filename dbc uses for a [driver list](../concepts/driver_list.md). This page outlines the structure of that file.
 
+{{ since_version('v0.4.0') }}
+
+The source-aware lockfile and source pinning described below are planned for
+dbc 0.4.0.
+
 This file uses the [TOML](https://toml.io) file format and contains a single TOML Table called "drivers".
 Each driver must have a name and may optionally have a version constraint and pre-release setting. See [Version Constraints](../guides/installing.md#version-constraints) to learn how to specify version constraints.
 
@@ -87,3 +92,18 @@ To allow the pre-release in this case, either:
 
 - Add `prerelease = 'allow'`
 - Change the constraint to reference the pre-release: `version = '>=0.1.1-beta.1'`
+
+### `source`
+
+Optional. Pins a driver to one source identity. A registry source uses a
+canonical registry URL:
+
+```toml
+[drivers.mysql.source]
+type = 'registry'
+url = 'https://registry.example.test'
+```
+
+When `source` is omitted, the configured registry policy selects the source;
+the selected URL is then recorded in `dbc.lock`, so a partial refresh remains
+pinned to it. Packslip and path sources are snapshotted similarly.
