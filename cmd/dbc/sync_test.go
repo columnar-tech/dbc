@@ -304,12 +304,28 @@ func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
 	explicitRegistry := &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}
 	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
 		Version: version,
-		Source:  lockSource{Type: "registry", URL: explicitRegistry.URL},
+		Source:  lockSource{Type: "registry", URL: "https://registry.example.test/"},
 	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}))
+	caseInsensitiveRegistry := &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "HTTPS://REGISTRY.EXAMPLE.TEST/"}
+	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "registry", URL: explicitRegistry.URL},
+	}, driverSpec{Version: registryConstraint, Source: caseInsensitiveRegistry}),
+		"scheme/host case and trailing slash use registry URL normalization")
 	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
 		Version: version,
 		Source:  lockSource{Type: "registry", URL: "https://other.example.test"},
 	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}))
+	for _, differentURL := range []string{
+		"https://registry.example.test/tenant",
+		"https://registry.example.test?tenant=b",
+	} {
+		assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+			Version: version,
+			Source:  lockSource{Type: "registry", URL: differentURL},
+		}, driverSpec{Version: registryConstraint, Source: explicitRegistry}),
+			"registry path/query differences remain part of source identity: %s", differentURL)
+	}
 
 	pathSource := &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/driver.tgz"}
 	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
@@ -320,6 +336,42 @@ func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
 		Version: version,
 		Source:  lockSource{Type: "path", Path: "./packages/other.tgz"},
 	}, driverSpec{Version: registryConstraint, Source: pathSource}))
+}
+
+func TestExplicitRegistryURLNormalizationAllowsOfflineLockedReplay(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+	entry.Name = "test-driver-1"
+	entry.Source.URL = "https://registry.example.test"
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+
+	version, err := semver.NewConstraint("1.2.3")
+	require.NoError(t, err)
+	list := DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {
+			Version: version,
+			Source: &dbc.DriverSource{
+				Type: dbc.DriverSourceRegistry,
+				URL:  "HTTPS://REGISTRY.EXAMPLE.TEST/",
+			},
+		},
+	}}
+	model := syncModel{LockFilePath: lockPath}
+	needsRegistry, err := model.registryDiscoveryNeeded(list)
+	require.NoError(t, err)
+	assert.False(t, needsRegistry, "normalized explicit registry identity should permit offline lock replay")
+
+	items, err := model.createInstallList(list)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	require.NotNil(t, items[0].LockEntry)
+	assert.Nil(t, model.driverIndex, "locked replay must not need registry discovery")
+	resolvedSource, err := packageLockSource(items[0])
+	require.NoError(t, err)
+	assert.Equal(t, "https://registry.example.test", resolvedSource.URL)
+	expected, _, err := expectedRegistryPackageMetadata(items[0].Package)
+	require.NoError(t, err)
+	assert.Equal(t, "https://registry.example.test", expected.SourceIdentity)
 }
 
 func TestPackageVersionIdentityDependsOnSource(t *testing.T) {

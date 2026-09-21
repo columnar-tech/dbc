@@ -537,7 +537,8 @@ func driverSourceMatchesLock(source *dbc.DriverSource, locked lockSource) bool {
 	}
 	switch source.Type {
 	case dbc.DriverSourceRegistry:
-		return locked.Type == string(dbc.DriverSourceRegistry) && locked.URL == source.URL
+		return locked.Type == string(dbc.DriverSourceRegistry) &&
+			normalizeRegistryURL(locked.URL) == normalizeRegistryURL(source.URL)
 	case dbc.DriverSourcePackslip:
 		return locked.Type == string(dbc.DriverSourcePackslip) &&
 			canonicalPackslipProject(locked.Project) == canonicalPackslipProject(source.Project)
