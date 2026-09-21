@@ -18,19 +18,29 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/columnar-tech/dbc/internal/packslip"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type addPackslipResolverFunc func(context.Context, packslip.PackslipSource, packslip.Request) (resolution.ResolvedRelease, error)
+
+func (f addPackslipResolverFunc) Resolve(ctx context.Context, source packslip.PackslipSource, request packslip.Request) (resolution.ResolvedRelease, error) {
+	return f(ctx, source, request)
+}
 
 func TestAdd(t *testing.T) {
 	dir := t.TempDir()
@@ -208,30 +218,371 @@ func TestAddUpdatingDriverPreservesSource(t *testing.T) {
 	assert.Equal(t, "allow", got.Prerelease)
 }
 
-func TestAddRejectsPackslipVersionUpdateWithoutMutatingProject(t *testing.T) {
+func TestAddUpdatesPackslipVersionWithoutRegistryLookup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dbc.toml")
 	initial := "[drivers.test-driver-1]\n" +
 		"version = '1.2.3'\n" +
 		"[drivers.test-driver-1.source]\n" +
 		"type = 'packslip'\n" +
-		"project = 'github.com/example/test-driver'\n"
+		"project = 'github.com/example/driver'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+
+	release := makeSyncPackslipRelease(
+		"test-driver-1", "1.2.4+build.5", "https://assets.example.test/driver.tgz",
+		"sha256:"+strings.Repeat("a", 64), 10)
+	resolver := &syncPackslipResolverStub{release: release}
+	registryCalls := 0
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		registryCalls++
+		return nil, errors.New("Packslip add must not query registries")
+	}
+	base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
+	msg := runTeaCmdToCompletion(t, AddCmd{
+		Path:   path,
+		Driver: []string{"test-driver-1=1.2.4+build.5"},
+	}.GetModelCustom(base).(interface {
+		Init() tea.Cmd
+		Update(tea.Msg) (tea.Model, tea.Cmd)
+	}))
+	_, failed := msg.(error)
+	require.False(t, failed, "Packslip add failed: %v", msg)
+	assert.Equal(t, 0, registryCalls)
+	assert.Equal(t, 1, resolver.calls)
+	assert.Equal(t, "github.com/example/driver", resolver.project)
+	assert.Equal(t, packslip.Request{DriverID: "test-driver-1", Version: "1.2.4+build.5"}, resolver.request)
+
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	var updated DriversList
+	require.NoError(t, toml.Unmarshal(data, &updated))
+	require.NoError(t, updated.validateSources())
+	got := updated.Drivers["test-driver-1"]
+	assert.Equal(t, "1.2.4+build.5", got.Version.String())
+	require.NotNil(t, got.Source)
+	assert.Equal(t, dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"}, *got.Source)
+}
+
+func TestAddPathSourceUsesProjectDirectoryAndCanDeriveVersion(t *testing.T) {
+	dir := t.TempDir()
+	projectDir := filepath.Join(dir, "project")
+	otherDir := filepath.Join(dir, "elsewhere")
+	require.NoError(t, os.MkdirAll(filepath.Join(projectDir, "packages"), 0o755))
+	require.NoError(t, os.MkdirAll(otherDir, 0o755))
+	archive, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "packages", "driver.tar.gz"), archive, 0o644))
+	path := filepath.Join(projectDir, "dbc.toml")
+	initial := "[drivers.test-driver-1]\nversion = '1.0.0'\n" +
+		"[drivers.test-driver-1.source]\n" +
+		"type = 'path'\n" +
+		"path = './packages/driver.tar.gz'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+	t.Chdir(otherDir)
+
+	registryCalls := 0
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		registryCalls++
+		return nil, errors.New("path add must not query registries")
+	}
+	msg := runTeaCmdToCompletion(t, AddCmd{
+		Path: path, Driver: []string{"test-driver-1"},
+	}.GetModelCustom(base).(interface {
+		Init() tea.Cmd
+		Update(tea.Msg) (tea.Model, tea.Cmd)
+	}))
+	_, failed := msg.(error)
+	require.False(t, failed, "path add failed: %v", msg)
+	assert.Equal(t, 0, registryCalls)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var updated DriversList
+	require.NoError(t, toml.Unmarshal(data, &updated))
+	require.NoError(t, updated.validateSources())
+	got := updated.Drivers["test-driver-1"]
+	assert.Nil(t, got.Version, "omitted path version should return to metadata-derived selection")
+	require.NotNil(t, got.Source)
+	assert.Equal(t, dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/driver.tar.gz"}, *got.Source)
+}
+
+func TestAddPathSourceRequiresExactVersionToMatchArchive(t *testing.T) {
+	dir := t.TempDir()
+	archive, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "driver.tar.gz"), archive, 0o644))
+	path := filepath.Join(dir, "dbc.toml")
+	initial := "[drivers.test-driver-1.source]\n" +
+		"type = 'path'\n" +
+		"path = './driver.tar.gz'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		return nil, errors.New("path add must not query registries")
+	}
+	matching := runTeaCmdToCompletion(t, AddCmd{
+		Path: path, Driver: []string{"test-driver-1=1.0.0"},
+	}.GetModelCustom(base).(interface {
+		Init() tea.Cmd
+		Update(tea.Msg) (tea.Model, tea.Cmd)
+	}))
+	_, failed := matching.(error)
+	require.False(t, failed, "path source exact version should match archive metadata: %v", matching)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var updated DriversList
+	require.NoError(t, toml.Unmarshal(data, &updated))
+	require.NoError(t, updated.validateSources())
+	assert.Equal(t, "1.0.0", updated.Drivers["test-driver-1"].Version.String())
+	require.NotNil(t, updated.Drivers["test-driver-1"].Source)
+	assert.Equal(t, "./driver.tar.gz", updated.Drivers["test-driver-1"].Source.Path)
+
+	// Run the mismatch against the original versionless entry to prove failure
+	// does not modify the project configuration.
 	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
 
 	msg := runTeaCmdToCompletion(t, AddCmd{
-		Path:   path,
-		Driver: []string{"test-driver-1>=1.0.0"},
-	}.GetModelCustom(testBaseModel()).(interface {
+		Path: path, Driver: []string{"test-driver-1=1.1.0"},
+	}.GetModelCustom(base).(interface {
 		Init() tea.Cmd
 		Update(tea.Msg) (tea.Model, tea.Cmd)
 	}))
 	err, ok := msg.(error)
-	require.True(t, ok, "registry-centric add must reject an existing Packslip source")
-	assert.ErrorContains(t, err, "cannot update driver \"test-driver-1\" with packslip source")
+	require.True(t, ok, "path source with mismatched version must fail")
+	assert.ErrorContains(t, err, `local package version "1.0.0" does not match requested version "1.1.0"`)
 
-	data, readErr := os.ReadFile(path)
-	require.NoError(t, readErr)
-	assert.Equal(t, initial, string(data), "rejected add must leave dbc.toml byte-for-byte unchanged")
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, initial, string(data), "version mismatch must leave dbc.toml byte-for-byte unchanged")
+}
+
+func TestAddRejectsInvalidPackslipResolverResultWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*resolution.ResolvedRelease)
+		want   string
+	}{
+		{
+			name: "wrong driver ID",
+			mutate: func(release *resolution.ResolvedRelease) {
+				release.DriverID = "some-other-driver"
+			},
+			want: `driver ID "some-other-driver" does not match requested driver "test-driver-1"`,
+		},
+		{
+			name: "wrong version",
+			mutate: func(release *resolution.ResolvedRelease) {
+				release.Version = "1.2.5"
+			},
+			want: `packslip release version "1.2.5" does not match requested version "1.2.4"`,
+		},
+		{
+			name: "wrong source",
+			mutate: func(release *resolution.ResolvedRelease) {
+				release.Source.Reference = "github.com/example/other"
+			},
+			want: `source identity "github.com/example/other" does not match declared project "github.com/example/driver"`,
+		},
+		{
+			name: "missing dbc package declaration",
+			mutate: func(release *resolution.ResolvedRelease) {
+				release.Artifacts[0].PackageVersion = 1
+			},
+			want: "unsupported dbc package version 1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "dbc.toml")
+			initial := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+				"[drivers.test-driver-1.source]\ntype = 'packslip'\n" +
+				"project = 'github.com/example/driver'\n"
+			require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+			release := makeSyncPackslipRelease(
+				"test-driver-1", "1.2.4", "https://assets.example.test/driver.tgz",
+				"sha256:"+strings.Repeat("a", 64), 10)
+			tt.mutate(&release)
+			resolver := &syncPackslipResolverStub{release: release}
+			base := testBaseModel()
+			base.getDriverRegistry = func() ([]dbc.Driver, error) {
+				return nil, errors.New("Packslip add must not query registries")
+			}
+			base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
+			msg := runTeaCmdToCompletion(t, AddCmd{
+				Path: path, Driver: []string{"test-driver-1=1.2.4"},
+			}.GetModelCustom(base).(interface {
+				Init() tea.Cmd
+				Update(tea.Msg) (tea.Model, tea.Cmd)
+			}))
+			err, ok := msg.(error)
+			require.True(t, ok, "invalid Packslip result must fail before mutation")
+			assert.ErrorContains(t, err, tt.want)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, initial, string(data))
+		})
+	}
+}
+
+func TestAddResolvesPackslipOutsideProjectLockAndRejectsSourceDrift(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dbc.toml")
+	initial := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+		"[drivers.test-driver-1.source]\ntype = 'packslip'\n" +
+		"project = 'github.com/example/driver'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	release := makeSyncPackslipRelease(
+		"test-driver-1", "1.2.4", "https://assets.example.test/driver.tgz",
+		"sha256:"+strings.Repeat("a", 64), 10)
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		return nil, errors.New("Packslip add must not query registries")
+	}
+	base.newPackslipResolver = func() (packslip.Resolver, error) {
+		return addPackslipResolverFunc(func(_ context.Context, _ packslip.PackslipSource, _ packslip.Request) (resolution.ResolvedRelease, error) {
+			close(started)
+			<-unblock
+			return release, nil
+		}), nil
+	}
+	done := make(chan tea.Msg, 1)
+	go func() {
+		model := AddCmd{Path: path, Driver: []string{"test-driver-1=1.2.4"}}.GetModelCustom(base)
+		done <- runTeaCmdToCompletion(t, model.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+	<-started
+
+	lockPath := filepath.Join(dir, ".dbc.project.lock")
+	lock, err := acquireLock(lockPath, time.Second)
+	require.NoError(t, err, "the Packslip resolver must run without holding the project lock")
+	concurrent := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+		"[drivers.test-driver-1.source]\ntype = 'packslip'\n" +
+		"project = 'github.com/example/other'\n"
+	require.NoError(t, os.WriteFile(path, []byte(concurrent), 0o644))
+	require.NoError(t, lock.Release())
+	close(unblock)
+
+	msg := <-done
+	err, ok := msg.(error)
+	require.True(t, ok, "source drift must abort the add operation")
+	assert.ErrorContains(t, err, "driver \"test-driver-1\" source changed while resolving drivers")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, concurrent, string(data), "concurrent source edit must remain intact")
+}
+
+func TestAddNonRegistrySourcePreservesConcurrentRegistryChanges(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dbc.toml")
+	initial := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+		"[drivers.test-driver-1.source]\ntype = 'packslip'\n" +
+		"project = 'github.com/example/driver'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	release := makeSyncPackslipRelease(
+		"test-driver-1", "1.2.4", "https://assets.example.test/driver.tgz",
+		"sha256:"+strings.Repeat("a", 64), 10)
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		return nil, errors.New("Packslip add must not query registries")
+	}
+	base.newPackslipResolver = func() (packslip.Resolver, error) {
+		return addPackslipResolverFunc(func(_ context.Context, _ packslip.PackslipSource, _ packslip.Request) (resolution.ResolvedRelease, error) {
+			close(started)
+			<-unblock
+			return release, nil
+		}), nil
+	}
+	done := make(chan tea.Msg, 1)
+	go func() {
+		model := AddCmd{Path: path, Driver: []string{"test-driver-1=1.2.4"}}.GetModelCustom(base)
+		done <- runTeaCmdToCompletion(t, model.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+	<-started
+
+	lock, err := acquireLock(filepath.Join(dir, ".dbc.project.lock"), time.Second)
+	require.NoError(t, err)
+	concurrent := "[[registries]]\nurl = 'https://registry.example.test'\n\n" + initial
+	require.NoError(t, os.WriteFile(path, []byte(concurrent), 0o644))
+	require.NoError(t, lock.Release())
+	close(unblock)
+
+	msg := <-done
+	_, failed := msg.(error)
+	require.False(t, failed, "Packslip add should not depend on concurrent registry changes: %v", msg)
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var updated DriversList
+	require.NoError(t, toml.Unmarshal(data, &updated))
+	require.NoError(t, updated.validateSources())
+	require.Len(t, updated.Registries, 1)
+	assert.Equal(t, "https://registry.example.test", updated.Registries[0].URL)
+	assert.Equal(t, "1.2.4", updated.Drivers["test-driver-1"].Version.String())
+}
+
+func TestAddNonRegistrySourcesRejectInvalidVersionAndPreWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+		input  string
+		pre    bool
+	}{
+		{name: "packslip range", source: "packslip", input: "test-driver-1>=1.2.3"},
+		{name: "packslip missing", source: "packslip", input: "test-driver-1"},
+		{name: "packslip coercible", source: "packslip", input: "test-driver-1=v1.2.3"},
+		{name: "packslip prerelease flag", source: "packslip", input: "test-driver-1=1.2.3", pre: true},
+		{name: "path range", source: "path", input: "test-driver-1>=1.0.0"},
+		{name: "path coercible", source: "path", input: "test-driver-1=01.2.3"},
+		{name: "path prerelease flag", source: "path", input: "test-driver-1", pre: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "dbc.toml")
+			initial := "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+				"[drivers.test-driver-1.source]\n"
+			if tt.source == "packslip" {
+				initial += "type = 'packslip'\nproject = 'github.com/example/test-driver'\n"
+			} else {
+				initial += "type = 'path'\npath = './driver.tar.gz'\n"
+			}
+			require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+			base := testBaseModel()
+			base.getDriverRegistry = func() ([]dbc.Driver, error) {
+				return nil, errors.New("non-registry add must not query registries")
+			}
+			resolverConstructed := false
+			base.newPackslipResolver = func() (packslip.Resolver, error) {
+				resolverConstructed = true
+				return nil, errors.New("invalid Packslip request must fail before resolver construction")
+			}
+			msg := runTeaCmdToCompletion(t, AddCmd{
+				Path: path, Driver: []string{tt.input}, Pre: tt.pre,
+			}.GetModelCustom(base).(interface {
+				Init() tea.Cmd
+				Update(tea.Msg) (tea.Model, tea.Cmd)
+			}))
+			_, failed := msg.(error)
+			require.True(t, failed, "expected validation error, got %v", msg)
+			assert.False(t, resolverConstructed)
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			assert.Equal(t, initial, string(data), "invalid add must leave dbc.toml byte-for-byte unchanged")
+		})
+	}
 }
 
 func TestAddMultiple(t *testing.T) {
