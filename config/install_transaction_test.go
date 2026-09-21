@@ -242,6 +242,110 @@ func TestInstallPackageReceiptHashesLibraryAfterVerification(t *testing.T) {
 	}
 }
 
+func TestInspectInstallReceiptSeparatesMetadataFromLibraryIntegrity(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("library"))
+	file := writeInstallArchive(t, archive, "receipt-inspection")
+	installed, err := InstallPackage(cfg, "example", file, installExpected("example", "receipt-source", archive), InstallOptions{})
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	libraryPath := installed.Driver.Shared.Get(PlatformTuple())
+	receipt, managed, present, valid := InspectInstallReceipt(root, "example", libraryPath)
+	if !managed || !present || !valid {
+		t.Fatalf("receipt inspection = managed %v, present %v, valid %v; want all true", managed, present, valid)
+	}
+	if !VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+		t.Fatal("installed library should match its receipt")
+	}
+
+	if err := os.WriteFile(libraryPath, []byte("tampered library"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, managed, present, valid = InspectInstallReceipt(root, "example", libraryPath)
+	if !managed || !present || !valid {
+		t.Fatalf("metadata inspection should not hash current library: managed %v, present %v, valid %v", managed, present, valid)
+	}
+	if VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+		t.Fatal("tampered library unexpectedly matched its receipt")
+	}
+
+	if err := os.Remove(filepath.Join(filepath.Dir(libraryPath), installReceiptName)); err != nil {
+		t.Fatal(err)
+	}
+	_, managed, present, valid = InspectInstallReceipt(root, "example", libraryPath)
+	if !managed || present || valid {
+		t.Fatalf("missing receipt inspection = managed %v, present %v, valid %v; want true, false, false", managed, present, valid)
+	}
+
+	legacyDirectory := filepath.Join(root, "example_"+PlatformTuple()+"_v1.0.0")
+	if err := os.Mkdir(legacyDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyLibrary := filepath.Join(legacyDirectory, "driver.so")
+	if err := os.WriteFile(legacyLibrary, []byte("legacy library"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, managed, present, valid = InspectInstallReceipt(root, "example", legacyLibrary)
+	if !managed || present || valid {
+		t.Fatalf("legacy receipt-less generation = managed %v, present %v, valid %v; want true, false, false", managed, present, valid)
+	}
+	externalDirectory := filepath.Join(root, "external")
+	if err := os.Mkdir(externalDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	externalLibrary := filepath.Join(externalDirectory, "driver.so")
+	if err := os.WriteFile(externalLibrary, []byte("external library"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, managed, present, valid = InspectInstallReceipt(root, "example", externalLibrary)
+	if managed || present || valid {
+		t.Fatalf("external library = managed %v, present %v, valid %v; want all false", managed, present, valid)
+	}
+}
+
+func TestInspectDriverInstallReceiptUsesSelectedEnvironmentPath(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	if err := os.MkdirAll(first, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("library"))
+	file := writeInstallArchive(t, archive, "multi-path-receipt")
+	installed, err := InstallPackage(Config{Level: ConfigEnv, Location: second}, "example", file, installExpected("example", "multi-path", archive), InstallOptions{})
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := Config{Level: ConfigEnv, Location: first + string(filepath.ListSeparator) + second}
+	registered, err := GetDriver(combined, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(registered.FilePath) != filepath.Clean(second) {
+		t.Fatalf("selected registration root = %q, want %q", registered.FilePath, second)
+	}
+	receipt, managed, present, valid, err := InspectDriverInstallReceipt(combined, registered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !managed || !present || !valid || !VerifyInstallReceiptLibraryIntegrity(installed.Driver.Shared.Get(PlatformTuple()), receipt) {
+		t.Fatalf("multi-path receipt inspection = managed %v present %v valid %v", managed, present, valid)
+	}
+	registryMapped := registered
+	registryMapped.FilePath = "HKCU\\SOFTWARE\\ADBC\\Drivers"
+	receipt, managed, present, valid, err = InspectDriverInstallReceipt(Config{Level: ConfigUser, Location: second}, registryMapped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !managed || !present || !valid {
+		t.Fatalf("registry-backed receipt inspection = managed %v present %v valid %v", managed, present, valid)
+	}
+}
+
 func TestInstallPackageRejectsVerifierDeletedLibraryAndPreservesOldGeneration(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}

@@ -646,6 +646,50 @@ func (suite *SubcommandTestSuite) TestSyncLegacyLibraryProofUsesValidatedArchive
 	suite.Equal(libraryHash, entry.Legacy.LibraryHash)
 }
 
+func (suite *SubcommandTestSuite) TestSyncLegacyProofDoesNotSkipDifferentCandidateLibrary() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	driverListPath := filepath.Join(root, "dbc.toml")
+	lockPath := filepath.Join(root, "dbc.lock")
+	suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+
+	legacyDirectory := filepath.Join(root, fmt.Sprintf("test-driver-1_%s_v1.1.0", config.PlatformTuple()))
+	suite.Require().NoError(os.Mkdir(legacyDirectory, 0o755))
+	legacyLibrary := filepath.Join(legacyDirectory, "driver.so")
+	suite.Require().NoError(os.WriteFile(legacyLibrary, []byte("old legacy library"), 0o644))
+	oldLibraryHash, err := checksum(legacyLibrary)
+	suite.Require().NoError(err)
+	legacyInfo := config.DriverInfo{
+		ID: "test-driver-1", Name: "Legacy Test Driver", Version: semver.MustParse("1.1.0"), Source: "dbc",
+	}
+	legacyInfo.Driver.Shared.Set(config.PlatformTuple(), legacyLibrary)
+	suite.Require().NoError(config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: root}, legacyInfo))
+	legacyLock := fmt.Sprintf("version = 1\n\n[[drivers]]\nname = %q\nversion = %q\nplatform = %q\nchecksum = %q\n", "test-driver-1", "1.1.0", config.PlatformTuple(), oldLibraryHash)
+	suite.Require().NoError(os.WriteFile(lockPath, []byte(legacyLock), 0o644))
+
+	downloadCalls := 0
+	model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls++
+			return os.Open(filepath.Join("testdata", "test-driver-1.1.tar.gz"))
+		},
+	})
+	suite.runCmd(model)
+	suite.Equal(1, downloadCalls)
+
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Require().NoError(err)
+	newLibrary := installed.Driver.Shared.Get(config.PlatformTuple())
+	suite.NotEqual(legacyLibrary, newLibrary)
+	newLibraryHash, err := checksum(newLibrary)
+	suite.Require().NoError(err)
+	suite.NotEqual(oldLibraryHash, newLibraryHash)
+	updated, err := loadLockFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Nil(updated.lockinfo["test-driver-1"].Legacy, "a mismatched v1 proof must not survive replacement by a different candidate library")
+}
+
 func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnceAndRejectsV2WithoutMetadata() {
 	path := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n[drivers.test-driver-no-sig]\n"), 0644))
@@ -697,6 +741,336 @@ func (suite *SubcommandTestSuite) TestSyncExactLockedArtifactConvergesWithoutReg
 	suite.runCmd(model)
 	suite.Equal(0, registryCalls)
 	suite.Equal(0, downloadCalls)
+}
+
+func (suite *SubcommandTestSuite) TestSyncSameVersionRequiresMatchingManagedReceipt() {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string, string, config.InstallReceipt)
+	}{
+		{name: "healthy receipt skips", mutate: func(*testing.T, string, string, config.InstallReceipt) {}},
+		{name: "missing receipt repairs", mutate: func(t *testing.T, _ string, receiptPath string, _ config.InstallReceipt) {
+			if err := os.Remove(receiptPath); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "invalid receipt repairs", mutate: func(t *testing.T, _ string, receiptPath string, _ config.InstallReceipt) {
+			if err := os.WriteFile(receiptPath, []byte("not json"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "driver id mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.DriverID = "another-driver"
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "version mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.DriverVersion = "9.9.9"
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "source type mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.SourceType = "local"
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "source identity mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.SourceIdentity = "https://other.example"
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "target mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			if receipt.Platform == "windows_amd64" {
+				receipt.Platform = "linux_amd64"
+			} else {
+				receipt.Platform = "windows_amd64"
+			}
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "archive hash mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "archive size mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.ArchiveSize++
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "tampered library repairs", mutate: func(t *testing.T, libraryPath, _ string, _ config.InstallReceipt) {
+			if err := os.WriteFile(libraryPath, []byte("tampered"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "missing library repairs", mutate: func(t *testing.T, libraryPath, _ string, _ config.InstallReceipt) {
+			if err := os.Remove(libraryPath); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+
+	for _, test := range tests {
+		suite.Run(test.name, func() {
+			t := suite.T()
+			root := t.TempDir()
+			t.Setenv("ADBC_DRIVER_PATH", root)
+			driverListPath := filepath.Join(root, "dbc.toml")
+			if err := os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+
+			cfg := config.Config{Level: config.ConfigEnv, Location: root}
+			installed, err := config.GetDriver(cfg, "test-driver-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
+			receiptPath := filepath.Join(filepath.Dir(libraryPath), "dbc-install-receipt.json")
+			receiptBytes, err := os.ReadFile(receiptPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var receipt config.InstallReceipt
+			if err := json.Unmarshal(receiptBytes, &receipt); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(t, libraryPath, receiptPath, receipt)
+
+			registryCalls, downloadCalls := 0, 0
+			model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+				getDriverRegistry: func() ([]dbc.Driver, error) {
+					registryCalls++
+					return nil, errors.New("locked replay must not discover registries")
+				},
+				downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+					downloadCalls++
+					return downloadTestPkg(pkg)
+				},
+			})
+			suite.runCmd(model)
+			suite.Equal(0, registryCalls)
+			if strings.Contains(test.name, "healthy") {
+				suite.Equal(0, downloadCalls)
+			} else {
+				suite.Equal(1, downloadCalls)
+			}
+
+			installed, err = config.GetDriver(cfg, "test-driver-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			libraryPath = installed.Driver.Shared.Get(config.PlatformTuple())
+			receipt, managed, present, valid := config.InspectInstallReceipt(root, "test-driver-1", libraryPath)
+			if !managed || !present || !valid || !config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+				t.Fatalf("repaired installation has invalid receipt/library: managed %v present %v valid %v", managed, present, valid)
+			}
+		})
+	}
+}
+
+func writeSyncReceipt(t *testing.T, path string, receipt config.InstallReceipt) {
+	t.Helper()
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncManifestOnlyExternalLibraryWithoutProofRepairsFromExactLock() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	driverListPath := filepath.Join(root, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+
+	externalDir := filepath.Join(root, "external")
+	suite.Require().NoError(os.Mkdir(externalDir, 0o755))
+	externalLibrary := filepath.Join(externalDir, "driver.so")
+	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("external library"), 0o644))
+	externalInfo := config.DriverInfo{
+		ID: "test-driver-1", Name: "External Test Driver", Version: semver.MustParse("1.1.0"), Source: "dbc",
+	}
+	externalInfo.Driver.Shared.Set(config.PlatformTuple(), externalLibrary)
+	suite.Require().NoError(config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: root}, externalInfo))
+
+	registryCalls, downloadCalls := 0, 0
+	model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			registryCalls++
+			return nil, errors.New("locked replay must not discover registries")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls++
+			return downloadTestPkg(pkg)
+		},
+	})
+	suite.runCmd(model)
+	suite.Equal(0, registryCalls)
+	suite.Equal(1, downloadCalls)
+	got, err := os.ReadFile(externalLibrary)
+	suite.Require().NoError(err)
+	suite.Equal("external library", string(got))
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Require().NoError(err)
+	managedLibrary := installed.Driver.Shared.Get(config.PlatformTuple())
+	suite.NotEqual(externalLibrary, managedLibrary)
+	receipt, managed, present, valid, err := config.InspectDriverInstallReceipt(config.Config{Level: config.ConfigEnv, Location: root}, installed)
+	suite.Require().NoError(err)
+	suite.True(managed)
+	suite.True(present)
+	suite.True(valid)
+	suite.True(config.VerifyInstallReceiptLibraryIntegrity(managedLibrary, receipt))
+}
+
+func (suite *SubcommandTestSuite) TestSyncReceiptRepairUsesSelectedMultiPathRegistrationRoot() {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string, string, config.InstallReceipt)
+	}{
+		{name: "receipt mismatch", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.SourceIdentity = "https://different.example"
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "library tampering", mutate: func(t *testing.T, libraryPath, _ string, _ config.InstallReceipt) {
+			if err := os.WriteFile(libraryPath, []byte("tampered"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, test := range tests {
+		suite.Run(test.name, func() {
+			t := suite.T()
+			root := t.TempDir()
+			first := filepath.Join(root, "first")
+			second := filepath.Join(root, "second")
+			suite.Require().NoError(os.MkdirAll(first, 0o755))
+			suite.Require().NoError(os.MkdirAll(second, 0o755))
+			t.Setenv("ADBC_DRIVER_PATH", first+string(filepath.ListSeparator)+second)
+			driverListPath := filepath.Join(root, "dbc.toml")
+			suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+			suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+
+			firstManifest := filepath.Join(first, "test-driver-1.toml")
+			suite.Require().NoError(os.Remove(firstManifest))
+			archive, err := os.Open(filepath.Join("testdata", "test-driver-1.1.tar.gz"))
+			suite.Require().NoError(err)
+			_, err = config.InstallPackage(config.Config{Level: config.ConfigEnv, Location: second}, "test-driver-1", archive, config.ExpectedPackageMetadata{
+				ID: "test-driver-1", Version: "1.1.0", Platform: config.PlatformTuple(),
+				SourceType: "registry", SourceIdentity: testRegistry.BaseURL.String(),
+			}, config.InstallOptions{})
+			suite.Require().NoError(err)
+			suite.NoError(archive.Close())
+
+			combined := config.Config{Level: config.ConfigEnv, Location: first + string(filepath.ListSeparator) + second}
+			installed, err := config.GetDriver(combined, "test-driver-1")
+			suite.Require().NoError(err)
+			suite.Equal(second, installed.FilePath)
+			libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
+			receiptPath := filepath.Join(filepath.Dir(libraryPath), "dbc-install-receipt.json")
+			receiptBytes, err := os.ReadFile(receiptPath)
+			suite.Require().NoError(err)
+			var receipt config.InstallReceipt
+			suite.Require().NoError(json.Unmarshal(receiptBytes, &receipt))
+			test.mutate(t, libraryPath, receiptPath, receipt)
+
+			downloadCalls, registryCalls := 0, 0
+			model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+				getDriverRegistry: func() ([]dbc.Driver, error) {
+					registryCalls++
+					return nil, errors.New("exact lock replay must not discover registries")
+				},
+				downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+					downloadCalls++
+					return downloadTestPkg(pkg)
+				},
+			})
+			suite.runCmd(model)
+			suite.Equal(0, registryCalls)
+			suite.Equal(1, downloadCalls)
+
+			installed, err = config.GetDriver(config.Config{Level: config.ConfigEnv, Location: first + string(filepath.ListSeparator) + second}, "test-driver-1")
+			suite.Require().NoError(err)
+			suite.Equal(first, installed.FilePath, "repair should publish to the configured primary environment path")
+			finalLibrary := installed.Driver.Shared.Get(config.PlatformTuple())
+			finalReceipt, managed, present, valid, err := config.InspectDriverInstallReceipt(config.Config{Level: config.ConfigEnv, Location: first + string(filepath.ListSeparator) + second}, installed)
+			suite.Require().NoError(err)
+			suite.True(managed)
+			suite.True(present)
+			suite.True(valid)
+			suite.True(config.VerifyInstallReceiptLibraryIntegrity(finalLibrary, finalReceipt))
+		})
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncPostDownloadReceiptMatchControlsSkip() {
+	for _, test := range []struct {
+		name          string
+		mutateReceipt bool
+		wantInstall   int
+	}{
+		{name: "matching receipt skips after validation", wantInstall: 0},
+		{name: "mismatching receipt installs repair", mutateReceipt: true, wantInstall: 1},
+	} {
+		suite.Run(test.name, func() {
+			t := suite.T()
+			root := t.TempDir()
+			t.Setenv("ADBC_DRIVER_PATH", root)
+			driverListPath := filepath.Join(root, "dbc.toml")
+			lockPath := filepath.Join(root, "dbc.lock")
+			suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+			suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+
+			cfg := config.Config{Level: config.ConfigEnv, Location: root}
+			before, err := config.GetDriver(cfg, "test-driver-1")
+			suite.Require().NoError(err)
+			beforeLibrary := before.Driver.Shared.Get(config.PlatformTuple())
+			if test.mutateReceipt {
+				receiptPath := filepath.Join(filepath.Dir(beforeLibrary), "dbc-install-receipt.json")
+				data, err := os.ReadFile(receiptPath)
+				suite.Require().NoError(err)
+				var receipt config.InstallReceipt
+				suite.Require().NoError(json.Unmarshal(data, &receipt))
+				receipt.SourceIdentity = "https://different.example"
+				writeSyncReceipt(t, receiptPath, receipt)
+			}
+			suite.Require().NoError(os.Remove(lockPath), "force fresh registry resolution and candidate validation")
+
+			registryCalls, downloadCalls, installCalls := 0, 0, 0
+			model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+				getDriverRegistry: func() ([]dbc.Driver, error) {
+					registryCalls++
+					return getTestDriverRegistry()
+				},
+				downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+					downloadCalls++
+					return downloadTestPkg(pkg)
+				},
+			}).(syncModel)
+			model.worker.hooks.installPackage = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
+				installCalls++
+				return config.InstallPackage(cfg, driver, archive, expected, options)
+			}
+			suite.runCmd(model)
+			suite.Equal(1, registryCalls)
+			suite.Equal(1, downloadCalls)
+			suite.Equal(test.wantInstall, installCalls)
+
+			after, err := config.GetDriver(cfg, "test-driver-1")
+			suite.Require().NoError(err)
+			afterLibrary := after.Driver.Shared.Get(config.PlatformTuple())
+			if test.wantInstall == 0 {
+				suite.Equal(before.FilePath, after.FilePath)
+				suite.Equal(beforeLibrary, afterLibrary, "a matching receipt must skip without replacing the registered generation")
+			} else {
+				suite.NotEqual(beforeLibrary, afterLibrary, "a mismatching receipt must trigger package replacement")
+			}
+			receipt, managed, present, valid, err := config.InspectDriverInstallReceipt(cfg, after)
+			suite.Require().NoError(err)
+			suite.True(managed)
+			suite.True(present)
+			suite.True(valid)
+			suite.True(config.VerifyInstallReceiptLibraryIntegrity(afterLibrary, receipt))
+			suite.Equal(testRegistry.BaseURL.String(), receipt.SourceIdentity)
+		})
+	}
 }
 
 type syncProgramRun struct {

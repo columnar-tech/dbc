@@ -818,6 +818,120 @@ func readManagedPackageReceipt(location, runtimeID, directory string) (InstallRe
 }
 
 func readPackageReceipt(location, runtimeID, directory string) (InstallReceipt, bool) {
+	receipt, ok := readPackageReceiptEvidence(location, runtimeID, directory)
+	if !ok {
+		return InstallReceipt{}, false
+	}
+	if receipt.InstalledLibrary == "" {
+		return receipt, true
+	}
+	libraryPath := filepath.Join(directory, receipt.InstalledLibrary)
+	if !VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+		return InstallReceipt{}, false
+	}
+	return receipt, true
+}
+
+// InspectInstallReceipt reads the receipt associated with a registered library
+// path without checking the library bytes. The managed result identifies paths
+// in a dbc-owned package generation even when its receipt is missing or invalid;
+// present reports whether a receipt file exists, and valid reports whether its
+// metadata and library/path relationship are structurally valid. Call
+// VerifyInstallReceiptLibraryIntegrity separately to verify the current bytes.
+func InspectInstallReceipt(location, runtimeID, libraryPath string) (receipt InstallReceipt, managed, present, valid bool) {
+	if validateFlatName(runtimeID) != nil || libraryPath == "" {
+		return InstallReceipt{}, false, false, false
+	}
+	absLocation, err := filepath.Abs(location)
+	if err != nil {
+		return InstallReceipt{}, false, false, false
+	}
+	absLibrary, err := filepath.Abs(libraryPath)
+	if err != nil {
+		return InstallReceipt{}, false, false, false
+	}
+	directory := filepath.Dir(absLibrary)
+	rel, err := filepath.Rel(absLocation, directory)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || strings.Contains(rel, string(filepath.Separator)) {
+		return InstallReceipt{}, false, false, false
+	}
+	if !isManagedPackageGenerationDirectory(filepath.Base(directory), runtimeID) {
+		return InstallReceipt{}, false, false, false
+	}
+	managed = true
+	_, err = os.Lstat(filepath.Join(directory, installReceiptName))
+	present = err == nil || !errors.Is(err, fs.ErrNotExist)
+	if !present {
+		return InstallReceipt{}, managed, false, false
+	}
+	receipt, valid = readPackageReceiptEvidence(absLocation, runtimeID, directory)
+	if !valid {
+		return InstallReceipt{}, managed, present, false
+	}
+	if receipt.InstalledLibrary == "" || filepath.Base(absLibrary) != receipt.InstalledLibrary {
+		return InstallReceipt{}, managed, present, false
+	}
+	return receipt, managed, present, true
+}
+
+// InspectDriverInstallReceipt resolves the filesystem root for the driver's
+// actual registration before inspecting its managed package receipt. This is
+// important for ConfigEnv, where Config.Location may be a path list while the
+// selected DriverInfo.FilePath names the directory that supplied the active
+// manifest. Registry-backed Windows registrations fall back to the configured
+// filesystem installation root.
+func InspectDriverInstallReceipt(cfg Config, info DriverInfo) (receipt InstallReceipt, managed, present, valid bool, err error) {
+	location, err := uninstallPackageCleanupLocation(cfg, info)
+	if err != nil {
+		return InstallReceipt{}, false, false, false, err
+	}
+	receipt, managed, present, valid = InspectInstallReceipt(location, info.ID, info.Driver.Shared.Get(PlatformTuple()))
+	return receipt, managed, present, valid, nil
+}
+
+func isManagedPackageGenerationDirectory(directory, runtimeID string) bool {
+	if strings.HasPrefix(directory, ".dbc-package-"+runtimeID+"-") {
+		return true
+	}
+	legacyPrefix := runtimeID + "_"
+	if !strings.HasPrefix(directory, legacyPrefix) {
+		return false
+	}
+	remainder := strings.TrimPrefix(directory, legacyPrefix)
+	versionSeparator := strings.LastIndex(remainder, "_v")
+	if versionSeparator <= 0 {
+		return false
+	}
+	platform, version := remainder[:versionSeparator], remainder[versionSeparator+2:]
+	if validatePlatformIdentifier(platform) != nil {
+		return false
+	}
+	_, err := semver.NewVersion(version)
+	return err == nil
+}
+
+// VerifyInstallReceiptLibraryIntegrity checks only that the current registered
+// library is a regular file whose digest matches the receipt. Receipt identity
+// and artifact metadata are intentionally checked by the caller separately.
+func VerifyInstallReceiptLibraryIntegrity(libraryPath string, receipt InstallReceipt) bool {
+	if libraryPath == "" || validateFlatName(receipt.InstalledLibrary) != nil {
+		return false
+	}
+	if filepath.Base(filepath.Clean(libraryPath)) != receipt.InstalledLibrary {
+		return false
+	}
+	if _, err := parseSHA256(receipt.InstalledLibraryHash); err != nil {
+		return false
+	}
+	libraryInfo, err := os.Lstat(libraryPath)
+	if err != nil || !libraryInfo.Mode().IsRegular() {
+		return false
+	}
+	actualHash, err := hashFile(libraryPath)
+	return err == nil && actualHash == receipt.InstalledLibraryHash
+}
+
+func readPackageReceiptEvidence(location, runtimeID, directory string) (InstallReceipt, bool) {
 	var receipt InstallReceipt
 	absLocation, err := filepath.Abs(location)
 	if err != nil {
@@ -857,15 +971,6 @@ func readPackageReceipt(location, runtimeID, directory string) (InstallReceipt, 
 		return InstallReceipt{}, false
 	}
 	if _, err := parseSHA256(receipt.InstalledLibraryHash); err != nil {
-		return InstallReceipt{}, false
-	}
-	libraryPath := filepath.Join(absDirectory, receipt.InstalledLibrary)
-	libraryInfo, err := os.Lstat(libraryPath)
-	if err != nil || !libraryInfo.Mode().IsRegular() {
-		return InstallReceipt{}, false
-	}
-	actualHash, err := hashFile(libraryPath)
-	if err != nil || actualHash != receipt.InstalledLibraryHash {
 		return InstallReceipt{}, false
 	}
 	return receipt, true

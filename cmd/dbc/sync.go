@@ -338,6 +338,7 @@ type installItem struct {
 	ArchiveHash          string
 	ArchiveSize          int64
 	InstalledLibraryHash string
+	ValidatedLibraryHash string
 	LockEntry            *lockInfo
 	Archive              *os.File
 	Expected             config.ExpectedPackageMetadata
@@ -652,22 +653,44 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 			return prepared, err
 		}
 		item := &prepared.items[i]
+		var sameVersionInstalled *config.DriverInfo
 		if s.cfg.Exists {
 			if installed, ok := s.cfg.Drivers[item.Driver.Path]; ok {
 				if item.Package.Version.Equal(installed.Version) {
-					libraryHash, err := checksum(installed.Driver.Shared.Get(config.PlatformTuple()))
-					if err != nil {
-						return prepared, fmt.Errorf("failed to compute checksum: %w", err)
-					}
-					if item.Checksum != "" && libraryHash != item.Checksum {
-						return prepared, fmt.Errorf("checksum mismatch for driver %s: %s != %s", item.Driver.Path, libraryHash, item.Checksum)
-					}
-					if item.Checksum == "" {
-						item.Checksum = libraryHash
-					}
-					item.InstalledLibraryHash = libraryHash
 					installedCopy := installed
-					item.AlreadyInstalled = &installedCopy
+					sameVersionInstalled = &installedCopy
+					expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+					if err != nil {
+						return prepared, err
+					}
+					receipt, managed, receiptPresent, valid, err := config.InspectDriverInstallReceipt(s.cfg, installed)
+					if err != nil {
+						return prepared, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+					}
+					libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
+					if managed {
+						if !receiptPresent && item.LockEntry != nil && item.LockEntry.Legacy != nil {
+							// A v1 lock's library digest is its proof. Preserve that
+							// compatibility only for genuinely receipt-less generations.
+							libraryHash, checksumErr := checksum(libraryPath)
+							if checksumErr == nil && item.Checksum != "" && libraryHash == item.Checksum {
+								item.InstalledLibraryHash = libraryHash
+								item.AlreadyInstalled = &installedCopy
+							}
+						} else if hasMetadata && valid && installReceiptMatchesExpected(receipt, expected) && config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+							markAlreadyInstalled(item, installed, receipt.InstalledLibraryHash)
+						}
+					} else {
+						// Manifest-only packages may reference an external library and
+						// therefore have no managed receipt beside that path. A v1
+						// library checksum may tentatively prove continuity, but a v2
+						// lock without runtime proof cannot authorize a same-version skip.
+						libraryHash, checksumErr := checksum(libraryPath)
+						if checksumErr == nil && item.Checksum != "" && libraryHash == item.Checksum {
+							item.InstalledLibraryHash = libraryHash
+							item.AlreadyInstalled = &installedCopy
+						}
+					}
 				} else {
 					installedCopy := installed
 					item.RemovedDriver = &installedCopy
@@ -731,8 +754,27 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 				}
 				return prepared, fmt.Errorf("failed to validate driver package: %w", err)
 			}
+			verifiedLibraryHash := strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
+			item.ValidatedLibraryHash = verifiedLibraryHash
+			if item.AlreadyInstalled == nil && sameVersionInstalled != nil {
+				receipt, managed, _, valid, err := config.InspectDriverInstallReceipt(s.cfg, *sameVersionInstalled)
+				if err != nil {
+					return prepared, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+				}
+				libraryPath := sameVersionInstalled.Driver.Shared.Get(config.PlatformTuple())
+				if managed && valid && installReceiptMatchesExpected(receipt, expected) && config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+					markAlreadyInstalled(item, *sameVersionInstalled, receipt.InstalledLibraryHash)
+				}
+			}
+			if item.AlreadyInstalled != nil && sameVersionInstalled != nil &&
+				(verifiedLibraryHash == "" || item.InstalledLibraryHash != verifiedLibraryHash) {
+				// A receipt or v1 library proof can tentatively identify the
+				// installed artifact. Once the candidate archive is validated,
+				// require its measured library bytes to preserve that identity.
+				item.AlreadyInstalled = nil
+			}
 			if item.AlreadyInstalled == nil {
-				item.InstalledLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
+				item.InstalledLibraryHash = verifiedLibraryHash
 			}
 		} else {
 			// The exact locked artifact is already installed, so it can be reused
@@ -756,6 +798,21 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 		}
 	}
 	return prepared, nil
+}
+
+func installReceiptMatchesExpected(receipt config.InstallReceipt, expected config.ExpectedPackageMetadata) bool {
+	return expected.ID != "" && expected.Version != "" && expected.Platform != "" &&
+		expected.SourceType != "" && expected.SourceIdentity != "" && expected.ArchiveHash != "" && expected.ArchiveSize > 0 &&
+		receipt.DriverID == expected.ID && receipt.DriverVersion == expected.Version &&
+		receipt.Platform == expected.Platform && receipt.SourceType == expected.SourceType &&
+		receipt.SourceIdentity == expected.SourceIdentity && receipt.ArchiveHash == expected.ArchiveHash &&
+		receipt.ArchiveSize == expected.ArchiveSize
+}
+
+func markAlreadyInstalled(item *installItem, installed config.DriverInfo, libraryHash string) {
+	item.InstalledLibraryHash = strings.TrimPrefix(libraryHash, "sha256:")
+	installedCopy := installed
+	item.AlreadyInstalled = &installedCopy
 }
 
 type syncChecksumError struct{ err error }
@@ -950,12 +1007,19 @@ func (s syncModel) fail(code string, err error) (syncModel, tea.Cmd) {
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {
+	legacyProofMatches := true
 	if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
 		if err := verifyLegacyLibraryProof(*item.LockEntry, config.PlatformTuple(), item.InstalledLibraryHash); err != nil {
-			return lockInfo{}, err
+			if !hasValidatedReplacementEvidence(item) {
+				return lockInfo{}, err
+			}
+			// A mismatched legacy proof cannot be carried into a candidate that
+			// will replace the old library. The validated archive becomes the new
+			// v2 artifact evidence instead.
+			legacyProofMatches = false
 		}
 	}
-	if canReuseLockedEntry(item) {
+	if canReuseLockedEntry(item) && legacyProofMatches {
 		return *item.LockEntry, nil
 	}
 	if item.Package.Version == nil || item.Package.Path == nil {
@@ -1004,6 +1068,9 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 			return candidate, nil
 		}
 		if item.LockEntry.Legacy != nil {
+			if !legacyProofMatches {
+				return candidate, nil
+			}
 			var verified *VerifiedLegacyLibrary
 			if samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
 				verified = &VerifiedLegacyLibrary{Platform: config.PlatformTuple(), LibraryHash: item.InstalledLibraryHash}
@@ -1012,7 +1079,31 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		}
 		return candidate, nil
 	}
-	return refreshLockEntry(*item.LockEntry, candidate)
+	existing := *item.LockEntry
+	if !legacyProofMatches {
+		existing.Legacy = nil
+	}
+	return refreshLockEntry(existing, candidate)
+}
+
+func hasValidatedReplacementEvidence(item installItem) bool {
+	if item.AlreadyInstalled != nil || item.Archive == nil || item.ArchiveHash == "" || item.ArchiveSize <= 0 || item.ValidatedLibraryHash == "" {
+		return false
+	}
+	if validateLegacyLibraryHash(item.ValidatedLibraryHash) != nil ||
+		item.Expected.ID != item.Driver.Path || item.Package.Version == nil || item.Expected.Version != item.Package.Version.String() ||
+		item.Expected.Platform == "" || item.Expected.Platform != item.Package.PlatformTuple ||
+		item.Expected.SourceType == "" || item.Expected.SourceIdentity == "" ||
+		item.Expected.ArchiveHash != item.ArchiveHash || item.Expected.ArchiveSize != item.ArchiveSize ||
+		item.Package.ArtifactHash != item.ArchiveHash || item.Package.ArtifactSize == nil || *item.Package.ArtifactSize != item.ArchiveSize {
+		return false
+	}
+	if item.Driver.Registry == nil || item.Driver.Registry.BaseURL == nil ||
+		item.Expected.SourceType != "registry" || item.Expected.SourceIdentity != item.Driver.Registry.BaseURL.String() {
+		return false
+	}
+	archiveInfo, err := item.Archive.Stat()
+	return err == nil && archiveInfo.Size() == item.ArchiveSize
 }
 
 func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
