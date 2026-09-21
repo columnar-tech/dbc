@@ -233,7 +233,8 @@ func decodePackageV2Metadata(data []byte) (packageManifest, error) {
 
 	return packageManifest{
 		manifest: Manifest{
-			PackageVersion: 2,
+			PackageVersion:  2,
+			PackagePlatform: wire.Platform,
 			DriverInfo: DriverInfo{
 				ID:      wire.ID,
 				Name:    wire.Name,

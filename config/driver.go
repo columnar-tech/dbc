@@ -37,6 +37,9 @@ type Manifest struct {
 	// PackageVersion is the parsed package wire version. It is in-memory
 	// metadata only; runtime ADBC manifests continue to use ManifestVersion.
 	PackageVersion int
+	// PackagePlatform is set when package metadata declares a concrete platform.
+	// Legacy package MANIFEST files do not carry this field.
+	PackagePlatform string
 
 	Files struct {
 		Driver    string `toml:"driver,omitempty"`
