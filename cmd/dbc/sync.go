@@ -368,9 +368,17 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 	// construct our list of driver+version to install
 	var items []installItem
 	for name, spec := range list.Drivers {
+		if err := requireRegistrySyncSource(name, spec); err != nil {
+			return nil, err
+		}
 		var info lockInfo
 		if lf.lockinfo != nil {
 			info = lf.lockinfo[name]
+		}
+		if lf.Version == lockFileVersion && info.Version != nil && !driverSourceMatchesLock(spec.Source, info.Source) {
+			// A lock entry for another source must not influence fallback
+			// resolution or be merged into the new source's candidate snapshot.
+			info = lockInfo{}
 		}
 		if lf.Version == lockFileVersion && info.Version != nil {
 			if info.Source.Type != "registry" {
@@ -441,6 +449,11 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 }
 
 func (s syncModel) registryDiscoveryNeeded(list DriversList) (bool, error) {
+	for name, spec := range list.Drivers {
+		if err := requireRegistrySyncSource(name, spec); err != nil {
+			return false, err
+		}
+	}
 	lf, err := loadLockFile(s.LockFilePath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
@@ -453,10 +466,8 @@ func (s syncModel) registryDiscoveryNeeded(list DriversList) (bool, error) {
 		if lf.Version != lockFileVersion || !ok || entry.Version == nil {
 			return true, nil
 		}
-		// Non-registry source adapters are outside this sync slice. Their error
-		// is reported by createInstallList without contacting the registry.
-		if entry.Source.Type != "registry" {
-			continue
+		if !driverSourceMatchesLock(spec.Source, entry.Source) {
+			return true, nil
 		}
 		if !lockVersionSatisfiesSpec(entry, spec) {
 			return true, nil
@@ -470,6 +481,13 @@ func (s syncModel) registryDiscoveryNeeded(list DriversList) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func requireRegistrySyncSource(name string, spec driverSpec) error {
+	if spec.Source == nil || spec.Source.Type == dbc.DriverSourceRegistry {
+		return nil
+	}
+	return fmt.Errorf("source type %q for driver %q is not supported by sync yet; source integration will follow", spec.Source.Type, name)
 }
 
 func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {

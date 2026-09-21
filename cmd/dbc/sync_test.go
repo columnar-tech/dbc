@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +63,96 @@ func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testi
 	require.Len(t, items, 1)
 	assert.Equal(t, "tar.gz", items[0].ArtifactFormat)
 	assert.Empty(t, items[0].HostRequirements)
+}
+
+func TestSyncRejectsNonRegistrySourcesBeforeRegistryLookup(t *testing.T) {
+	sources := []struct {
+		name string
+		toml string
+	}{
+		{
+			name: "packslip",
+			toml: "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+				"[drivers.test-driver-1.source]\ntype = 'packslip'\nproject = 'github.com/example/test-driver'\n",
+		},
+		{
+			name: "path",
+			toml: "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
+				"[drivers.test-driver-1.source]\ntype = 'path'\npath = '../packages/test-driver.tar.gz'\n",
+		},
+	}
+	for _, source := range sources {
+		for _, withRegistryLock := range []bool{false, true} {
+			name := source.name + "/without-lock"
+			if withRegistryLock {
+				name = source.name + "/registry-lock"
+			}
+			t.Run(name, func(t *testing.T) {
+				dir := t.TempDir()
+				projectPath := filepath.Join(dir, "dbc.toml")
+				lockPath := filepath.Join(dir, "dbc.lock")
+				require.NoError(t, os.WriteFile(projectPath, []byte(source.toml), 0o600))
+				if withRegistryLock {
+					entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+					entry.Name = "test-driver-1"
+					require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+				}
+
+				var registryCalls atomic.Int32
+				model := SyncCmd{Path: projectPath}.GetModelCustom(baseModel{
+					getDriverRegistry: func() ([]dbc.Driver, error) {
+						registryCalls.Add(1)
+						return getTestDriverRegistry()
+					},
+					downloadPkg: downloadTestPkg,
+				}).(syncModel)
+				defer model.worker.cancel()
+
+				result := model.runSyncWorker(model.worker)
+				require.ErrorContains(t, result.err, "source type \""+source.name+"\"")
+				assert.Zero(t, registryCalls.Load(), "unsupported source declarations must fail before registry discovery")
+			})
+		}
+	}
+}
+
+func TestRegistrySourceChangeDiscardsOldLockEntryBeforeFallback(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
+	entry.Name = "test-driver-1"
+	entry.Version = semver.MustParse("1.0.0")
+	entry.Source.URL = "https://registry-a.example.test"
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+
+	registryBURL, err := url.Parse("https://registry-b.example.test")
+	require.NoError(t, err)
+	registryB := testRegistry
+	registryB.BaseURL = registryBURL
+	drivers, err := getTestDriverRegistry()
+	require.NoError(t, err)
+	for i := range drivers {
+		if drivers[i].Path == "test-driver-1" {
+			drivers[i].Registry = &registryB
+		}
+	}
+
+	list := DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {
+			Source: &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: registryBURL.String()},
+		},
+	}}
+	model := syncModel{LockFilePath: lockPath, driverIndex: drivers}
+	needsRegistry, err := model.registryDiscoveryNeeded(list)
+	require.NoError(t, err)
+	assert.True(t, needsRegistry, "a lock for registry A cannot be reused for registry B")
+
+	items, err := model.createInstallList(list)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Nil(t, items[0].LockEntry, "the old registry A entry must not be merged into a registry B candidate")
+	resolvedSource, err := packageLockSource(items[0])
+	require.NoError(t, err)
+	assert.Equal(t, registryBURL.String(), resolvedSource.URL)
 }
 
 func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
