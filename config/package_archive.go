@@ -416,6 +416,7 @@ type EnsurePackageResult struct {
 // before archive retrieval and again against the latest registration after.
 // Result.Current is the most recently inspected registration: it remains the
 // phase-one snapshot on provider or phase-two lock acquisition failure.
+// TODO: Review after the prototype whether this callback transaction should remain public or move behind a higher-level/internal API.
 func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks) (EnsurePackageResult, error) {
 	return ensurePackageWithLockObserver(ctx, cfg, runtimeID, expected, installOptions, callbacks, nil)
 }
@@ -644,6 +645,7 @@ func acquireDriverInstallLocks(ctx context.Context, roots []string, runtimeID st
 
 func acquireDriverInstallLocksWithObserver(ctx context.Context, roots []string, runtimeID string, observer func(root string)) (func(), error) {
 	lockRoots := slices.Clone(roots)
+	// TODO: Use the case-insensitive root identity here to keep Windows lock ordering consistent across path spellings.
 	slices.Sort(lockRoots)
 	releases := make([]func(), 0, len(lockRoots))
 	var releaseOnce sync.Once
