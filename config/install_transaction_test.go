@@ -346,6 +346,60 @@ func TestInspectDriverInstallReceiptUsesSelectedEnvironmentPath(t *testing.T) {
 	}
 }
 
+func TestValidatePackageReturnsAndComparesRuntimeRegistration(t *testing.T) {
+	root := t.TempDir()
+	externalLibrary := filepath.Join(root, "external-driver.so")
+	if err := os.WriteFile(externalLibrary, []byte("external library"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := []byte(fmt.Sprintf(`manifest_version = 1
+name = "Manifest Only Driver"
+version = "1.0.0"
+
+[Driver]
+entrypoint = "DriverInit"
+shared = %q
+`, externalLibrary))
+	archive := makeInstallArchiveWithEntries(t, installArchiveEntry{name: "MANIFEST", data: manifest})
+	file := writeInstallArchive(t, archive, "external-registration")
+	validation, err := ValidatePackage("example", file, installExpected("example", "source", archive), InstallOptions{})
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validation.VerifiedLibraryHash != "" {
+		t.Fatalf("manifest-only package library hash = %q, want empty", validation.VerifiedLibraryHash)
+	}
+	candidate := validation.Registration
+	if candidate.ID != "example" || candidate.Driver.Shared.Get(PlatformTuple()) != externalLibrary || candidate.Driver.Entrypoint != "DriverInit" {
+		t.Fatalf("validated registration = %#v, want external path %q and entrypoint DriverInit", candidate, externalLibrary)
+	}
+	current := candidate
+	current.FilePath = filepath.Join(root, "registration")
+	if !SameRuntimeDriverRegistration(current, candidate, PlatformTuple()) {
+		t.Fatal("registration location alone should not change effective runtime registration")
+	}
+	changedPath := DriverInfo{
+		ID: candidate.ID, Name: candidate.Name, Publisher: candidate.Publisher, License: candidate.License,
+		Version: candidate.Version, Source: candidate.Source, AdbcInfo: candidate.AdbcInfo,
+	}
+	changedPath.Driver.Entrypoint = candidate.Driver.Entrypoint
+	changedPath.Driver.Shared.Set(PlatformTuple(), filepath.Join(root, "other-driver.so"))
+	if SameRuntimeDriverRegistration(current, changedPath, PlatformTuple()) {
+		t.Fatal("different external library paths unexpectedly compare equal")
+	}
+	changedEntrypoint := candidate
+	changedEntrypoint.Driver.Entrypoint = "OtherInit"
+	if SameRuntimeDriverRegistration(current, changedEntrypoint, PlatformTuple()) {
+		t.Fatal("different entrypoints unexpectedly compare equal")
+	}
+	changedVersion := candidate
+	changedVersion.Version = semver.MustParse("1.0.1")
+	if SameRuntimeDriverRegistration(current, changedVersion, PlatformTuple()) {
+		t.Fatal("different manifest versions unexpectedly compare equal")
+	}
+}
+
 func TestInstallPackageRejectsVerifierDeletedLibraryAndPreservesOldGeneration(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}

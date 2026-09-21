@@ -690,6 +690,341 @@ func (suite *SubcommandTestSuite) TestSyncLegacyProofDoesNotSkipDifferentCandida
 	suite.Nil(updated.lockinfo["test-driver-1"].Legacy, "a mismatched v1 proof must not survive replacement by a different candidate library")
 }
 
+func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility() {
+	type fixture struct {
+		root, listPath, lockPath, archivePath, proofHash string
+		oldLock                                          []byte
+	}
+	setup := func(t *testing.T, currentPath, candidatePath string, proofData, candidateData []byte, candidateExists bool, currentEntrypoint, candidateEntrypoint string, registered bool) fixture {
+		t.Helper()
+		root := t.TempDir()
+		t.Setenv("ADBC_DRIVER_PATH", root)
+		driverListPath := filepath.Join(root, "dbc.toml")
+		lockPath := filepath.Join(root, "dbc.lock")
+		if err := os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writeExternal := func(path string, data []byte) {
+			t.Helper()
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if registered {
+			writeExternal(currentPath, proofData)
+			if err := os.WriteFile(filepath.Join(filepath.Dir(currentPath), "LICENSE"), []byte("external sibling"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			current := config.DriverInfo{
+				ID: "test-driver-1", Name: "Legacy Shared Driver", Version: semver.MustParse("1.1.0"), Source: "dbc",
+			}
+			current.Driver.Entrypoint = currentEntrypoint
+			current.Driver.Shared.Set(config.PlatformTuple(), currentPath)
+			if err := config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: root}, current); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if candidateExists {
+			if candidatePath != currentPath || !registered {
+				writeExternal(candidatePath, candidateData)
+			}
+			if err := os.WriteFile(filepath.Join(filepath.Dir(candidatePath), "LICENSE"), []byte("candidate sibling"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		proofFile := filepath.Join(t.TempDir(), "proof-library")
+		if err := os.WriteFile(proofFile, proofData, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		proofHash, err := checksum(proofFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		legacyLock := fmt.Sprintf("version = 1\n\n[[drivers]]\nname = %q\nversion = %q\nplatform = %q\nchecksum = %q\n", "test-driver-1", "1.1.0", config.PlatformTuple(), proofHash)
+		if err := os.WriteFile(lockPath, []byte(legacyLock), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		archivePath := filepath.Join(t.TempDir(), "manifest-only.tar.gz")
+		archiveBytes := makeSyncManifestOnlyArchive(t, "1.1.0", candidatePath, candidateEntrypoint)
+		if err := os.WriteFile(archivePath, archiveBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return fixture{
+			root: root, listPath: driverListPath, lockPath: lockPath,
+			archivePath: archivePath, proofHash: proofHash, oldLock: []byte(legacyLock),
+		}
+	}
+
+	run := func(t *testing.T, root, driverListPath, archivePath string, count *syncArchiveRunCounts, registry func() ([]dbc.Driver, error)) (string, error) {
+		t.Helper()
+		model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				count.registry++
+				return registry()
+			},
+			downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
+				count.download++
+				return os.Open(archivePath)
+			},
+		}).(syncModel)
+		model.worker.hooks.installPackage = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
+			count.install++
+			return config.InstallPackage(cfg, driver, archive, expected, options)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var output bytes.Buffer
+		program := tea.NewProgram(model, tea.WithInput(nil), tea.WithOutput(&output),
+			tea.WithoutRenderer(), tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
+		prog = program
+		defer func() { prog = nil }()
+		programModel := tea.Model(model)
+		finalModel, runErr := program.Run()
+		notifyProgramExited(programModel)
+		program.Wait()
+		if runErr != nil {
+			return output.String(), runErr
+		}
+		status := finalModel.(HasStatus)
+		var final string
+		if finalOutput, ok := finalModel.(HasFinalOutput); ok {
+			final = finalOutput.FinalOutput()
+		}
+		if err := status.Err(); err != nil {
+			jsonMode := false
+			if mode, ok := finalModel.(interface{ IsJSONMode() bool }); ok {
+				jsonMode = mode.IsJSONMode()
+			}
+			if !jsonMode {
+				final += "\n" + formatErr(err)
+			}
+		}
+		combined := output.String() + final
+		if status.Status() != 0 {
+			return combined, status.Err()
+		}
+		return combined, nil
+	}
+
+	suite.Run("matching migration and locked replay", func() {
+		t := suite.T()
+		path := filepath.Join(t.TempDir(), "external", "library.so")
+		data := []byte("legacy external library")
+		fixture := setup(t, path, path, data, data, true, "DriverInit", "DriverInit", true)
+		counts := &syncArchiveRunCounts{}
+		_, err := run(t, fixture.root, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+		suite.NoError(err)
+		suite.Equal(syncArchiveRunCounts{registry: 1, download: 1, install: 0}, *counts)
+		updated, err := loadLockFile(fixture.lockPath)
+		suite.Require().NoError(err)
+		suite.Require().NotNil(updated.lockinfo["test-driver-1"].Legacy)
+		suite.Equal(fixture.proofHash, updated.lockinfo["test-driver-1"].Legacy.LibraryHash)
+		installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: fixture.root}, "test-driver-1")
+		suite.Require().NoError(err)
+		suite.Equal(path, installed.Driver.Shared.Get(config.PlatformTuple()))
+		suite.Equal("DriverInit", installed.Driver.Entrypoint)
+		installedHash, err := checksum(path)
+		suite.Require().NoError(err)
+		suite.Equal(fixture.proofHash, installedHash)
+		lockAfterMigration, err := os.ReadFile(fixture.lockPath)
+		suite.Require().NoError(err)
+		suite.NotEqual(fixture.oldLock, lockAfterMigration)
+
+		replayCounts := &syncArchiveRunCounts{}
+		_, err = run(t, fixture.root, fixture.listPath, fixture.archivePath, replayCounts, func() ([]dbc.Driver, error) {
+			return nil, errors.New("locked v2 replay must not discover registry")
+		})
+		suite.NoError(err)
+		suite.Equal(syncArchiveRunCounts{}, *replayCounts)
+		lockAfterReplay, err := os.ReadFile(fixture.lockPath)
+		suite.Require().NoError(err)
+		suite.Equal(lockAfterMigration, lockAfterReplay)
+	})
+
+	for _, test := range []struct {
+		name                 string
+		candidatePathChanged bool
+		candidateEntrypoint  string
+	}{
+		{name: "external path changed", candidatePathChanged: true, candidateEntrypoint: "DriverInit"},
+		{name: "entrypoint changed", candidateEntrypoint: "OtherInit"},
+	} {
+		suite.Run(test.name, func() {
+			t := suite.T()
+			root := t.TempDir()
+			currentPath := filepath.Join(root, "external-a", "library.so")
+			candidatePath := currentPath
+			if test.candidatePathChanged {
+				candidatePath = filepath.Join(root, "external-b", "library.so")
+			}
+			data := []byte("same legacy external library")
+			fixture := setup(t, currentPath, candidatePath, data, data, true, "DriverInit", test.candidateEntrypoint, true)
+			before := map[string][]byte{}
+			for _, external := range []string{currentPath, candidatePath} {
+				for _, file := range []string{external, filepath.Join(filepath.Dir(external), "LICENSE")} {
+					if _, ok := before[file]; ok {
+						continue
+					}
+					var readErr error
+					before[file], readErr = os.ReadFile(file)
+					suite.Require().NoError(readErr)
+				}
+			}
+			counts := &syncArchiveRunCounts{}
+			_, err := run(t, fixture.root, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+			suite.NoError(err)
+			suite.Equal(1, counts.install)
+			installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: fixture.root}, "test-driver-1")
+			suite.Require().NoError(err)
+			suite.Equal(candidatePath, installed.Driver.Shared.Get(config.PlatformTuple()))
+			suite.Equal(test.candidateEntrypoint, installed.Driver.Entrypoint)
+			installedHash, err := checksum(candidatePath)
+			suite.Require().NoError(err)
+			suite.Equal(fixture.proofHash, installedHash)
+			updated, err := loadLockFile(fixture.lockPath)
+			suite.Require().NoError(err)
+			suite.Require().NotNil(updated.lockinfo["test-driver-1"].Legacy)
+			suite.Equal(fixture.proofHash, updated.lockinfo["test-driver-1"].Legacy.LibraryHash)
+			for file, expected := range before {
+				dataAfter, readErr := os.ReadFile(file)
+				suite.NoError(readErr)
+				suite.Equal(expected, dataAfter, "external files and siblings must remain untouched")
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name           string
+		candidateData  []byte
+		candidateFound bool
+	}{
+		{name: "candidate bytes mismatch", candidateData: []byte("not the legacy library"), candidateFound: true},
+		{name: "candidate file missing", candidateFound: false},
+	} {
+		suite.Run(test.name, func() {
+			t := suite.T()
+			root := t.TempDir()
+			currentPath := filepath.Join(root, "external-current", "library.so")
+			candidatePath := filepath.Join(root, "external-candidate", "library.so")
+			proofData := []byte("preserved legacy library")
+			fixture := setup(t, currentPath, candidatePath, proofData, test.candidateData, test.candidateFound, "DriverInit", "DriverInit", true)
+			beforeManifest, err := os.ReadFile(filepath.Join(fixture.root, "test-driver-1.toml"))
+			suite.Require().NoError(err)
+			counts := &syncArchiveRunCounts{}
+			out, err := run(t, fixture.root, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+			suite.Error(err)
+			suite.Contains(out, "candidate package external library does not match the legacy lock proof")
+			suite.Equal(1, counts.registry)
+			suite.Equal(1, counts.download)
+			suite.Equal(0, counts.install)
+			lockAfter, err := os.ReadFile(fixture.lockPath)
+			suite.Require().NoError(err)
+			suite.Equal(fixture.oldLock, lockAfter)
+			manifestAfter, err := os.ReadFile(filepath.Join(fixture.root, "test-driver-1.toml"))
+			suite.Require().NoError(err)
+			suite.Equal(beforeManifest, manifestAfter)
+			currentAfter, err := os.ReadFile(currentPath)
+			suite.Require().NoError(err)
+			suite.Equal(proofData, currentAfter)
+			if test.candidateFound {
+				candidateAfter, err := os.ReadFile(candidatePath)
+				suite.Require().NoError(err)
+				suite.Equal(test.candidateData, candidateAfter)
+			} else {
+				_, err := os.Stat(candidatePath)
+				suite.ErrorIs(err, os.ErrNotExist)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name           string
+		candidateData  []byte
+		candidateFound bool
+		wantInstall    int
+	}{
+		{name: "unregistered external proof installs", candidateData: []byte("unregistered legacy library"), candidateFound: true, wantInstall: 1},
+		{name: "unregistered mismatched external proof fails", candidateData: []byte("wrong bytes"), candidateFound: true},
+		{name: "unregistered missing external proof fails", candidateFound: false},
+	} {
+		suite.Run(test.name, func() {
+			t := suite.T()
+			root := t.TempDir()
+			candidatePath := filepath.Join(root, "external", "library.so")
+			proofData := []byte("unregistered legacy library")
+			fixture := setup(t, "", candidatePath, proofData, test.candidateData, test.candidateFound, "", "DriverInit", false)
+			counts := &syncArchiveRunCounts{}
+			out, err := run(t, fixture.root, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+			if test.wantInstall == 0 {
+				suite.Error(err)
+				suite.Contains(out, "candidate package external library does not match the legacy lock proof")
+				suite.Equal(0, counts.install)
+				lockAfter, readErr := os.ReadFile(fixture.lockPath)
+				suite.Require().NoError(readErr)
+				suite.Equal(fixture.oldLock, lockAfter)
+				_, driverErr := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: fixture.root}, "test-driver-1")
+				suite.Error(driverErr)
+			} else {
+				suite.NoError(err)
+				suite.Equal(1, counts.install)
+				installed, driverErr := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: fixture.root}, "test-driver-1")
+				suite.Require().NoError(driverErr)
+				suite.Equal(candidatePath, installed.Driver.Shared.Get(config.PlatformTuple()))
+				installedHash, hashErr := checksum(candidatePath)
+				suite.Require().NoError(hashErr)
+				suite.Equal(fixture.proofHash, installedHash)
+				updated, loadErr := loadLockFile(fixture.lockPath)
+				suite.Require().NoError(loadErr)
+				suite.Require().NotNil(updated.lockinfo["test-driver-1"].Legacy)
+			}
+			suite.Equal(1, counts.registry)
+			suite.Equal(1, counts.download)
+			if test.candidateFound {
+				candidateAfter, readErr := os.ReadFile(candidatePath)
+				suite.Require().NoError(readErr)
+				suite.Equal(test.candidateData, candidateAfter)
+			}
+		})
+	}
+}
+
+type syncArchiveRunCounts struct {
+	registry int
+	download int
+	install  int
+}
+
+func makeSyncManifestOnlyArchive(t *testing.T, version, sharedPath, entrypoint string) []byte {
+	t.Helper()
+	manifest := fmt.Sprintf(`manifest_version = 1
+name = "Legacy Shared Driver"
+version = %q
+
+[Driver]
+entrypoint = %q
+shared = %q
+`, version, entrypoint, sharedPath)
+	var output bytes.Buffer
+	gzipWriter := gzip.NewWriter(&output)
+	tarWriter := tar.NewWriter(gzipWriter)
+	if err := tarWriter.WriteHeader(&tar.Header{Name: "MANIFEST", Mode: 0o644, Size: int64(len(manifest)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tarWriter.Write([]byte(manifest)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return output.Bytes()
+}
+
 func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnceAndRejectsV2WithoutMetadata() {
 	path := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n[drivers.test-driver-no-sig]\n"), 0644))

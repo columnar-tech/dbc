@@ -79,6 +79,7 @@ type InstallOptions struct {
 // driver library file.
 type PackageValidation struct {
 	VerifiedLibraryHash string
+	Registration        DriverInfo
 }
 
 type packageManifest struct {
@@ -359,7 +360,7 @@ func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPac
 	}()
 
 	finalDir := filepath.Join(workDir, "installed")
-	_, payloadDir, err := stagePackageArchive(workDir, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
+	manifest, payloadDir, err := stagePackageArchive(workDir, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
 	if err != nil {
 		return PackageValidation{}, err
 	}
@@ -367,7 +368,25 @@ func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPac
 	if !ok {
 		return PackageValidation{}, errors.New("could not read validated package receipt")
 	}
-	return PackageValidation{VerifiedLibraryHash: receipt.InstalledLibraryHash}, nil
+	return PackageValidation{VerifiedLibraryHash: receipt.InstalledLibraryHash, Registration: manifest.DriverInfo}, nil
+}
+
+// SameRuntimeDriverRegistration reports whether two driver registrations have
+// the same effective runtime metadata for platform. FilePath is intentionally
+// ignored because it identifies where a registration is stored rather than
+// what it registers.
+func SameRuntimeDriverRegistration(current, candidate DriverInfo, platform string) bool {
+	if current.ID != candidate.ID || current.Name != candidate.Name || current.Publisher != candidate.Publisher ||
+		current.License != candidate.License || current.Source != candidate.Source ||
+		current.Driver.Entrypoint != candidate.Driver.Entrypoint ||
+		current.Driver.Shared.Get(platform) != candidate.Driver.Shared.Get(platform) ||
+		!reflect.DeepEqual(current.AdbcInfo, candidate.AdbcInfo) {
+		return false
+	}
+	if current.Version == nil || candidate.Version == nil {
+		return current.Version == nil && candidate.Version == nil
+	}
+	return current.Version.String() == candidate.Version.String()
 }
 
 func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error) (Manifest, error) {

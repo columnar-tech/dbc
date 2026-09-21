@@ -756,25 +756,41 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 			}
 			verifiedLibraryHash := strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
 			item.ValidatedLibraryHash = verifiedLibraryHash
-			if item.AlreadyInstalled == nil && sameVersionInstalled != nil {
-				receipt, managed, _, valid, err := config.InspectDriverInstallReceipt(s.cfg, *sameVersionInstalled)
-				if err != nil {
-					return prepared, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+			legacyExternalProof := item.LockEntry != nil && item.LockEntry.Legacy != nil &&
+				samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) && verifiedLibraryHash == ""
+			if legacyExternalProof {
+				proofHash := item.LockEntry.Legacy.LibraryHash
+				candidateLibrary := validation.Registration.Driver.Shared.Get(config.PlatformTuple())
+				if err := verifyLegacyExternalLibrary(candidateLibrary, proofHash); err != nil {
+					return prepared, fmt.Errorf("candidate package external library does not match the legacy lock proof: %w", err)
 				}
-				libraryPath := sameVersionInstalled.Driver.Shared.Get(config.PlatformTuple())
-				if managed && valid && installReceiptMatchesExpected(receipt, expected) && config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
-					markAlreadyInstalled(item, *sameVersionInstalled, receipt.InstalledLibraryHash)
+				item.InstalledLibraryHash = proofHash
+				if sameVersionInstalled != nil && config.SameRuntimeDriverRegistration(*sameVersionInstalled, validation.Registration, config.PlatformTuple()) {
+					markAlreadyInstalled(item, *sameVersionInstalled, proofHash)
+				} else {
+					item.AlreadyInstalled = nil
 				}
-			}
-			if item.AlreadyInstalled != nil && sameVersionInstalled != nil &&
-				(verifiedLibraryHash == "" || item.InstalledLibraryHash != verifiedLibraryHash) {
-				// A receipt or v1 library proof can tentatively identify the
-				// installed artifact. Once the candidate archive is validated,
-				// require its measured library bytes to preserve that identity.
-				item.AlreadyInstalled = nil
-			}
-			if item.AlreadyInstalled == nil {
-				item.InstalledLibraryHash = verifiedLibraryHash
+			} else {
+				if item.AlreadyInstalled == nil && sameVersionInstalled != nil {
+					receipt, managed, _, valid, err := config.InspectDriverInstallReceipt(s.cfg, *sameVersionInstalled)
+					if err != nil {
+						return prepared, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+					}
+					libraryPath := sameVersionInstalled.Driver.Shared.Get(config.PlatformTuple())
+					if managed && valid && installReceiptMatchesExpected(receipt, expected) && config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+						markAlreadyInstalled(item, *sameVersionInstalled, receipt.InstalledLibraryHash)
+					}
+				}
+				if item.AlreadyInstalled != nil && sameVersionInstalled != nil &&
+					(verifiedLibraryHash == "" || item.InstalledLibraryHash != verifiedLibraryHash) {
+					// A receipt or v1 library proof can tentatively identify the
+					// installed artifact. Once the candidate archive is validated,
+					// require its measured library bytes to preserve that identity.
+					item.AlreadyInstalled = nil
+				}
+				if item.AlreadyInstalled == nil {
+					item.InstalledLibraryHash = verifiedLibraryHash
+				}
 			}
 		} else {
 			// The exact locked artifact is already installed, so it can be reused
@@ -813,6 +829,30 @@ func markAlreadyInstalled(item *installItem, installed config.DriverInfo, librar
 	item.InstalledLibraryHash = strings.TrimPrefix(libraryHash, "sha256:")
 	installedCopy := installed
 	item.AlreadyInstalled = &installedCopy
+}
+
+func verifyLegacyExternalLibrary(path, expectedHash string) error {
+	if err := validateLegacyLibraryHash(expectedHash); err != nil {
+		return fmt.Errorf("invalid legacy library checksum: %w", err)
+	}
+	if path == "" {
+		return errors.New("candidate runtime registration has no shared library path")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("could not inspect candidate external library %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("candidate external library %s is not a regular file", path)
+	}
+	actualHash, err := checksum(path)
+	if err != nil {
+		return err
+	}
+	if actualHash != expectedHash {
+		return fmt.Errorf("candidate external library checksum mismatch: got %s, expected %s", actualHash, expectedHash)
+	}
+	return nil
 }
 
 type syncChecksumError struct{ err error }
