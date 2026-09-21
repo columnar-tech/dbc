@@ -462,25 +462,27 @@ func (suite *SubcommandTestSuite) TestSyncPrepareFailurePreservesRuntimeAndLock(
 	oldLock, err := os.ReadFile(lockPath)
 	suite.Require().NoError(err)
 
-	badArchivePath := filepath.Join(suite.tempdir, "bad-package.tar.gz")
-	suite.Require().NoError(os.WriteFile(badArchivePath, []byte("not a package archive"), 0600))
 	downloaded := map[string]int{}
 	downloadCalls := 0
-	var firstArchive *os.File
+	archives := map[string]*os.File{}
 	model := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
 			downloaded[pkg.Driver.Path]++
 			downloadCalls++
-			if downloadCalls == 2 {
-				return os.Open(badArchivePath)
-			}
 			archive, err := downloadTestPkg(pkg)
-			firstArchive = archive
+			archives[pkg.Driver.Path] = archive
 			return archive, err
 		},
-	})
-	suite.runCmdErr(model)
+	}).(syncModel)
+	model.worker.hooks.duringPrepare = func(_ context.Context, index int, _ installItem) error {
+		if index == 1 {
+			return errors.New("injected second driver prepare failure")
+		}
+		return nil
+	}
+	output := suite.runCmdErr(model)
+	suite.Contains(output, "injected second driver prepare failure")
 
 	installed, err := config.GetDriver(cfg, "test-driver-1")
 	suite.Require().NoError(err)
@@ -492,8 +494,10 @@ func (suite *SubcommandTestSuite) TestSyncPrepareFailurePreservesRuntimeAndLock(
 	suite.Equal(oldLock, newLock)
 	suite.Equal(2, len(downloaded))
 	suite.Equal(2, downloadCalls)
-	_, err = firstArchive.Stat()
-	suite.ErrorIs(err, os.ErrClosed)
+	for driver, archive := range archives {
+		_, err = archive.Stat()
+		suite.ErrorIs(err, os.ErrClosed, "prepared archive for %s must be closed", driver)
+	}
 }
 
 func (suite *SubcommandTestSuite) TestSyncCandidateLockFailureDoesNotInstall() {
@@ -770,9 +774,12 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 				return os.Open(archivePath)
 			},
 		}).(syncModel)
-		model.worker.hooks.installPackage = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
-			count.install++
-			return config.InstallPackage(cfg, driver, archive, expected, options)
+		model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+			result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+			if result.Manifest != nil {
+				count.install++
+			}
+			return result, err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -838,7 +845,7 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 			return nil, errors.New("locked v2 replay must not discover registry")
 		})
 		suite.NoError(err)
-		suite.Equal(syncArchiveRunCounts{}, *replayCounts)
+		suite.Equal(syncArchiveRunCounts{download: 1}, *replayCounts, "manifest-only locked replay validates its exact archive without registry discovery")
 		lockAfterReplay, err := os.ReadFile(fixture.lockPath)
 		suite.Require().NoError(err)
 		suite.Equal(lockAfterMigration, lockAfterReplay)
@@ -1126,6 +1133,32 @@ func (suite *SubcommandTestSuite) TestSyncSameVersionRequiresMatchingManagedRece
 			receipt.ArchiveSize++
 			writeSyncReceipt(t, receiptPath, receipt)
 		}},
+		{name: "missing fingerprint repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.RegistrationFingerprintAlgorithm = ""
+			receipt.RegistrationFingerprintVersion = 0
+			receipt.RegistrationFingerprint = ""
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "unknown fingerprint repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.RegistrationFingerprintVersion++
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "fingerprint mismatch repairs", mutate: func(t *testing.T, _ string, receiptPath string, receipt config.InstallReceipt) {
+			receipt.RegistrationFingerprint = "sha256:" + strings.Repeat("0", 64)
+			writeSyncReceipt(t, receiptPath, receipt)
+		}},
+		{name: "runtime registration metadata mismatch repairs", mutate: func(t *testing.T, libraryPath, _ string, _ config.InstallReceipt) {
+			root := filepath.Dir(filepath.Dir(libraryPath))
+			cfg := config.Config{Level: config.ConfigEnv, Location: root}
+			installed, err := config.GetDriver(cfg, "test-driver-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			installed.Name = "Tampered Runtime Name"
+			if err := config.CreateManifest(cfg, installed); err != nil {
+				t.Fatal(err)
+			}
+		}},
 		{name: "tampered library repairs", mutate: func(t *testing.T, libraryPath, _ string, _ config.InstallReceipt) {
 			if err := os.WriteFile(libraryPath, []byte("tampered"), 0o644); err != nil {
 				t.Fatal(err)
@@ -1167,6 +1200,7 @@ func (suite *SubcommandTestSuite) TestSyncSameVersionRequiresMatchingManagedRece
 			test.mutate(t, libraryPath, receiptPath, receipt)
 
 			registryCalls, downloadCalls := 0, 0
+			installCalls := 0
 			model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
 				getDriverRegistry: func() ([]dbc.Driver, error) {
 					registryCalls++
@@ -1176,13 +1210,22 @@ func (suite *SubcommandTestSuite) TestSyncSameVersionRequiresMatchingManagedRece
 					downloadCalls++
 					return downloadTestPkg(pkg)
 				},
-			})
+			}).(syncModel)
+			model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+				result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+				if result.Manifest != nil {
+					installCalls++
+				}
+				return result, err
+			}
 			suite.runCmd(model)
 			suite.Equal(0, registryCalls)
 			if strings.Contains(test.name, "healthy") {
 				suite.Equal(0, downloadCalls)
+				suite.Zero(installCalls)
 			} else {
 				suite.Equal(1, downloadCalls)
+				suite.Equal(1, installCalls)
 			}
 
 			installed, err = config.GetDriver(cfg, "test-driver-1")
@@ -1193,6 +1236,9 @@ func (suite *SubcommandTestSuite) TestSyncSameVersionRequiresMatchingManagedRece
 			receipt, managed, present, valid := config.InspectInstallReceipt(root, "test-driver-1", libraryPath)
 			if !managed || !present || !valid || !config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
 				t.Fatalf("repaired installation has invalid receipt/library: managed %v present %v valid %v", managed, present, valid)
+			}
+			if !config.InstallReceiptMatchesRuntimeRegistration(receipt, installed, config.PlatformTuple()) {
+				t.Fatal("repaired receipt does not prove current runtime registration")
 			}
 		})
 	}
@@ -1253,6 +1299,94 @@ func (suite *SubcommandTestSuite) TestSyncManifestOnlyExternalLibraryWithoutProo
 	suite.True(present)
 	suite.True(valid)
 	suite.True(config.VerifyInstallReceiptLibraryIntegrity(managedLibrary, receipt))
+}
+
+func (suite *SubcommandTestSuite) TestSyncManifestOnlyInstallFailureConvergesFromCandidateLock() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	driverListPath := filepath.Join(root, "dbc.toml")
+	lockPath := filepath.Join(root, "dbc.lock")
+	externalLibrary := filepath.Join(root, "external", "driver.so")
+	suite.Require().NoError(os.MkdirAll(filepath.Dir(externalLibrary), 0o755))
+	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("external runtime library"), 0o644))
+	suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	archiveBytes := makeSyncManifestOnlyArchive(suite.T(), "1.1.0", externalLibrary, "DriverInit")
+	makeArchive := func() (*os.File, error) {
+		archive, err := os.CreateTemp(root, "manifest-only-*.tar.gz")
+		if err != nil {
+			return nil, err
+		}
+		_, err = archive.Write(archiveBytes)
+		if err != nil {
+			_ = archive.Close()
+			return nil, err
+		}
+		_, err = archive.Seek(0, io.SeekStart)
+		if err != nil {
+			_ = archive.Close()
+			return nil, err
+		}
+		return archive, nil
+	}
+	var preparedArchivePath string
+	var preparedPackage dbc.PkgInfo
+	first := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			preparedPackage = pkg
+			archive, err := makeArchive()
+			if err != nil {
+				return nil, err
+			}
+			preparedArchivePath = archive.Name()
+			return archive, nil
+		},
+	}).(syncModel)
+	first.worker.hooks.beforeCandidateSave = func(context.Context) error {
+		return os.WriteFile(preparedArchivePath, []byte("corrupted after validation"), 0o600)
+	}
+	firstOutput := suite.runCmdErr(first)
+	suite.Contains(firstOutput, "archive hash mismatch")
+	suite.Equal("test-driver-1", preparedPackage.Driver.Path)
+	candidateLock, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	locked, err := loadLockFile(lockPath)
+	suite.Require().NoError(err)
+	artifact, err := selectLockedArtifact(locked.lockinfo["test-driver-1"], config.PlatformTuple(), false)
+	suite.Require().NoError(err)
+	suite.NotEmpty(artifact.Hash)
+	suite.Require().NotNil(artifact.Size)
+	suite.Equal(int64(len(archiveBytes)), *artifact.Size)
+	_, err = config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Error(err, "failed installation must not register the candidate")
+
+	registryCalls, downloadCalls := 0, 0
+	var replayPackage dbc.PkgInfo
+	second := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			registryCalls++
+			return nil, errors.New("candidate lock replay must not discover the registry")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls++
+			replayPackage = pkg
+			return makeArchive()
+		},
+	})
+	suite.runCmd(second)
+	suite.Zero(registryCalls)
+	suite.Equal(1, downloadCalls)
+	suite.Equal(artifact.Location.Value, replayPackage.Path.String())
+	suite.Equal(artifact.Hash, replayPackage.ArtifactHash)
+	suite.Require().NotNil(replayPackage.ArtifactSize)
+	suite.Equal(*artifact.Size, *replayPackage.ArtifactSize)
+	convergedLock, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal(candidateLock, convergedLock)
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal(externalLibrary, installed.Driver.Shared.Get(config.PlatformTuple()))
+	suite.Equal("DriverInit", installed.Driver.Entrypoint)
 }
 
 func (suite *SubcommandTestSuite) TestSyncReceiptRepairUsesSelectedMultiPathRegistrationRoot() {
@@ -1379,9 +1513,12 @@ func (suite *SubcommandTestSuite) TestSyncPostDownloadReceiptMatchControlsSkip()
 					return downloadTestPkg(pkg)
 				},
 			}).(syncModel)
-			model.worker.hooks.installPackage = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
-				installCalls++
-				return config.InstallPackage(cfg, driver, archive, expected, options)
+			model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+				result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+				if result.Manifest != nil {
+					installCalls++
+				}
+				return result, err
 			}
 			suite.runCmd(model)
 			suite.Equal(1, registryCalls)
@@ -1406,6 +1543,128 @@ func (suite *SubcommandTestSuite) TestSyncPostDownloadReceiptMatchControlsSkip()
 			suite.Equal(testRegistry.BaseURL.String(), receipt.SourceIdentity)
 		})
 	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncRechecksPreparedReceiptBeforeSkipping() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	driverListPath := filepath.Join(root, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	before, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	beforeLibrary := before.Driver.Shared.Get(config.PlatformTuple())
+
+	downloadCalls, installCalls := 0, 0
+	model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			return nil, errors.New("exact lock replay must not discover registries")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls++
+			return downloadTestPkg(pkg)
+		},
+	}).(syncModel)
+	model.worker.hooks.duringPrepare = func(_ context.Context, _ int, _ installItem) error {
+		current, err := config.GetDriver(cfg, "test-driver-1")
+		if err != nil {
+			return err
+		}
+		return config.UninstallDriver(cfg, current)
+	}
+	model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+		if result.Manifest != nil {
+			installCalls++
+		}
+		return result, err
+	}
+	suite.runCmd(model)
+	suite.Equal(1, downloadCalls, "a prepared fast-skip hint that became stale must lazily fetch the exact locked artifact")
+	suite.Equal(1, installCalls)
+	after, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.NotEqual(beforeLibrary, after.Driver.Shared.Get(config.PlatformTuple()))
+}
+
+func (suite *SubcommandTestSuite) TestSyncSkipsExactCandidateInstalledDuringArchiveProvider() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	driverListPath := filepath.Join(root, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(driverListPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.runCmd(SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+	cfg := config.Config{Level: config.ConfigEnv, Location: root}
+	current, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	libraryPath := current.Driver.Shared.Get(config.PlatformTuple())
+	receiptPath := filepath.Join(filepath.Dir(libraryPath), "dbc-install-receipt.json")
+	data, err := os.ReadFile(receiptPath)
+	suite.Require().NoError(err)
+	var receipt config.InstallReceipt
+	suite.Require().NoError(json.Unmarshal(data, &receipt))
+	receipt.SourceIdentity = "https://stale.example"
+	writeSyncReceipt(suite.T(), receiptPath, receipt)
+
+	downloadCalls, directInstalls, ensureInstalls := 0, 0, 0
+	var predicateCalls int
+	model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			return nil, errors.New("exact lock replay must not discover registries")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloadCalls++
+			return downloadTestPkg(pkg)
+		},
+	}).(syncModel)
+	model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		currentMatches := callbacks.CurrentMatches
+		callbacks.CurrentMatches = func(current *config.DriverInfo) (bool, error) {
+			predicateCalls++
+			return currentMatches(current)
+		}
+		archiveProvider := callbacks.Archive
+		callbacks.Archive = func(ctx context.Context) (*os.File, error) {
+			archive, err := archiveProvider(ctx)
+			if err != nil {
+				return nil, err
+			}
+			concurrentArchive, err := os.Open(archive.Name())
+			if err != nil {
+				return nil, err
+			}
+			_, installErr := config.InstallPackage(cfg, driver, concurrentArchive, expected, options)
+			closeErr := concurrentArchive.Close()
+			if installErr != nil {
+				return nil, installErr
+			}
+			if closeErr != nil {
+				return nil, closeErr
+			}
+			directInstalls++
+			return archive, nil
+		}
+		result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+		if result.Manifest != nil {
+			ensureInstalls++
+		}
+		return result, err
+	}
+	run := startSyncProgram(model)
+	resultModel := waitSyncProgram(suite.T(), run)
+	suite.Require().NoError(resultModel.Err(), run.output.String())
+	suite.Equal(1, downloadCalls)
+	suite.Equal(1, directInstalls)
+	suite.Equal(0, ensureInstalls, "phase two must skip after the provider's concurrent exact install")
+	suite.Equal(2, predicateCalls, "phase one and phase two must both inspect current registration")
+	after, err := config.GetDriver(cfg, "test-driver-1")
+	suite.Require().NoError(err)
+	finalReceipt, managed, present, valid, err := config.InspectDriverInstallReceipt(cfg, after)
+	suite.Require().NoError(err)
+	suite.True(managed)
+	suite.True(present)
+	suite.True(valid)
+	suite.True(config.InstallReceiptMatchesRuntimeRegistration(finalReceipt, after, config.PlatformTuple()))
 }
 
 type syncProgramRun struct {
@@ -1513,11 +1772,19 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			case "candidate-save":
 				model.worker.hooks.beforeCandidateSave = block
 			case "install":
-				model.worker.hooks.installPackage = func(ctx context.Context, _ config.Config, _ string, file *os.File, _ config.ExpectedPackageMetadata, _ config.InstallOptions) (config.Manifest, error) {
-					archive = file
-					close(entered)
-					<-release
-					return config.Manifest{}, ctx.Err()
+				model.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+					archiveProvider := callbacks.Archive
+					callbacks.Archive = func(ctx context.Context) (*os.File, error) {
+						file, err := archiveProvider(ctx)
+						if err != nil {
+							return nil, err
+						}
+						archive = file
+						close(entered)
+						<-release
+						return nil, ctx.Err()
+					}
+					return config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
 				}
 			}
 
@@ -1731,9 +1998,12 @@ func (suite *SubcommandTestSuite) TestSyncSerializesSameProjectUntilWorkerFinish
 			return downloadTestPkg(pkg)
 		},
 	}).(syncModel)
-	second.worker.hooks.installPackage = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
-		secondInstalls.Add(1)
-		return config.InstallPackage(cfg, driver, archive, expected, options)
+	second.worker.hooks.ensurePackage = func(ctx context.Context, cfg config.Config, driver string, expected config.ExpectedPackageMetadata, options config.InstallOptions, callbacks config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		result, err := config.EnsurePackage(ctx, cfg, driver, expected, options, callbacks)
+		if result.Manifest != nil {
+			secondInstalls.Add(1)
+		}
+		return result, err
 	}
 	secondRun := startSyncProgram(second)
 	deadline := time.After(2 * time.Second)

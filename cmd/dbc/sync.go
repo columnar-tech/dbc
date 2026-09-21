@@ -182,7 +182,7 @@ type syncModel struct {
 type syncWorkerHooks struct {
 	duringPrepare       func(context.Context, int, installItem) error
 	beforeCandidateSave func(context.Context) error
-	installPackage      func(context.Context, config.Config, string, *os.File, config.ExpectedPackageMetadata, config.InstallOptions) (config.Manifest, error)
+	ensurePackage       func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
 }
 
 type syncWorker struct {
@@ -342,8 +342,8 @@ type installItem struct {
 	LockEntry            *lockInfo
 	Archive              *os.File
 	Expected             config.ExpectedPackageMetadata
+	Validation           *config.PackageValidation
 	AlreadyInstalled     *config.DriverInfo
-	RemovedDriver        *config.DriverInfo
 }
 
 type preparedSyncMsg struct {
@@ -522,58 +522,6 @@ type alreadyInstalledDrvMsg struct {
 	item installItem
 }
 
-func (s syncModel) installPreparedPackage(ctx context.Context, item installItem) (installedDrvMsg, error) {
-	if err := ctx.Err(); err != nil {
-		return installedDrvMsg{}, err
-	}
-	if item.Archive == nil {
-		return installedDrvMsg{}, errors.New("prepared package archive is missing")
-	}
-	if _, err := item.Archive.Seek(0, io.SeekStart); err != nil {
-		return installedDrvMsg{}, fmt.Errorf("failed to rewind prepared driver archive: %w", err)
-	}
-	var verify func(string, config.Manifest) error
-	if !s.NoVerify {
-		verify = func(stagingDir string, manifest config.Manifest) error {
-			return dbc.VerifyPackageSignature(stagingDir, manifest)
-		}
-	}
-	install := s.worker.hooks.installPackage
-	if install == nil {
-		// config.InstallPackage is contextless. Keep this call synchronous so
-		// cancellation cannot release the project lock or archive prematurely.
-		install = func(_ context.Context, cfg config.Config, driver string, archive *os.File, expected config.ExpectedPackageMetadata, options config.InstallOptions) (config.Manifest, error) {
-			return config.InstallPackage(cfg, driver, archive, expected, options)
-		}
-	}
-	manifest, err := install(ctx, s.cfg, item.Driver.Path, item.Archive, item.Expected, config.InstallOptions{Verify: verify})
-	if err := ctx.Err(); err != nil {
-		return installedDrvMsg{}, err
-	}
-	if err != nil {
-		if isPackageVerificationFailure(err) {
-			return installedDrvMsg{}, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
-		}
-		return installedDrvMsg{}, fmt.Errorf("failed to install driver: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return installedDrvMsg{}, err
-	}
-	checksumHash, err := checksum(manifest.DriverInfo.Driver.Shared.Get(config.PlatformTuple()))
-	if err != nil {
-		return installedDrvMsg{}, syncChecksumError{err: err}
-	}
-	if item.InstalledLibraryHash != "" && item.InstalledLibraryHash != checksumHash {
-		return installedDrvMsg{}, syncChecksumError{err: errors.New("installed library checksum does not match validated package")}
-	}
-	return installedDrvMsg{
-		removed:     item.RemovedDriver,
-		info:        manifest.DriverInfo,
-		postInstall: manifest.PostInstall.Messages,
-		item:        item,
-	}, nil
-}
-
 func (s syncModel) writeLockFile() error {
 	s.locked.Version = lockFileVersion
 	return s.persistCandidateLock(s.locked)
@@ -656,145 +604,56 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 		var sameVersionInstalled *config.DriverInfo
 		if s.cfg.Exists {
 			if installed, ok := s.cfg.Drivers[item.Driver.Path]; ok {
-				if item.Package.Version.Equal(installed.Version) {
+				if installed.Version != nil && item.Package.Version.String() == installed.Version.String() {
 					installedCopy := installed
 					sameVersionInstalled = &installedCopy
-					expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+					expected, _, err := expectedRegistryPackageMetadata(item.Package)
 					if err != nil {
 						return prepared, err
 					}
-					receipt, managed, receiptPresent, valid, err := config.InspectDriverInstallReceipt(s.cfg, installed)
+					item.Expected = expected
+					matches, err := s.itemCurrentMatches(item, &installedCopy)
 					if err != nil {
-						return prepared, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+						return prepared, err
 					}
-					libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
-					if managed {
-						if !receiptPresent && item.LockEntry != nil && item.LockEntry.Legacy != nil {
-							// A v1 lock's library digest is its proof. Preserve that
-							// compatibility only for genuinely receipt-less generations.
-							libraryHash, checksumErr := checksum(libraryPath)
-							if checksumErr == nil && item.Checksum != "" && libraryHash == item.Checksum {
-								item.InstalledLibraryHash = libraryHash
-								item.AlreadyInstalled = &installedCopy
-							}
-						} else if hasMetadata && valid && installReceiptMatchesExpected(receipt, expected) && config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
-							markAlreadyInstalled(item, installed, receipt.InstalledLibraryHash)
+					if matches {
+						libraryHash, hashErr := checksum(installed.Driver.Shared.Get(config.PlatformTuple()))
+						if hashErr != nil {
+							return prepared, fmt.Errorf("failed to checksum installed driver: %w", hashErr)
 						}
-					} else {
-						// Manifest-only packages may reference an external library and
-						// therefore have no managed receipt beside that path. A v1
-						// library checksum may tentatively prove continuity, but a v2
-						// lock without runtime proof cannot authorize a same-version skip.
-						libraryHash, checksumErr := checksum(libraryPath)
-						if checksumErr == nil && item.Checksum != "" && libraryHash == item.Checksum {
-							item.InstalledLibraryHash = libraryHash
-							item.AlreadyInstalled = &installedCopy
-						}
+						markAlreadyInstalled(item, installed, libraryHash)
 					}
-				} else {
-					installedCopy := installed
-					item.RemovedDriver = &installedCopy
 				}
 			}
 		}
 
 		needsArchive := item.AlreadyInstalled == nil || !canReuseLockedEntry(*item)
 		if needsArchive {
-			// Determine whether the registry supplied source metadata before
-			// measured values are copied into Package below.
-			expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
-			if err != nil {
+			if err := s.downloadAndValidateItem(ctx, item); err != nil {
 				return prepared, err
 			}
-			// downloadPkg is contextless; wait for it to return while retaining
-			// the project lock, then observe cancellation and clean up its archive.
-			archive, err := s.downloadPkg(item.Package)
-			if archive != nil {
-				item.Archive = archive
-			}
-			if ctx.Err() != nil {
-				return prepared, ctx.Err()
-			}
-			if err != nil {
-				return prepared, fmt.Errorf("failed to download driver: %w", err)
-			}
-			if err := snapshotDownloadedArchive(item, archive); err != nil {
-				return prepared, fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
-			}
-			if !hasMetadata {
-				if _, err := archive.Seek(0, io.SeekStart); err != nil {
-					return prepared, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+			if sameVersionInstalled != nil {
+				matches, err := s.itemCurrentMatches(item, sameVersionInstalled)
+				if err != nil {
+					return prepared, err
 				}
-				packageManifest, inspectErr := config.InspectPackageMetadata(archive)
-				if inspectErr != nil {
-					return prepared, inspectErr
-				}
-				if packageManifest.PackageVersion == 2 {
-					return prepared, errors.New("registry package v2 requires archive hash and size metadata")
-				}
-			}
-			item.Package.ArtifactHash = item.ArchiveHash
-			item.Package.ArtifactSize = cloneInt64(&item.ArchiveSize)
-			expected.ArchiveHash = item.ArchiveHash
-			expected.ArchiveSize = item.ArchiveSize
-			item.Expected = expected
-			if _, err := archive.Seek(0, io.SeekStart); err != nil {
-				return prepared, fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
-			}
-			var verify func(string, config.Manifest) error
-			if !s.NoVerify {
-				verify = func(stagingDir string, manifest config.Manifest) error {
-					return dbc.VerifyPackageSignature(stagingDir, manifest)
-				}
-			}
-			validation, err := config.ValidatePackage(item.Driver.Path, archive, expected, config.InstallOptions{Verify: verify})
-			if err != nil {
-				if isPackageVerificationFailure(err) {
-					return prepared, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
-				}
-				return prepared, fmt.Errorf("failed to validate driver package: %w", err)
-			}
-			verifiedLibraryHash := strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
-			item.ValidatedLibraryHash = verifiedLibraryHash
-			legacyExternalProof := item.LockEntry != nil && item.LockEntry.Legacy != nil &&
-				samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) && verifiedLibraryHash == ""
-			if legacyExternalProof {
-				proofHash := item.LockEntry.Legacy.LibraryHash
-				candidateLibrary := validation.Registration.Driver.Shared.Get(config.PlatformTuple())
-				if err := verifyLegacyExternalLibrary(candidateLibrary, proofHash); err != nil {
-					return prepared, fmt.Errorf("candidate package external library does not match the legacy lock proof: %w", err)
-				}
-				item.InstalledLibraryHash = proofHash
-				if sameVersionInstalled != nil && config.SameRuntimeDriverRegistration(*sameVersionInstalled, validation.Registration, config.PlatformTuple()) {
-					markAlreadyInstalled(item, *sameVersionInstalled, proofHash)
-				} else {
-					item.AlreadyInstalled = nil
-				}
-			} else {
-				if item.AlreadyInstalled == nil && sameVersionInstalled != nil {
-					receipt, managed, _, valid, err := config.InspectDriverInstallReceipt(s.cfg, *sameVersionInstalled)
-					if err != nil {
-						return prepared, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+				if matches {
+					libraryHash, hashErr := checksum(sameVersionInstalled.Driver.Shared.Get(config.PlatformTuple()))
+					if hashErr != nil {
+						return prepared, fmt.Errorf("failed to checksum installed driver: %w", hashErr)
 					}
-					libraryPath := sameVersionInstalled.Driver.Shared.Get(config.PlatformTuple())
-					if managed && valid && installReceiptMatchesExpected(receipt, expected) && config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
-						markAlreadyInstalled(item, *sameVersionInstalled, receipt.InstalledLibraryHash)
-					}
+					markAlreadyInstalled(item, *sameVersionInstalled, libraryHash)
 				}
-				if item.AlreadyInstalled != nil && sameVersionInstalled != nil &&
-					(verifiedLibraryHash == "" || item.InstalledLibraryHash != verifiedLibraryHash) {
-					// A receipt or v1 library proof can tentatively identify the
-					// installed artifact. Once the candidate archive is validated,
-					// require its measured library bytes to preserve that identity.
-					item.AlreadyInstalled = nil
-				}
-				if item.AlreadyInstalled == nil {
-					item.InstalledLibraryHash = verifiedLibraryHash
+			}
+			if item.AlreadyInstalled == nil {
+				item.InstalledLibraryHash = item.ValidatedLibraryHash
+				if item.Validation != nil && item.Validation.VerifiedLibraryHash == "" &&
+					item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
+					item.InstalledLibraryHash = item.LockEntry.Legacy.LibraryHash
 				}
 			}
 		} else {
-			// The exact locked artifact is already installed, so it can be reused
-			// without another download or package validation.
+			// The exact locked artifact is already proven by its managed receipt.
 			expected, _, err := expectedRegistryPackageMetadata(item.Package)
 			if err != nil {
 				return prepared, err
@@ -814,6 +673,221 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 		}
 	}
 	return prepared, nil
+}
+
+func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installItem) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if item.Archive == nil {
+		// downloadPkg has no context API. The worker retains the project lock and
+		// checks cancellation immediately after this synchronous call returns.
+		archive, err := s.downloadPkg(item.Package)
+		if archive != nil {
+			item.Archive = archive
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			return fmt.Errorf("failed to download driver: %w", err)
+		}
+	}
+	archive := item.Archive
+	if err := snapshotDownloadedArchive(item, archive); err != nil {
+		return fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
+	}
+	expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+	if err != nil {
+		return err
+	}
+	if !hasMetadata {
+		if _, err := archive.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+		}
+		packageManifest, inspectErr := config.InspectPackageMetadata(archive)
+		if inspectErr != nil {
+			return inspectErr
+		}
+		if packageManifest.PackageVersion == 2 {
+			return errors.New("registry package v2 requires archive hash and size metadata")
+		}
+	}
+	item.Package.ArtifactHash = item.ArchiveHash
+	item.Package.ArtifactSize = cloneInt64(&item.ArchiveSize)
+	expected.ArchiveHash = item.ArchiveHash
+	expected.ArchiveSize = item.ArchiveSize
+	item.Expected = expected
+	if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
+	}
+	var verify func(string, config.Manifest) error
+	if !s.NoVerify {
+		verify = func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
+		}
+	}
+	validation, err := config.ValidatePackage(item.Driver.Path, archive, expected, config.InstallOptions{Verify: verify})
+	if err != nil {
+		if isPackageVerificationFailure(err) {
+			return fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
+		}
+		return fmt.Errorf("failed to validate driver package: %w", err)
+	}
+	item.Validation = &validation
+	item.ValidatedLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
+	if item.ValidatedLibraryHash == "" {
+		candidateLibrary := validation.Registration.Driver.Shared.Get(config.PlatformTuple())
+		if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
+			if err := verifyLegacyExternalLibrary(candidateLibrary, item.LockEntry.Legacy.LibraryHash); err != nil {
+				return fmt.Errorf("candidate package external library does not match the legacy lock proof: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+func (s syncModel) itemCurrentMatches(item *installItem, current *config.DriverInfo) (bool, error) {
+	if current == nil || current.Version == nil || item.Expected.ID == "" || item.Expected.Version == "" ||
+		current.ID != item.Expected.ID || current.Version.String() != item.Expected.Version {
+		return false, nil
+	}
+	receipt, managed, present, valid, err := config.InspectDriverInstallReceipt(s.cfg, *current)
+	if err != nil {
+		return false, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+	}
+	libraryPath := current.Driver.Shared.Get(config.PlatformTuple())
+	if managed && present {
+		if !valid || !installReceiptMatchesExpected(receipt, item.Expected) ||
+			!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) ||
+			!config.InstallReceiptMatchesRuntimeRegistration(receipt, *current, config.PlatformTuple()) {
+			return false, nil
+		}
+		if item.Validation != nil {
+			if item.Validation.VerifiedLibraryHash == "" || item.Validation.VerifiedLibraryHash != receipt.InstalledLibraryHash ||
+				!config.PackageValidationMatchesRuntimeRegistration(*current, *item.Validation, config.PlatformTuple()) {
+				return false, nil
+			}
+		}
+		return true, nil
+	}
+	if present || item.Validation == nil || item.LockEntry == nil || item.LockEntry.Legacy == nil ||
+		!samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) ||
+		!config.PackageValidationMatchesRuntimeRegistration(*current, *item.Validation, config.PlatformTuple()) {
+		return false, nil
+	}
+	proofHash := item.LockEntry.Legacy.LibraryHash
+	if err := validateLegacyLibraryHash(proofHash); err != nil {
+		return false, nil
+	}
+	currentHash, err := checksum(libraryPath)
+	if err != nil || currentHash != proofHash {
+		return false, nil
+	}
+	if item.Validation.VerifiedLibraryHash != "" {
+		return item.ValidatedLibraryHash == proofHash, nil
+	}
+	if err := verifyLegacyExternalLibrary(item.Validation.Registration.Driver.Shared.Get(config.PlatformTuple()), proofHash); err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (s syncModel) ensurePreparedPackage(ctx context.Context, item *installItem) (config.EnsurePackageResult, error) {
+	if err := ctx.Err(); err != nil {
+		return config.EnsurePackageResult{}, err
+	}
+	callbacks := config.EnsurePackageCallbacks{
+		CurrentMatches: func(current *config.DriverInfo) (bool, error) {
+			return s.itemCurrentMatches(item, current)
+		},
+		Archive: func(ctx context.Context) (*os.File, error) {
+			if item.Archive == nil || item.Validation == nil {
+				if err := s.downloadAndValidateItem(ctx, item); err != nil {
+					return nil, err
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if _, err := item.Archive.Seek(0, io.SeekStart); err != nil {
+				return nil, fmt.Errorf("failed to rewind prepared driver archive: %w", err)
+			}
+			return item.Archive, nil
+		},
+		ValidateResult: func(result config.EnsurePackageResult) error {
+			return s.validateEnsureResult(item, result)
+		},
+	}
+	var verify func(string, config.Manifest) error
+	if !s.NoVerify {
+		verify = func(stagingDir string, manifest config.Manifest) error {
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
+		}
+	}
+	ensure := s.worker.hooks.ensurePackage
+	if ensure == nil {
+		ensure = config.EnsurePackage
+	}
+	result, err := ensure(ctx, s.cfg, item.Driver.Path, item.Expected, config.InstallOptions{Verify: verify}, callbacks)
+	if err != nil && isPackageVerificationFailure(err) {
+		return result, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
+	}
+	return result, err
+}
+
+func (s syncModel) validateEnsureResult(item *installItem, result config.EnsurePackageResult) error {
+	if result.Installed == nil {
+		return errors.New("package ensure returned no installed driver registration")
+	}
+	if result.Skipped {
+		matches, err := s.itemCurrentMatches(item, result.Installed)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return errors.New("installed driver no longer matches the selected package proof")
+		}
+		return nil
+	}
+	if item.Validation == nil || result.Manifest == nil {
+		return errors.New("installed package is missing validated candidate evidence")
+	}
+	if !config.PackageValidationMatchesRuntimeRegistration(*result.Installed, *item.Validation, config.PlatformTuple()) ||
+		!config.PackageValidationMatchesRuntimeRegistration(result.Manifest.DriverInfo, *item.Validation, config.PlatformTuple()) {
+		return errors.New("installed registration does not match the validated package")
+	}
+	if result.Installed.Version == nil || result.Installed.Version.String() != item.Expected.Version {
+		return errors.New("installed driver version does not match the selected package")
+	}
+	if item.Validation.VerifiedLibraryHash == "" {
+		path := result.Installed.Driver.Shared.Get(config.PlatformTuple())
+		if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
+			if err := verifyLegacyExternalLibrary(path, item.LockEntry.Legacy.LibraryHash); err != nil {
+				return fmt.Errorf("installed package external library does not match the legacy lock proof: %w", err)
+			}
+		}
+		return nil
+	}
+	receipt, managed, present, valid, err := config.InspectDriverInstallReceipt(s.cfg, *result.Installed)
+	if err != nil {
+		return fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
+	}
+	libraryPath := result.Installed.Driver.Shared.Get(config.PlatformTuple())
+	if !managed || !present || !valid || !installReceiptMatchesExpected(receipt, item.Expected) ||
+		receipt.InstalledLibraryHash != item.Validation.VerifiedLibraryHash ||
+		!config.InstallReceiptMatchesRuntimeRegistration(receipt, *result.Installed, config.PlatformTuple()) ||
+		!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
+		return errors.New("installed package receipt does not match the validated package")
+	}
+	actualHash, err := checksum(libraryPath)
+	if err != nil {
+		return syncChecksumError{err: err}
+	}
+	if actualHash != item.ValidatedLibraryHash {
+		return syncChecksumError{err: errors.New("installed library checksum does not match validated package")}
+	}
+	return nil
 }
 
 func installReceiptMatchesExpected(receipt config.InstallReceipt, expected config.ExpectedPackageMetadata) bool {
@@ -982,25 +1056,38 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 	}
 	result.lock = prepared.lock
 
-	for _, item := range prepared.items {
+	for i := range prepared.items {
 		if err := ctx.Err(); err != nil {
 			return fail("sync_failed", err)
 		}
-		if item.AlreadyInstalled != nil {
-			progress := alreadyInstalledDrvMsg{info: *item.AlreadyInstalled, item: item}
-			progress.item.Archive = nil
-			if !worker.send(ctx, progress) {
-				return fail("sync_failed", ctx.Err())
-			}
-			continue
-		}
-		installed, err := s.installPreparedPackage(ctx, item)
+		item := &prepared.items[i]
+		ensured, err := s.ensurePreparedPackage(ctx, item)
 		if err != nil {
 			var checksumErr syncChecksumError
 			if errors.As(err, &checksumErr) {
 				return fail("checksum_failed", checksumErr)
 			}
 			return fail("sync_failed", err)
+		}
+		if ensured.Skipped {
+			if ensured.Installed == nil {
+				return fail("sync_failed", errors.New("package ensure skipped without an installed registration"))
+			}
+			progress := alreadyInstalledDrvMsg{info: *ensured.Installed, item: *item}
+			progress.item.Archive = nil
+			if !worker.send(ctx, progress) {
+				return fail("sync_failed", ctx.Err())
+			}
+			continue
+		}
+		if ensured.Manifest == nil || ensured.Installed == nil {
+			return fail("sync_failed", errors.New("package ensure completed without installation details"))
+		}
+		installed := installedDrvMsg{
+			removed:     ensured.Previous,
+			info:        *ensured.Installed,
+			postInstall: ensured.Manifest.PostInstall.Messages,
+			item:        *item,
 		}
 		installed.item.Archive = nil
 		if !worker.send(ctx, installed) {
