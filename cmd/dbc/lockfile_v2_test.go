@@ -561,7 +561,7 @@ func TestLockSnapshotRequiresFinalizedArtifactMetadata(t *testing.T) {
 	release.Artifacts[0].Hash = ""
 	_, err := lockInfoFromResolvedRelease("example", release)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no finalized hash")
+	assert.Contains(t, err.Error(), "hash and size must either both be present or both be absent")
 
 	release = testResolvedRelease()
 	release.Artifacts = append(release.Artifacts, release.Artifacts[0])
@@ -649,7 +649,7 @@ func TestSyncAdapterRejectsFreshEntryWithoutArchiveMetadata(t *testing.T) {
 	}
 	_, err = lockEntryForItem(item)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no finalized hash")
+	assert.Contains(t, err.Error(), "hash and size must either both be present or both be absent")
 }
 
 func TestSyncAdapterRejectsPathArtifactForRegistryReplay(t *testing.T) {

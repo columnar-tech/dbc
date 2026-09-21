@@ -68,9 +68,9 @@ func TestResolvePackslipRejectsMismatchedMetadata(t *testing.T) {
 		{name: "version", change: func(r *resolution.ResolvedRelease) { r.Version = "1.2.4" }, want: "version"},
 		{name: "source type", change: func(r *resolution.ResolvedRelease) { r.Source.Type = "registry" }, want: "source identity"},
 		{name: "source identity", change: func(r *resolution.ResolvedRelease) { r.Source.Reference = "github.com/other/driver" }, want: "source identity"},
-		{name: "artifact hash", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Hash = "" }, want: "no finalized hash"},
-		{name: "artifact size", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Size = nil }, want: "no finalized size"},
-		{name: "missing package marker", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 0 }, want: "no supported dbc package_version"},
+		{name: "artifact hash", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Hash = "" }, want: "hash and size must either both be present or both be absent"},
+		{name: "artifact size", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Size = nil }, want: "hash and size must either both be present or both be absent"},
+		{name: "missing package marker", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 0 }, want: "must declare dbc package_version 2"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

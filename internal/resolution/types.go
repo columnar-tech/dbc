@@ -191,13 +191,6 @@ func validTargetToken(value string) bool {
 	return true
 }
 
-// Requirement describes the driver release and target requested by a caller.
-type Requirement struct {
-	DriverID          string
-	VersionConstraint string
-	Target            Target
-}
-
 // SourceSpec identifies a source and its source-specific reference. Reference
 // is interpreted by the resolver for Type; it may be a registry URL, project
 // identity, or local path.
@@ -233,13 +226,13 @@ type ResolvedRelease struct {
 	Artifacts []Artifact
 }
 
-// Artifact describes one downloadable archive for one concrete target. Hash and
-// Size are optional so older registry entries remain representable.
+// Artifact describes one downloadable archive for one concrete target. Hash
+// and Size are either both absent before download or both present afterward.
 type Artifact struct {
 	Target Target
 	Format string
-	// PackageVersion is the dbc package contract declared by the signed source.
-	// Zero means unspecified for sources that predate an explicit marker.
+	// PackageVersion is the dbc package contract declared by the source. Zero
+	// means no explicit package-version marker is present.
 	PackageVersion   int
 	Location         ArtifactLocation
 	Hash             string
@@ -324,10 +317,11 @@ func ValidateEvidence(evidence []Evidence) error {
 	return nil
 }
 
-// ValidateResolvedRelease checks the contract required before a release can
-// become a lockfile snapshot. Registry candidates may omit hashes or sizes;
-// only the snapshot boundary requires them to be finalized.
-func ValidateResolvedRelease(release ResolvedRelease) error {
+// ValidateResolvedReleaseCandidate checks a resolved release before it is
+// downloaded or used to form an install candidate. Archive hashes and sizes
+// may both be absent at this stage, but any supplied pair and all other
+// metadata must be valid.
+func ValidateResolvedReleaseCandidate(release ResolvedRelease) error {
 	if err := ValidateEvidence(release.Evidence); err != nil {
 		return fmt.Errorf("invalid evidence: %w", err)
 	}
@@ -362,14 +356,29 @@ func ValidateResolvedRelease(release ResolvedRelease) error {
 			seenLocations[artifact.Location] = artifact
 		}
 
+		if (artifact.Hash == "") != (artifact.Size == nil) {
+			return fmt.Errorf("artifact %d hash and size must either both be present or both be absent", i)
+		}
+		if err := ValidateArtifactMetadata(artifact.Hash, artifact.Size); err != nil {
+			return fmt.Errorf("artifact %d has invalid metadata: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// ValidateResolvedRelease checks the contract required before a release can
+// become a lockfile snapshot. In addition to candidate validation, every
+// artifact must have a finalized hash and size.
+func ValidateResolvedRelease(release ResolvedRelease) error {
+	if err := ValidateResolvedReleaseCandidate(release); err != nil {
+		return err
+	}
+	for i, artifact := range release.Artifacts {
 		if artifact.Hash == "" {
 			return fmt.Errorf("artifact %d has no finalized hash", i)
 		}
 		if artifact.Size == nil {
 			return fmt.Errorf("artifact %d has no finalized size", i)
-		}
-		if err := ValidateArtifactMetadata(artifact.Hash, artifact.Size); err != nil {
-			return fmt.Errorf("artifact %d has invalid metadata: %w", i, err)
 		}
 	}
 	return nil

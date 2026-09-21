@@ -80,7 +80,7 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 	}
 	for i, artifact := range release.Artifacts {
 		if artifact.PackageVersion != 2 {
-			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d has no supported dbc package_version declaration; refresh the lock or source metadata", i)
+			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d must declare dbc package_version 2", i)
 		}
 	}
 	return release, nil
