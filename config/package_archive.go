@@ -377,6 +377,13 @@ type EnsurePackageResult struct {
 // EnsurePackage, UninstallDriver, or another API that reacquires a lock for
 // the same driver, because that would deadlock.
 func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks) (EnsurePackageResult, error) {
+	return ensurePackageWithLockObserver(ctx, cfg, runtimeID, expected, installOptions, callbacks, nil)
+}
+
+// ensurePackageWithLockObserver is the internal lock-acquisition seam used by
+// tests to synchronize with a partially acquired ConfigEnv lock set. The
+// observer runs synchronously while the acquired root lock remains held.
+func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks, lockObserver func(root string)) (EnsurePackageResult, error) {
 	var result EnsurePackageResult
 	if ctx == nil {
 		return result, errors.New("package ensure context is nil")
@@ -401,7 +408,7 @@ func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected E
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	releaseLocks, err := acquireDriverInstallLocks(ctx, precedenceRoots, runtimeID)
+	releaseLocks, err := acquireDriverInstallLocksWithObserver(ctx, precedenceRoots, runtimeID, lockObserver)
 	if err != nil {
 		return result, fmt.Errorf("could not lock driver installation: %w", err)
 	}
@@ -556,6 +563,10 @@ func absoluteCleanLocation(location string) (string, error) {
 }
 
 func acquireDriverInstallLocks(ctx context.Context, roots []string, runtimeID string) (func(), error) {
+	return acquireDriverInstallLocksWithObserver(ctx, roots, runtimeID, nil)
+}
+
+func acquireDriverInstallLocksWithObserver(ctx context.Context, roots []string, runtimeID string, observer func(root string)) (func(), error) {
 	lockRoots := slices.Clone(roots)
 	slices.Sort(lockRoots)
 	releases := make([]func(), 0, len(lockRoots))
@@ -578,6 +589,9 @@ func acquireDriverInstallLocks(ctx context.Context, roots []string, runtimeID st
 			return nil, err
 		}
 		releases = append(releases, release)
+		if observer != nil {
+			observer(root)
+		}
 	}
 	return releaseAll, nil
 }

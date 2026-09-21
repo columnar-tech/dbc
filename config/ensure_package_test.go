@@ -291,36 +291,32 @@ func TestEnsurePackageCancellationReleasesPartiallyAcquiredLocks(t *testing.T) {
 	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := make(chan struct{})
+	earlyLockAcquired := make(chan struct{}, 1)
 	done := make(chan error, 1)
 	go func() {
-		close(started)
-		_, err := EnsurePackage(ctx, cfg, "example", ExpectedPackageMetadata{ID: "example"}, InstallOptions{}, EnsurePackageCallbacks{
+		_, err := ensurePackageWithLockObserver(ctx, cfg, "example", ExpectedPackageMetadata{ID: "example"}, InstallOptions{}, EnsurePackageCallbacks{
 			CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
 			Archive:        func() (*os.File, error) { return nil, errors.New("provider must not run") },
+		}, func(root string) {
+			if root == early {
+				earlyLockAcquired <- struct{}{}
+			}
 		})
 		done <- err
 	}()
-	<-started
-	lockHeldDeadline := time.Now().Add(3 * time.Second)
-	earlyLockObserved := false
-	for time.Now().Before(lockHeldDeadline) {
-		probeCtx, probeCancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
-		contenderRelease, contenderErr := acquireDriverInstallLockContext(probeCtx, early, "example")
-		probeCancel()
-		if contenderErr == nil {
-			contenderRelease()
-			time.Sleep(10 * time.Millisecond)
-			continue
-		}
-		if !errors.Is(contenderErr, context.DeadlineExceeded) {
-			t.Fatalf("could not observe earlier driver lock acquisition: %v", contenderErr)
-		}
-		earlyLockObserved = true
-		break
+	select {
+	case <-earlyLockAcquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("EnsurePackage did not acquire the earlier root lock")
 	}
-	if !earlyLockObserved {
-		t.Fatal("EnsurePackage did not acquire the earlier root lock before waiting on the later root")
+	contenderCtx, contenderCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	contenderRelease, contenderErr := acquireDriverInstallLockContext(contenderCtx, early, "example")
+	contenderCancel()
+	if contenderRelease != nil {
+		contenderRelease()
+	}
+	if !errors.Is(contenderErr, context.DeadlineExceeded) {
+		t.Fatalf("earlier root lock was not held after the acquisition observer signal: %v", contenderErr)
 	}
 	cancel()
 	select {
