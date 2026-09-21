@@ -16,11 +16,9 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -31,55 +29,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestUnmarshalDriverList(t *testing.T) {
-	tests := []struct {
-		name     string
-		contents string
-		expected []dbc.PkgInfo
-		err      error
-	}{
-		{"basic", "[drivers]\nflightsql = {version = '1.8.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
-		}, nil},
-		{"less", "[drivers]\nflightsql = {version = '<=1.8.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
-		}, nil},
-		{"greater", "[drivers]\nflightsql = {version = '>=1.8.0, <=1.10.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.10.0")},
-		}, nil},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tmpdir := t.TempDir()
-			driverListPath := filepath.Join(tmpdir, "dbc.toml")
-			require.NoError(t, os.WriteFile(driverListPath, []byte(tt.contents), 0644))
-
-			pkgs, err := GetDriverList(driverListPath)
-			if tt.err != nil {
-				require.Error(t, err)
-				assert.ErrorContains(t, err, tt.err.Error())
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Len(t, pkgs, len(tt.expected))
-
-			slices.SortFunc(pkgs, func(a, b dbc.PkgInfo) int {
-				return cmp.Compare(a.Driver.Path, b.Driver.Path)
-			})
-			slices.SortFunc(tt.expected, func(a, b dbc.PkgInfo) int {
-				return cmp.Compare(a.Driver.Path, b.Driver.Path)
-			})
-
-			for i, pkg := range pkgs {
-				assert.Equal(t, tt.expected[i].Driver.Path, pkg.Driver.Path)
-				assert.Truef(t, tt.expected[i].Version.Equal(pkg.Version), "expected %s to equal %s", tt.expected[i].Version, pkg.Version)
-			}
-		})
-	}
-}
 
 func TestDriverSourceProjectConfigRoundTrip(t *testing.T) {
 	tests := []struct {
@@ -271,6 +220,21 @@ func TestMarshalDriverManifestList(t *testing.T) {
 [drivers.flightsql]
 version = '>=1.6.0'
 `, string(data))
+}
+
+func TestDriverSpecConstraintTOMLRoundTrip(t *testing.T) {
+	const source = "[drivers]\n[drivers.flightsql]\nversion = '>=1.6.0, <2.0.0'\n"
+	var list DriversList
+	require.NoError(t, toml.Unmarshal([]byte(source), &list))
+	require.NotNil(t, list.Drivers["flightsql"].Version)
+	assert.Equal(t, ">=1.6.0 <2.0.0", list.Drivers["flightsql"].Version.String())
+
+	encoded, err := toml.Marshal(list)
+	require.NoError(t, err)
+	var roundTrip DriversList
+	require.NoError(t, toml.Unmarshal(encoded, &roundTrip))
+	require.NotNil(t, roundTrip.Drivers["flightsql"].Version)
+	assert.Equal(t, ">=1.6.0 <2.0.0", roundTrip.Drivers["flightsql"].Version.String())
 }
 
 func TestMarshalDriverListEmptyTableSection(t *testing.T) {

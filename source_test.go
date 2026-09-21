@@ -15,10 +15,8 @@
 package dbc
 
 import (
-	"encoding/json"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,30 +58,4 @@ func TestDriverSourceValidation(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
-}
-
-func TestDriverSourceJSONRoundTrip(t *testing.T) {
-	sources := []DriverSource{
-		{Type: DriverSourceRegistry, URL: "https://registry.example.test"},
-		{Type: DriverSourcePackslip, Project: "github.com/owner/project"},
-		{Type: DriverSourcePath, Path: "../packages/driver.tar.gz"},
-	}
-	for _, source := range sources {
-		t.Run(string(source.Type), func(t *testing.T) {
-			data, err := json.Marshal(PkgInfo{Source: &source})
-			require.NoError(t, err)
-
-			var output PkgInfo
-			require.NoError(t, json.Unmarshal(data, &output))
-			require.NotNil(t, output.Source)
-			assert.Equal(t, source, *output.Source)
-		})
-	}
-
-	legacy := PkgInfo{}
-	legacyData, err := json.Marshal(legacy)
-	require.NoError(t, err)
-	var legacyRoundTrip PkgInfo
-	require.NoError(t, json.Unmarshal(legacyData, &legacyRoundTrip))
-	assert.Nil(t, legacyRoundTrip.Source, "omitted legacy source must remain distinguishable from explicit registry")
 }

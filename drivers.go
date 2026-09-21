@@ -262,9 +262,6 @@ type PkgInfo struct {
 	Driver        Driver
 	Version       *semver.Version
 	PlatformTuple string
-	// Source preserves the source explicitly declared by a project config.
-	// A nil value means the legacy/default registry source was requested.
-	Source *DriverSource `json:"source,omitempty"`
 
 	Path *url.URL
 	// ArtifactHash is the optional digest of the downloaded archive.

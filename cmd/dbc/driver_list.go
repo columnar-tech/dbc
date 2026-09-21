@@ -15,14 +15,12 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
-	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/sourceidentity"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -238,57 +236,4 @@ type driverSpec struct {
 	Prerelease string              `toml:"prerelease,omitempty"`
 	Version    *semver.Constraints `toml:"version"`
 	Source     *dbc.DriverSource   `toml:"source,omitempty"`
-}
-
-func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
-	var m DriversList
-	f, err := os.Open(fname)
-	if err != nil {
-		return nil, fmt.Errorf("error opening driver list %s: %w", fname, err)
-	}
-	defer f.Close()
-	if err = toml.NewDecoder(f).Decode(&m); err != nil {
-		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
-	}
-	if err := m.validateSources(); err != nil {
-		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
-	}
-
-	// Build a per-call client scoped to this list's registry overrides so
-	// repeated calls in the same process don't leak configuration from one
-	// dbc.toml to another. Unlike add/sync (which own the process for one
-	// command), GetDriverList is a library helper that may be called
-	// multiple times.
-	client, err := newDBCClient(m.Registries, m.ReplaceDefaults)
-	if err != nil {
-		return nil, fmt.Errorf("error configuring project registries: %w", err)
-	}
-	drivers, err := client.Search(context.Background(), "")
-	if err != nil {
-		return nil, err
-	}
-
-	// create mapping to avoid multiple loops through
-	dmap := make(map[string]dbc.Driver)
-	for _, driver := range drivers {
-		dmap[driver.Path] = driver
-	}
-
-	var pkgs []dbc.PkgInfo
-	for name, spec := range m.Drivers {
-		drv, ok := dmap[name]
-		if !ok {
-			return nil, fmt.Errorf("driver `%s` not found", name)
-		}
-
-		pkg, err := drv.GetWithConstraint(spec.Version, config.PlatformTuple())
-		if err != nil {
-			return nil, fmt.Errorf("error finding version for driver %s: %w", name, err)
-		}
-		pkg.Source = spec.Source
-
-		pkgs = append(pkgs, pkg)
-	}
-
-	return pkgs, nil
 }
