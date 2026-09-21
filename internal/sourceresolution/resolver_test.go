@@ -259,3 +259,38 @@ func TestResolvePathRequiresPlatformTargetConsistency(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "does not match platform tuple")
 }
+
+func TestResolvePathSnapshotsCanonicalTargetAliases(t *testing.T) {
+	projectDir := t.TempDir()
+	archive := testPackageArchive(t, "MANIFEST", []byte("manifest_version = 1\nname = 'Legacy Driver'\nversion = '1.2.3'\n\n[Driver]\nshared = 'libexample.so'\n"))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "legacy.tgz"), archive, 0o600))
+
+	tests := []struct {
+		name     string
+		target   resolution.Target
+		platform string
+		want     resolution.Target
+	}{
+		{
+			name:   "Darwin and x86_64 aliases",
+			target: resolution.Target{OS: "darwin", Arch: "x86_64"}, platform: "darwin_x86_64",
+			want: resolution.Target{OS: "macos", Arch: "amd64"},
+		},
+		{
+			name:   "Linux defaults to GNU libc",
+			target: resolution.Target{OS: "linux", Arch: "amd64"}, platform: "linux_amd64",
+			want: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			release, err := ResolvePath(context.Background(), "legacy.tgz", Request{
+				DriverID: "example", Version: "1.2.3", Target: test.target,
+				Platform: test.platform, BaseDir: projectDir,
+			})
+			require.NoError(t, err)
+			require.Len(t, release.Artifacts, 1)
+			assert.Equal(t, test.want, release.Artifacts[0].Target)
+		})
+	}
+}

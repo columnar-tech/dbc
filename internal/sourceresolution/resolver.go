@@ -98,7 +98,8 @@ func ResolvePath(ctx context.Context, declaredPath string, request Request) (res
 			return resolution.ResolvedRelease{}, fmt.Errorf("requested path package version %q must be an exact SemVer 2.0.0 version", request.Version)
 		}
 	}
-	if err := resolution.ValidateConcreteTarget(request.Target); err != nil {
+	target := resolution.CanonicalTarget(request.Target)
+	if err := resolution.ValidateConcreteTarget(target); err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("invalid current target: %w", err)
 	}
 	if request.Platform == "" {
@@ -108,8 +109,8 @@ func ResolvePath(ctx context.Context, declaredPath string, request Request) (res
 	if err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("invalid current platform tuple: %w", err)
 	}
-	if platformTarget != resolution.CanonicalTarget(request.Target) {
-		return resolution.ResolvedRelease{}, fmt.Errorf("current target %v does not match platform tuple %q", request.Target, request.Platform)
+	if platformTarget != target {
+		return resolution.ResolvedRelease{}, fmt.Errorf("current target %v does not match platform tuple %q", target, request.Platform)
 	}
 	if !filepath.IsAbs(request.BaseDir) {
 		return resolution.ResolvedRelease{}, errors.New("project base directory must be absolute")
@@ -160,7 +161,7 @@ func ResolvePath(ctx context.Context, declaredPath string, request Request) (res
 		Version:  resolvedVersion,
 		Source:   resolution.SourceSpec{Type: "path", Reference: declaredPath},
 		Artifacts: []resolution.Artifact{{
-			Target:   request.Target,
+			Target:   target,
 			Format:   format,
 			Location: location,
 			Hash:     archiveHash,
