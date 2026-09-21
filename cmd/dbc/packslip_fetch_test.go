@@ -174,3 +174,32 @@ func TestPackslipArtifactFetchRejectsHTTPSDowngradeRedirect(t *testing.T) {
 	assert.ErrorContains(t, err, "must be HTTPS")
 	assert.Zero(t, downgradeHits)
 }
+
+func TestPackslipArtifactFetchRejectsRedirectCallbackDowngrade(t *testing.T) {
+	var downgradeHits int
+	httpTarget := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		downgradeHits++
+	}))
+	defer httpTarget.Close()
+	tlsSource := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://assets.example.test/redirect", http.StatusFound)
+	}))
+	defer tlsSource.Close()
+	artifactURL, err := url.Parse(tlsSource.URL + "/signed")
+	require.NoError(t, err)
+	client := tlsSource.Client()
+	client.CheckRedirect = func(request *http.Request, _ []*http.Request) error {
+		targetURL, parseErr := url.Parse(httpTarget.URL + "/archive")
+		if parseErr != nil {
+			return parseErr
+		}
+		request.URL = targetURL
+		return nil
+	}
+
+	_, err = fetchPackslipArtifactWithClient(context.Background(), client, artifactURL)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "reject Packslip artifact redirect after client policy")
+	assert.ErrorContains(t, err, "must be HTTPS")
+	assert.Zero(t, downgradeHits)
+}

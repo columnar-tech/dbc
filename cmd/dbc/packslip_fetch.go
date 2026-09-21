@@ -75,7 +75,12 @@ func fetchPackslipArtifactWithClient(ctx context.Context, client *http.Client, a
 			return fmt.Errorf("reject Packslip artifact redirect: %w", err)
 		}
 		if previousRedirectCheck != nil {
-			return previousRedirectCheck(request, via)
+			if err := previousRedirectCheck(request, via); err != nil {
+				return err
+			}
+			if err := validatePackslipArtifactURL(request.URL); err != nil {
+				return fmt.Errorf("reject Packslip artifact redirect after client policy: %w", err)
+			}
 		}
 		return nil
 	}
