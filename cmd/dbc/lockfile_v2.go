@@ -39,9 +39,13 @@ var (
 type LockRefreshRequiredError struct {
 	DriverID string
 	Platform string
+	Reason   string
 }
 
 func (e *LockRefreshRequiredError) Error() string {
+	if e.Reason != "" {
+		return fmt.Sprintf("lock file for %s on %s requires refresh: %s", e.DriverID, e.Platform, e.Reason)
+	}
 	return fmt.Sprintf("lock file has no artifact for %s on %s; refresh the lock file explicitly", e.DriverID, e.Platform)
 }
 
@@ -102,6 +106,9 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 		return lockInfo{}, fmt.Errorf("unsupported resolved source type %q", release.Source.Type)
 	}
 	for _, artifact := range release.Artifacts {
+		if release.Source.Type == "packslip" && artifact.PackageVersion != 2 {
+			return lockInfo{}, fmt.Errorf("packslip artifact for %s has no supported dbc package_version declaration", name)
+		}
 		entry.Artifacts = append(entry.Artifacts, lockArtifactFromResolved(artifact))
 	}
 	if err := validateLockInfo(entry); err != nil {
@@ -114,6 +121,7 @@ func lockArtifactFromResolved(artifact resolution.Artifact) lockArtifact {
 	result := lockArtifact{
 		Target:           resolution.CanonicalTarget(artifact.Target),
 		Format:           artifact.Format,
+		PackageVersion:   artifact.PackageVersion,
 		Location:         artifact.Location,
 		Hash:             artifact.Hash,
 		Size:             cloneInt64(artifact.Size),
@@ -184,6 +192,7 @@ func (d lockInfo) resolvedRelease() resolution.ResolvedRelease {
 		resolved := resolution.Artifact{
 			Target:           artifact.Target,
 			Format:           artifact.Format,
+			PackageVersion:   artifact.PackageVersion,
 			Location:         artifact.Location,
 			Hash:             artifact.Hash,
 			Size:             cloneInt64(artifact.Size),
@@ -316,15 +325,19 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 	for _, candidate := range refreshed.Artifacts {
 		candidateIdentity := artifactSelectorIdentity(candidate)
 		found := false
-		for _, prior := range merged.Artifacts {
+		for index, prior := range merged.Artifacts {
 			if artifactSelectorIdentity(prior) != candidateIdentity {
 				continue
 			}
 			found = true
 			if prior.Location != candidate.Location || prior.Format != candidate.Format ||
 				prior.Hash != candidate.Hash || !sameLockSize(prior.Size, candidate.Size) ||
+				(prior.PackageVersion != 0 && candidate.PackageVersion != 0 && prior.PackageVersion != candidate.PackageVersion) ||
 				!reflect.DeepEqual(canonicalHostRequirements(prior.HostRequirements), canonicalHostRequirements(candidate.HostRequirements)) {
 				return lockInfo{}, fmt.Errorf("metadata refresh contradicts locked artifact %q", candidateIdentity)
+			}
+			if merged.Artifacts[index].PackageVersion == 0 {
+				merged.Artifacts[index].PackageVersion = candidate.PackageVersion
 			}
 			break
 		}
@@ -398,6 +411,12 @@ func selectLockedArtifact(entry lockInfo, platform string, locked bool) (lockArt
 		return lockArtifact{}, fmt.Errorf("%w for %s on %s", ErrArtifactAmbiguous, entry.Name, platform)
 	}
 	if len(matches) == 1 {
+		if entry.Source.Type == "packslip" && matches[0].PackageVersion != 2 {
+			return lockArtifact{}, &LockRefreshRequiredError{
+				DriverID: entry.Name, Platform: platform,
+				Reason: "locked Packslip artifact is missing its signed dbc package_version declaration",
+			}
+		}
 		return matches[0], nil
 	}
 	if locked {

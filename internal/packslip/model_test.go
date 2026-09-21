@@ -31,6 +31,11 @@ func validRelease(version string, artifacts ...releaseArtifact) []byte {
 		format := "tar.gz"
 		artifacts = []releaseArtifact{{Name: "driver-linux.tar.gz", OS: ptr("linux"), Arch: ptr("x86_64"), LibC: ptr("gnu"), Size: ptr(uint64(10)), Format: &format, URL: ptr("https://dl.example/driver-linux.tar.gz")}}
 	}
+	for i := range artifacts {
+		if artifacts[i].Extensions == nil {
+			artifacts[i].Extensions = map[string]json.RawMessage{"dbc": mustJSON(dbcArtifactExtension{PackageVersion: 2})}
+		}
+	}
 	project := testProject
 	issued := GitHubOIDCIssuer
 	envelope := statementEnvelope{
@@ -38,13 +43,25 @@ func validRelease(version string, artifacts ...releaseArtifact) []byte {
 		PredicateType: ReleasePredicateType,
 		Predicate: mustJSON(releasePredicate{
 			Project: project, Version: version, PublishedAt: "2026-09-01T12:00:00Z", Artifacts: artifacts,
-			Identity: releaseIdentity{Scheme: "sigstore-oidc", KeyID: "https://github.com/acme/driver/.github/workflows/release.yml@refs/tags/v1", Issuer: &issued},
+			Extensions: map[string]json.RawMessage{"dbc": mustJSON(dbcReleaseExtension{SchemaVersion: 1, DriverID: "driver"})},
+			Identity:   releaseIdentity{Scheme: "sigstore-oidc", KeyID: "https://github.com/acme/driver/.github/workflows/release.yml@refs/tags/v1", Issuer: &issued},
 		}),
 	}
 	for _, artifact := range artifacts {
 		envelope.Subject = append(envelope.Subject, subject{Name: artifact.Name, Digest: map[string]string{"sha256": strings.Repeat("a", 64)}})
 	}
 	return mustJSON(envelope)
+}
+
+func parseDBCRelease(payload []byte, expectedProject string) (*parsedRelease, error) {
+	release, err := parseRelease(payload, expectedProject)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateDBCReleaseExtensions(release); err != nil {
+		return nil, err
+	}
+	return release, nil
 }
 
 func validList(sequence uint64, expires string) []byte {
@@ -141,7 +158,7 @@ func TestSelectArtifactUsesPackslipOrderAndRejectsAmbiguity(t *testing.T) {
 	makeArtifact := func(name, osName, arch, libc, format string, variant *string) releaseArtifact {
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), LibC: optionalToken(libc), Variant: variant, Size: ptr(uint64(1)), Format: ptr(format), URL: ptr("https://dl.example/" + name)}
 	}
-	release, err := parseRelease(validRelease("1.0.0",
+	release, err := parseDBCRelease(validRelease("1.0.0",
 		makeArtifact("portable.tar.gz", "", "", "", "tar.gz", nil),
 		makeArtifact("linux-specific.tgz", "linux", "x86_64", "gnu", "tgz", nil),
 		makeArtifact("linux-specific.tar.gz", "linux", "x86_64", "gnu", "tar.gz", nil),
@@ -152,7 +169,7 @@ func TestSelectArtifactUsesPackslipOrderAndRejectsAmbiguity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "linux-specific.tar.gz", selected.Name)
 
-	ambiguous, err := parseRelease(validRelease("1.0.0",
+	ambiguous, err := parseDBCRelease(validRelease("1.0.0",
 		makeArtifact("linux-x64.tar.gz", "linux", "", "", "tar.gz", nil),
 		makeArtifact("x64-linux.tar.gz", "", "x86_64", "", "tar.gz", nil),
 	), testProject)
@@ -161,7 +178,7 @@ func TestSelectArtifactUsesPackslipOrderAndRejectsAmbiguity(t *testing.T) {
 	require.ErrorIs(t, err, ErrAmbiguousArtifact)
 
 	variant := "fips"
-	withVariant, err := parseRelease(validRelease("1.0.0",
+	withVariant, err := parseDBCRelease(validRelease("1.0.0",
 		makeArtifact("default.tar.gz", "linux", "x86_64", "gnu", "tar.gz", nil),
 		makeArtifact("fips.tar.gz", "linux", "x86_64", "gnu", "tar.gz", &variant),
 	), testProject)
@@ -180,7 +197,7 @@ func TestDBCSupportedFormatsAndPackslipHostLibcSemantics(t *testing.T) {
 	makeArtifact := func(name, osName, arch, libc, format string) releaseArtifact {
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), LibC: optionalToken(libc), Size: ptr(uint64(1)), Format: ptr(format), URL: ptr("https://dl.example/" + name)}
 	}
-	release, err := parseRelease(validRelease("1.0.0",
+	release, err := parseDBCRelease(validRelease("1.0.0",
 		makeArtifact("linux.tar.xz", "linux", "x86_64", "gnu", "tar.xz"),
 		makeArtifact("portable.tar.gz", "", "", "", "tar.gz"),
 	), testProject)
@@ -189,7 +206,7 @@ func TestDBCSupportedFormatsAndPackslipHostLibcSemantics(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "portable.tar.gz", selected.Name, "dbc must ignore unsupported formats even when they are more specific")
 
-	gnuOnly, err := parseRelease(validRelease("1.0.0", makeArtifact("linux-gnu.tar.gz", "linux", "amd64", "gnu", "tar.gz")), testProject)
+	gnuOnly, err := parseDBCRelease(validRelease("1.0.0", makeArtifact("linux-gnu.tar.gz", "linux", "amd64", "gnu", "tar.gz")), testProject)
 	require.NoError(t, err)
 	_, err = selectArtifact(gnuOnly, Target{OS: "linux", Arch: "x86_64"})
 	require.ErrorIs(t, err, ErrReleaseNotFound, "a host with unknown libc must not be treated as GNU")
@@ -199,13 +216,19 @@ func TestParseReleaseRejectsExactSelectorDuplicatesButDefersOverlappingScopeTies
 	artifact := func(name, osName, arch string) releaseArtifact {
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/" + name)}
 	}
-	_, err := parseRelease(validRelease("1.0.0",
+	_, err := parseDBCRelease(validRelease("1.0.0",
 		artifact("first.tar.gz", "linux", "x86_64"),
 		artifact("second.tar.gz", "linux", "amd64"),
 	), testProject)
-	require.ErrorContains(t, err, "duplicate selectors", "selector aliases are canonicalized before structural duplicate detection")
+	require.ErrorContains(t, err, "duplicate selectors", "generic selector validity also applies to dbc extensions")
 
-	release, err := parseRelease(validRelease("1.0.0",
+	_, err = parseDBCRelease(validRelease("1.0.0",
+		artifact("darwin.tar.gz", "darwin", "x86_64"),
+		artifact("macos.tar.gz", "macos", "amd64"),
+	), testProject)
+	require.ErrorContains(t, err, "duplicate selectors", "OS and architecture aliases are canonicalized before duplicate detection")
+
+	release, err := parseDBCRelease(validRelease("1.0.0",
 		artifact("linux.tar.gz", "linux", ""),
 		artifact("x64.tar.gz", "", "amd64"),
 	), testProject)
@@ -213,7 +236,7 @@ func TestParseReleaseRejectsExactSelectorDuplicatesButDefersOverlappingScopeTies
 	_, err = selectArtifact(release, Target{OS: "linux", Arch: "amd64"})
 	require.ErrorIs(t, err, ErrAmbiguousArtifact, "the tie is reported only for a matching host")
 
-	concreteTie, err := parseRelease(validRelease("1.0.0",
+	concreteTie, err := parseDBCRelease(validRelease("1.0.0",
 		artifact("linux-amd64.tar.gz", "linux", "amd64"),
 		releaseArtifact{Name: "linux-gnu.tar.gz", OS: ptr("linux"), LibC: ptr("gnu"), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/linux-gnu.tar.gz")},
 	), testProject)
@@ -280,7 +303,7 @@ func TestSupportedArtifactInventoryAllowsOverlappingSelectorsAndChoosesMostSpeci
 	artifact := func(name, osName, arch string) releaseArtifact {
 		return releaseArtifact{Name: name, OS: optionalToken(osName), Arch: optionalToken(arch), Size: ptr(uint64(1)), Format: ptr("tar.gz"), URL: ptr("https://dl.example/" + name)}
 	}
-	release, err := parseRelease(validRelease("1.0.0",
+	release, err := parseDBCRelease(validRelease("1.0.0",
 		artifact("linux-any-arch.tar.gz", "linux", ""),
 		artifact("any-os-amd64.tar.gz", "", "amd64"),
 		artifact("linux-amd64.tar.gz", "linux", "amd64"),
@@ -297,9 +320,9 @@ func TestSupportedArtifactInventoryAllowsOverlappingSelectorsAndChoosesMostSpeci
 
 func TestSupportedArtifactInventoryRequiresAtLeastOneSupportedFormat(t *testing.T) {
 	unsupported := releaseArtifact{Name: "linux.tar.xz", OS: ptr("linux"), Arch: ptr("amd64"), Format: ptr("tar.xz"), Size: ptr(uint64(1)), URL: ptr("https://dl.example/linux.tar.xz")}
-	release, err := parseRelease(validRelease("1.0.0", unsupported), testProject)
+	release, err := parseDBCRelease(validRelease("1.0.0", unsupported), testProject)
 	require.NoError(t, err)
-	require.ErrorContains(t, validateSupportedArtifactSet(release), "no supported tar.gz or tgz artifacts")
+	require.ErrorContains(t, validateSupportedArtifactSet(release), "no dbc artifact with a supported tar.gz or tgz format")
 }
 
 func TestParseReleaseHasNoUnsignedFallback(t *testing.T) {

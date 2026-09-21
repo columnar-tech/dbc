@@ -73,18 +73,19 @@ type releasePredicate struct {
 }
 
 type releaseArtifact struct {
-	Name       string                     `json:"name"`
-	OS         *string                    `json:"os,omitempty"`
-	Arch       *string                    `json:"arch,omitempty"`
-	LibC       *string                    `json:"libc,omitempty"`
-	Variant    *string                    `json:"variant,omitempty"`
-	Size       *uint64                    `json:"size"`
-	URL        *string                    `json:"url,omitempty"`
-	Format     *string                    `json:"format"`
-	Bin        []json.RawMessage          `json:"bin,omitempty"`
-	Requires   *requirements              `json:"requires,omitempty"`
-	Provenance []string                   `json:"provenance,omitempty"`
-	Extensions map[string]json.RawMessage `json:"extensions,omitempty"`
+	Name              string                     `json:"name"`
+	OS                *string                    `json:"os,omitempty"`
+	Arch              *string                    `json:"arch,omitempty"`
+	LibC              *string                    `json:"libc,omitempty"`
+	Variant           *string                    `json:"variant,omitempty"`
+	Size              *uint64                    `json:"size"`
+	URL               *string                    `json:"url,omitempty"`
+	Format            *string                    `json:"format"`
+	Bin               []json.RawMessage          `json:"bin,omitempty"`
+	Requires          *requirements              `json:"requires,omitempty"`
+	Provenance        []string                   `json:"provenance,omitempty"`
+	Extensions        map[string]json.RawMessage `json:"extensions,omitempty"`
+	dbcPackageVersion int
 }
 
 type requirements struct {
@@ -152,6 +153,7 @@ type parsedRelease struct {
 	predicate releasePredicate
 	byName    map[string]subject
 	attested  string
+	driverID  string
 }
 
 type parsedList struct {
@@ -811,7 +813,14 @@ func normalizeLooseTagVersion(value string) (string, bool) {
 }
 
 func selectArtifact(release *parsedRelease, target Target) (*releaseArtifact, error) {
-	return selectArtifactByFormats(release, target, supportedArchiveFormats)
+	eligible := *release
+	eligible.predicate.Artifacts = make([]releaseArtifact, 0, len(release.predicate.Artifacts))
+	for _, artifact := range release.predicate.Artifacts {
+		if artifact.dbcPackageVersion == 2 && supportedArchiveFormat(stringValue(artifact.Format)) {
+			eligible.predicate.Artifacts = append(eligible.predicate.Artifacts, artifact)
+		}
+	}
+	return selectArtifactByFormats(&eligible, target, supportedArchiveFormats)
 }
 
 // selectArtifactByFormats applies Packslip's selector and specificity rules,
@@ -871,17 +880,17 @@ func supportedArchiveFormat(format string) bool {
 }
 
 // validateSupportedArtifactSet ensures the release inventory contains at
-// least one archive format supported by dbc. Selection ambiguity is checked
-// only after concrete targets are derived.
+// least one artifact that declares dbc package support and an installable
+// archive format. Selection ambiguity is checked only for concrete targets.
 func validateSupportedArtifactSet(release *parsedRelease) error {
 	count := 0
 	for i := range release.predicate.Artifacts {
-		if supportedArchiveFormat(stringValue(release.predicate.Artifacts[i].Format)) {
+		if release.predicate.Artifacts[i].dbcPackageVersion == 2 && supportedArchiveFormat(stringValue(release.predicate.Artifacts[i].Format)) {
 			count++
 		}
 	}
 	if count == 0 {
-		return errors.New("packslip release has no supported tar.gz or tgz artifacts")
+		return errors.New("packslip release has no dbc artifact with a supported tar.gz or tgz format")
 	}
 	return nil
 }
@@ -962,11 +971,12 @@ func convertArtifact(release *parsedRelease, artifact *releaseArtifact, artifact
 	}
 	size := int64(*artifact.Size)
 	result := resolution.Artifact{
-		Target:   resolution.CanonicalTarget(target),
-		Format:   stringValue(artifact.Format),
-		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
-		Hash:     "sha256:" + subject.Digest["sha256"],
-		Size:     &size,
+		Target:         resolution.CanonicalTarget(target),
+		Format:         stringValue(artifact.Format),
+		PackageVersion: artifact.dbcPackageVersion,
+		Location:       resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
+		Hash:           "sha256:" + subject.Digest["sha256"],
+		Size:           &size,
 	}
 	if artifact.Requires != nil {
 		requires := artifact.Requires

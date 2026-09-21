@@ -65,7 +65,7 @@ func testLockEntry() lockInfo {
 		}},
 		Artifacts: []lockArtifact{
 			{
-				Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
+				Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz", PackageVersion: 2,
 				Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(128),
 				HostRequirements: lockHostRequirements{
 					OSMin: "3.2.0", GLibCMin: "2.17", Libs: []string{"libssl.so.3", "libc.so.6"},
@@ -73,7 +73,7 @@ func testLockEntry() lockInfo {
 				},
 			},
 			{
-				Target: resolution.Target{OS: "macos", Arch: "arm64"}, Format: "tar.gz",
+				Target: resolution.Target{OS: "macos", Arch: "arm64"}, Format: "tar.gz", PackageVersion: 2,
 				Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: int64Pointer(256),
 			},
 		},
@@ -144,6 +144,7 @@ func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T)
 	assert.Contains(t, locations, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "/var/cache/local.tar.gz"})
 	assert.NotContains(t, string(first), "platform =")
 	assert.Contains(t, string(first), "[drivers.artifacts.target]")
+	assert.Contains(t, string(first), "package_version = 2")
 	var zeroSizePreserved bool
 	for _, artifact := range loaded.lockinfo["local"].Artifacts {
 		if artifact.Target == (resolution.Target{OS: "windows", Arch: "amd64"}) {
@@ -207,6 +208,20 @@ func TestLockFileV2AllowsPartialArtifactSetAndReplayNeedsNoDiscovery(t *testing.
 	assert.ErrorIs(t, err, ErrLockedModeArtifactMissing)
 	assert.NotErrorIs(t, err, ErrLockRefreshRequired)
 	assert.Contains(t, err.Error(), "locked mode")
+}
+
+func TestPackslipLockWithoutPackageVersionRequiresRefresh(t *testing.T) {
+	entry := testLockEntry()
+	entry.Artifacts[0].PackageVersion = 0 // Old prototype Packslip lock did not record this proof.
+	path := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	loaded, err := loadLockFile(path)
+	require.NoError(t, err)
+	_, err = selectLockedArtifact(loaded.lockinfo["example"], "linux_amd64_gnu_v1", false)
+	var refreshErr *LockRefreshRequiredError
+	require.ErrorAs(t, err, &refreshErr)
+	require.Contains(t, err.Error(), "missing its signed dbc package_version declaration")
+	require.ErrorIs(t, err, ErrLockRefreshRequired)
 }
 
 func TestLockFileV2RejectsUnknownVersion(t *testing.T) {
@@ -385,6 +400,15 @@ func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	merged, err := refreshLockEntry(existing, refreshed)
 	require.NoError(t, err)
 	assert.Len(t, merged.Artifacts, 3)
+}
+
+func TestRefreshBackfillsMissingPackslipPackageVersion(t *testing.T) {
+	existing := testLockEntry()
+	existing.Artifacts[0].PackageVersion = 0
+	refreshed := testLockEntry()
+	merged, err := refreshLockEntry(existing, refreshed)
+	require.NoError(t, err)
+	require.Equal(t, 2, merged.Artifacts[0].PackageVersion)
 }
 
 func TestRefreshReplacesEvidenceWithLatestCanonicalSnapshot(t *testing.T) {
@@ -1068,7 +1092,7 @@ func testResolvedRelease() resolution.ResolvedRelease {
 			Hash:     "sha256:" + strings.Repeat("e", 64),
 		}},
 		Artifacts: []resolution.Artifact{{
-			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
+			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz", PackageVersion: 2,
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,
 			HostRequirements: resolution.HostRequirements{
 				GLibCMin: "2.17", Libs: []string{"libc.so.6"},

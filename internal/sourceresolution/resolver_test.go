@@ -49,6 +49,15 @@ func TestResolvePackslipUsesDeclarationAndValidatesRelease(t *testing.T) {
 	assert.Equal(t, packslip.Request{DriverID: "example", Version: "1.2.3"}, resolver.request)
 }
 
+func TestResolvePackslipCanAdoptSignedDriverID(t *testing.T) {
+	release := resolvedPackslipRelease("github.com/example/driver", "1.2.3", "signed-driver")
+	resolver := &packslipResolverStub{release: release}
+	got, err := ResolvePackslip(context.Background(), resolver, "github.com/example/driver", "", "1.2.3")
+	require.NoError(t, err)
+	assert.Equal(t, "signed-driver", got.DriverID)
+	assert.Empty(t, resolver.request.DriverID, "an empty ID is an adoption request")
+}
+
 func TestResolvePackslipRejectsMismatchedMetadata(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -61,6 +70,7 @@ func TestResolvePackslipRejectsMismatchedMetadata(t *testing.T) {
 		{name: "source identity", change: func(r *resolution.ResolvedRelease) { r.Source.Reference = "github.com/other/driver" }, want: "source identity"},
 		{name: "artifact hash", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Hash = "" }, want: "no finalized hash"},
 		{name: "artifact size", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Size = nil }, want: "no finalized size"},
+		{name: "missing package marker", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 0 }, want: "no supported dbc package_version"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -177,7 +187,7 @@ func resolvedPackslipRelease(project, version, driverID string) resolution.Resol
 		Version:  version,
 		Source:   resolution.SourceSpec{Type: "packslip", Reference: project},
 		Artifacts: []resolution.Artifact{{
-			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Format: "tar.gz",
+			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Format: "tar.gz", PackageVersion: 2,
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
 			Hash:     "sha256:" + strings.Repeat("a", 64), Size: &size,
 		}},

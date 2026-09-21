@@ -210,9 +210,9 @@ func TestResolverUsesSignedListDigestAndBuildsResolvedRelease(t *testing.T) {
 	server, resolver, fixture := newResolverTestServer(t, testProject, "v1.0.0", nil, releaseBytes, "")
 	listBytes := makeSignedList(t, testProject, 1, "2026-10-01T00:00:00Z", server.URL+"/assets/release.json", releaseBytes, fakeSigner, "1.0.0", "v1.0.0", "")
 	fixture.list = listBytes
-	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "iceberg", Version: "1.0.0"})
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: "1.0.0"})
 	require.NoError(t, err)
-	require.Equal(t, "iceberg", resolved.DriverID)
+	require.Equal(t, "driver", resolved.DriverID)
 	require.Equal(t, "1.0.0", resolved.Version)
 	require.Equal(t, "packslip", resolved.Source.Type)
 	require.Equal(t, testProject, resolved.Source.Reference)
@@ -346,7 +346,7 @@ func TestDerivedConcreteLinuxTargetDefaultsToGNU(t *testing.T) {
 		Name: "linux-default.tar.gz", OS: ptr("linux"), Arch: ptr("x86_64"),
 		Format: ptr("tar.gz"), Size: ptr(uint64(10)), URL: ptr("https://downloads.example/linux-default.tar.gz"),
 	}
-	release, err := parseRelease(validRelease("1.0.0", linuxDefault), testProject)
+	release, err := parseDBCRelease(validRelease("1.0.0", linuxDefault), testProject)
 	require.NoError(t, err)
 	targets, err := deriveConcreteTargets(release)
 	require.NoError(t, err)
@@ -383,7 +383,7 @@ func TestResolverRetainsSignedListEvidenceWhenReleaseIsAbsentFromList(t *testing
 	releaseBytes := makeBundle(setSignerAndTag(t, validRelease("1.0.0"), testProject, "1.0.0", fakeSigner, "v1.0.0"))
 	server, resolver, fixture := newResolverTestServer(t, testProject, "v1.0.0", nil, releaseBytes, "https://downloads.example/driver.tar.gz")
 	fixture.list = makeSignedList(t, testProject, 1, "2026-10-01T00:00:00Z", server.URL+"/assets/release.json", releaseBytes, fakeSigner, "0.9.0", "v0.9.0", "")
-	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "iceberg", Version: "1.0.0"})
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "driver", Version: "1.0.0"})
 	require.NoError(t, err)
 	require.Len(t, resolved.Evidence, 2)
 	require.Equal(t, resolution.EvidenceKindReleaseIndex, resolved.Evidence[1].Kind)
@@ -395,7 +395,7 @@ func TestResolverOmitsReleaseIndexEvidenceWhenNoListIsObserved(t *testing.T) {
 	releaseBytes := makeBundle(setSignerAndTag(t, validRelease("1.0.0"), testProject, "1.0.0", fakeSigner, "v1.0.0"))
 	server, resolver, _ := newResolverTestServer(t, testProject, "v1.0.0", nil, releaseBytes, "https://downloads.example/driver.tar.gz")
 	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{
-		DriverID: "iceberg", Version: "1.0.0",
+		DriverID: "driver", Version: "1.0.0",
 	})
 	require.NoError(t, err)
 	require.Equal(t, []resolution.Evidence{{
@@ -533,6 +533,26 @@ func TestResolverUsesVersionBearingTagAndKeepsProjectAsSourceIdentity(t *testing
 	require.NotEqual(t, "https://downloads.example/driver-linux.tar.gz", resolved.Source.Reference)
 	require.NotEqual(t, "https://github.com/acme/driver/releases/download/v1.2.3/packslip.sigstore.json", resolved.Source.Reference)
 	require.Equal(t, "https://dl.example/driver-linux.tar.gz", resolved.Artifacts[0].Location.Value)
+	require.Equal(t, 2, resolved.Artifacts[0].PackageVersion)
+}
+
+func TestResolverAdoptsSignedDriverIDWhenNoExpectedIDIsProvided(t *testing.T) {
+	release := makeBundle(setSignerAndTag(t, validRelease("1.2.3"), testProject, "1.2.3", fakeSigner, "v1.2.3"))
+	_, resolver, _ := newResolverTestServer(t, testProject, "v1.2.3", nil, release, "")
+
+	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{Version: "1.2.3"})
+	require.NoError(t, err)
+	require.Equal(t, "driver", resolved.DriverID)
+	require.Equal(t, 2, resolved.Artifacts[0].PackageVersion)
+}
+
+func TestResolverRejectsExpectedDriverIDThatDiffersFromSignedDeclaration(t *testing.T) {
+	release := makeBundle(setSignerAndTag(t, validRelease("1.2.3"), testProject, "1.2.3", fakeSigner, "v1.2.3"))
+	_, resolver, fixture := newResolverTestServer(t, testProject, "v1.2.3", nil, release, "")
+
+	_, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{DriverID: "other", Version: "1.2.3"})
+	require.ErrorContains(t, err, `signed dbc driver ID "driver" does not match requested driver ID "other"`)
+	require.Zero(t, fixture.archiveHits.Load())
 }
 
 func TestResolverRejectsVersionBearingTagWhenSignedVersionDiffers(t *testing.T) {

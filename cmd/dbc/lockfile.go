@@ -78,6 +78,7 @@ type lockEvidence struct {
 type lockArtifact struct {
 	Target           resolution.Target           `toml:"target"`
 	Format           string                      `toml:"format,omitempty"`
+	PackageVersion   int                         `toml:"package_version,omitempty"`
 	Location         resolution.ArtifactLocation `toml:"location"`
 	Hash             string                      `toml:"hash"`
 	Size             *int64                      `toml:"size"`
@@ -293,6 +294,9 @@ func validateLockArtifacts(artifacts []lockArtifact) error {
 	seenTargets := make(map[resolution.Target]struct{}, len(artifacts))
 	seenLocations := make(map[resolution.ArtifactLocation]lockArtifact, len(artifacts))
 	for i, artifact := range artifacts {
+		if artifact.PackageVersion != 0 && artifact.PackageVersion != 2 {
+			return fmt.Errorf("artifact %d has unsupported dbc package version %d", i, artifact.PackageVersion)
+		}
 		if artifact.LegacyURL != nil || artifact.LegacyPath != nil {
 			return fmt.Errorf("artifact %d uses obsolete direct URL or path fields; use the location table", i)
 		}

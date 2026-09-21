@@ -83,8 +83,10 @@ func (r *nativeResolver) Resolve(ctx context.Context, source PackslipSource, req
 	if err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
-	if strings.TrimSpace(request.DriverID) == "" {
-		return resolution.ResolvedRelease{}, errors.New("packslip resolution requires a driver ID")
+	if request.DriverID != "" {
+		if err := validateRuntimeDriverID(request.DriverID); err != nil {
+			return resolution.ResolvedRelease{}, fmt.Errorf("invalid expected driver ID %q: %w", request.DriverID, err)
+		}
 	}
 	if !semverPattern.MatchString(request.Version) {
 		return resolution.ResolvedRelease{}, fmt.Errorf("requested packslip version %q must be an exact SemVer 2.0.0 version", request.Version)
@@ -330,17 +332,15 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 	if (listURL == "") != (listHash == "") {
 		return resolution.ResolvedRelease{}, errors.New("release-index evidence requires both a URL and hash")
 	}
+	if err := validateDBCReleaseExtensions(verified.statement); err != nil {
+		return resolution.ResolvedRelease{}, err
+	}
+	if request.DriverID != "" && request.DriverID != verified.statement.driverID {
+		return resolution.ResolvedRelease{}, fmt.Errorf("signed dbc driver ID %q does not match requested driver ID %q", verified.statement.driverID, request.DriverID)
+	}
 	if err := validateSupportedArtifactSet(verified.statement); err != nil {
 		return resolution.ResolvedRelease{}, err
 	}
-	// TODO(packslip): Before exposing Packslip as a public dbc source, require a
-	// signed dbc consumer declaration in Packslip predicate/artifact extensions.
-	// The prototype currently treats supported tar.gz/tgz artifacts as dbc
-	// package candidates. The declaration should identify the dbc ADBC driver
-	// and package contract, runtime identity, installable artifacts, and package
-	// format; release/artifact field ownership remains undecided. After download,
-	// verify it against dbc-package.toml and fail on mismatches. Keep the schema
-	// unspecified until that contract is designed.
 	targets, err := deriveConcreteTargets(verified.statement)
 	if err != nil {
 		return resolution.ResolvedRelease{}, err
@@ -375,7 +375,7 @@ func (r *nativeResolver) finishResolved(ctx context.Context, project string, req
 		})
 	}
 	result := resolution.ResolvedRelease{
-		DriverID:  request.DriverID,
+		DriverID:  verified.statement.driverID,
 		Version:   verified.statement.predicate.Version,
 		Source:    resolution.SourceSpec{Type: "packslip", Reference: project},
 		Evidence:  evidence,
@@ -404,7 +404,7 @@ func deriveConcreteTargets(release *parsedRelease) ([]Target, error) {
 	targetSet := make(map[Target]struct{}, len(release.predicate.Artifacts))
 	for i := range release.predicate.Artifacts {
 		artifact := &release.predicate.Artifacts[i]
-		if !supportedArchiveFormat(stringValue(artifact.Format)) || artifact.OS == nil || artifact.Arch == nil {
+		if artifact.dbcPackageVersion != 2 || !supportedArchiveFormat(stringValue(artifact.Format)) || artifact.OS == nil || artifact.Arch == nil {
 			continue
 		}
 		target := resolution.CanonicalTarget(Target{
@@ -479,7 +479,7 @@ func provenancePresence(release *parsedRelease) (map[string]bool, error) {
 	}
 	result := make(map[string]bool, len(release.predicate.Artifacts))
 	for _, artifact := range release.predicate.Artifacts {
-		if !supportedArchiveFormat(stringValue(artifact.Format)) {
+		if artifact.dbcPackageVersion != 2 || !supportedArchiveFormat(stringValue(artifact.Format)) {
 			continue
 		}
 		selector := artifactSelectorKey(&artifact)

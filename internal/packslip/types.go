@@ -50,8 +50,10 @@ type PackslipSource struct {
 // Target is the canonical platform tuple used in a resolution snapshot.
 type Target = resolution.Target
 
-// Request identifies one driver release whose installable artifacts are
-// snapshotted for every concrete target advertised by the signed release.
+// Request identifies one project release whose dbc installable artifacts are
+// snapshotted for every concrete target advertised by the signed release. A
+// nonempty DriverID is an expected value that must match the signed dbc
+// declaration; an empty value adopts that declaration for direct installs.
 type Request struct {
 	DriverID string
 	Version  string

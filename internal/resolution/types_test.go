@@ -120,6 +120,9 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 		{name: "missing hash", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Hash = "" }, wantErr: "no finalized hash"},
 		{name: "missing size", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Size = nil }, wantErr: "no finalized size"},
 		{name: "missing location", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Location = ArtifactLocation{} }, wantErr: "invalid location"},
+		{name: "unsupported package version 1", mutate: func(r *ResolvedRelease) { r.Artifacts[0].PackageVersion = 1 }, wantErr: "unsupported dbc package version 1"},
+		{name: "negative package version", mutate: func(r *ResolvedRelease) { r.Artifacts[0].PackageVersion = -1 }, wantErr: "unsupported dbc package version -1"},
+		{name: "future package version", mutate: func(r *ResolvedRelease) { r.Artifacts[0].PackageVersion = 3 }, wantErr: "unsupported dbc package version 3"},
 		{name: "duplicate target", mutate: func(r *ResolvedRelease) {
 			duplicate := r.Artifacts[0]
 			r.Artifacts = append(r.Artifacts, duplicate)

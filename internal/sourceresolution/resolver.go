@@ -48,9 +48,6 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 	if resolver == nil {
 		return resolution.ResolvedRelease{}, errors.New("packslip resolver is nil")
 	}
-	if driverID == "" {
-		return resolution.ResolvedRelease{}, errors.New("packslip resolution requires a driver ID")
-	}
 	requestedVersion, err := semver.StrictNewVersion(version)
 	if err != nil || requestedVersion.String() != version {
 		return resolution.ResolvedRelease{}, fmt.Errorf("requested packslip version %q must be an exact SemVer 2.0.0 version", version)
@@ -60,7 +57,10 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 	if err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("resolve packslip source: %w", err)
 	}
-	if release.DriverID != driverID {
+	if release.DriverID == "" {
+		return resolution.ResolvedRelease{}, errors.New("packslip release has no signed dbc driver ID")
+	}
+	if driverID != "" && release.DriverID != driverID {
 		return resolution.ResolvedRelease{}, fmt.Errorf("packslip release driver ID %q does not match requested driver %q", release.DriverID, driverID)
 	}
 	if release.Version != version {
@@ -72,6 +72,11 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 	}
 	if err := resolution.ValidateResolvedRelease(release); err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("packslip resolver returned an invalid release: %w", err)
+	}
+	for i, artifact := range release.Artifacts {
+		if artifact.PackageVersion != 2 {
+			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d has no supported dbc package_version declaration; refresh the lock or source metadata", i)
+		}
 	}
 	return release, nil
 }
