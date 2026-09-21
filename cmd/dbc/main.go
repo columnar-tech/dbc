@@ -33,6 +33,7 @@ import (
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/mattn/go-isatty"
 )
 
@@ -224,9 +225,10 @@ func getConfig(c config.ConfigLevel) config.Config {
 }
 
 type baseModel struct {
-	getDriverRegistry func() ([]dbc.Driver, error)
-	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
-	downloadArtifact  func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
+	getDriverRegistry   func() ([]dbc.Driver, error)
+	downloadPkg         func(p dbc.PkgInfo) (*os.File, error)
+	downloadArtifact    func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
+	newPackslipResolver func() (packslip.Resolver, error)
 
 	status int
 	err    error

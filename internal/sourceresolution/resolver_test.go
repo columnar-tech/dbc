@@ -117,6 +117,7 @@ func TestResolvePathUsesProjectBaseAndPreservesDeclaration(t *testing.T) {
 	artifact := release.Artifacts[0]
 	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaration}, artifact.Location)
 	assert.Equal(t, "tar.gz", artifact.Format)
+	assert.Equal(t, 2, artifact.PackageVersion)
 	assert.Equal(t, int64(len(archive)), *artifact.Size)
 	assert.Equal(t, digest(archive), artifact.Hash)
 	assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, artifact.Target)

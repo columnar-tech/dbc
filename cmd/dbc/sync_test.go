@@ -38,6 +38,7 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/columnar-tech/dbc/internal/sourceresolution"
 	"github.com/stretchr/testify/assert"
@@ -49,6 +50,74 @@ func mustTestInstallItem(t *testing.T, release resolution.ResolvedRelease, platf
 	item, err := newInstallItem(release, 0, platform, lockEntry)
 	require.NoError(t, err)
 	return item
+}
+
+type syncPackslipResolverStub struct {
+	release resolution.ResolvedRelease
+	calls   int
+	project string
+	request packslip.Request
+}
+
+func (stub *syncPackslipResolverStub) Resolve(_ context.Context, source packslip.PackslipSource, request packslip.Request) (resolution.ResolvedRelease, error) {
+	stub.calls++
+	stub.project = source.Project
+	stub.request = request
+	return cloneResolvedReleaseForSync(stub.release), nil
+}
+
+func makeSyncPackageV2Archive(t *testing.T, path, id, version, platform string) ([]byte, string) {
+	t.Helper()
+	metadata := []byte(fmt.Sprintf(`package_version = 2
+id = %q
+name = "Test Driver"
+version = %q
+platform = %q
+
+[Driver]
+entrypoint = "TestDriverInit"
+
+[Files]
+driver = "driver.so"
+`, id, version, platform))
+	var archive bytes.Buffer
+	gzipWriter := gzip.NewWriter(&archive)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for _, entry := range []struct {
+		name string
+		data []byte
+	}{{name: "dbc-package.toml", data: metadata}, {name: "driver.so", data: []byte("test library bytes")}} {
+		require.NoError(t, tarWriter.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o600, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}))
+		_, err := tarWriter.Write(entry.data)
+		require.NoError(t, err)
+	}
+	require.NoError(t, tarWriter.Close())
+	require.NoError(t, gzipWriter.Close())
+	archiveBytes := archive.Bytes()
+	require.NoError(t, os.WriteFile(path, archiveBytes, 0o600))
+	digest, err := checksum(path)
+	require.NoError(t, err)
+	return archiveBytes, "sha256:" + digest
+}
+
+func makeSyncPackslipRelease(id, version, url, hash string, size int64) resolution.ResolvedRelease {
+	primary := testTarget(config.PlatformTuple())
+	secondary := resolution.Target{OS: "macos", Arch: "arm64"}
+	otherSize := int64(9)
+	return resolution.ResolvedRelease{
+		DriverID: id,
+		Version:  version,
+		Source:   resolution.SourceSpec{Type: "packslip", Reference: "github.com/example/driver"},
+		Evidence: []resolution.Evidence{{
+			Kind:     resolution.EvidenceKindReleaseMetadata,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://github.com/example/driver/releases/download/v1.2.3/packslip.sigstore.json"},
+			Hash:     "sha256:" + strings.Repeat("a", 64),
+		}},
+		Artifacts: []resolution.Artifact{
+			{Target: primary, Format: "tgz", PackageVersion: 2, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: url}, Hash: hash, Size: &size},
+			{Target: secondary, Format: "tar.gz", PackageVersion: 2, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: &otherSize},
+		},
+	}
 }
 
 func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
@@ -79,55 +148,258 @@ func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testi
 	assert.Empty(t, selected.HostRequirements)
 }
 
-func TestSyncRejectsNonRegistrySourcesBeforeRegistryLookup(t *testing.T) {
-	sources := []struct {
-		name string
-		toml string
-	}{
-		{
-			name: "packslip",
-			toml: "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
-				"[drivers.test-driver-1.source]\ntype = 'packslip'\nproject = 'github.com/example/test-driver'\n",
-		},
-		{
-			name: "path",
-			toml: "[drivers.test-driver-1]\nversion = '1.2.3'\n" +
-				"[drivers.test-driver-1.source]\ntype = 'path'\npath = '../packages/test-driver.tar.gz'\n",
-		},
-	}
-	for _, source := range sources {
-		for _, withRegistryLock := range []bool{false, true} {
-			name := source.name + "/without-lock"
-			if withRegistryLock {
-				name = source.name + "/registry-lock"
+func TestNonRegistryRequirementDoesNotRequestRegistryDiscovery(t *testing.T) {
+	for _, source := range []dbc.DriverSource{
+		{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"},
+		{Type: dbc.DriverSourcePath, Path: "./driver.tar.gz"},
+	} {
+		t.Run(string(source.Type), func(t *testing.T) {
+			var version *semver.Constraints
+			if source.Type == dbc.DriverSourcePackslip {
+				version, _ = semver.NewConstraint("1.2.3")
 			}
-			t.Run(name, func(t *testing.T) {
-				dir := t.TempDir()
-				projectPath := filepath.Join(dir, "dbc.toml")
-				lockPath := filepath.Join(dir, "dbc.lock")
-				require.NoError(t, os.WriteFile(projectPath, []byte(source.toml), 0o600))
-				if withRegistryLock {
-					entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
-					entry.Name = "test-driver-1"
-					require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
-				}
-
-				var registryCalls atomic.Int32
-				model := SyncCmd{Path: projectPath}.GetModelCustom(baseModel{
-					getDriverRegistry: func() ([]dbc.Driver, error) {
-						registryCalls.Add(1)
-						return getTestDriverRegistry()
-					},
-					downloadPkg: downloadTestPkg,
-				}).(syncModel)
-				defer model.worker.cancel()
-
-				result := model.runSyncWorker(model.worker)
-				require.ErrorContains(t, result.err, "source type \""+source.name+"\"")
-				assert.Zero(t, registryCalls.Load(), "unsupported source declarations must fail before registry discovery")
-			})
-		}
+			model := syncModel{LockFilePath: filepath.Join(t.TempDir(), "dbc.lock")}
+			planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+				"test-driver-1": {Version: version, Source: &source},
+			}})
+			require.NoError(t, err)
+			assert.False(t, needsRegistry)
+			require.Len(t, planned, 1)
+			assert.Equal(t, sourceresolution.PlanResolve, planned[0].Plan.Outcome())
+		})
 	}
+}
+
+func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T) {
+	const driverID = "test-driver-1"
+	const version = "1.2.3+build.5"
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "driver.tgz")
+	archiveBytes, archiveHash := makeSyncPackageV2Archive(t, archivePath, driverID, version, config.PlatformTuple())
+	archiveSize := int64(len(archiveBytes))
+	location := "https://assets.example.test/driver.tgz"
+	release := makeSyncPackslipRelease(driverID, version, location, archiveHash, archiveSize)
+	resolver := &syncPackslipResolverStub{release: release}
+	constraint, err := semver.NewConstraint(version)
+	require.NoError(t, err)
+	source := dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"}
+	list := DriversList{Drivers: map[string]driverSpec{driverID: {Version: constraint, Source: &source}}}
+	projectPath := filepath.Join(dir, "dbc.toml")
+	model := syncModel{
+		baseModel: baseModel{
+			newPackslipResolver: func() (packslip.Resolver, error) { return resolver, nil },
+			downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+				require.Equal(t, location, pkg.Path.String())
+				return os.Open(archivePath)
+			},
+		},
+		Path: projectPath, LockFilePath: filepath.Join(dir, "dbc.lock"), NoVerify: true,
+	}
+
+	planned, needsRegistry, err := model.planSyncItems(list)
+	require.NoError(t, err)
+	assert.False(t, needsRegistry)
+	items, err := model.createInstallListContext(context.Background(), planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, 1, resolver.calls)
+	assert.Equal(t, packslip.Request{DriverID: driverID, Version: version}, resolver.request)
+	assert.Equal(t, release, items[0].Release, "verified source evidence and every signed artifact remain the execution input")
+
+	prepared, err := model.prepareInstallItems(context.Background(), items)
+	require.NoError(t, err)
+	defer closePreparedArchives(prepared.items)
+	require.Len(t, prepared.lock.Drivers, 1)
+	locked := prepared.lock.Drivers[0]
+	assert.Equal(t, "packslip", locked.Source.Type)
+	assert.Equal(t, source.Project, locked.Source.Project)
+	assert.Equal(t, version, locked.Version.String())
+	assert.Equal(t, release.Evidence[0].Hash, locked.Evidence[0].Hash)
+	require.Len(t, locked.Artifacts, 2)
+	assert.Equal(t, 2, locked.Artifacts[0].PackageVersion)
+	assert.Equal(t, release.Artifacts[1].Location, locked.Artifacts[1].Location)
+	assert.Equal(t, "tgz", locked.Artifacts[0].Format)
+	require.NoError(t, writeLockFileAtomic(model.LockFilePath, prepared.lock))
+
+	var resolverConstructions, registryCalls, downloadCalls int
+	replay := syncModel{
+		baseModel: baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				registryCalls++
+				return nil, errors.New("replay must not discover registries")
+			},
+			newPackslipResolver: func() (packslip.Resolver, error) {
+				resolverConstructions++
+				return nil, errors.New("replay must not construct a resolver")
+			},
+			downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+				downloadCalls++
+				assert.Equal(t, location, pkg.Path.String())
+				assert.Equal(t, archiveHash, pkg.ArtifactHash)
+				assert.Equal(t, archiveSize, *pkg.ArtifactSize)
+				return os.Open(archivePath)
+			},
+		},
+		Path: projectPath, LockFilePath: model.LockFilePath, NoVerify: true,
+	}
+	replayPlan, replayNeedsRegistry, err := replay.planSyncItems(list)
+	require.NoError(t, err)
+	assert.False(t, replayNeedsRegistry)
+	replayItems, err := replay.createInstallListContext(context.Background(), replayPlan)
+	require.NoError(t, err)
+	require.Len(t, replayItems, 1)
+	assert.Zero(t, resolverConstructions)
+	assert.Zero(t, registryCalls)
+	replayed, err := replay.prepareInstallItems(context.Background(), replayItems)
+	require.NoError(t, err)
+	defer closePreparedArchives(replayed.items)
+	assert.Equal(t, 1, downloadCalls)
+	assert.Equal(t, prepared.lock.Drivers[0].Artifacts, replayed.lock.Drivers[0].Artifacts)
+}
+
+func TestPackslipResolverMismatchIsRejectedBeforeCandidateLock(t *testing.T) {
+	changes := []struct {
+		name   string
+		change func(*resolution.ResolvedRelease)
+		want   string
+	}{
+		{name: "driver ID", change: func(release *resolution.ResolvedRelease) { release.DriverID = "other-driver" }, want: "requested driver"},
+		{name: "source identity", change: func(release *resolution.ResolvedRelease) { release.Source.Reference = "github.com/example/other" }, want: "source identity"},
+		{name: "version", change: func(release *resolution.ResolvedRelease) { release.Version = "1.2.4" }, want: "requested version"},
+		{name: "package marker", change: func(release *resolution.ResolvedRelease) { release.Artifacts[0].PackageVersion = 0 }, want: "package_version 2"},
+	}
+	for _, test := range changes {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			base := makeSyncPackslipRelease("test-driver-1", "1.2.3", "https://assets.example.test/driver.tgz", "sha256:"+strings.Repeat("a", 64), 10)
+			test.change(&base)
+			resolver := &syncPackslipResolverStub{release: base}
+			version, err := semver.NewConstraint("1.2.3")
+			require.NoError(t, err)
+			source := dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"}
+			model := syncModel{
+				baseModel:    baseModel{newPackslipResolver: func() (packslip.Resolver, error) { return resolver, nil }},
+				LockFilePath: filepath.Join(dir, "dbc.lock"),
+			}
+			planned, _, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+				"test-driver-1": {Version: version, Source: &source},
+			}})
+			require.NoError(t, err)
+			_, err = model.createInstallListContext(context.Background(), planned)
+			require.ErrorContains(t, err, test.want)
+			assert.Equal(t, 1, resolver.calls)
+			assert.NoFileExists(t, model.LockFilePath)
+		})
+	}
+}
+
+func TestPathResolutionDerivesVersionAndUsesProjectRelativeArchive(t *testing.T) {
+	dir := t.TempDir()
+	packagesDir := filepath.Join(dir, "packages")
+	require.NoError(t, os.MkdirAll(packagesDir, 0o700))
+	declaredPath := "./packages/test-driver-1.tar.gz"
+	archiveBytes, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, filepath.FromSlash(strings.TrimPrefix(declaredPath, "./"))), archiveBytes, 0o600))
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	source := dbc.DriverSource{Type: dbc.DriverSourcePath, Path: declaredPath}
+	list := DriversList{Drivers: map[string]driverSpec{"test-driver-1": {Source: &source}}}
+	model := syncModel{
+		Path: filepath.Join(dir, "dbc.toml"), LockFilePath: filepath.Join(dir, "dbc.lock"), NoVerify: true,
+	}
+	planned, needsRegistry, err := model.planSyncItems(list)
+	require.NoError(t, err)
+	assert.False(t, needsRegistry)
+	items, err := model.createInstallListContext(context.Background(), planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "1.0.0", items[0].Release.Version)
+	assert.Equal(t, declaredPath, items[0].Release.Source.Reference)
+	require.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath}, items[0].Release.Artifacts[0].Location)
+
+	prepared, err := model.prepareInstallItems(context.Background(), items)
+	require.NoError(t, err)
+	defer closePreparedArchives(prepared.items)
+	locked := prepared.lock.Drivers[0]
+	assert.Equal(t, "1.0.0", locked.Version.String())
+	assert.Equal(t, declaredPath, locked.Source.Path)
+	require.Len(t, locked.Artifacts, 1)
+	assert.Equal(t, declaredPath, locked.Artifacts[0].Location.Value)
+	assert.Equal(t, 0, locked.Artifacts[0].PackageVersion, "legacy MANIFEST path packages remain supported")
+	assert.NotEmpty(t, locked.Artifacts[0].Hash)
+}
+
+func TestPathPackageV2MarkerSurvivesResolutionAndLockSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "driver.tar.gz")
+	makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	source := dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "driver.tar.gz"}
+	model := syncModel{Path: filepath.Join(dir, "dbc.toml"), LockFilePath: filepath.Join(dir, "dbc.lock"), NoVerify: true}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {Source: &source},
+	}})
+	require.NoError(t, err)
+	assert.False(t, needsRegistry)
+	items, err := model.createInstallListContext(context.Background(), planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, 2, items[0].Release.Artifacts[0].PackageVersion)
+	assert.Equal(t, "1.2.3", items[0].Release.Version)
+	prepared, err := model.prepareInstallItems(context.Background(), items)
+	require.NoError(t, err)
+	defer closePreparedArchives(prepared.items)
+	require.Len(t, prepared.lock.Drivers, 1)
+	assert.Equal(t, 2, prepared.lock.Drivers[0].Artifacts[0].PackageVersion)
+	expected, _, err := expectedSyncPackageMetadata(prepared.items[0])
+	require.NoError(t, err)
+	assert.Equal(t, 2, expected.PackageVersion)
+}
+
+func TestPathArchiveMutationAfterResolutionFailsBeforeCandidateLock(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "driver.tar.gz")
+	archiveBytes, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(archivePath, archiveBytes, 0o600))
+	source := dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "driver.tar.gz"}
+	model := syncModel{Path: filepath.Join(dir, "dbc.toml"), LockFilePath: filepath.Join(dir, "dbc.lock"), NoVerify: true}
+	planned, _, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{"test-driver-1": {Source: &source}}})
+	require.NoError(t, err)
+	items, err := model.createInstallListContext(context.Background(), planned)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(archivePath, append(archiveBytes, []byte("changed")...), 0o600))
+	prepared, err := model.prepareInstallItems(context.Background(), items)
+	defer closePreparedArchives(prepared.items)
+	require.ErrorContains(t, err, "does not match expected hash")
+	assert.NoFileExists(t, model.LockFilePath)
+}
+
+func TestSourceVersionOrIdentityMismatchDiscardsOldLockProof(t *testing.T) {
+	entry := testResolvedRelease()
+	entry.DriverID = "test-driver-1"
+	entry.Source = resolution.SourceSpec{Type: "packslip", Reference: "github.com/example/old"}
+	entry.Version = "1.2.3+foo"
+	entry.Artifacts[0].PackageVersion = 2
+	oldLock, err := lockInfoFromResolvedRelease(entry.DriverID, entry)
+	require.NoError(t, err)
+	oldLock.Legacy = &legacyLibraryProof{Platform: config.PlatformTuple(), LibraryHash: strings.Repeat("c", 64)}
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{oldLock}}))
+
+	constraint, err := semver.NewConstraint("1.2.3+bar")
+	require.NoError(t, err)
+	newSource := dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/new"}
+	model := syncModel{LockFilePath: lockPath}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {Version: constraint, Source: &newSource},
+	}})
+	require.NoError(t, err)
+	assert.False(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Equal(t, sourceresolution.PlanResolve, planned[0].Plan.Outcome())
+	assert.Nil(t, planned[0].LockEntry, "stale source/version metadata must not enter the new candidate")
+	assert.Nil(t, planned[0].LegacyLock)
 }
 
 func TestRegistrySourceChangeDiscardsOldLockEntryBeforeFallback(t *testing.T) {
@@ -2033,6 +2305,130 @@ func (suite *SubcommandTestSuite) TestSyncManifestOnlyInstallFailureConvergesFro
 	suite.Require().NoError(err)
 	suite.Equal(externalLibrary, installed.Driver.Shared.Get(config.PlatformTuple()))
 	suite.Equal("DriverInit", installed.Driver.Entrypoint)
+}
+
+func (suite *SubcommandTestSuite) TestSyncPackslipInstallFailureConvergesFromCandidateLock() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	projectPath := filepath.Join(root, "dbc.toml")
+	archivePath := filepath.Join(root, "driver.tgz")
+	lockPath := filepath.Join(root, "dbc.lock")
+	const version = "1.2.3+build.5"
+	archiveBytes, archiveHash := makeSyncPackageV2Archive(suite.T(), archivePath, "test-driver-1", version, config.PlatformTuple())
+	archiveSize := int64(len(archiveBytes))
+	location := "https://assets.example.test/driver.tgz"
+	release := makeSyncPackslipRelease("test-driver-1", version, location, archiveHash, archiveSize)
+	resolver := &syncPackslipResolverStub{release: release}
+	suite.Require().NoError(os.WriteFile(projectPath, []byte("[drivers.test-driver-1]\nversion = '"+version+"'\n[drivers.test-driver-1.source]\ntype = 'packslip'\nproject = 'github.com/example/driver'\n"), 0o600))
+
+	var registryCalls, resolverCreations int
+	first := SyncCmd{Path: projectPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			registryCalls++
+			return nil, errors.New("Packslip sync must not discover registries")
+		},
+		newPackslipResolver: func() (packslip.Resolver, error) {
+			resolverCreations++
+			return resolver, nil
+		},
+		downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+			suite.Equal(location, pkg.Path.String())
+			return os.Open(archivePath)
+		},
+	}).(syncModel)
+	first.worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		return config.EnsurePackageResult{}, errors.New("injected install failure")
+	}
+	suite.Contains(suite.runCmdErr(first), "injected install failure")
+	suite.Equal(0, registryCalls)
+	suite.Equal(1, resolverCreations)
+	candidateLock, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	locked, err := loadLockFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal("packslip", locked.lockinfo["test-driver-1"].Source.Type)
+	suite.Equal(version, locked.lockinfo["test-driver-1"].Version.String())
+	_, err = config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Error(err, "an install failure after candidate save must not mutate runtime registration")
+
+	var replayRegistryCalls, replayResolverCreations, replayDownloads int
+	second := SyncCmd{Path: projectPath, NoVerify: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			replayRegistryCalls++
+			return nil, errors.New("candidate lock replay must not discover registries")
+		},
+		newPackslipResolver: func() (packslip.Resolver, error) {
+			replayResolverCreations++
+			return nil, errors.New("candidate lock replay must not create a resolver")
+		},
+		downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+			replayDownloads++
+			suite.Equal(location, pkg.Path.String())
+			suite.Equal(archiveHash, pkg.ArtifactHash)
+			suite.Equal(archiveSize, *pkg.ArtifactSize)
+			return os.Open(archivePath)
+		},
+	})
+	suite.runCmd(second)
+	suite.Zero(replayRegistryCalls)
+	suite.Zero(replayResolverCreations)
+	suite.Equal(1, replayDownloads, "replay opens the locked artifact without source discovery")
+	convergedLock, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal(candidateLock, convergedLock)
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal(version, installed.Version.String())
+}
+
+func (suite *SubcommandTestSuite) TestSyncPathInstallFailureConvergesFromCandidateLock() {
+	root := suite.T().TempDir()
+	suite.T().Setenv("ADBC_DRIVER_PATH", root)
+	projectPath := filepath.Join(root, "dbc.toml")
+	archivePath := filepath.Join(root, "packages", "driver.tar.gz")
+	lockPath := filepath.Join(root, "dbc.lock")
+	suite.Require().NoError(os.MkdirAll(filepath.Dir(archivePath), 0o700))
+	archiveBytes, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	suite.Require().NoError(os.WriteFile(archivePath, archiveBytes, 0o600))
+	declaredPath := "./packages/driver.tar.gz"
+	suite.Require().NoError(os.WriteFile(projectPath, []byte("[drivers.test-driver-1.source]\ntype = 'path'\npath = '"+declaredPath+"'\n"), 0o600))
+
+	var registryCalls int
+	newModel := func() syncModel {
+		return SyncCmd{Path: projectPath, NoVerify: true}.GetModelCustom(baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				registryCalls++
+				return nil, errors.New("path sync must not discover registries")
+			},
+		}).(syncModel)
+	}
+	first := newModel()
+	first.worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		return config.EnsurePackageResult{}, errors.New("injected install failure")
+	}
+	suite.Contains(suite.runCmdErr(first), "injected install failure")
+	suite.Zero(registryCalls)
+	candidateLock, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	locked, err := loadLockFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal("path", locked.lockinfo["test-driver-1"].Source.Type)
+	suite.Equal(declaredPath, locked.lockinfo["test-driver-1"].Source.Path)
+	suite.Equal(declaredPath, locked.lockinfo["test-driver-1"].Artifacts[0].Location.Value)
+	suite.Equal("1.0.0", locked.lockinfo["test-driver-1"].Version.String())
+	_, err = config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Error(err, "an install failure after candidate save must not mutate runtime registration")
+
+	second := newModel()
+	suite.runCmd(second)
+	suite.Zero(registryCalls)
+	convergedLock, err := os.ReadFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal(candidateLock, convergedLock)
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal("1.0.0", installed.Version.String())
 }
 
 func (suite *SubcommandTestSuite) TestSyncReceiptRepairUsesSelectedMultiPathRegistrationRoot() {

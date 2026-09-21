@@ -163,11 +163,12 @@ func ResolvePath(ctx context.Context, declaredPath string, request Request) (res
 		Version:  resolvedVersion,
 		Source:   resolution.SourceSpec{Type: "path", Reference: declaredPath},
 		Artifacts: []resolution.Artifact{{
-			Target:   target,
-			Format:   format,
-			Location: location,
-			Hash:     archiveHash,
-			Size:     &size,
+			Target:         target,
+			Format:         format,
+			PackageVersion: manifest.PackageVersion,
+			Location:       location,
+			Hash:           archiveHash,
+			Size:           &size,
 		}},
 	}
 	if err := resolution.ValidateResolvedRelease(release); err != nil {

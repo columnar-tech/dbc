@@ -38,6 +38,7 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/columnar-tech/dbc/internal/sourceidentity"
 	"github.com/columnar-tech/dbc/internal/sourceresolution"
@@ -351,6 +352,7 @@ type installItem struct {
 
 type plannedSyncItem struct {
 	Name        string
+	Spec        driverSpec
 	Requirement sourceresolution.Requirement
 	Plan        sourceresolution.Plan
 	LockEntry   *lockInfo
@@ -449,7 +451,11 @@ func (s syncModel) planSyncItems(list DriversList) ([]plannedSyncItem, bool, err
 		switch plan.Outcome() {
 		case sourceresolution.PlanReplay:
 		case sourceresolution.PlanResolve, sourceresolution.PlanRefreshRequired:
-			needsRegistry = true
+			if requirement.Source().Mode() == sourceresolution.DefaultRegistry {
+				needsRegistry = true
+			} else if key, ok := requirement.Source().Key(); ok && key.Kind == sourceidentity.Registry {
+				needsRegistry = true
+			}
 		case sourceresolution.PlanLockedArtifactMissing:
 			return nil, false, &LockedModeArtifactMissingError{DriverID: name, Platform: config.PlatformTuple()}
 		case sourceresolution.PlanReject:
@@ -458,7 +464,7 @@ func (s syncModel) planSyncItems(list DriversList) ([]plannedSyncItem, bool, err
 			return nil, false, fmt.Errorf("cannot plan sync for driver %q: invalid plan outcome %d", name, plan.Outcome())
 		}
 		planned = append(planned, plannedSyncItem{
-			Name: name, Requirement: requirement, Plan: plan,
+			Name: name, Spec: spec, Requirement: requirement, Plan: plan,
 			LockEntry: existing, LegacyLock: legacy,
 		})
 	}
@@ -467,31 +473,54 @@ func (s syncModel) planSyncItems(list DriversList) ([]plannedSyncItem, bool, err
 
 func requirementForDriverSpec(name string, spec driverSpec) (sourceresolution.Requirement, error) {
 	var selection sourceresolution.SourceSelection
+	sourceKind := sourceidentity.Registry
 	if spec.Source == nil {
 		selection = sourceresolution.DefaultRegistrySelection()
 	} else {
-		if spec.Source.Type != dbc.DriverSourceRegistry {
-			return sourceresolution.Requirement{}, fmt.Errorf("source type %q for driver %q is not supported by sync yet; source integration will follow", spec.Source.Type, name)
-		}
 		key, err := driverSourceIdentity(spec.Source)
 		if err != nil {
-			return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid declared registry source: %w", name, err)
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid declared source: %w", name, err)
 		}
 		selection, err = sourceresolution.ExplicitSourceSelection(key)
 		if err != nil {
-			return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid declared registry source: %w", name, err)
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid declared source: %w", name, err)
 		}
+		sourceKind = key.Kind
 	}
 
-	constraint := ""
-	if spec.Version != nil {
-		constraint = spec.Version.String()
+	var version sourceresolution.VersionRequirement
+	var err error
+	switch sourceKind {
+	case sourceidentity.Registry:
+		constraint := ""
+		if spec.Version != nil {
+			constraint = spec.Version.String()
+		}
+		policy := sourceresolution.PrereleaseForbidden
+		if spec.Prerelease == "allow" || (spec.Version != nil && spec.Version.IncludePrerelease) {
+			policy = sourceresolution.PrereleaseAllowed
+		}
+		version, err = sourceresolution.RegistryVersionRequirement(constraint, policy)
+	case sourceidentity.Packslip:
+		if spec.Prerelease != "" {
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q packslip source does not support prerelease policy", name)
+		}
+		if spec.Version == nil {
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q packslip source requires an exact SemVer 2.0.0 version", name)
+		}
+		version, err = sourceresolution.PackslipVersionRequirement(spec.Version.String())
+	case sourceidentity.Path:
+		if spec.Prerelease != "" {
+			return sourceresolution.Requirement{}, fmt.Errorf("driver %q path source does not support prerelease policy", name)
+		}
+		if spec.Version == nil {
+			version = sourceresolution.PathMetadataVersionRequirement()
+		} else {
+			version, err = sourceresolution.PathVersionRequirement(spec.Version.String())
+		}
+	default:
+		return sourceresolution.Requirement{}, fmt.Errorf("source type %q for driver %q is not supported by sync", sourceKind, name)
 	}
-	policy := sourceresolution.PrereleaseForbidden
-	if spec.Prerelease == "allow" || (spec.Version != nil && spec.Version.IncludePrerelease) {
-		policy = sourceresolution.PrereleaseAllowed
-	}
-	version, err := sourceresolution.RegistryVersionRequirement(constraint, policy)
 	if err != nil {
 		return sourceresolution.Requirement{}, fmt.Errorf("driver %q has invalid version requirement: %w", name, err)
 	}
@@ -503,7 +532,12 @@ func requirementForDriverSpec(name string, spec driverSpec) (sourceresolution.Re
 }
 
 func (s syncModel) createInstallList(planned []plannedSyncItem) ([]installItem, error) {
+	return s.createInstallListContext(context.Background(), planned)
+}
+
+func (s syncModel) createInstallListContext(ctx context.Context, planned []plannedSyncItem) ([]installItem, error) {
 	items := make([]installItem, 0, len(planned))
+	var packslipResolver packslip.Resolver
 	for _, entry := range planned {
 		switch entry.Plan.Outcome() {
 		case sourceresolution.PlanReplay:
@@ -513,7 +547,33 @@ func (s syncModel) createInstallList(planned []plannedSyncItem) ([]installItem, 
 			}
 			items = append(items, item)
 		case sourceresolution.PlanResolve, sourceresolution.PlanRefreshRequired:
-			item, err := s.resolveRegistryPlan(entry)
+			var item installItem
+			var err error
+			kind := sourceidentity.Registry
+			if entry.Requirement.Source().Mode() == sourceresolution.ExplicitSource {
+				if key, ok := entry.Requirement.Source().Key(); ok {
+					kind = key.Kind
+				}
+			}
+			switch kind {
+			case sourceidentity.Registry:
+				item, err = s.resolveRegistryPlan(entry)
+			case sourceidentity.Packslip:
+				if packslipResolver == nil {
+					if s.newPackslipResolver == nil {
+						return nil, errors.New("no Packslip resolver is configured")
+					}
+					packslipResolver, err = s.newPackslipResolver()
+					if err != nil {
+						return nil, fmt.Errorf("create Packslip resolver: %w", err)
+					}
+				}
+				item, err = s.resolvePackslipPlan(ctx, entry, packslipResolver)
+			case sourceidentity.Path:
+				item, err = s.resolvePathPlan(ctx, entry)
+			default:
+				err = fmt.Errorf("source type %q for driver %q is not supported by sync", kind, entry.Name)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -527,6 +587,80 @@ func (s syncModel) createInstallList(planned []plannedSyncItem) ([]installItem, 
 		}
 	}
 	return items, nil
+}
+
+func (s syncModel) resolvePackslipPlan(ctx context.Context, planned plannedSyncItem, resolver packslip.Resolver) (installItem, error) {
+	if planned.Spec.Source == nil || planned.Spec.Source.Type != dbc.DriverSourcePackslip {
+		return installItem{}, fmt.Errorf("Packslip plan for %q has no Packslip source declaration", planned.Name)
+	}
+	version := ""
+	if exact, ok := planned.Requirement.Version().ExactVersion(); ok {
+		version = exact
+	}
+	var priorLock *lockInfo
+	if planned.Plan.Outcome() == sourceresolution.PlanRefreshRequired {
+		release, ok := planned.Plan.Release()
+		if !ok {
+			return installItem{}, fmt.Errorf("Packslip refresh plan for %q has no prior release", planned.Name)
+		}
+		version = release.Version
+		priorLock = planned.LockEntry
+	}
+	release, err := sourceresolution.ResolvePackslip(ctx, resolver, planned.Spec.Source.Project, planned.Name, version)
+	if err != nil {
+		return installItem{}, err
+	}
+	return installItemFromResolverResult(planned.Requirement, release, priorLock)
+}
+
+func (s syncModel) resolvePathPlan(ctx context.Context, planned plannedSyncItem) (installItem, error) {
+	if planned.Spec.Source == nil || planned.Spec.Source.Type != dbc.DriverSourcePath {
+		return installItem{}, fmt.Errorf("path plan for %q has no path source declaration", planned.Name)
+	}
+	version := ""
+	if exact, ok := planned.Requirement.Version().ExactVersion(); ok {
+		version = exact
+	}
+	var priorLock *lockInfo
+	if planned.Plan.Outcome() == sourceresolution.PlanRefreshRequired {
+		release, ok := planned.Plan.Release()
+		if !ok {
+			return installItem{}, fmt.Errorf("path refresh plan for %q has no prior release", planned.Name)
+		}
+		version = release.Version
+		priorLock = planned.LockEntry
+	}
+	baseDir, err := s.projectBaseDir()
+	if err != nil {
+		return installItem{}, err
+	}
+	target, err := resolution.TargetFromPlatformTuple(config.PlatformTuple())
+	if err != nil {
+		return installItem{}, fmt.Errorf("unsupported sync platform: %w", err)
+	}
+	release, err := sourceresolution.ResolvePath(ctx, planned.Spec.Source.Path, sourceresolution.Request{
+		DriverID: planned.Name, Version: version, Target: target,
+		Platform: config.PlatformTuple(), BaseDir: baseDir,
+	})
+	if err != nil {
+		return installItem{}, err
+	}
+	return installItemFromResolverResult(planned.Requirement, release, priorLock)
+}
+
+func (s syncModel) projectBaseDir() (string, error) {
+	basePath := s.LockFilePath
+	if basePath == "" {
+		basePath = s.Path
+	}
+	if basePath == "" {
+		return "", errors.New("sync project path is not set")
+	}
+	baseDir, err := filepath.Abs(filepath.Dir(basePath))
+	if err != nil {
+		return "", fmt.Errorf("resolve project directory: %w", err)
+	}
+	return baseDir, nil
 }
 
 func installItemFromPlan(planned plannedSyncItem) (installItem, error) {
@@ -737,7 +871,7 @@ func resolvedReleaseFromRegistryPackage(driver dbc.Driver, pkg dbc.PkgInfo) (res
 func installItemFromResolverResult(requirement sourceresolution.Requirement, release resolution.ResolvedRelease, priorLock *lockInfo) (installItem, error) {
 	selected, err := requirement.ValidateResolverResult(release)
 	if err != nil {
-		return installItem{}, fmt.Errorf("registry resolver returned an invalid release: %w", err)
+		return installItem{}, fmt.Errorf("source resolver returned an invalid release: %w", err)
 	}
 	for i := range release.Artifacts {
 		if release.Artifacts[i].Target == selected.Target {
@@ -952,16 +1086,9 @@ func (s syncModel) openResolvedArtifact(ctx context.Context, item installItem) (
 	if err != nil {
 		return nil, err
 	}
-	basePath := s.LockFilePath
-	if basePath == "" {
-		basePath = s.Path
-	}
-	if basePath == "" {
-		return nil, errors.New("sync project path is not set")
-	}
-	baseDir, err := filepath.Abs(filepath.Dir(basePath))
+	baseDir, err := s.projectBaseDir()
 	if err != nil {
-		return nil, fmt.Errorf("resolve project directory: %w", err)
+		return nil, err
 	}
 	fetchURL := func(ctx context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
 		version, err := semver.NewVersion(item.Release.Version)
@@ -1464,7 +1591,7 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 		s.driverIndex = drivers
 	}
 
-	items, err := s.createInstallList(planned)
+	items, err := s.createInstallListContext(ctx, planned)
 	if err != nil {
 		return fail("sync_failed", err)
 	}

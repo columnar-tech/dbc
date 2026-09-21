@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -62,6 +63,9 @@ func defaultBaseModel() baseModel {
 		getDriverRegistry: getDriverRegistry,
 		downloadPkg:       downloadPkg,
 		downloadArtifact:  downloadPackage,
+		newPackslipResolver: func() (packslip.Resolver, error) {
+			return packslip.NewResolver(packslip.Config{})
+		},
 	}
 }
 

@@ -209,6 +209,48 @@ func TestPackslipSourceRequiresExactStrictSemVer(t *testing.T) {
 	}
 }
 
+func TestPathSourceRequiresOptionalExactStrictSemVer(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		flag    string
+		wantErr bool
+	}{
+		{name: "metadata-derived version"},
+		{name: "exact release", version: "1.2.3"},
+		{name: "exact prerelease", version: "1.2.3-rc.1"},
+		{name: "exact build metadata", version: "1.2.3+build.5"},
+		{name: "explicit equality", version: "=1.2.3", wantErr: true},
+		{name: "range", version: ">=1.2.3", wantErr: true},
+		{name: "v prefix", version: "v1.2.3", wantErr: true},
+		{name: "abbreviated", version: "1.2", wantErr: true},
+		{name: "leading zero", version: "01.2.3", wantErr: true},
+		{name: "prerelease policy", flag: "allow", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contents := "[drivers.example]\n"
+			if test.version != "" {
+				contents += "version = '" + test.version + "'\n"
+			}
+			if test.flag != "" {
+				contents += "prerelease = '" + test.flag + "'\n"
+			}
+			contents += "[drivers.example.source]\ntype = 'path'\npath = './example.tgz'\n"
+			var list DriversList
+			err := toml.Unmarshal([]byte(contents), &list)
+			if err == nil {
+				err = list.validateSources()
+			}
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func must[T any](v T, err error) T {
 	if err != nil {
 		panic(err)
