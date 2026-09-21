@@ -210,32 +210,71 @@ func TestLockFileV2AllowsPartialArtifactSetAndReplayNeedsNoDiscovery(t *testing.
 	assert.Contains(t, err.Error(), "locked mode")
 }
 
-func TestPackslipLockWithoutPackageVersionRequiresRefresh(t *testing.T) {
-	entry := testLockEntry()
-	entry.Artifacts[0].PackageVersion = 0 // Old prototype Packslip lock did not record this proof.
-	path := filepath.Join(t.TempDir(), "dbc.lock")
-	require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
-	loaded, err := loadLockFile(path)
-	require.NoError(t, err)
-	_, err = selectLockedArtifact(loaded.lockinfo["example"], "linux_amd64_gnu_v1", false)
-	var refreshErr *LockRefreshRequiredError
-	require.ErrorAs(t, err, &refreshErr)
-	require.Contains(t, err.Error(), "missing its signed dbc package_version declaration")
-	require.ErrorIs(t, err, ErrLockRefreshRequired)
-	require.NotErrorIs(t, err, ErrLockedModeArtifactMissing)
+func TestPackslipLockRequiresPackageVersionTwoForEveryArtifact(t *testing.T) {
+	for artifactIndex := range testLockEntry().Artifacts {
+		t.Run(strconv.Itoa(artifactIndex), func(t *testing.T) {
+			entry := testLockEntry()
+			entry.Artifacts[artifactIndex].PackageVersion = 0
+
+			err := validateLockInfo(entry)
+			require.ErrorContains(t, err, "packslip artifact")
+			require.ErrorContains(t, err, "package_version = 2")
+		})
+	}
 }
 
-func TestPackslipLockWithoutPackageVersionFailsInLockedMode(t *testing.T) {
-	entry := testLockEntry()
-	entry.Artifacts[0].PackageVersion = 0 // Old prototype Packslip lock did not record this proof.
+func TestPackslipLockWithoutPackageVersionIsRejectedDuringLoad(t *testing.T) {
+	tests := []struct {
+		name        string
+		replacement string
+	}{
+		{name: "missing", replacement: ""},
+		{name: "zero", replacement: "package_version = 0\n"},
+		{name: "unknown", replacement: "package_version = 3\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "dbc.lock")
+			require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{testLockEntry()}}))
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			data = []byte(strings.ReplaceAll(string(data), "package_version = 2\n", test.replacement))
+			require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	_, err := selectLockedArtifact(entry, "linux_amd64_gnu_v1", true)
-	var lockedErr *LockedModeArtifactMissingError
-	require.ErrorAs(t, err, &lockedErr)
-	require.ErrorIs(t, err, ErrLockedModeArtifactMissing)
-	require.ErrorIs(t, err, ErrLockedArtifactMissing)
-	require.NotErrorIs(t, err, ErrLockRefreshRequired)
-	require.Contains(t, err.Error(), "locked mode")
+			_, err = loadLockFile(path)
+			if test.name != "unknown" {
+				require.ErrorContains(t, err, "packslip artifact")
+				require.ErrorContains(t, err, "package_version = 2")
+			} else {
+				require.ErrorContains(t, err, "unsupported dbc package version 3")
+			}
+		})
+	}
+}
+
+func TestPackageVersionZeroRemainsAllowedForRegistryAndPathLocks(t *testing.T) {
+	sources := []lockSource{
+		{Type: "registry", URL: "https://registry.example.test"},
+		{Type: "path", Path: "./drivers/example"},
+	}
+	for _, source := range sources {
+		t.Run(source.Type, func(t *testing.T) {
+			entry := testLockEntry()
+			entry.Source = source
+			for i := range entry.Artifacts {
+				entry.Artifacts[i].PackageVersion = 0
+			}
+
+			require.NoError(t, validateLockInfo(entry))
+			path := filepath.Join(t.TempDir(), "dbc.lock")
+			require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+			loaded, err := loadLockFile(path)
+			require.NoError(t, err)
+			for _, artifact := range loaded.lockinfo[entry.Name].Artifacts {
+				assert.Zero(t, artifact.PackageVersion)
+			}
+		})
+	}
 }
 
 func TestLockFileV2RejectsUnknownVersion(t *testing.T) {
@@ -402,27 +441,57 @@ func TestAtomicLockWriterKeepsOldFileWhenReplacementFails(t *testing.T) {
 func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	existing := testLockEntry()
 	refreshed := existing
+	newArtifact := testLockArtifact("windows_amd64", "c", 22)
+	newArtifact.PackageVersion = 2
 	contradictory := existing.Artifacts[0]
 	contradictory.Hash = "sha256:" + strings.Repeat("f", 64)
 	contradictory.Size = int64Pointer(999)
-	refreshed.Artifacts = []lockArtifact{contradictory, testLockArtifact("windows_amd64", "c", 22)}
+	refreshed.Artifacts = []lockArtifact{contradictory, newArtifact}
 	_, err := refreshLockEntry(existing, refreshed)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contradicts")
 
-	refreshed.Artifacts = []lockArtifact{existing.Artifacts[0], testLockArtifact("windows_amd64", "c", 22)}
+	refreshed.Artifacts = []lockArtifact{existing.Artifacts[0], newArtifact}
 	merged, err := refreshLockEntry(existing, refreshed)
 	require.NoError(t, err)
 	assert.Len(t, merged.Artifacts, 3)
 }
 
-func TestRefreshBackfillsMissingPackslipPackageVersion(t *testing.T) {
+func TestRefreshRejectsUnprovenPackslipLockInsteadOfBackfilling(t *testing.T) {
 	existing := testLockEntry()
 	existing.Artifacts[0].PackageVersion = 0
 	refreshed := testLockEntry()
-	merged, err := refreshLockEntry(existing, refreshed)
-	require.NoError(t, err)
-	require.Equal(t, 2, merged.Artifacts[0].PackageVersion)
+
+	_, err := refreshLockEntry(existing, refreshed)
+	require.ErrorContains(t, err, "existing lock entry")
+	require.ErrorContains(t, err, "packslip artifact")
+	require.ErrorContains(t, err, "package_version = 2")
+}
+
+func TestRefreshBackfillsMissingNonPackslipPackageVersion(t *testing.T) {
+	sources := []lockSource{
+		{Type: "registry", URL: "https://registry.example.test"},
+		{Type: "path", Path: "./drivers/example"},
+	}
+	for _, source := range sources {
+		t.Run(source.Type, func(t *testing.T) {
+			existing := testLockEntry()
+			existing.Source = source
+			for i := range existing.Artifacts {
+				existing.Artifacts[i].PackageVersion = 0
+			}
+			refreshed := cloneLockInfo(existing)
+			for i := range refreshed.Artifacts {
+				refreshed.Artifacts[i].PackageVersion = 2
+			}
+
+			merged, err := refreshLockEntry(existing, refreshed)
+			require.NoError(t, err)
+			for _, artifact := range merged.Artifacts {
+				require.Equal(t, 2, artifact.PackageVersion)
+			}
+		})
+	}
 }
 
 func TestRefreshReplacesEvidenceWithLatestCanonicalSnapshot(t *testing.T) {

@@ -233,7 +233,17 @@ func validateLockInfo(entry lockInfo) error {
 	if len(entry.Artifacts) == 0 {
 		return fmt.Errorf("driver %q has no locked artifacts", entry.Name)
 	}
-	return validateLockArtifacts(entry.Artifacts)
+	if err := validateLockArtifacts(entry.Artifacts); err != nil {
+		return err
+	}
+	if entry.Source.Type == "packslip" {
+		for i, artifact := range entry.Artifacts {
+			if artifact.PackageVersion != 2 {
+				return fmt.Errorf("driver %q packslip artifact %d must declare dbc package_version = 2, got %d", entry.Name, i, artifact.PackageVersion)
+			}
+		}
+	}
+	return nil
 }
 
 func cloneInt64(value *int64) *int64 {
@@ -411,15 +421,6 @@ func selectLockedArtifact(entry lockInfo, platform string, locked bool) (lockArt
 		return lockArtifact{}, fmt.Errorf("%w for %s on %s", ErrArtifactAmbiguous, entry.Name, platform)
 	}
 	if len(matches) == 1 {
-		if entry.Source.Type == "packslip" && matches[0].PackageVersion != 2 {
-			if locked {
-				return lockArtifact{}, &LockedModeArtifactMissingError{DriverID: entry.Name, Platform: platform}
-			}
-			return lockArtifact{}, &LockRefreshRequiredError{
-				DriverID: entry.Name, Platform: platform,
-				Reason: "locked Packslip artifact is missing its signed dbc package_version declaration",
-			}
-		}
 		return matches[0], nil
 	}
 	if locked {
