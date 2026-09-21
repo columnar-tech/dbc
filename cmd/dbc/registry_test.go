@@ -21,10 +21,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sys/windows/registry"
@@ -128,6 +130,55 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 	s.Equal("1.1.0", val)
 
 	s.assertRegisteredPackagePath()
+
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigUser, Location: s.cfgUserPath}, "test-driver-1")
+	s.Require().NoError(err)
+	s.Require().NotNil(installed.AdbcInfo.Version)
+	s.Equal("1.1.0", installed.AdbcInfo.Version.String())
+}
+
+func (s *RegistryTestSuite) TestRegistryPersistsAndClearsADBCMetadata() {
+	cfg := config.Config{Level: config.ConfigUser, Location: s.cfgUserPath}
+	driver := config.DriverInfo{
+		ID: "test-registry-metadata", Name: "Test Registry Metadata", Publisher: "Example",
+		License: "Apache-2.0", Source: "dbc", Version: semver.MustParse("1.2.3"),
+	}
+	driver.AdbcInfo.Version = semver.MustParse("0.9.1")
+	driver.AdbcInfo.Features.Supported = []string{"feature-b", "feature-a"}
+	driver.AdbcInfo.Features.Unsupported = []string{"feature-c"}
+	driver.Driver.Entrypoint = "AdbcDriverInit"
+	driver.Driver.Shared.Set(config.PlatformTuple(), filepath.Join(s.cfgUserPath, "driver.dll"))
+	s.Require().NoError(config.CreateManifest(cfg, driver))
+
+	loaded, err := config.GetDriver(cfg, driver.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(loaded.AdbcInfo.Version)
+	s.Equal("0.9.1", loaded.AdbcInfo.Version.String())
+	s.Equal([]string{"feature-b", "feature-a"}, loaded.AdbcInfo.Features.Supported)
+	s.Equal([]string{"feature-c"}, loaded.AdbcInfo.Features.Unsupported)
+
+	// Replacing a registration without optional ADBC metadata must remove old
+	// registry values instead of leaving stale values that change its identity.
+	driver.AdbcInfo.Version = nil
+	driver.AdbcInfo.Features.Supported = nil
+	driver.AdbcInfo.Features.Unsupported = nil
+	s.Require().NoError(config.CreateManifest(cfg, driver))
+	loaded, err = config.GetDriver(cfg, driver.ID)
+	s.Require().NoError(err)
+	s.Nil(loaded.AdbcInfo.Version)
+	s.Empty(loaded.AdbcInfo.Features.Supported)
+	s.Empty(loaded.AdbcInfo.Features.Unsupported)
+
+	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\"+driver.ID, registry.ALL_ACCESS)
+	s.Require().NoError(err)
+	defer k.Close()
+	s.Require().NoError(k.SetStringValue("adbc_version", "not-a-version"))
+	_, err = config.GetDriver(cfg, driver.ID)
+	s.ErrorContains(err, "invalid ADBC version in registry")
+	s.Require().NoError(k.SetStringValue("adbc_version", "0.9.1"))
+	s.Require().NoError(k.SetStringValue("adbc_supported_features", "wrong-registry-type"))
+	_, err = config.GetDriver(cfg, driver.ID)
+	s.Error(err, "a present feature value with the wrong registry type must be rejected")
 }
 
 func (s *RegistryTestSuite) TestPartialReinstallDriver() {

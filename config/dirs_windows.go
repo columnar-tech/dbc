@@ -110,6 +110,17 @@ func keyOptional(k registry.Key, name string) string {
 	return val
 }
 
+func keyStringsOptional(k registry.Key, name string) []string {
+	val, _, err := k.GetStringsValue(name)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return nil
+		}
+		panic(err)
+	}
+	return val
+}
+
 func setKeyMust(k registry.Key, name, value string) {
 	if err := k.SetStringValue(name, value); err != nil {
 		panic(err)
@@ -153,6 +164,14 @@ func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di D
 	di.License = keyOptional(dkey, "license")
 	di.Version = semver.MustParse(keyMust(dkey, "version"))
 	di.Source = keyOptional(dkey, "source")
+	if adbcVersion := keyOptional(dkey, "adbc_version"); adbcVersion != "" {
+		di.AdbcInfo.Version, err = semver.NewVersion(adbcVersion)
+		if err != nil {
+			return DriverInfo{}, fmt.Errorf("invalid ADBC version in registry: %w", err)
+		}
+	}
+	di.AdbcInfo.Features.Supported = keyStringsOptional(dkey, "adbc_supported_features")
+	di.AdbcInfo.Features.Unsupported = keyStringsOptional(dkey, "adbc_unsupported_features")
 	di.Driver.Shared.defaultPath = keyMust(dkey, "driver")
 	di.Driver.Entrypoint = keyOptional(dkey, "entrypoint")
 
@@ -293,7 +312,10 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 		}
 	}()
 	created := !openedExisting
-	valueNames := []string{"name", "manifest_version", "publisher", "license", "version", "source", "driver", "entrypoint"}
+	valueNames := []string{
+		"name", "manifest_version", "publisher", "license", "version", "source", "driver", "entrypoint",
+		"adbc_version", "adbc_supported_features", "adbc_unsupported_features",
+	}
 	snapshot, err := snapshotRegistryValues(dkey, valueNames)
 	if err != nil {
 		var rollbackErr error
@@ -326,6 +348,44 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	} {
 		if err := writeString(item.name, item.value); err != nil {
 			return registrationFailure(err, rollback())
+		}
+	}
+	setOptionalString := func(name, value string) error {
+		if value != "" {
+			return dkey.SetStringValue(name, value)
+		}
+		if err := dkey.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	setOptionalStrings := func(name string, values []string) error {
+		if len(values) > 0 {
+			return dkey.SetStringsValue(name, values)
+		}
+		if err := dkey.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	adbcVersion := ""
+	if driver.AdbcInfo.Version != nil {
+		adbcVersion = driver.AdbcInfo.Version.String()
+	}
+	for _, write := range []struct {
+		name string
+		fn   func() error
+	}{
+		{name: "adbc_version", fn: func() error { return setOptionalString("adbc_version", adbcVersion) }},
+		{name: "adbc_supported_features", fn: func() error {
+			return setOptionalStrings("adbc_supported_features", driver.AdbcInfo.Features.Supported)
+		}},
+		{name: "adbc_unsupported_features", fn: func() error {
+			return setOptionalStrings("adbc_unsupported_features", driver.AdbcInfo.Features.Unsupported)
+		}},
+	} {
+		if err := write.fn(); err != nil {
+			return registrationFailure(fmt.Errorf("could not write registry value %s: %w", write.name, err), rollback())
 		}
 	}
 	if err := writeInt("manifest_version", currentManifestVersion); err != nil {
