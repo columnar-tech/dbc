@@ -23,6 +23,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -334,6 +336,8 @@ func reloadConfigTarget(selected config.Config) config.Config {
 type installItem struct {
 	Driver               dbc.Driver
 	Package              dbc.PkgInfo
+	ArtifactFormat       string
+	HostRequirements     resolution.HostRequirements
 	Checksum             string
 	ArchiveHash          string
 	ArchiveSize          int64
@@ -418,9 +422,11 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		}
 
 		items = append(items, installItem{
-			Driver:   drv,
-			Package:  pkg,
-			Checksum: info.legacyChecksumFor(config.PlatformTuple()),
+			Driver:           drv,
+			Package:          pkg,
+			ArtifactFormat:   "tar.gz",
+			HostRequirements: resolution.HostRequirements{},
+			Checksum:         info.legacyChecksumFor(config.PlatformTuple()),
 			LockEntry: func() *lockInfo {
 				if info.Version == nil {
 					return nil
@@ -481,8 +487,12 @@ func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArt
 	if artifact.Location.Kind != resolution.ArtifactLocationURL || artifact.Location.Value == "" {
 		return installItem{}, fmt.Errorf("locked registry artifact for %s is not a remote URL artifact", name)
 	}
-	if artifact.Format != "" && artifact.Format != "tar.gz" {
-		return installItem{}, fmt.Errorf("locked artifact format %q for %s is not supported by sync yet", artifact.Format, name)
+	if err := validateInstallableArtifactFormat(artifact.Format); err != nil {
+		return installItem{}, fmt.Errorf("locked artifact for %s: %w", name, err)
+	}
+	requirements := resolutionHostRequirementsFromLock(artifact.HostRequirements)
+	if err := validateHostRequirements(name, requirements); err != nil {
+		return installItem{}, err
 	}
 	packageURL, err := url.Parse(artifact.Location.Value)
 	if err != nil || !packageURL.IsAbs() || packageURL.Hostname() == "" {
@@ -501,13 +511,93 @@ func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArt
 		ArtifactHash:  artifact.Hash,
 		ArtifactSize:  cloneInt64(artifact.Size),
 	}
-	copy := entry
-	return installItem{
+	copy := cloneLockInfo(entry)
+	item := installItem{
 		Driver:    driver,
 		Package:   pkg,
 		Checksum:  entry.legacyChecksumFor(config.PlatformTuple()),
 		LockEntry: &copy,
-	}, nil
+	}
+	if err := setSelectedArtifactMetadata(&item, resolution.Artifact{
+		Format:           artifact.Format,
+		HostRequirements: requirements,
+	}); err != nil {
+		return installItem{}, err
+	}
+	return item, nil
+}
+
+// setSelectedArtifactMetadata copies source-neutral execution metadata from a
+// resolved artifact onto an install item. Source integrations should call this
+// after selecting the concrete target artifact.
+func setSelectedArtifactMetadata(item *installItem, artifact resolution.Artifact) error {
+	if item == nil {
+		return errors.New("cannot set artifact metadata on a nil install item")
+	}
+	if err := validateInstallableArtifactFormat(artifact.Format); err != nil {
+		return err
+	}
+	item.ArtifactFormat = artifact.Format
+	item.HostRequirements = cloneHostRequirements(artifact.HostRequirements)
+	return nil
+}
+
+func validateInstallableArtifactFormat(format string) error {
+	switch format {
+	case "", "tar.gz", "tgz":
+		return nil
+	default:
+		return fmt.Errorf("unsupported package format %q (supported formats: tar.gz, tgz)", format)
+	}
+}
+
+func cloneHostRequirements(requirements resolution.HostRequirements) resolution.HostRequirements {
+	return resolution.HostRequirements{
+		OSMin:    requirements.OSMin,
+		GLibCMin: requirements.GLibCMin,
+		Libs:     append([]string(nil), requirements.Libs...),
+		Bins:     append([]resolution.NamedRequirement(nil), requirements.Bins...),
+	}
+}
+
+func validateHostRequirements(driverID string, requirements resolution.HostRequirements) error {
+	if requirements.OSMin == "" && requirements.GLibCMin == "" && len(requirements.Libs) == 0 && len(requirements.Bins) == 0 {
+		return nil
+	}
+	var declared []string
+	if requirements.OSMin != "" {
+		declared = append(declared, fmt.Sprintf("os_min=%q", requirements.OSMin))
+	}
+	if requirements.GLibCMin != "" {
+		declared = append(declared, fmt.Sprintf("glibc_min=%q", requirements.GLibCMin))
+	}
+	if len(requirements.Libs) != 0 {
+		libs := append([]string(nil), requirements.Libs...)
+		sort.Strings(libs)
+		quoted := make([]string, len(libs))
+		for i, lib := range libs {
+			quoted[i] = fmt.Sprintf("%q", lib)
+		}
+		declared = append(declared, "libs=["+strings.Join(quoted, ", ")+"]")
+	}
+	if len(requirements.Bins) != 0 {
+		bins := append([]resolution.NamedRequirement(nil), requirements.Bins...)
+		sort.Slice(bins, func(i, j int) bool {
+			if bins[i].Name != bins[j].Name {
+				return bins[i].Name < bins[j].Name
+			}
+			return bins[i].Min < bins[j].Min
+		})
+		formatted := make([]string, len(bins))
+		for i, bin := range bins {
+			formatted[i] = fmt.Sprintf("%q", bin.Name)
+			if bin.Min != "" {
+				formatted[i] += fmt.Sprintf(" (min %q)", bin.Min)
+			}
+		}
+		declared = append(declared, "bins=["+strings.Join(formatted, ", ")+"]")
+	}
+	return fmt.Errorf("unsupported host requirements for %s: %s", driverID, strings.Join(declared, "; "))
 }
 
 type installedDrvMsg struct {
@@ -546,6 +636,10 @@ func canReuseLockedEntry(item installItem) bool {
 	}
 	artifact, err := selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)
 	if err != nil || artifact.Location.Kind != resolution.ArtifactLocationURL || artifact.Location.Value == "" || item.Package.Path == nil || item.Package.ArtifactSize == nil {
+		return false
+	}
+	if artifact.Format != item.ArtifactFormat ||
+		!reflect.DeepEqual(canonicalHostRequirements(artifact.HostRequirements), canonicalHostRequirements(lockHostRequirementsFromResolution(item.HostRequirements))) {
 		return false
 	}
 	lockedURL, err := url.Parse(artifact.Location.Value)
@@ -601,6 +695,12 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 			return prepared, err
 		}
 		item := &prepared.items[i]
+		if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
+			return prepared, fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+		}
+		if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
+			return prepared, err
+		}
 		var sameVersionInstalled *config.DriverInfo
 		if s.cfg.Exists {
 			if installed, ok := s.cfg.Drivers[item.Driver.Path]; ok {
@@ -677,6 +777,12 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 
 func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installItem) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
+		return fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+	}
+	if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
 		return err
 	}
 	if item.Archive == nil {
@@ -795,6 +901,12 @@ func (s syncModel) itemCurrentMatches(item *installItem, current *config.DriverI
 
 func (s syncModel) ensurePreparedPackage(ctx context.Context, item *installItem) (config.EnsurePackageResult, error) {
 	if err := ctx.Err(); err != nil {
+		return config.EnsurePackageResult{}, err
+	}
+	if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
+		return config.EnsurePackageResult{}, fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+	}
+	if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
 		return config.EnsurePackageResult{}, err
 	}
 	callbacks := config.EnsurePackageCallbacks{
@@ -1134,6 +1246,12 @@ func (s syncModel) fail(code string, err error) (syncModel, tea.Cmd) {
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {
+	if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
+		return lockInfo{}, fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+	}
+	if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
+		return lockInfo{}, err
+	}
 	legacyProofMatches := true
 	if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
 		if err := verifyLegacyLibraryProof(*item.LockEntry, config.PlatformTuple(), item.InstalledLibraryHash); err != nil {
@@ -1173,11 +1291,12 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 		Version:  item.Package.Version.String(),
 		Source:   resolution.SourceSpec{Type: source.Type, Reference: source.URL},
 		Artifacts: []resolution.Artifact{{
-			Target:   target,
-			Format:   "tar.gz",
-			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: item.Package.Path.String()},
-			Hash:     hash,
-			Size:     &size,
+			Target:           target,
+			Format:           item.ArtifactFormat,
+			Location:         resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: item.Package.Path.String()},
+			Hash:             hash,
+			Size:             &size,
+			HostRequirements: cloneHostRequirements(item.HostRequirements),
 		}},
 	}
 	candidate, err := lockInfoFromResolvedRelease(item.Driver.Path, release)

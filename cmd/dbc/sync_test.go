@@ -37,6 +37,8 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
@@ -46,6 +48,20 @@ func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
 	if got := syncProgressPercent(1, 2); got != 1 {
 		t.Fatalf("second completed item progress = %v, want 1", got)
 	}
+}
+
+func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testing.T) {
+	drivers, err := getTestDriverRegistry()
+	require.NoError(t, err)
+	model := syncModel{
+		LockFilePath: filepath.Join(t.TempDir(), "dbc.lock"),
+		driverIndex:  drivers,
+	}
+	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{"test-driver-1": {}}})
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "tar.gz", items[0].ArtifactFormat)
+	assert.Empty(t, items[0].HostRequirements)
 }
 
 func TestAcquireSyncProjectLockDeadlineIsContentionButCancelIsNot(t *testing.T) {

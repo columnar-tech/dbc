@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -550,6 +551,13 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 	assert.Equal(t, "https://assets.example.test/archive.tar.gz", item.Package.Path.String(), "artifact host is independent of source identity")
 	assert.Equal(t, entry.Artifacts[0].Hash, item.Package.ArtifactHash)
 	assert.Equal(t, *entry.Artifacts[0].Size, *item.Package.ArtifactSize)
+	assert.True(t, canReuseLockedEntry(item))
+	item.ArtifactFormat = "tgz"
+	assert.False(t, canReuseLockedEntry(item), "a locked artifact with a different format is not the selected artifact proof")
+	item.ArtifactFormat = entry.Artifacts[0].Format
+	item.HostRequirements.Libs = []string{"libc.so.6"}
+	assert.False(t, canReuseLockedEntry(item), "a locked artifact with different host requirements is not the selected artifact proof")
+	item.HostRequirements.Libs = nil
 	item.InstalledLibraryHash = strings.Repeat("f", 64)
 
 	updated, err := lockEntryForItem(item)
@@ -843,6 +851,192 @@ func TestLockResolvedReleaseRoundTripPreservesEvidenceAndSelectors(t *testing.T)
 	entry.Evidence[0].Hash = "sha256:" + strings.Repeat("0", 64)
 	assert.NotEqual(t, entry.Evidence[0].Hash, got.Evidence[0].Hash,
 		"resolved release conversion must copy the evidence slice")
+	release.Artifacts[0].HostRequirements.Libs[0] = "changed.so"
+	release.Artifacts[0].HostRequirements.Bins[0].Name = "changed"
+	assert.Equal(t, []string{"libc.so.6"}, entry.Artifacts[0].HostRequirements.Libs,
+		"lock conversion must copy host library requirements")
+	assert.Equal(t, []lockNamedRequirement{{Name: "git", Min: "2.40"}}, entry.Artifacts[0].HostRequirements.Bins,
+		"lock conversion must copy host binary requirements")
+	got.Artifacts[0].HostRequirements.Libs[0] = "changed-again.so"
+	got.Artifacts[0].HostRequirements.Bins[0].Name = "changed-again"
+	assert.Equal(t, []string{"libc.so.6"}, entry.resolvedRelease().Artifacts[0].HostRequirements.Libs,
+		"resolved release conversion must copy host library requirements")
+	assert.Equal(t, []resolution.NamedRequirement{{Name: "git", Min: "2.40"}}, entry.resolvedRelease().Artifacts[0].HostRequirements.Bins,
+		"resolved release conversion must copy host binary requirements")
+}
+
+func TestResolvedTGZArtifactReplaysThroughPackageValidation(t *testing.T) {
+	archivePath := filepath.Join("testdata", "test-driver-1.tar.gz")
+	archive, err := os.Open(archivePath)
+	require.NoError(t, err)
+	defer archive.Close()
+	info, err := archive.Stat()
+	require.NoError(t, err)
+	size := info.Size()
+	hash, err := checksumFile(archive, archive.Name())
+	require.NoError(t, err)
+	require.NoError(t, archive.Close())
+
+	packageURL, err := url.Parse("https://assets.example.test/test-driver-1.tgz")
+	require.NoError(t, err)
+	release := resolution.ResolvedRelease{
+		DriverID: "test-driver-1",
+		Version:  "1.0.0",
+		Source:   resolution.SourceSpec{Type: "registry", Reference: testRegistry.BaseURL.String()},
+		Artifacts: []resolution.Artifact{{
+			Target:   testTarget(config.PlatformTuple()),
+			Format:   "tgz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: packageURL.String()},
+			Hash:     "sha256:" + hash,
+			Size:     &size,
+		}},
+	}
+	entry, err := lockInfoFromResolvedRelease("test-driver-1", release)
+	require.NoError(t, err)
+	lockPath := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	loaded, err := loadLockFile(lockPath)
+	require.NoError(t, err)
+	selected, err := selectLockedArtifact(loaded.lockinfo["test-driver-1"], config.PlatformTuple(), false)
+	require.NoError(t, err)
+	assert.Equal(t, "tgz", selected.Format)
+	item, err := installItemFromLockedArtifact("test-driver-1", loaded.lockinfo["test-driver-1"], selected)
+	require.NoError(t, err)
+	assert.Equal(t, "tgz", item.ArtifactFormat)
+
+	model := syncModel{baseModel: baseModel{downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
+		return os.Open(archivePath)
+	}}}
+	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
+	require.NoError(t, err)
+	defer closePreparedArchives(prepared.items)
+	require.Len(t, prepared.items, 1)
+	require.NotNil(t, prepared.items[0].Validation)
+	assert.Equal(t, "tgz", prepared.lock.Drivers[0].Artifacts[0].Format,
+		"candidate lock must preserve the source-declared format")
+	assert.Equal(t, entry.Artifacts[0], prepared.lock.Drivers[0].Artifacts[0])
+}
+
+func TestSelectedArtifactMetadataCopiesHostRequirements(t *testing.T) {
+	requirements := resolution.HostRequirements{
+		OSMin:    "3.2",
+		GLibCMin: "2.17",
+		Libs:     []string{"libssl.so.3"},
+		Bins:     []resolution.NamedRequirement{{Name: "git", Min: "2.40"}},
+	}
+	item := installItem{}
+	require.NoError(t, setSelectedArtifactMetadata(&item, resolution.Artifact{Format: "tgz", HostRequirements: requirements}))
+	requirements.Libs[0] = "changed"
+	requirements.Bins[0].Name = "changed"
+	assert.Equal(t, "tgz", item.ArtifactFormat)
+	assert.Equal(t, []string{"libssl.so.3"}, item.HostRequirements.Libs)
+	assert.Equal(t, []resolution.NamedRequirement{{Name: "git", Min: "2.40"}}, item.HostRequirements.Bins)
+}
+
+func TestResolvedReleaseHostRequirementsSurviveLockWriteAndReload(t *testing.T) {
+	release := testResolvedRelease()
+	release.Artifacts[0].Format = "tgz"
+	entry, err := lockInfoFromResolvedRelease("example", release)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	loaded, err := loadLockFile(path)
+	require.NoError(t, err)
+	artifact, err := selectLockedArtifact(loaded.lockinfo["example"], "linux_amd64_gnu_v1", false)
+	require.NoError(t, err)
+	assert.Equal(t, "tgz", artifact.Format)
+	assert.Equal(t, lockArtifactFromResolved(release.Artifacts[0]).HostRequirements, artifact.HostRequirements)
+	assert.Equal(t, release.Artifacts[0].HostRequirements, loaded.lockinfo["example"].resolvedRelease().Artifacts[0].HostRequirements)
+}
+
+func TestInstallableArtifactFormatValidation(t *testing.T) {
+	for _, format := range []string{"", "tar.gz", "tgz"} {
+		t.Run("accept "+format, func(t *testing.T) {
+			assert.NoError(t, validateInstallableArtifactFormat(format))
+		})
+	}
+	for _, format := range []string{"zip", "tar.xz", "tar"} {
+		t.Run("reject "+format, func(t *testing.T) {
+			err := validateInstallableArtifactFormat(format)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), format)
+			assert.Contains(t, err.Error(), "supported formats: tar.gz, tgz")
+		})
+	}
+}
+
+func TestUnsupportedHostRequirementsFailClosedBeforePreparationOrEnsure(t *testing.T) {
+	tests := []struct {
+		name         string
+		requirements resolution.HostRequirements
+		want         string
+	}{
+		{name: "os minimum", requirements: resolution.HostRequirements{OSMin: "3.2.0"}, want: `os_min="3.2.0"`},
+		{name: "glibc minimum", requirements: resolution.HostRequirements{GLibCMin: "2.17"}, want: `glibc_min="2.17"`},
+		{name: "libraries", requirements: resolution.HostRequirements{Libs: []string{"libz.so", "liba.so"}}, want: `libs=["liba.so", "libz.so"]`},
+		{name: "binaries", requirements: resolution.HostRequirements{Bins: []resolution.NamedRequirement{{Name: "zstd", Min: "1.5"}, {Name: "git"}}}, want: `bins=["git", "zstd" (min "1.5")]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("ADBC_DRIVER_PATH", root)
+			libraryPath := filepath.Join(root, "sentinel.so")
+			const sentinel = "keep-existing-runtime-bytes"
+			require.NoError(t, os.WriteFile(libraryPath, []byte(sentinel), 0o600))
+			installed := config.DriverInfo{ID: "example", Name: "Existing Example", Version: semver.MustParse("1.2.3"), Source: "dbc"}
+			installed.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
+			cfg := config.Config{Level: config.ConfigEnv, Location: root}
+			require.NoError(t, config.CreateManifest(cfg, installed))
+			loaded, err := config.GetDriver(cfg, "example")
+			require.NoError(t, err)
+
+			registryURL, err := url.Parse("https://registry.example.test")
+			require.NoError(t, err)
+			packageURL, err := url.Parse("https://assets.example.test/example.tgz")
+			require.NoError(t, err)
+			item := installItem{
+				Driver:           dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: registryURL}},
+				Package:          dbc.PkgInfo{Version: semver.MustParse("1.2.3"), PlatformTuple: config.PlatformTuple(), Path: packageURL},
+				ArtifactFormat:   "tgz",
+				HostRequirements: tt.requirements,
+			}
+			downloadCalls, ensureCalls := 0, 0
+			worker := newSyncWorker()
+			worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+				ensureCalls++
+				return config.EnsurePackageResult{}, nil
+			}
+			model := syncModel{
+				baseModel: baseModel{downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
+					downloadCalls++
+					return nil, errors.New("unexpected download")
+				}},
+				LockFilePath: filepath.Join(root, "dbc.lock"),
+				cfg:          config.Config{Level: config.ConfigEnv, Location: root, Exists: true, Drivers: map[string]config.DriverInfo{"example": loaded}},
+				worker:       worker,
+			}
+			prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
+			require.ErrorContains(t, err, "unsupported host requirements for example")
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Empty(t, prepared.lock.Drivers)
+			assert.Zero(t, downloadCalls)
+			assert.Zero(t, ensureCalls)
+
+			_, ensureErr := model.ensurePreparedPackage(context.Background(), &item)
+			require.ErrorContains(t, ensureErr, "unsupported host requirements for example")
+			assert.Zero(t, ensureCalls, "unsupported requirements must be rejected before EnsurePackage")
+			after, err := config.GetDriver(cfg, "example")
+			require.NoError(t, err)
+			assert.Equal(t, loaded.Name, after.Name)
+			assert.Equal(t, loaded.Version.String(), after.Version.String())
+			assert.Equal(t, libraryPath, after.Driver.Shared.Get(config.PlatformTuple()))
+			bytes, err := os.ReadFile(libraryPath)
+			require.NoError(t, err)
+			assert.Equal(t, sentinel, string(bytes))
+			_, err = os.Stat(model.LockFilePath)
+			assert.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
 }
 
 func TestRegistryAndPathSourcesDoNotFabricateEvidence(t *testing.T) {

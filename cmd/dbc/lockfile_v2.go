@@ -112,19 +112,52 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 
 func lockArtifactFromResolved(artifact resolution.Artifact) lockArtifact {
 	result := lockArtifact{
-		Target:   resolution.CanonicalTarget(artifact.Target),
-		Format:   artifact.Format,
-		Location: artifact.Location,
-		Hash:     artifact.Hash,
-		Size:     cloneInt64(artifact.Size),
-		HostRequirements: lockHostRequirements{
-			OSMin:    artifact.HostRequirements.OSMin,
-			GLibCMin: artifact.HostRequirements.GLibCMin,
-			Libs:     append([]string(nil), artifact.HostRequirements.Libs...),
-		},
+		Target:           resolution.CanonicalTarget(artifact.Target),
+		Format:           artifact.Format,
+		Location:         artifact.Location,
+		Hash:             artifact.Hash,
+		Size:             cloneInt64(artifact.Size),
+		HostRequirements: lockHostRequirementsFromResolution(artifact.HostRequirements),
 	}
-	for _, bin := range artifact.HostRequirements.Bins {
-		result.HostRequirements.Bins = append(result.HostRequirements.Bins, lockNamedRequirement{Name: bin.Name, Min: bin.Min})
+	return result
+}
+
+func lockHostRequirementsFromResolution(requirements resolution.HostRequirements) lockHostRequirements {
+	result := lockHostRequirements{
+		OSMin:    requirements.OSMin,
+		GLibCMin: requirements.GLibCMin,
+		Libs:     append([]string(nil), requirements.Libs...),
+	}
+	for _, bin := range requirements.Bins {
+		result.Bins = append(result.Bins, lockNamedRequirement{Name: bin.Name, Min: bin.Min})
+	}
+	return result
+}
+
+func resolutionHostRequirementsFromLock(requirements lockHostRequirements) resolution.HostRequirements {
+	result := resolution.HostRequirements{
+		OSMin:    requirements.OSMin,
+		GLibCMin: requirements.GLibCMin,
+		Libs:     append([]string(nil), requirements.Libs...),
+	}
+	for _, bin := range requirements.Bins {
+		result.Bins = append(result.Bins, resolution.NamedRequirement{Name: bin.Name, Min: bin.Min})
+	}
+	return result
+}
+
+func cloneLockInfo(entry lockInfo) lockInfo {
+	result := entry
+	result.Evidence = append([]lockEvidence(nil), entry.Evidence...)
+	result.Artifacts = append([]lockArtifact(nil), entry.Artifacts...)
+	for i := range result.Artifacts {
+		result.Artifacts[i].Size = cloneInt64(entry.Artifacts[i].Size)
+		result.Artifacts[i].HostRequirements.Libs = append([]string(nil), entry.Artifacts[i].HostRequirements.Libs...)
+		result.Artifacts[i].HostRequirements.Bins = append([]lockNamedRequirement(nil), entry.Artifacts[i].HostRequirements.Bins...)
+	}
+	if entry.Legacy != nil {
+		legacy := *entry.Legacy
+		result.Legacy = &legacy
 	}
 	return result
 }
@@ -149,19 +182,12 @@ func (d lockInfo) resolvedRelease() resolution.ResolvedRelease {
 	}
 	for _, artifact := range d.Artifacts {
 		resolved := resolution.Artifact{
-			Target:   artifact.Target,
-			Format:   artifact.Format,
-			Location: artifact.Location,
-			Hash:     artifact.Hash,
-			Size:     cloneInt64(artifact.Size),
-			HostRequirements: resolution.HostRequirements{
-				OSMin:    artifact.HostRequirements.OSMin,
-				GLibCMin: artifact.HostRequirements.GLibCMin,
-				Libs:     append([]string(nil), artifact.HostRequirements.Libs...),
-			},
-		}
-		for _, bin := range artifact.HostRequirements.Bins {
-			resolved.HostRequirements.Bins = append(resolved.HostRequirements.Bins, resolution.NamedRequirement{Name: bin.Name, Min: bin.Min})
+			Target:           artifact.Target,
+			Format:           artifact.Format,
+			Location:         artifact.Location,
+			Hash:             artifact.Hash,
+			Size:             cloneInt64(artifact.Size),
+			HostRequirements: resolutionHostRequirementsFromLock(artifact.HostRequirements),
 		}
 		release.Artifacts = append(release.Artifacts, resolved)
 	}
