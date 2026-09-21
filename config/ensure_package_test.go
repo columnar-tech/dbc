@@ -46,10 +46,10 @@ func installEnsureFixture(t *testing.T, cfg Config, version, source string, arch
 	return info
 }
 
-func packageFileProvider(t *testing.T, data []byte) (*os.File, func() (*os.File, error)) {
+func packageFileProvider(t *testing.T, data []byte) (*os.File, func(context.Context) (*os.File, error)) {
 	t.Helper()
 	file := writeInstallArchive(t, data, "ensure-candidate")
-	return file, func() (*os.File, error) { return file, nil }
+	return file, func(context.Context) (*os.File, error) { return file, nil }
 }
 
 func expectedEnsurePackage(id, version, source string, archive []byte) ExpectedPackageMetadata {
@@ -64,12 +64,14 @@ func TestEnsurePackageSkipsWithoutRequestingArchive(t *testing.T) {
 	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("same library"))
 	initial := installEnsureFixture(t, cfg, "1.0.0", "source", archive)
 	providerCalls := 0
+	currentMatchesCalls := 0
 	var validated EnsurePackageResult
 	result, err := EnsurePackage(context.Background(), cfg, "example", installExpected("example", "source", archive), InstallOptions{}, EnsurePackageCallbacks{
 		CurrentMatches: func(current *DriverInfo) (bool, error) {
+			currentMatchesCalls++
 			return current != nil && sameDriverRegistration(initial, *current), nil
 		},
-		Archive: func() (*os.File, error) {
+		Archive: func(context.Context) (*os.File, error) {
 			providerCalls++
 			return nil, errors.New("archive provider must not run for a skip")
 		},
@@ -81,8 +83,8 @@ func TestEnsurePackageSkipsWithoutRequestingArchive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Skipped || providerCalls != 0 {
-		t.Fatalf("EnsurePackage result skipped=%t provider calls=%d, want skip and zero calls", result.Skipped, providerCalls)
+	if !result.Skipped || providerCalls != 0 || currentMatchesCalls != 1 {
+		t.Fatalf("EnsurePackage result skipped=%t provider calls=%d CurrentMatches calls=%d, want skip, zero provider calls, and one predicate call", result.Skipped, providerCalls, currentMatchesCalls)
 	}
 	if result.Current == nil || result.Installed == nil || result.Previous != nil || result.Manifest != nil {
 		t.Fatalf("skip result fields are inconsistent: %#v", result)
@@ -102,9 +104,9 @@ func TestEnsurePackageInstallsExactProvidedArchiveAndLeavesItOpen(t *testing.T) 
 	providerCalls := 0
 	result, err := EnsurePackage(context.Background(), cfg, "example", expectedEnsurePackage("example", "2.0.0", "new-source", newArchive), InstallOptions{}, EnsurePackageCallbacks{
 		CurrentMatches: func(current *DriverInfo) (bool, error) { return false, nil },
-		Archive: func() (*os.File, error) {
+		Archive: func(ctx context.Context) (*os.File, error) {
 			providerCalls++
-			return provider()
+			return provider(ctx)
 		},
 		ValidateResult: func(result EnsurePackageResult) error {
 			if result.Skipped || result.Current == nil || result.Previous == nil || result.Installed == nil || result.Manifest == nil {
@@ -149,7 +151,7 @@ func TestEnsurePackageErrorsBeforeMutationAndReportsPostInstallValidationFailure
 	providerCalls := 0
 	_, err = EnsurePackage(context.Background(), cfg, "example", expectedEnsurePackage("example", "2.0.0", "new-source", newArchive), InstallOptions{}, EnsurePackageCallbacks{
 		CurrentMatches: func(*DriverInfo) (bool, error) { return false, callbackErr },
-		Archive: func() (*os.File, error) {
+		Archive: func(context.Context) (*os.File, error) {
 			providerCalls++
 			return writeInstallArchive(t, newArchive, "unused"), nil
 		},
@@ -159,12 +161,12 @@ func TestEnsurePackageErrorsBeforeMutationAndReportsPostInstallValidationFailure
 	}
 
 	providerErr := errors.New("provider failed")
-	_, err = EnsurePackage(context.Background(), cfg, "example", expectedEnsurePackage("example", "2.0.0", "new-source", newArchive), InstallOptions{}, EnsurePackageCallbacks{
+	providerResult, err := EnsurePackage(context.Background(), cfg, "example", expectedEnsurePackage("example", "2.0.0", "new-source", newArchive), InstallOptions{}, EnsurePackageCallbacks{
 		CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
-		Archive:        func() (*os.File, error) { return nil, providerErr },
+		Archive:        func(context.Context) (*os.File, error) { return nil, providerErr },
 	})
-	if !errors.Is(err, providerErr) {
-		t.Fatalf("provider error = %v, want %v", err, providerErr)
+	if !errors.Is(err, providerErr) || providerResult.Current == nil || providerResult.Current.Version.String() != "1.0.0" {
+		t.Fatalf("provider error result=%#v error=%v, want phase-one current and %v", providerResult, err, providerErr)
 	}
 	currentManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
 	if err != nil || !bytes.Equal(currentManifest, oldManifest) {
@@ -233,7 +235,7 @@ func TestEnsurePackageRechecksRegistrationAfterAcquiringDriverLock(t *testing.T)
 			CurrentMatches: func(current *DriverInfo) (bool, error) {
 				return current != nil && current.Version.String() == "1.0.0", nil
 			},
-			Archive: func() (*os.File, error) {
+			Archive: func(context.Context) (*os.File, error) {
 				providerCalls++
 				return nil, errors.New("provider must not run")
 			},
@@ -244,7 +246,6 @@ func TestEnsurePackageRechecksRegistrationAfterAcquiringDriverLock(t *testing.T)
 		}{result, err}
 	}()
 	<-started
-	time.Sleep(120 * time.Millisecond)
 	latest := DriverInfo{ID: "example", Name: "Latest", Version: semver.MustParse("1.0.0"), Source: "latest"}
 	latest.Driver.Shared.Set(PlatformTuple(), filepath.Join(root, "externally-managed.so"))
 	if err := CreateManifest(cfg, latest); err != nil {
@@ -296,7 +297,7 @@ func TestEnsurePackageCancellationReleasesPartiallyAcquiredLocks(t *testing.T) {
 	go func() {
 		_, err := ensurePackageWithLockObserver(ctx, cfg, "example", ExpectedPackageMetadata{ID: "example"}, InstallOptions{}, EnsurePackageCallbacks{
 			CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
-			Archive:        func() (*os.File, error) { return nil, errors.New("provider must not run") },
+			Archive:        func(context.Context) (*os.File, error) { return nil, errors.New("provider must not run") },
 		}, func(root string) {
 			if root == early {
 				earlyLockAcquired <- struct{}{}
@@ -336,78 +337,209 @@ func TestEnsurePackageCancellationReleasesPartiallyAcquiredLocks(t *testing.T) {
 	releaseEarly()
 }
 
-func TestEnsurePackageCancellationWaitsForContextlessProviderAndInstall(t *testing.T) {
+func TestEnsurePackageCancellationDuringPhaseTwoLockAcquisitionReleasesPartialLocks(t *testing.T) {
+	root := t.TempDir()
+	early := filepath.Join(root, "a")
+	late := filepath.Join(root, "z")
+	for _, path := range []string{early, late} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := Config{Level: ConfigEnv, Location: late + string(os.PathListSeparator) + early}
+	archiveData := makeInstallArchive(t, "example", "2.0.0", "new.so", []byte("new library"))
+	archiveFile := writeInstallArchive(t, archiveData, "phase-two-cancel")
+	defer archiveFile.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	earlyAcquired := make(chan struct{}, 2)
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	var releaseOnce sync.Once
+	unblockProvider := func() { releaseOnce.Do(func() { close(releaseProvider) }) }
+	defer unblockProvider()
+	type ensureOutcome struct {
+		result EnsurePackageResult
+		err    error
+	}
+	done := make(chan ensureOutcome, 1)
+	currentMatchesCalls := 0
+	go func() {
+		result, err := ensurePackageWithLockObserver(ctx, cfg, "example", expectedEnsurePackage("example", "2.0.0", "new", archiveData), InstallOptions{}, EnsurePackageCallbacks{
+			CurrentMatches: func(*DriverInfo) (bool, error) {
+				currentMatchesCalls++
+				return false, nil
+			},
+			Archive: func(context.Context) (*os.File, error) {
+				close(providerStarted)
+				<-releaseProvider
+				return archiveFile, nil
+			},
+		}, func(path string) {
+			if path == early {
+				earlyAcquired <- struct{}{}
+			}
+		})
+		done <- ensureOutcome{result: result, err: err}
+	}()
+	select {
+	case <-earlyAcquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("phase one did not acquire the earlier root")
+	}
+	select {
+	case <-providerStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("phase one did not release locks before entering the provider")
+	}
+	holdLate, err := acquireDriverInstallLock(late, "example")
+	if err != nil {
+		t.Fatalf("could not hold late root during provider: %v", err)
+	}
+	lateHeld := true
+	defer func() {
+		if lateHeld {
+			holdLate()
+		}
+	}()
+	unblockProvider()
+	select {
+	case <-earlyAcquired:
+		// Phase two acquired the early lock and is proceeding to the held late
+		// lock. Cancellation must release this partial lock set.
+	case <-time.After(5 * time.Second):
+		t.Fatal("phase two did not acquire the earlier root before waiting for the held root")
+	}
+	cancel()
+	select {
+	case outcome := <-done:
+		if !errors.Is(outcome.err, context.Canceled) {
+			t.Fatalf("phase-two cancellation result=%#v error=%v", outcome.result, outcome.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("phase-two lock acquisition did not stop after cancellation")
+	}
+	if currentMatchesCalls != 1 {
+		t.Fatalf("CurrentMatches calls before phase-two lock completion = %d, want 1", currentMatchesCalls)
+	}
+	holdLate()
+	lateHeld = false
+	for _, path := range []string{early, late} {
+		release, err := acquireDriverInstallLockContext(context.Background(), path, "example")
+		if err != nil {
+			t.Fatalf("phase-two cancellation leaked lock %s: %v", path, err)
+		}
+		release()
+	}
+}
+
+func TestEnsurePackageObserverReportsBothLockingPhases(t *testing.T) {
+	root := t.TempDir()
+	early := filepath.Join(root, "a")
+	late := filepath.Join(root, "z")
+	for _, path := range []string{early, late} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := Config{Level: ConfigEnv, Location: late + string(os.PathListSeparator) + early}
+	archiveData := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("library"))
+	archiveFile := writeInstallArchive(t, archiveData, "observer-phases")
+	defer archiveFile.Close()
+	observed := make(chan string, 4)
+	currentMatchesCalls := 0
+	result, err := ensurePackageWithLockObserver(context.Background(), cfg, "example", expectedEnsurePackage("example", "1.0.0", "source", archiveData), InstallOptions{}, EnsurePackageCallbacks{
+		CurrentMatches: func(*DriverInfo) (bool, error) {
+			currentMatchesCalls++
+			return false, nil
+		},
+		Archive: func(context.Context) (*os.File, error) { return archiveFile, nil },
+	}, func(path string) {
+		observed <- path
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{early, late, early, late}
+	for i, expected := range want {
+		select {
+		case path := <-observed:
+			if path != expected {
+				t.Fatalf("lock observer[%d] = %q, want %q", i, path, expected)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("lock observer did not report acquisition %d", i)
+		}
+	}
+	if !result.Skipped && (result.Installed == nil || result.Installed.Version.String() != "1.0.0") {
+		t.Fatalf("phase-two install result = %#v", result)
+	}
+	if currentMatchesCalls != 2 {
+		t.Fatalf("CurrentMatches calls = %d, want two phase checks", currentMatchesCalls)
+	}
+}
+
+func TestEnsurePackageCancellationHonorsProviderAndWaitsForInstall(t *testing.T) {
 	t.Run("provider", func(t *testing.T) {
 		root := t.TempDir()
 		cfg := Config{Level: ConfigEnv, Location: root}
 		oldArchive := makeInstallArchive(t, "example", "1.0.0", "old.so", []byte("old library"))
-		installEnsureFixture(t, cfg, "1.0.0", "old", oldArchive)
+		initial := installEnsureFixture(t, cfg, "1.0.0", "old", oldArchive)
 		newArchive := makeInstallArchive(t, "example", "2.0.0", "new.so", []byte("new library"))
-		providerArchive := writeInstallArchive(t, newArchive, "cancelled-provider")
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		providerStarted := make(chan struct{})
-		releaseProvider := make(chan struct{})
-		var releaseOnce sync.Once
-		unblockProvider := func() { releaseOnce.Do(func() { close(releaseProvider) }) }
-		defer unblockProvider()
-		done := make(chan error, 1)
+		done := make(chan struct {
+			result EnsurePackageResult
+			err    error
+		}, 1)
 		go func() {
-			_, err := EnsurePackage(ctx, cfg, "example", expectedEnsurePackage("example", "2.0.0", "new", newArchive), InstallOptions{}, EnsurePackageCallbacks{
+			result, err := EnsurePackage(ctx, cfg, "example", expectedEnsurePackage("example", "2.0.0", "new", newArchive), InstallOptions{}, EnsurePackageCallbacks{
 				CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
-				Archive: func() (*os.File, error) {
+				Archive: func(providerCtx context.Context) (*os.File, error) {
 					close(providerStarted)
-					<-releaseProvider
-					return providerArchive, nil
+					<-providerCtx.Done()
+					return nil, providerCtx.Err()
 				},
 			})
-			done <- err
+			done <- struct {
+				result EnsurePackageResult
+				err    error
+			}{result, err}
 		}()
 		select {
 		case <-providerStarted:
 		case <-time.After(5 * time.Second):
 			t.Fatal("EnsurePackage did not enter provider")
 		}
+		release, err := acquireDriverInstallLockContext(context.Background(), root, "example")
+		if err != nil {
+			t.Fatalf("provider ran while retaining the driver lock: %v", err)
+		}
+		release()
 		cancel()
+		var cancelledResult EnsurePackageResult
 		select {
-		case err := <-done:
-			t.Fatalf("EnsurePackage returned before contextless provider finished: %v", err)
-		case <-time.After(100 * time.Millisecond):
-		}
-		lockCtx, cancelLock := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		lockRelease, lockErr := acquireDriverInstallLockContext(lockCtx, root, "example")
-		cancelLock()
-		if lockRelease != nil {
-			lockRelease()
-		}
-		if !errors.Is(lockErr, context.DeadlineExceeded) {
-			t.Fatalf("driver lock was not held while provider was blocked: %v", lockErr)
-		}
-		if _, err := os.Stat(filepath.Join(root, "example.toml")); err != nil {
-			t.Fatalf("provider cancellation changed the old registration: %v", err)
-		}
-		unblockProvider()
-		select {
-		case err := <-done:
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("provider cancellation error = %v", err)
+		case result := <-done:
+			if !errors.Is(result.err, context.Canceled) {
+				t.Fatalf("provider cancellation result=%#v error=%v", result.result, result.err)
 			}
+			cancelledResult = result.result
 		case <-time.After(5 * time.Second):
-			t.Fatal("EnsurePackage did not finish after provider returned")
+			t.Fatal("EnsurePackage did not finish after provider observed cancellation")
 		}
 		current, err := GetDriver(cfg, "example")
 		if err != nil || current.Version.String() != "1.0.0" {
 			t.Fatalf("cancelled provider mutated registration: current=%#v error=%v", current, err)
 		}
-		release, err := acquireDriverInstallLock(root, "example")
+		if cancelledResult.Current == nil || !sameDriverRegistration(initial, *cancelledResult.Current) {
+			t.Fatalf("provider cancellation did not retain phase-one current snapshot: %#v", cancelledResult)
+		}
+		release, err = acquireDriverInstallLock(root, "example")
 		if err != nil {
 			t.Fatalf("provider cancellation leaked driver lock: %v", err)
 		}
 		release()
-		if _, err := providerArchive.Stat(); err != nil {
-			t.Fatalf("EnsurePackage closed caller-owned archive: %v", err)
-		}
-		_ = providerArchive.Close()
 	})
 
 	t.Run("install", func(t *testing.T) {
@@ -437,7 +569,7 @@ func TestEnsurePackageCancellationWaitsForContextlessProviderAndInstall(t *testi
 				},
 			}, EnsurePackageCallbacks{
 				CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
-				Archive:        func() (*os.File, error) { return archiveFile, nil },
+				Archive:        func(context.Context) (*os.File, error) { return archiveFile, nil },
 			})
 			done <- struct {
 				result EnsurePackageResult
@@ -450,11 +582,6 @@ func TestEnsurePackageCancellationWaitsForContextlessProviderAndInstall(t *testi
 			t.Fatal("EnsurePackage did not enter install verification")
 		}
 		cancel()
-		select {
-		case result := <-done:
-			t.Fatalf("EnsurePackage returned before contextless install finished: %#v", result)
-		case <-time.After(100 * time.Millisecond):
-		}
 		lockCtx, cancelLock := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		lockRelease, lockErr := acquireDriverInstallLockContext(lockCtx, root, "example")
 		cancelLock()
@@ -511,7 +638,7 @@ func TestEnsurePackageUsesConfigEnvPrecedenceAndExplicitlyRejectsMissingRoots(t 
 		CurrentMatches: func(current *DriverInfo) (bool, error) {
 			return current != nil && current.FilePath == primary && current.Version.String() == "1.0.0", nil
 		},
-		Archive: func() (*os.File, error) {
+		Archive: func(context.Context) (*os.File, error) {
 			providerCalls++
 			return nil, errors.New("provider must not run")
 		},
@@ -529,7 +656,7 @@ func TestEnsurePackageUsesConfigEnvPrecedenceAndExplicitlyRejectsMissingRoots(t 
 	}
 }
 
-func TestEnsurePackageLocksAgainstConcurrentUninstall(t *testing.T) {
+func TestEnsurePackageArchiveProviderDoesNotBlockConcurrentUninstall(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	oldArchive := makeInstallArchive(t, "example", "1.0.0", "old.so", []byte("old library"))
@@ -548,7 +675,7 @@ func TestEnsurePackageLocksAgainstConcurrentUninstall(t *testing.T) {
 	go func() {
 		result, err := EnsurePackage(context.Background(), cfg, "example", expectedEnsurePackage("example", "2.0.0", "new", newArchive), InstallOptions{}, EnsurePackageCallbacks{
 			CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
-			Archive: func() (*os.File, error) {
+			Archive: func(context.Context) (*os.File, error) {
 				close(providerStarted)
 				<-releaseProvider
 				return archiveFile, nil
@@ -564,34 +691,17 @@ func TestEnsurePackageLocksAgainstConcurrentUninstall(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("EnsurePackage did not reach archive provider")
 	}
-	uninstallStarted := make(chan struct{})
-	uninstallDone := make(chan error, 1)
-	go func() {
-		close(uninstallStarted)
-		uninstallDone <- UninstallDriver(cfg, oldInfo)
-	}()
-	<-uninstallStarted
-	select {
-	case err := <-uninstallDone:
-		t.Fatalf("uninstall escaped EnsurePackage driver lock: %v", err)
-	case <-time.After(150 * time.Millisecond):
+	if err := UninstallDriver(cfg, oldInfo); err != nil {
+		t.Fatalf("uninstall did not complete while archive retrieval was blocked: %v", err)
 	}
 	unblockProvider()
 	select {
 	case result := <-ensureDone:
-		if result.err != nil || result.result.Installed == nil || result.result.Installed.Version.String() != "2.0.0" {
+		if result.err != nil || result.result.Current != nil || result.result.Previous != nil || result.result.Installed == nil || result.result.Installed.Version.String() != "2.0.0" {
 			t.Fatalf("EnsurePackage result=%#v error=%v", result.result, result.err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("EnsurePackage did not finish after archive provider returned")
-	}
-	select {
-	case err := <-uninstallDone:
-		if err == nil || !strings.Contains(err.Error(), "registration changed before uninstall") {
-			t.Fatalf("uninstall result = %v, want stale registration rejection", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("uninstall did not resume after EnsurePackage released its lock")
 	}
 	current, err := GetDriver(cfg, "example")
 	if err != nil || current.Version.String() != "2.0.0" {
@@ -603,70 +713,87 @@ func TestEnsurePackageLocksAgainstConcurrentUninstall(t *testing.T) {
 	_ = archiveFile.Close()
 }
 
-func TestEnsurePackageSerializesConcurrentInstall(t *testing.T) {
+func TestEnsurePackageRechecksConcurrentInstallAfterArchiveRetrieval(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	oldArchive := makeInstallArchive(t, "example", "1.0.0", "old.so", []byte("old library"))
 	installEnsureFixture(t, cfg, "1.0.0", "old", oldArchive)
 	ensuredArchive := makeInstallArchive(t, "example", "2.0.0", "ensured.so", []byte("ensured library"))
+	expected := expectedEnsurePackage("example", "2.0.0", "ensured", ensuredArchive)
 	ensuredFile := writeInstallArchive(t, ensuredArchive, "ensure-provider")
-	concurrentArchive := makeInstallArchive(t, "example", "3.0.0", "concurrent.so", []byte("concurrent library"))
-	concurrentFile := writeInstallArchive(t, concurrentArchive, "concurrent-install")
+	concurrentFile := writeInstallArchive(t, ensuredArchive, "concurrent-install")
 	providerStarted := make(chan struct{})
 	releaseProvider := make(chan struct{})
 	var releaseOnce sync.Once
 	unblockProvider := func() { releaseOnce.Do(func() { close(releaseProvider) }) }
 	defer unblockProvider()
-	ensureDone := make(chan error, 1)
+	ensureDone := make(chan struct {
+		result EnsurePackageResult
+		err    error
+	}, 1)
+	currentMatchesCalls := 0
 	go func() {
-		_, err := EnsurePackage(context.Background(), cfg, "example", expectedEnsurePackage("example", "2.0.0", "ensured", ensuredArchive), InstallOptions{}, EnsurePackageCallbacks{
-			CurrentMatches: func(*DriverInfo) (bool, error) { return false, nil },
-			Archive: func() (*os.File, error) {
+		result, err := EnsurePackage(context.Background(), cfg, "example", expected, InstallOptions{}, EnsurePackageCallbacks{
+			CurrentMatches: func(current *DriverInfo) (bool, error) {
+				currentMatchesCalls++
+				if current == nil || current.ID != "example" || current.Name != "Example Driver" || current.Version == nil || current.Version.String() != expected.Version || current.Source != "dbc" || current.Driver.Entrypoint != "AdbcDriverExampleInit" {
+					return false, nil
+				}
+				receipt, managed, present, valid, err := InspectDriverInstallReceipt(cfg, *current)
+				if err != nil {
+					return false, err
+				}
+				return managed && present && valid &&
+					receipt.DriverID == expected.ID &&
+					receipt.DriverVersion == expected.Version &&
+					receipt.SourceType == expected.SourceType &&
+					receipt.SourceIdentity == expected.SourceIdentity &&
+					receipt.Platform == expected.Platform &&
+					receipt.ArchiveHash == expected.ArchiveHash &&
+					receipt.ArchiveSize == expected.ArchiveSize &&
+					VerifyInstallReceiptLibraryIntegrity(current.Driver.Shared.Get(PlatformTuple()), receipt), nil
+			},
+			Archive: func(context.Context) (*os.File, error) {
 				close(providerStarted)
 				<-releaseProvider
 				return ensuredFile, nil
 			},
 		})
-		ensureDone <- err
+		ensureDone <- struct {
+			result EnsurePackageResult
+			err    error
+		}{result, err}
 	}()
 	select {
 	case <-providerStarted:
 	case <-time.After(5 * time.Second):
 		t.Fatal("EnsurePackage did not reach archive provider")
 	}
-	installStarted := make(chan struct{})
-	installDone := make(chan error, 1)
-	go func() {
-		close(installStarted)
-		_, err := InstallPackage(cfg, "example", concurrentFile, expectedEnsurePackage("example", "3.0.0", "concurrent", concurrentArchive), InstallOptions{})
-		installDone <- err
-	}()
-	<-installStarted
-	select {
-	case err := <-installDone:
-		t.Fatalf("concurrent install escaped EnsurePackage driver lock: %v", err)
-	case <-time.After(150 * time.Millisecond):
+	if _, err := InstallPackage(cfg, "example", concurrentFile, expected, InstallOptions{}); err != nil {
+		t.Fatalf("concurrent install did not complete while archive retrieval was blocked: %v", err)
+	}
+	concurrentRegistration, err := GetDriver(cfg, "example")
+	if err != nil {
+		t.Fatalf("could not inspect concurrent candidate install: %v", err)
 	}
 	unblockProvider()
 	select {
-	case err := <-ensureDone:
-		if err != nil {
-			t.Fatalf("EnsurePackage failed: %v", err)
+	case result := <-ensureDone:
+		if result.err != nil || !result.result.Skipped || result.result.Current == nil || result.result.Current.Version.String() != "2.0.0" || result.result.Current.Source != "dbc" || result.result.Installed == nil || result.result.Installed.Version.String() != "2.0.0" || result.result.Installed.Source != "dbc" || result.result.Manifest != nil {
+			t.Fatalf("EnsurePackage did not skip the concurrently installed healthy generation: result=%#v error=%v", result.result, result.err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("EnsurePackage did not finish after provider returned")
 	}
-	select {
-	case err := <-installDone:
-		if err != nil {
-			t.Fatalf("concurrent InstallPackage failed after lock release: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("concurrent InstallPackage did not resume after EnsurePackage released its lock")
+	if currentMatchesCalls != 2 {
+		t.Fatalf("CurrentMatches calls = %d, want phase-one and phase-two checks", currentMatchesCalls)
 	}
 	current, err := GetDriver(cfg, "example")
-	if err != nil || current.Version.String() != "3.0.0" {
-		t.Fatalf("concurrent install was not serialized after EnsurePackage: current=%#v error=%v", current, err)
+	if err != nil || current.Version.String() != "2.0.0" || current.Source != "dbc" || !sameDriverRegistration(concurrentRegistration, current) {
+		t.Fatalf("phase-two candidate registration was overwritten: current=%#v error=%v", current, err)
+	}
+	if _, err := ensuredFile.Stat(); err != nil {
+		t.Fatalf("EnsurePackage closed the caller-owned archive after phase-two skip: %v", err)
 	}
 	_ = ensuredFile.Close()
 	_ = concurrentFile.Close()

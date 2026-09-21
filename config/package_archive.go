@@ -340,24 +340,27 @@ func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 }
 
 // EnsurePackageCallbacks contains the narrow decisions and resources needed
-// to atomically reuse or install a selected package while its driver locks are
-// held. CurrentMatches receives the latest registration (nil when absent).
-// Archive is called at most once and only when the registration does not
-// match. ValidateResult runs before the locks are released; if it fails after
-// installation, the installed generation remains committed and is described
-// by the returned result. All three callbacks execute synchronously while the
-// driver's install locks are held. They must not call InstallPackage,
-// EnsurePackage, UninstallDriver, or another API that reacquires a lock for
-// the same driver, because that would deadlock.
+// to atomically reuse or install a selected package. CurrentMatches receives
+// the latest registration (nil when absent) once before and, if needed, once
+// after obtaining the archive. Archive runs at most once and outside the
+// driver's install locks. ValidateResult runs before the final lock release;
+// if it fails after installation, the installed generation remains committed
+// and is described by the returned result. CurrentMatches and ValidateResult
+// run synchronously while the driver's install locks are held. They must not
+// call InstallPackage, EnsurePackage, UninstallDriver, or another API that
+// reacquires a lock for the same driver, because that would deadlock. Archive
+// receives the operation context and should honor its cancellation.
+// CurrentMatches may be called twice and must be pure and side-effect-free.
 type EnsurePackageCallbacks struct {
 	CurrentMatches func(current *DriverInfo) (bool, error)
-	Archive        func() (*os.File, error)
+	Archive        func(context.Context) (*os.File, error)
 	ValidateResult func(result EnsurePackageResult) error
 }
 
-// EnsurePackageResult separates the registration observed before the action,
-// the registration present afterwards, any registration physically replaced
-// at the installation root, and an install manifest (nil on a skip).
+// EnsurePackageResult separates the latest registration observed by a locked
+// check (Current), the registration present afterwards or reused on a skip
+// (Installed), any registration physically replaced at the primary install
+// root (Previous), and an install manifest (nil on a skip).
 type EnsurePackageResult struct {
 	Skipped   bool
 	Current   *DriverInfo
@@ -366,23 +369,30 @@ type EnsurePackageResult struct {
 	Manifest  *Manifest
 }
 
-// EnsurePackage rechecks the effective runtime registration under all
-// configured driver install locks. It returns a skip only when CurrentMatches
-// accepts that latest registration; otherwise it obtains one caller-owned
-// archive and installs it while retaining the locks. The archive is never
-// closed here. Provider and installation work are synchronous and, once
-// started, complete before the locks are released even if ctx is canceled.
-// CurrentMatches, Archive, and ValidateResult all run synchronously while the
-// driver's install locks are held. They must not call InstallPackage,
-// EnsurePackage, UninstallDriver, or another API that reacquires a lock for
-// the same driver, because that would deadlock.
+// EnsurePackage checks the effective runtime registration under all
+// configured driver install locks. If it does not match, EnsurePackage
+// releases those locks, obtains one archive, reacquires all locks, and checks
+// the latest registration again before deciding to skip or install. This
+// prevents archive retrieval from blocking unrelated driver operations while
+// ensuring no stale registration snapshot is used for the final decision.
+// The archive is caller-owned and is never closed here, including when phase
+// two finds that it is no longer needed. CurrentMatches runs up to twice and
+// ValidateResult runs under the driver install locks. Neither callback may
+// call InstallPackage, EnsurePackage, UninstallDriver, or another API that
+// reacquires a lock for the same driver, because that would deadlock. Archive
+// runs once outside the locks and receives ctx so it can cancel its work.
+// CurrentMatches must be pure and side-effect-free because it may run once
+// before archive retrieval and again against the latest registration after.
+// Result.Current is the most recently inspected registration: it remains the
+// phase-one snapshot on provider or phase-two lock acquisition failure.
 func EnsurePackage(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks) (EnsurePackageResult, error) {
 	return ensurePackageWithLockObserver(ctx, cfg, runtimeID, expected, installOptions, callbacks, nil)
 }
 
 // ensurePackageWithLockObserver is the internal lock-acquisition seam used by
-// tests to synchronize with a partially acquired ConfigEnv lock set. The
-// observer runs synchronously while the acquired root lock remains held.
+// tests to synchronize with each phase's lock acquisition. The observer is
+// called after each successful root acquisition, synchronously while that
+// root lock remains held.
 func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID string, expected ExpectedPackageMetadata, installOptions InstallOptions, callbacks EnsurePackageCallbacks, lockObserver func(root string)) (EnsurePackageResult, error) {
 	var result EnsurePackageResult
 	if ctx == nil {
@@ -413,45 +423,22 @@ func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID st
 		return result, fmt.Errorf("could not lock driver installation: %w", err)
 	}
 	defer releaseLocks()
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-
-	current, err := loadEffectiveInstalledDriver(cfg, precedenceRoots, runtimeID)
-	if err != nil {
-		return result, fmt.Errorf("could not inspect current driver registration: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return result, err
-	}
+	current, matches, err := inspectEnsureCurrent(ctx, cfg, precedenceRoots, runtimeID, callbacks.CurrentMatches)
 	result.Current = cloneDriverInfo(current)
-	matches, err := callbacks.CurrentMatches(cloneDriverInfo(current))
 	if err != nil {
-		return result, fmt.Errorf("could not compare current driver registration: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
 		return result, err
 	}
 	if matches {
-		if current == nil {
-			return result, errors.New("current-registration predicate accepted a missing registration")
-		}
-		result.Skipped = true
-		result.Installed = cloneDriverInfo(current)
-		if callbacks.ValidateResult != nil {
-			if err := callbacks.ValidateResult(result); err != nil {
-				return result, fmt.Errorf("could not validate ensured driver registration: %w", err)
-			}
-		}
-		if err := ctx.Err(); err != nil {
-			return result, err
-		}
-		return result, nil
+		return finishEnsureSkip(ctx, result, current, callbacks.ValidateResult)
+	}
+	releaseLocks()
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
 	if callbacks.Archive == nil {
 		return result, errors.New("package archive provider is nil")
 	}
-	archive, providerErr := callbacks.Archive()
+	archive, providerErr := callbacks.Archive(ctx)
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -460,6 +447,26 @@ func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID st
 	}
 	if archive == nil {
 		return result, errors.New("package archive provider returned nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+
+	phaseTwoRelease, err := acquireDriverInstallLocksWithObserver(ctx, precedenceRoots, runtimeID, lockObserver)
+	if err != nil {
+		return result, fmt.Errorf("could not relock driver installation: %w", err)
+	}
+	defer phaseTwoRelease()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	current, matches, err = inspectEnsureCurrent(ctx, cfg, precedenceRoots, runtimeID, callbacks.CurrentMatches)
+	result.Current = cloneDriverInfo(current)
+	if err != nil {
+		return result, err
+	}
+	if matches {
+		return finishEnsureSkip(ctx, result, current, callbacks.ValidateResult)
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -484,6 +491,44 @@ func ensurePackageWithLockObserver(ctx context.Context, cfg Config, runtimeID st
 	if callbacks.ValidateResult != nil {
 		if err := callbacks.ValidateResult(result); err != nil {
 			return result, fmt.Errorf("package was installed but result validation failed: %w", err)
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func inspectEnsureCurrent(ctx context.Context, cfg Config, roots []string, runtimeID string, currentMatches func(*DriverInfo) (bool, error)) (*DriverInfo, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	current, err := loadEffectiveInstalledDriver(cfg, roots, runtimeID)
+	if err != nil {
+		return nil, false, fmt.Errorf("could not inspect current driver registration: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return current, false, err
+	}
+	matches, err := currentMatches(cloneDriverInfo(current))
+	if err != nil {
+		return current, false, fmt.Errorf("could not compare current driver registration: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return current, false, err
+	}
+	if matches && current == nil {
+		return current, false, errors.New("current-registration predicate accepted a missing registration")
+	}
+	return current, matches, nil
+}
+
+func finishEnsureSkip(ctx context.Context, result EnsurePackageResult, current *DriverInfo, validateResult func(EnsurePackageResult) error) (EnsurePackageResult, error) {
+	result.Skipped = true
+	result.Installed = cloneDriverInfo(current)
+	if validateResult != nil {
+		if err := validateResult(result); err != nil {
+			return result, fmt.Errorf("could not validate ensured driver registration: %w", err)
 		}
 	}
 	if err := ctx.Err(); err != nil {
