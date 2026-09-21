@@ -41,20 +41,26 @@ type packageExecutor struct {
 	noVerify         bool
 	downloadArtifact func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
 	downloadPkg      func(dbc.PkgInfo) (*os.File, error)
+	fetchPackslip    func(context.Context, *url.URL) (io.ReadCloser, error)
 	ensurePackage    func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error)
 }
 
 func newPackageExecutor(cfg config.Config, baseDir string, noVerify bool,
 	downloadArtifact func(context.Context, dbc.PkgInfo) (io.ReadCloser, error),
 	downloadPkg func(dbc.PkgInfo) (*os.File, error),
+	fetchPackslip func(context.Context, *url.URL) (io.ReadCloser, error),
 	ensurePackage func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error),
 ) *packageExecutor {
 	if ensurePackage == nil {
 		ensurePackage = config.EnsurePackage
 	}
+	if fetchPackslip == nil {
+		fetchPackslip = fetchPackslipArtifact
+	}
 	return &packageExecutor{
 		cfg: cfg, baseDir: baseDir, noVerify: noVerify,
 		downloadArtifact: downloadArtifact, downloadPkg: downloadPkg,
+		fetchPackslip: fetchPackslip,
 		ensurePackage: ensurePackage,
 	}
 }
@@ -72,7 +78,7 @@ func (s syncModel) newPackageExecutor() (*packageExecutor, error) {
 	if s.worker != nil {
 		ensurePackage = s.worker.hooks.ensurePackage
 	}
-	return newPackageExecutor(s.cfg, baseDir, s.NoVerify, s.downloadArtifact, s.downloadPkg, ensurePackage), nil
+	return newPackageExecutor(s.cfg, baseDir, s.NoVerify, s.downloadArtifact, s.downloadPkg, s.fetchPackslipArtifact, ensurePackage), nil
 }
 
 func validateInstallableArtifactFormat(format string) error {
@@ -199,30 +205,53 @@ func (e *packageExecutor) openResolvedArtifact(ctx context.Context, item install
 	if err != nil {
 		return nil, err
 	}
-	fetchURL := func(ctx context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
-		version, err := semver.NewVersion(item.Release.Version)
-		if err != nil {
-			return nil, fmt.Errorf("invalid resolved package version %q: %w", item.Release.Version, err)
+	if selected.Location.Kind == resolution.ArtifactLocationPath {
+		if item.Release.Source.Type != "path" {
+			return nil, fmt.Errorf("source %q cannot open a path artifact", item.Release.Source.Type)
 		}
-		pkg := dbc.PkgInfo{
-			Driver:        dbc.Driver{Path: item.Release.DriverID, Title: item.Release.DriverID},
-			Version:       version,
-			PlatformTuple: item.Platform,
-			Path:          artifactURL,
-			ArtifactHash:  selected.Hash,
-			ArtifactSize:  cloneInt64(selected.Size),
-		}
-		if e.downloadArtifact != nil {
-			return e.downloadArtifact(ctx, pkg)
-		}
-		if e.downloadPkg == nil {
-			return nil, errors.New("no artifact downloader is configured")
-		}
-		// Existing test adapters and custom models expose the legacy file-based
-		// hook. Production sync uses downloadArtifact, which calls Client.Download.
-		return e.downloadPkg(pkg)
+		return sourceresolution.OpenArtifact(ctx, nil, selected.Location, e.baseDir)
 	}
-	return sourceresolution.OpenArtifact(ctx, fetchURL, selected.Location, e.baseDir)
+	if selected.Location.Kind != resolution.ArtifactLocationURL {
+		return nil, fmt.Errorf("unsupported artifact location kind %q", selected.Location.Kind)
+	}
+	switch item.Release.Source.Type {
+	case "packslip":
+		if e.fetchPackslip == nil {
+			return nil, errors.New("no credential-free Packslip artifact fetcher is configured")
+		}
+		return sourceresolution.OpenArtifact(ctx, e.fetchPackslip, selected.Location, e.baseDir)
+	case "registry":
+		fetch := func(ctx context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
+			return e.openRegistryArtifact(ctx, item, selected, artifactURL)
+		}
+		return sourceresolution.OpenArtifact(ctx, fetch, selected.Location, e.baseDir)
+	default:
+		return nil, fmt.Errorf("source %q cannot open a URL artifact", item.Release.Source.Type)
+	}
+}
+
+func (e *packageExecutor) openRegistryArtifact(ctx context.Context, item installItem, selected *resolution.Artifact, artifactURL *url.URL) (io.ReadCloser, error) {
+	version, err := semver.NewVersion(item.Release.Version)
+	if err != nil {
+		return nil, fmt.Errorf("invalid resolved package version %q: %w", item.Release.Version, err)
+	}
+	pkg := dbc.PkgInfo{
+		Driver:        dbc.Driver{Path: item.Release.DriverID, Title: item.Release.DriverID},
+		Version:       version,
+		PlatformTuple: item.Platform,
+		Path:          artifactURL,
+		ArtifactHash:  selected.Hash,
+		ArtifactSize:  cloneInt64(selected.Size),
+	}
+	if e.downloadArtifact != nil {
+		return e.downloadArtifact(ctx, pkg)
+	}
+	if e.downloadPkg == nil {
+		return nil, errors.New("no artifact downloader is configured")
+	}
+	// Existing test adapters and custom models expose the legacy file-based
+	// hook. Production sync uses downloadArtifact, which calls Client.Download.
+	return e.downloadPkg(pkg)
 }
 
 func (e *packageExecutor) prepareItem(ctx context.Context, item *installItem) error {

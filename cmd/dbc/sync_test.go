@@ -141,7 +141,7 @@ func TestPackageExecutorEnsureHookDoesNotRequireSyncWorker(t *testing.T) {
 	}, config.PlatformTuple(), nil)
 	wantErr := errors.New("ensure hook invoked")
 	calls := 0
-	executor := newPackageExecutor(config.Config{}, t.TempDir(), true, nil, nil,
+	executor := newPackageExecutor(config.Config{}, t.TempDir(), true, nil, nil, nil,
 		func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
 			calls++
 			return config.EnsurePackageResult{}, wantErr
@@ -210,8 +210,8 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	model := syncModel{
 		baseModel: baseModel{
 			newPackslipResolver: func() (packslip.Resolver, error) { return resolver, nil },
-			downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
-				require.Equal(t, location, pkg.Path.String())
+			fetchPackslipArtifact: func(_ context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
+				require.Equal(t, location, artifactURL.String())
 				return os.Open(archivePath)
 			},
 		},
@@ -254,11 +254,9 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 				resolverConstructions++
 				return nil, errors.New("replay must not construct a resolver")
 			},
-			downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+			fetchPackslipArtifact: func(_ context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
 				downloadCalls++
-				assert.Equal(t, location, pkg.Path.String())
-				assert.Equal(t, archiveHash, pkg.ArtifactHash)
-				assert.Equal(t, archiveSize, *pkg.ArtifactSize)
+				assert.Equal(t, location, artifactURL.String())
 				return os.Open(archivePath)
 			},
 		},
@@ -272,6 +270,10 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	require.Len(t, replayItems, 1)
 	assert.Zero(t, resolverConstructions)
 	assert.Zero(t, registryCalls)
+	replayedArtifact, err := replayItems[0].selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, archiveHash, replayedArtifact.Hash)
+	assert.Equal(t, archiveSize, *replayedArtifact.Size)
 	replayed, err := replay.prepareInstallItems(context.Background(), replayItems)
 	require.NoError(t, err)
 	defer closePreparedArchives(replayed.items)
@@ -2449,8 +2451,8 @@ func (suite *SubcommandTestSuite) TestSyncPackslipInstallFailureConvergesFromCan
 			resolverCreations++
 			return resolver, nil
 		},
-		downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
-			suite.Equal(location, pkg.Path.String())
+		fetchPackslipArtifact: func(_ context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
+			suite.Equal(location, artifactURL.String())
 			return os.Open(archivePath)
 		},
 	}).(syncModel)
@@ -2479,11 +2481,9 @@ func (suite *SubcommandTestSuite) TestSyncPackslipInstallFailureConvergesFromCan
 			replayResolverCreations++
 			return nil, errors.New("candidate lock replay must not create a resolver")
 		},
-		downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+		fetchPackslipArtifact: func(_ context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
 			replayDownloads++
-			suite.Equal(location, pkg.Path.String())
-			suite.Equal(archiveHash, pkg.ArtifactHash)
-			suite.Equal(archiveSize, *pkg.ArtifactSize)
+			suite.Equal(location, artifactURL.String())
 			return os.Open(archivePath)
 		},
 	})

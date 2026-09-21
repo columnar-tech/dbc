@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -225,10 +226,11 @@ func getConfig(c config.ConfigLevel) config.Config {
 }
 
 type baseModel struct {
-	getDriverRegistry   func() ([]dbc.Driver, error)
-	downloadPkg         func(p dbc.PkgInfo) (*os.File, error)
-	downloadArtifact    func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
-	newPackslipResolver func() (packslip.Resolver, error)
+	getDriverRegistry     func() ([]dbc.Driver, error)
+	downloadPkg           func(p dbc.PkgInfo) (*os.File, error)
+	downloadArtifact      func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
+	fetchPackslipArtifact func(context.Context, *url.URL) (io.ReadCloser, error)
+	newPackslipResolver   func() (packslip.Resolver, error)
 
 	status int
 	err    error

@@ -60,9 +60,10 @@ func wrapWithRegistryContext(err, registryErr error) error {
 
 func defaultBaseModel() baseModel {
 	return baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
-		downloadArtifact:  downloadPackage,
+		getDriverRegistry:     getDriverRegistry,
+		downloadPkg:           downloadPkg,
+		downloadArtifact:      downloadPackage,
+		fetchPackslipArtifact: fetchPackslipArtifact,
 		newPackslipResolver: func() (packslip.Resolver, error) {
 			return packslip.NewResolver(packslip.Config{})
 		},
