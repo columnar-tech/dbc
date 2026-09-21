@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
@@ -160,6 +162,12 @@ func (m addModel) Init() tea.Cmd {
 		f.Close()
 		readLock.Release()
 
+		for _, spec := range specs {
+			if existing, ok := m.list.Drivers[spec.Name]; ok && existing.Source != nil && existing.Source.Type != dbc.DriverSourceRegistry {
+				return fmt.Errorf("cannot update driver %q with %s source using `dbc add` yet", spec.Name, existing.Source.Type)
+			}
+		}
+
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
 		}
@@ -287,12 +295,21 @@ func (m addModel) Init() tea.Cmd {
 		}
 		for _, spec := range specs {
 			updated := m.list.Drivers[spec.Name]
-			if latest, ok := current.Drivers[spec.Name]; ok {
+			latest := current.Drivers[spec.Name]
+			initial := m.list.Drivers[spec.Name]
+			if !reflect.DeepEqual(initial.Source, latest.Source) {
+				return fmt.Errorf("driver %q source changed while resolving drivers; please retry `dbc add`", spec.Name)
+			}
+			if latest.Source != nil {
 				// `add` only changes the version selection. Preserve the source
-				// from the locked re-read in case it changed during registry lookup.
+				// value from the locked re-read after checking it still matches
+				// the source against which the version was validated.
 				updated.Source = latest.Source
 			}
 			current.Drivers[spec.Name] = updated
+		}
+		if err := current.validateSources(); err != nil {
+			return fmt.Errorf("updated driver list is invalid: %w", err)
 		}
 
 		wf, err := os.Create(p)

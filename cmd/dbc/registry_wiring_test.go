@@ -739,6 +739,53 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
 }
 
+func TestAddAbortsWhenTargetSourceChangesDuringRegistryLookup(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "dbc.toml")
+	initialContent := "[drivers.test-driver-1]\nversion = '>=1.0.0'\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(initialContent), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1>=1.1.0"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+	concurrentContent := "[drivers.test-driver-1]\n" +
+		"version = '>=1.0.0'\n" +
+		"[drivers.test-driver-1.source]\n" +
+		"type = 'registry'\n" +
+		"url = 'https://registry.example.test/custom'\n" +
+		"\n[drivers.test-driver-2]\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
+
+	close(unblock)
+	msgOut := <-done
+	err, ok := msgOut.(error)
+	require.True(t, ok, "add must reject source drift for the entry it resolved")
+	assert.ErrorContains(t, err, "driver \"test-driver-1\" source changed while resolving drivers")
+
+	data, readErr := os.ReadFile(tomlPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, concurrentContent, string(data), "source drift must leave concurrent contents unchanged")
+}
+
 func TestAddAbortsOnConcurrentInvalidDriverSource(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 
@@ -772,7 +819,7 @@ func TestAddAbortsOnConcurrentInvalidDriverSource(t *testing.T) {
 		"[drivers.invalid.source]\n" +
 		"type = 'path'\n" +
 		"path = '../packages/driver.tar.gz'\n" +
-		"project = 'owner/project'\n"
+		"project = 'github.com/owner/project'\n"
 	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
 
 	close(unblock)

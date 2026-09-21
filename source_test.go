@@ -29,14 +29,21 @@ func TestDriverSourceValidation(t *testing.T) {
 		wantErr string
 	}{
 		{name: "registry", source: DriverSource{Type: DriverSourceRegistry, URL: "https://registry.example.test"}},
-		{name: "packslip", source: DriverSource{Type: DriverSourcePackslip, Project: "owner/project"}},
+		{name: "packslip", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/project"}},
+		{name: "packslip monorepo tool", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/project/tools/driver"}},
 		{name: "path", source: DriverSource{Type: DriverSourcePath, Path: "../packages/driver.tar.gz"}},
 		{name: "empty type", wantErr: "driver source has no type"},
 		{name: "unknown type", source: DriverSource{Type: "other", URL: "https://example.test"}, wantErr: `unsupported driver source type "other"`},
 		{name: "registry missing url", source: DriverSource{Type: DriverSourceRegistry}, wantErr: "registry source has no URL"},
 		{name: "registry with project", source: DriverSource{Type: DriverSourceRegistry, URL: "https://registry.example.test", Project: "owner/project"}, wantErr: "registry source contains fields for another source type"},
 		{name: "packslip missing project", source: DriverSource{Type: DriverSourcePackslip}, wantErr: "packslip source has no project"},
-		{name: "packslip with url", source: DriverSource{Type: DriverSourcePackslip, Project: "owner/project", URL: "https://registry.example.test"}, wantErr: "packslip source contains fields for another source type"},
+		{name: "packslip with url", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/project", URL: "https://registry.example.test"}, wantErr: "packslip source contains fields for another source type"},
+		{name: "packslip shorthand project", source: DriverSource{Type: DriverSourcePackslip, Project: "owner/project"}, wantErr: "github.com/owner/repo"},
+		{name: "packslip URL project", source: DriverSource{Type: DriverSourcePackslip, Project: "https://github.com/owner/project"}, wantErr: "without a URL scheme"},
+		{name: "packslip trailing slash", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/project/"}, wantErr: "without a URL scheme"},
+		{name: "packslip empty segment", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner//project"}, wantErr: "invalid path segment"},
+		{name: "packslip dot segment", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/../project"}, wantErr: "invalid path segment"},
+		{name: "packslip invalid character", source: DriverSource{Type: DriverSourcePackslip, Project: "github.com/owner/pro ject"}, wantErr: "invalid path segment"},
 		{name: "path missing path", source: DriverSource{Type: DriverSourcePath}, wantErr: "path source has no path"},
 		{name: "path with url", source: DriverSource{Type: DriverSourcePath, Path: "package.tar.gz", URL: "https://registry.example.test"}, wantErr: "path source contains fields for another source type"},
 	}
@@ -56,7 +63,7 @@ func TestDriverSourceValidation(t *testing.T) {
 func TestDriverSourceJSONRoundTrip(t *testing.T) {
 	sources := []DriverSource{
 		{Type: DriverSourceRegistry, URL: "https://registry.example.test"},
-		{Type: DriverSourcePackslip, Project: "owner/project"},
+		{Type: DriverSourcePackslip, Project: "github.com/owner/project"},
 		{Type: DriverSourcePath, Path: "../packages/driver.tar.gz"},
 	}
 	for _, source := range sources {

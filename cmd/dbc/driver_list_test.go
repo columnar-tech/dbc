@@ -94,8 +94,8 @@ func TestDriverSourceProjectConfigRoundTrip(t *testing.T) {
 		},
 		{
 			name: "packslip project",
-			toml: "[drivers.example]\nversion = '1.2.3'\n[drivers.example.source]\ntype = 'packslip'\nproject = 'owner/project'\n",
-			want: dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "owner/project"},
+			toml: "[drivers.example]\nversion = '1.2.3'\n[drivers.example.source]\ntype = 'packslip'\nproject = 'github.com/owner/project'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/owner/project"},
 		},
 		{
 			name: "relative path",
@@ -132,7 +132,7 @@ func TestDriverSourceProjectConfigValidation(t *testing.T) {
 		{name: "legacy entry has no source", contents: "[drivers]\nexample = {version = '>=1.0.0'}"},
 		{name: "missing source type", contents: "[drivers.example.source]\nurl = 'https://registry.example.test'", wantErr: "driver source has no type"},
 		{name: "unknown source type", contents: "[drivers.example.source]\ntype = 'git'\nurl = 'https://example.test'", wantErr: `unsupported driver source type "git"`},
-		{name: "mutually exclusive fields", contents: "[drivers.example.source]\ntype = 'path'\npath = '../package.tar.gz'\nproject = 'owner/project'", wantErr: "path source contains fields for another source type"},
+		{name: "mutually exclusive fields", contents: "[drivers.example.source]\ntype = 'path'\npath = '../package.tar.gz'\nproject = 'github.com/owner/project'", wantErr: "path source contains fields for another source type"},
 	}
 
 	for _, tt := range tests {
@@ -177,7 +177,7 @@ func TestPackslipSourceRequiresExactStrictSemVer(t *testing.T) {
 			if tt.version != "" {
 				contents += "version = '" + tt.version + "'\n"
 			}
-			contents += "[drivers.example.source]\ntype = 'packslip'\nproject = 'owner/project'\n"
+			contents += "[drivers.example.source]\ntype = 'packslip'\nproject = 'github.com/owner/project'\n"
 
 			var list DriversList
 			err := toml.Unmarshal([]byte(contents), &list)

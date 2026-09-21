@@ -208,6 +208,32 @@ func TestAddUpdatingDriverPreservesSource(t *testing.T) {
 	assert.Equal(t, "allow", got.Prerelease)
 }
 
+func TestAddRejectsPackslipVersionUpdateWithoutMutatingProject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dbc.toml")
+	initial := "[drivers.test-driver-1]\n" +
+		"version = '1.2.3'\n" +
+		"[drivers.test-driver-1.source]\n" +
+		"type = 'packslip'\n" +
+		"project = 'github.com/example/test-driver'\n"
+	require.NoError(t, os.WriteFile(path, []byte(initial), 0o644))
+
+	msg := runTeaCmdToCompletion(t, AddCmd{
+		Path:   path,
+		Driver: []string{"test-driver-1>=1.0.0"},
+	}.GetModelCustom(testBaseModel()).(interface {
+		Init() tea.Cmd
+		Update(tea.Msg) (tea.Model, tea.Cmd)
+	}))
+	err, ok := msg.(error)
+	require.True(t, ok, "registry-centric add must reject an existing Packslip source")
+	assert.ErrorContains(t, err, "cannot update driver \"test-driver-1\" with packslip source")
+
+	data, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, initial, string(data), "rejected add must leave dbc.toml byte-for-byte unchanged")
+}
+
 func TestAddMultiple(t *testing.T) {
 	// Test what happens when we `add` without a constraint and then add with a
 	// constraint. This specifically tests the bubbletea output

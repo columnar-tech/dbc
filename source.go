@@ -17,6 +17,7 @@ package dbc
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // DriverSourceType identifies the source declared for a driver in dbc.toml.
@@ -39,7 +40,8 @@ type DriverSource struct {
 }
 
 // Validate checks that the source's type and source-specific field agree.
-// URL, project identity, and path resolution are validated by their adapters.
+// Registry URL and path resolution remain the responsibility of their
+// adapters; Packslip projects use the currently supported GitHub host path.
 func (s DriverSource) Validate() error {
 	switch s.Type {
 	case DriverSourceRegistry:
@@ -52,6 +54,9 @@ func (s DriverSource) Validate() error {
 	case DriverSourcePackslip:
 		if s.Project == "" {
 			return errors.New("packslip source has no project")
+		}
+		if err := validatePackslipProject(s.Project); err != nil {
+			return err
 		}
 		if s.URL != "" || s.Path != "" {
 			return errors.New("packslip source contains fields for another source type")
@@ -68,6 +73,27 @@ func (s DriverSource) Validate() error {
 			return errors.New("driver source has no type")
 		}
 		return fmt.Errorf("unsupported driver source type %q", s.Type)
+	}
+	return nil
+}
+
+func validatePackslipProject(project string) error {
+	if project != strings.TrimSpace(project) || strings.Contains(project, "://") || strings.HasSuffix(project, "/") {
+		return fmt.Errorf("packslip project must be a GitHub host path without a URL scheme: %q", project)
+	}
+	parts := strings.Split(project, "/")
+	if len(parts) < 3 || !strings.EqualFold(parts[0], "github.com") {
+		return fmt.Errorf("packslip project must use github.com/owner/repo[/tool...]: %q", project)
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("packslip project contains an invalid path segment: %q", project)
+		}
+		for _, ch := range part {
+			if !(ch >= 'a' && ch <= 'z' || ch >= 'A' && ch <= 'Z' || ch >= '0' && ch <= '9' || strings.ContainsRune("._-", ch)) {
+				return fmt.Errorf("packslip project contains an invalid path segment: %q", project)
+			}
+		}
 	}
 	return nil
 }

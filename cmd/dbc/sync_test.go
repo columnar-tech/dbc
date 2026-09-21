@@ -64,6 +64,37 @@ func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testi
 	assert.Empty(t, items[0].HostRequirements)
 }
 
+func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
+	requested, err := semver.NewConstraint("1.2.3+foo")
+	require.NoError(t, err)
+	entry := lockInfo{Version: semver.MustParse("1.2.3+bar")}
+	packslipSpec := driverSpec{
+		Version: requested,
+		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"},
+	}
+	assert.False(t, lockVersionSatisfiesSpec(entry, packslipSpec), "Packslip lock reuse must compare the complete exact version string")
+	entry.Version = semver.MustParse("1.2.3+foo")
+	assert.True(t, lockVersionSatisfiesSpec(entry, packslipSpec))
+
+	registryConstraint, err := semver.NewConstraint(">=1.2.3")
+	require.NoError(t, err)
+	registryEntry := lockInfo{Version: semver.MustParse("1.2.3+bar")}
+	assert.True(t, lockVersionSatisfiesSpec(registryEntry, driverSpec{Version: registryConstraint}),
+		"registry constraints retain existing SemVer precedence behavior")
+}
+
+func TestPackageVersionIdentityDependsOnSource(t *testing.T) {
+	locked := semver.MustParse("1.2.3+foo")
+	resolvedSame := semver.MustParse("1.2.3+foo")
+	resolvedDifferent := semver.MustParse("1.2.3+bar")
+
+	assert.True(t, packageVersionsMatch("packslip", locked, resolvedSame))
+	assert.False(t, packageVersionsMatch("packslip", locked, resolvedDifferent),
+		"Packslip artifact identity includes build metadata")
+	assert.True(t, packageVersionsMatch("registry", locked, resolvedDifferent),
+		"registry keeps the existing SemVer equality semantics")
+}
+
 func TestAcquireSyncProjectLockDeadlineIsContentionButCancelIsNot(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), ".dbc.project.lock")
 	held, err := fslock.Acquire(lockPath, time.Second)

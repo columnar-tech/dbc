@@ -33,6 +33,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
@@ -476,6 +477,9 @@ func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 		return false
 	}
 	if spec.Version != nil {
+		if spec.Source != nil && spec.Source.Type == dbc.DriverSourcePackslip {
+			return entry.Version.String() == spec.Version.String()
+		}
 		// An explicit constraint can name a prerelease directly. Let semver's
 		// constraint evaluation decide whether that locked version is allowed.
 		return spec.Version.Check(entry.Version)
@@ -627,7 +631,7 @@ func (s syncModel) persistCandidateLock(lock LockFile) error {
 
 func canReuseLockedEntry(item installItem) bool {
 	if item.LockEntry == nil || item.LockEntry.Version == nil || item.Package.Version == nil ||
-		!item.LockEntry.Version.Equal(item.Package.Version) {
+		!packageVersionsMatch(item.LockEntry.Source.Type, item.LockEntry.Version, item.Package.Version) {
 		return false
 	}
 	source, err := packageLockSource(item)
@@ -648,6 +652,16 @@ func canReuseLockedEntry(item installItem) bool {
 	}
 	return item.Package.Path.String() == lockedURL.String() &&
 		item.Package.ArtifactHash == artifact.Hash && *item.Package.ArtifactSize == *artifact.Size
+}
+
+func packageVersionsMatch(sourceType string, locked, resolved *semver.Version) bool {
+	if locked == nil || resolved == nil {
+		return false
+	}
+	if sourceType == string(dbc.DriverSourcePackslip) {
+		return locked.String() == resolved.String()
+	}
+	return locked.Equal(resolved)
 }
 
 func packageLockSource(item installItem) (lockSource, error) {
@@ -1303,7 +1317,8 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 	if err != nil {
 		return lockInfo{}, err
 	}
-	if item.LockEntry == nil || item.LockEntry.Version == nil || !item.LockEntry.Version.Equal(item.Package.Version) {
+	if item.LockEntry == nil || item.LockEntry.Version == nil ||
+		!packageVersionsMatch(candidate.Source.Type, item.LockEntry.Version, item.Package.Version) {
 		return candidate, nil
 	}
 	if item.LockEntry.Version == nil {
