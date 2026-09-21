@@ -375,6 +375,102 @@ func TestPathArchiveMutationAfterResolutionFailsBeforeCandidateLock(t *testing.T
 	assert.NoFileExists(t, model.LockFilePath)
 }
 
+func TestPathMetadataDerivedRefreshAdoptsArchiveVersionWithoutOldSnapshotProof(t *testing.T) {
+	dir := t.TempDir()
+	const declaredPath = "./packages/driver.tar.gz"
+	archivePath := filepath.Join(dir, "packages", "driver.tar.gz")
+	require.NoError(t, os.MkdirAll(filepath.Dir(archivePath), 0o700))
+	_, newHash := makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	stat, err := os.Stat(archivePath)
+	require.NoError(t, err)
+	oldEntry := partialPathLockForSync(t, declaredPath, "1.1.0", "sha256:"+strings.Repeat("b", 64), 17)
+	lockPath := filepath.Join(dir, "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{oldEntry}}))
+	oldLockBytes, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	source := dbc.DriverSource{Type: dbc.DriverSourcePath, Path: declaredPath}
+	model := syncModel{Path: filepath.Join(dir, "dbc.toml"), LockFilePath: lockPath, NoVerify: true}
+	planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {Source: &source},
+	}})
+	require.NoError(t, err)
+	assert.False(t, needsRegistry)
+	require.Len(t, planned, 1)
+	assert.Equal(t, sourceresolution.PlanRefreshRequired, planned[0].Plan.Outcome())
+	items, err := model.createInstallListContext(context.Background(), planned)
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "1.2.3", items[0].Release.Version, "metadata-derived refresh follows the current archive")
+	assert.Nil(t, items[0].LockEntry, "old-version snapshot evidence must not reach a different-version candidate")
+
+	prepared, err := model.prepareInstallItems(context.Background(), items)
+	require.NoError(t, err)
+	defer closePreparedArchives(prepared.items)
+	require.Len(t, prepared.lock.Drivers, 1)
+	candidate := prepared.lock.Drivers[0]
+	assert.Equal(t, "1.2.3", candidate.Version.String())
+	assert.Empty(t, candidate.Evidence, "old release evidence must not be merged")
+	assert.Nil(t, candidate.Legacy, "old legacy proof must not be merged")
+	require.Len(t, candidate.Artifacts, 1, "old target artifacts must not be carried into the changed release")
+	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath}, candidate.Artifacts[0].Location)
+	assert.Equal(t, newHash, candidate.Artifacts[0].Hash)
+	assert.Equal(t, stat.Size(), *candidate.Artifacts[0].Size)
+	assert.NotEqual(t, oldEntry.Artifacts[0].Hash, candidate.Artifacts[0].Hash)
+	lockAfterPrepare, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, oldLockBytes, lockAfterPrepare, "prepare does not persist the candidate over the existing lock")
+}
+
+func TestPathExactRefreshStillRejectsChangedArchiveVersion(t *testing.T) {
+	dir := t.TempDir()
+	const declaredPath = "./packages/driver.tar.gz"
+	archivePath := filepath.Join(dir, "packages", "driver.tar.gz")
+	require.NoError(t, os.MkdirAll(filepath.Dir(archivePath), 0o700))
+	makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	oldEntry := partialPathLockForSync(t, declaredPath, "1.1.0", "sha256:"+strings.Repeat("b", 64), 17)
+	lockPath := filepath.Join(dir, "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{oldEntry}}))
+	oldLockBytes, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	version, err := semver.NewConstraint("1.1.0")
+	require.NoError(t, err)
+	source := dbc.DriverSource{Type: dbc.DriverSourcePath, Path: declaredPath}
+	model := syncModel{Path: filepath.Join(dir, "dbc.toml"), LockFilePath: lockPath}
+	planned, _, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+		"test-driver-1": {Version: version, Source: &source},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, sourceresolution.PlanRefreshRequired, planned[0].Plan.Outcome())
+	_, err = model.createInstallListContext(context.Background(), planned)
+	require.ErrorContains(t, err, "does not match requested version")
+	afterFailure, err := os.ReadFile(lockPath)
+	require.NoError(t, err)
+	assert.Equal(t, oldLockBytes, afterFailure, "exact-version rejection leaves the existing lock untouched")
+}
+
+func partialPathLockForSync(t *testing.T, declaredPath, version, hash string, size int64) lockInfo {
+	t.Helper()
+	release := resolution.ResolvedRelease{
+		DriverID: "test-driver-1",
+		Version:  version,
+		Source:   resolution.SourceSpec{Type: "path", Reference: declaredPath},
+		Evidence: []resolution.Evidence{{
+			Kind:     resolution.EvidenceKindReleaseMetadata,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/old-release.json"},
+			Hash:     "sha256:" + strings.Repeat("d", 64),
+		}},
+		Artifacts: []resolution.Artifact{{
+			Target: resolution.Target{OS: "plan9", Arch: "amd64"}, Format: "tar.gz", PackageVersion: 2,
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath},
+			Hash:     hash, Size: &size,
+		}},
+	}
+	entry, err := lockInfoFromResolvedRelease(release.DriverID, release)
+	require.NoError(t, err)
+	entry.Legacy = &legacyLibraryProof{Platform: config.PlatformTuple(), LibraryHash: strings.Repeat("c", 64)}
+	return entry
+}
+
 func TestSourceVersionOrIdentityMismatchDiscardsOldLockProof(t *testing.T) {
 	entry := testResolvedRelease()
 	entry.DriverID = "test-driver-1"

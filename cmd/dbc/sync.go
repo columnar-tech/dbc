@@ -622,12 +622,16 @@ func (s syncModel) resolvePathPlan(ctx context.Context, planned plannedSyncItem)
 		version = exact
 	}
 	var priorLock *lockInfo
+	var priorVersion string
 	if planned.Plan.Outcome() == sourceresolution.PlanRefreshRequired {
 		release, ok := planned.Plan.Release()
 		if !ok {
 			return installItem{}, fmt.Errorf("path refresh plan for %q has no prior release", planned.Name)
 		}
-		version = release.Version
+		priorVersion = release.Version
+		if planned.Requirement.Version().Mode() != sourceresolution.PathMetadataDerived {
+			version = release.Version
+		}
 		priorLock = planned.LockEntry
 	}
 	baseDir, err := s.projectBaseDir()
@@ -644,6 +648,12 @@ func (s syncModel) resolvePathPlan(ctx context.Context, planned plannedSyncItem)
 	})
 	if err != nil {
 		return installItem{}, err
+	}
+	if priorLock != nil && priorVersion != "" && release.Version != priorVersion {
+		// An omitted path version follows the current archive metadata. Once it
+		// changes, the prior snapshot (including artifacts, evidence, and any
+		// legacy proof) no longer describes the candidate release.
+		priorLock = nil
 	}
 	return installItemFromResolverResult(planned.Requirement, release, priorLock)
 }
