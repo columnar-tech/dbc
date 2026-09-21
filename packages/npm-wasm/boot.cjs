@@ -42,6 +42,27 @@ function goPathToWindowsFS(value) {
   return `${match[1]}/${match[2] || ""}`;
 }
 
+function goPathToPublicWindowsPath(value, platform) {
+  if (platform !== "win32" || typeof value !== "string") return value;
+  const decoded = goPathToWindowsFS(value);
+  return decoded === value ? value : path.win32.normalize(decoded);
+}
+
+function restoreManifestPath(manifest, platform = process.platform) {
+  if (!manifest || typeof manifest !== "object" || typeof manifest.driverPath !== "string") return manifest;
+  const driverPath = goPathToPublicWindowsPath(manifest.driverPath, platform);
+  return driverPath === manifest.driverPath ? manifest : { ...manifest, driverPath };
+}
+
+function restoreInstalledPaths(drivers, platform = process.platform) {
+  if (platform !== "win32" || !Array.isArray(drivers)) return drivers;
+  return drivers.map((driver) => {
+    if (!driver || typeof driver !== "object" || typeof driver.filePath !== "string") return driver;
+    const filePath = goPathToPublicWindowsPath(driver.filePath, platform);
+    return filePath === driver.filePath ? driver : { ...driver, filePath };
+  });
+}
+
 function windowsPathToGo(value) {
   if (typeof value !== "string") return value;
   const forwardSlashes = value.replace(/\\/g, "/");
@@ -156,4 +177,7 @@ module.exports = bootRuntime;
 module.exports.curateGoEnv = curateGoEnv;
 module.exports.createGoFSAdapter = createGoFSAdapter;
 module.exports.goPathToWindowsFS = goPathToWindowsFS;
+module.exports.goPathToPublicWindowsPath = goPathToPublicWindowsPath;
+module.exports.restoreManifestPath = restoreManifestPath;
+module.exports.restoreInstalledPaths = restoreInstalledPaths;
 module.exports.windowsPathToGo = windowsPathToGo;

@@ -21,6 +21,9 @@ const {
   createGoFSAdapter,
   curateGoEnv,
   goPathToWindowsFS,
+  goPathToPublicWindowsPath,
+  restoreInstalledPaths,
+  restoreManifestPath,
   windowsPathToGo,
 } = require("../boot.cjs");
 
@@ -149,6 +152,44 @@ assert.strictEqual(windowsPathToGo("D:\\a\\dbc"), "/D:/a/dbc", "encode D drive p
 assert.strictEqual(windowsPathToGo("..\\drivers"), "../drivers", "preserve relative target");
 assert.strictEqual(windowsPathToGo("/tmp/drivers"), "/tmp/drivers", "preserve POSIX target");
 assert.strictEqual(windowsPathToGo("\\\\server\\share\\driver"), "\\\\server\\share\\driver", "preserve unsupported UNC target spelling");
+
+// Public install/list responses convert only Go-encoded Windows filesystem
+// paths. Other manifest fields and relative/POSIX paths retain their values.
+{
+  const manifest = {
+    id: "test-driver-1",
+    version: "1.1.0",
+    source: "registry",
+    driverPath: "/D:/repo/.dbc-package-test-driver-1/lib/test.so",
+  };
+  assert.deepStrictEqual(restoreManifestPath(manifest, "win32"), {
+    ...manifest,
+    driverPath: "D:\\repo\\.dbc-package-test-driver-1\\lib\\test.so",
+  });
+  assert.strictEqual(restoreManifestPath(manifest, "linux"), manifest, "POSIX manifest is unchanged");
+  assert.strictEqual(
+    goPathToPublicWindowsPath("relative/path", "win32"),
+    "relative/path",
+    "relative path is unchanged"
+  );
+  assert.strictEqual(
+    goPathToPublicWindowsPath("/tmp/driver.so", "win32"),
+    "/tmp/driver.so",
+    "POSIX path is unchanged"
+  );
+
+  const installed = [
+    { id: "windows", filePath: "/C:/drivers/windows.so", version: "1.0.0" },
+    { id: "posix", filePath: "/tmp/drivers/posix.so", version: "1.0.0" },
+    { id: "relative", filePath: "drivers/relative.so", version: "1.0.0" },
+  ];
+  assert.deepStrictEqual(restoreInstalledPaths(installed, "win32"), [
+    { ...installed[0], filePath: "C:\\drivers\\windows.so" },
+    installed[1],
+    installed[2],
+  ]);
+  assert.strictEqual(restoreInstalledPaths(installed, "linux"), installed, "POSIX list is unchanged");
+}
 
 // The adapter converts only filesystem path arguments. File descriptors, data,
 // options, and ordinary callbacks keep their original values.
