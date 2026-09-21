@@ -129,6 +129,28 @@ func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
 	}
 }
 
+func TestPackageExecutorEnsureHookDoesNotRequireSyncWorker(t *testing.T) {
+	item := mustTestInstallItem(t, resolution.ResolvedRelease{
+		DriverID: "example",
+		Version:  "1.2.3",
+		Source:   resolution.SourceSpec{Type: "path", Reference: "./example.tgz"},
+		Artifacts: []resolution.Artifact{{
+			Target: testTarget(config.PlatformTuple()), Format: "tgz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./example.tgz"},
+		}},
+	}, config.PlatformTuple(), nil)
+	wantErr := errors.New("ensure hook invoked")
+	calls := 0
+	executor := newPackageExecutor(config.Config{}, t.TempDir(), true, nil, nil,
+		func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+			calls++
+			return config.EnsurePackageResult{}, wantErr
+		})
+	_, err := executor.ensurePreparedPackage(context.Background(), &item)
+	require.ErrorIs(t, err, wantErr)
+	assert.Equal(t, 1, calls)
+}
+
 func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testing.T) {
 	drivers, err := getTestDriverRegistry()
 	require.NoError(t, err)
