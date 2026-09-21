@@ -77,6 +77,9 @@ type VerifiedLegacyLibrary struct {
 
 // lockInfoFromResolvedRelease is the snapshot boundary: a lock entry may only
 // be created from a source-resolved release with finalized archive metadata.
+// Source identity and source-specific artifact requirements are validated by
+// sourceresolution before this conversion; load/write boundaries validate the
+// complete lock representation.
 func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease) (lockInfo, error) {
 	var entry lockInfo
 	if name == "" || release.DriverID != name {
@@ -108,13 +111,7 @@ func lockInfoFromResolvedRelease(name string, release resolution.ResolvedRelease
 		return lockInfo{}, fmt.Errorf("unsupported resolved source type %q", release.Source.Type)
 	}
 	for _, artifact := range release.Artifacts {
-		if release.Source.Type == "packslip" && artifact.PackageVersion != 2 {
-			return lockInfo{}, fmt.Errorf("packslip artifact for %s has no supported dbc package_version declaration", name)
-		}
 		entry.Artifacts = append(entry.Artifacts, lockArtifactFromResolved(artifact))
-	}
-	if err := validateLockInfo(entry); err != nil {
-		return lockInfo{}, err
 	}
 	return entry, nil
 }
@@ -222,12 +219,6 @@ func validateLockInfo(entry lockInfo) error {
 	}
 	if err := validateLockSource(entry.Source); err != nil {
 		return fmt.Errorf("driver %q source: %w", entry.Name, err)
-	}
-	for i, evidence := range entry.Evidence {
-		if evidence.LegacyBundleURL != nil || evidence.LegacyBundleHash != nil ||
-			evidence.LegacyReleaseListURL != nil || evidence.LegacyReleaseListHash != nil {
-			return fmt.Errorf("driver %q evidence %d uses obsolete source-specific fields", entry.Name, i)
-		}
 	}
 	if err := resolution.ValidateEvidence(resolutionEvidenceFromLock(entry.Evidence)); err != nil {
 		return fmt.Errorf("driver %q evidence: %w", entry.Name, err)

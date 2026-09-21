@@ -67,12 +67,6 @@ type lockEvidence struct {
 	Kind     resolution.EvidenceKind     `toml:"kind"`
 	Location resolution.ArtifactLocation `toml:"location"`
 	Hash     string                      `toml:"hash"`
-	// These fields detect the source-specific evidence shape used by the
-	// unreleased single-table lock representation.
-	LegacyBundleURL       *string `toml:"bundle_url,omitempty"`
-	LegacyBundleHash      *string `toml:"bundle_hash,omitempty"`
-	LegacyReleaseListURL  *string `toml:"release_list_url,omitempty"`
-	LegacyReleaseListHash *string `toml:"release_list_hash,omitempty"`
 }
 
 type lockArtifact struct {
@@ -83,17 +77,6 @@ type lockArtifact struct {
 	Hash             string                      `toml:"hash"`
 	Size             *int64                      `toml:"size"`
 	HostRequirements lockHostRequirements        `toml:"host_requirements,omitempty"`
-	// These fields detect and reject the pre-location v2 wire form.
-	LegacyURL  *string `toml:"url,omitempty"`
-	LegacyPath *string `toml:"path,omitempty"`
-	// These fields exist only to detect and reject obsolete v2 wire selectors.
-	// New lock entries never populate or serialize them; Target is the only
-	// artifact selector accepted for version 2 files.
-	LegacyPlatform *string `toml:"platform,omitempty"`
-	LegacyOS       *string `toml:"os,omitempty"`
-	LegacyArch     *string `toml:"arch,omitempty"`
-	LegacyLibC     *string `toml:"libc,omitempty"`
-	LegacyVariant  *string `toml:"variant,omitempty"`
 }
 
 type lockHostRequirements struct {
@@ -290,13 +273,6 @@ func validateLockArtifacts(artifacts []lockArtifact) error {
 	for i, artifact := range artifacts {
 		if artifact.PackageVersion != 0 && artifact.PackageVersion != 2 {
 			return fmt.Errorf("artifact %d has unsupported dbc package version %d", i, artifact.PackageVersion)
-		}
-		if artifact.LegacyURL != nil || artifact.LegacyPath != nil {
-			return fmt.Errorf("artifact %d uses obsolete direct URL or path fields; use the location table", i)
-		}
-		if artifact.LegacyPlatform != nil || artifact.LegacyOS != nil || artifact.LegacyArch != nil ||
-			artifact.LegacyLibC != nil || artifact.LegacyVariant != nil {
-			return fmt.Errorf("artifact %d uses obsolete selector fields; use the target table", i)
 		}
 		if err := resolution.ValidateConcreteTarget(artifact.Target); err != nil {
 			return fmt.Errorf("artifact %d has invalid target: %w", i, err)

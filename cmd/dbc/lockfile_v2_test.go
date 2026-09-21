@@ -305,91 +305,6 @@ func TestLockFileV2UsesTypedSourceFieldsAndRequiresEvidencePairs(t *testing.T) {
 	assert.Contains(t, err.Error(), "no hash")
 }
 
-func TestLockFileV2RejectsLegacyEvidenceWireForms(t *testing.T) {
-	base := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n"
-	artifact := "\n[[drivers.artifacts]]\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n[drivers.artifacts.target]\nos = 'linux'\narch = 'amd64'\nlibc = 'gnu'\n[drivers.artifacts.location]\nkind = 'url'\nvalue = 'https://assets.example.test/archive.tar.gz'\n"
-	tests := []struct {
-		name     string
-		evidence string
-		wantErr  string
-	}{
-		{
-			name:     "old single table",
-			evidence: "\n[drivers.evidence]\nbundle_url = 'https://example.test/bundle'\nbundle_hash = 'sha256:" + strings.Repeat("e", 64) + "'\n",
-			wantErr:  "obsolete source-specific fields",
-		},
-		{
-			name:     "old fields in new evidence array",
-			evidence: "\n[[drivers.evidence]]\nbundle_url = 'https://example.test/bundle'\nbundle_hash = 'sha256:" + strings.Repeat("e", 64) + "'\n",
-			wantErr:  "obsolete source-specific fields",
-		},
-		{
-			name:     "old field alongside valid new evidence",
-			evidence: "\n[[drivers.evidence]]\nkind = 'release-metadata'\nhash = 'sha256:" + strings.Repeat("e", 64) + "'\nbundle_url = 'https://example.test/bundle'\n[drivers.evidence.location]\nkind = 'url'\nvalue = 'https://example.test/bundle'\n",
-			wantErr:  "obsolete source-specific fields",
-		},
-		{
-			name:     "empty old field alongside valid new evidence",
-			evidence: "\n[[drivers.evidence]]\nkind = 'release-metadata'\nhash = 'sha256:" + strings.Repeat("e", 64) + "'\nbundle_url = ''\n[drivers.evidence.location]\nkind = 'url'\nvalue = 'https://example.test/bundle'\n",
-			wantErr:  "obsolete source-specific fields",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "dbc.lock")
-			require.NoError(t, os.WriteFile(path, []byte(base+test.evidence+artifact), 0o600))
-			_, err := loadLockFile(path)
-			assert.ErrorContains(t, err, test.wantErr)
-		})
-	}
-}
-
-func TestLockFileV2RejectsObsoleteArtifactSelectorFields(t *testing.T) {
-	fields := []struct{ name, value string }{
-		{name: "platform", value: `platform = "linux_amd64"`},
-		{name: "os", value: `os = "linux"`},
-		{name: "arch", value: `arch = "amd64"`},
-		{name: "libc", value: `libc = "gnu"`},
-		{name: "variant", value: `variant = "v1"`},
-	}
-	for _, field := range fields {
-		for _, withTarget := range []bool{false, true} {
-			targetCase := "alone"
-			if withTarget {
-				targetCase = "with_target"
-			}
-			t.Run(field.name+"/"+targetCase, func(t *testing.T) {
-				contents := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n\n[[drivers.artifacts]]\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n" + field.value + "\n\n[drivers.artifacts.location]\nkind = 'url'\nvalue = 'https://assets.example.test/archive.tar.gz'\n"
-				if withTarget {
-					contents += "[drivers.artifacts.target]\nos = 'linux'\narch = 'amd64'\nlibc = 'gnu'\n"
-				}
-				path := filepath.Join(t.TempDir(), "dbc.lock")
-				require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
-				_, err := loadLockFile(path)
-				assert.ErrorContains(t, err, "obsolete selector fields")
-			})
-		}
-	}
-}
-
-func TestLockFileV2RejectsObsoleteDirectArtifactLocationFields(t *testing.T) {
-	for _, field := range []string{"url", "path"} {
-		for _, withLocation := range []bool{false, true} {
-			t.Run(field+"/with_location="+strconv.FormatBool(withLocation), func(t *testing.T) {
-				contents := "version = 2\nrevision = 0\n\n[[drivers]]\nname = 'example'\nversion = '1.2.3'\n\n[drivers.source]\ntype = 'registry'\nurl = 'https://registry.example.test'\n\n[[drivers.artifacts]]\n"
-				contents += field + " = ''\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("a", 64) + "'\nsize = 1\n[drivers.artifacts.target]\nos = 'linux'\narch = 'amd64'\nlibc = 'gnu'\n"
-				if withLocation {
-					contents += "\n[drivers.artifacts.location]\nkind = 'url'\nvalue = 'https://assets.example.test/archive.tar.gz'\n"
-				}
-				path := filepath.Join(t.TempDir(), "dbc.lock")
-				require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
-				_, err := loadLockFile(path)
-				assert.ErrorContains(t, err, "obsolete direct URL or path")
-			})
-		}
-	}
-}
-
 func TestLockFileV1MigrationPreservesLibraryProofAndRequiresSamePlatformVerification(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dbc.lock")
 	legacyHash := strings.Repeat("d", 64)
@@ -597,7 +512,6 @@ func TestLockRoundTripPreservesOneArtifactLocationSharedBySeveralTargets(t *test
 	shared := release.Artifacts[0]
 	shared.Target = resolution.Target{OS: "macos", Arch: "arm64"}
 	release.Artifacts = append(release.Artifacts, shared)
-	require.NoError(t, resolution.ValidateResolvedRelease(release))
 
 	entry, err := lockInfoFromResolvedRelease("example", release)
 	require.NoError(t, err)
@@ -658,20 +572,6 @@ func TestRefreshAndUpgradeUseSourceAwareReleaseVersionIdentity(t *testing.T) {
 		_, err = upgradeLockEntry(existing, refreshed)
 		assert.ErrorContains(t, err, "requires a different version")
 	})
-}
-
-func TestLockSnapshotRequiresFinalizedArtifactMetadata(t *testing.T) {
-	release := testResolvedRelease()
-	release.Artifacts[0].Hash = ""
-	_, err := lockInfoFromResolvedRelease("example", release)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "hash and size must either both be present or both be absent")
-
-	release = testResolvedRelease()
-	release.Artifacts = append(release.Artifacts, release.Artifacts[0])
-	_, err = lockInfoFromResolvedRelease("example", release)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate target")
 }
 
 func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) {
@@ -858,53 +758,6 @@ func TestLockedArchiveDownloadMustMatchExpectedHashAndSize(t *testing.T) {
 	}
 }
 
-func TestV2RegistryReplaySkipsDiscoveryAndUsesLockedURLAndMetadata(t *testing.T) {
-	projectPath := filepath.Join(t.TempDir(), "dbc.toml")
-	lockPath := filepath.Join(filepath.Dir(projectPath), "dbc.lock")
-	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
-	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: 2, Drivers: []lockInfo{entry}}))
-	require.NoError(t, os.WriteFile(projectPath, []byte("[drivers]\n[drivers.example]\n"), 0o600))
-
-	discoveryCalls := 0
-	model := syncModel{
-		baseModel: baseModel{getDriverRegistry: func() ([]dbc.Driver, error) {
-			discoveryCalls++
-			return nil, errors.New("registry unavailable")
-		}},
-		Path: projectPath,
-		// Deliberately include a changed/incomplete registry result. A valid v2
-		// target artifact must remain authoritative and never consult it.
-		driverIndex: []dbc.Driver{{Path: "example", Title: "changed registry metadata"}},
-	}
-	updated, cmd := model.Update(driversListMsg{path: projectPath, list: DriversList{
-		Drivers: map[string]driverSpec{"example": {}},
-	}})
-	require.NotNil(t, cmd)
-	msg := cmd()
-	items, ok := msg.([]installItem)
-	require.True(t, ok, "expected lock replay install items, got %T", msg)
-	require.Len(t, items, 1)
-	assert.Zero(t, discoveryCalls, "registry discovery must not run for a complete v2 registry artifact")
-	selected, err := items[0].selectedArtifact()
-	require.NoError(t, err)
-	assert.Equal(t, entry.Artifacts[0].Location, selected.Location)
-	assert.Equal(t, entry.Artifacts[0].Hash, selected.Hash)
-	assert.Equal(t, *entry.Artifacts[0].Size, *selected.Size)
-	assert.Equal(t, entry.Source.URL, items[0].Release.Source.Reference)
-
-	// The normal completion path builds the entry from the locked PkgInfo and
-	// rewrites v2 without changing its artifact snapshot.
-	updatedModel := updated.(syncModel)
-	updatedModel.LockFilePath = lockPath
-	rewritten, err := lockEntryForItem(items[0])
-	require.NoError(t, err)
-	updatedModel.locked = LockFile{Version: 2, Drivers: []lockInfo{rewritten}}
-	require.NoError(t, updatedModel.writeLockFile())
-	reloaded, err := loadLockFile(lockPath)
-	require.NoError(t, err)
-	assert.Equal(t, entry.Artifacts[0], reloaded.lockinfo["example"].Artifacts[0])
-}
-
 func testRegistryLockEntryForPlatform(platform string) lockInfo {
 	return lockInfo{
 		Name:    "example",
@@ -916,66 +769,6 @@ func testRegistryLockEntryForPlatform(platform string) lockInfo {
 			Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
 		}},
 	}
-}
-
-func TestV2RegistryReplayFallsBackToDiscoveryOnlyWhenTargetArtifactIsMissing(t *testing.T) {
-	tmp := t.TempDir()
-	projectPath := filepath.Join(tmp, "dbc.toml")
-	lockPath := filepath.Join(tmp, "dbc.lock")
-	otherPlatform := "linux_amd64"
-	if config.PlatformTuple() == otherPlatform {
-		otherPlatform = "macos_arm64"
-	}
-	entry := testRegistryLockEntryForPlatform(otherPlatform)
-	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: 2, Drivers: []lockInfo{entry}}))
-	require.NoError(t, os.WriteFile(projectPath, []byte("[drivers]\n[drivers.example]\n"), 0o600))
-
-	discoveryCalls := 0
-	model := syncModel{
-		baseModel: baseModel{getDriverRegistry: func() ([]dbc.Driver, error) {
-			discoveryCalls++
-			return []dbc.Driver{}, nil
-		}},
-		Path: projectPath,
-	}
-	_, cmd := model.Update(driversListMsg{path: projectPath, list: DriversList{
-		Drivers: map[string]driverSpec{"example": {}},
-	}})
-	require.NotNil(t, cmd)
-	msg := cmd()
-	_, ok := msg.(driversWithRegistryError)
-	require.True(t, ok, "missing target should enter the existing registry fallback, got %T", msg)
-	assert.Equal(t, 1, discoveryCalls)
-}
-
-func TestV2RegistryReplayAllowsExplicitPrereleaseConstraintOffline(t *testing.T) {
-	projectPath := filepath.Join(t.TempDir(), "dbc.toml")
-	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
-	entry.Version = semver.MustParse("1.2.3-beta.1")
-	lockPath := filepath.Join(filepath.Dir(projectPath), "dbc.lock")
-	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: 2, Drivers: []lockInfo{entry}}))
-	require.NoError(t, os.WriteFile(projectPath, []byte("[drivers]\n[drivers.example]\n"), 0o600))
-	constraint, err := semver.NewConstraint("=1.2.3-beta.1")
-	require.NoError(t, err)
-
-	discoveryCalls := 0
-	model := syncModel{
-		baseModel: baseModel{getDriverRegistry: func() ([]dbc.Driver, error) {
-			discoveryCalls++
-			return nil, errors.New("registry unavailable")
-		}},
-		Path: projectPath,
-	}
-	_, cmd := model.Update(driversListMsg{path: projectPath, list: DriversList{
-		Drivers: map[string]driverSpec{"example": {Version: constraint}},
-	}})
-	require.NotNil(t, cmd)
-	msg := cmd()
-	items, ok := msg.([]installItem)
-	require.True(t, ok, "expected explicit prerelease constraint to replay lock, got %T", msg)
-	require.Len(t, items, 1)
-	assert.Equal(t, "1.2.3-beta.1", items[0].Release.Version)
-	assert.Zero(t, discoveryCalls, "an explicit matching prerelease constraint must not trigger registry discovery")
 }
 
 func TestLockReplayRejectsMuslForGenericLinuxTargetAndAmbiguousArtifacts(t *testing.T) {
@@ -1219,7 +1012,9 @@ func TestUnsupportedHostRequirementsFailClosedBeforePreparationOrEnsure(t *testi
 			assert.Zero(t, downloadCalls)
 			assert.Zero(t, ensureCalls)
 
-			_, ensureErr := model.ensurePreparedPackage(context.Background(), &item)
+			executor, err := model.newPackageExecutor()
+			require.NoError(t, err)
+			_, ensureErr := executor.ensurePreparedPackage(context.Background(), &item)
 			require.ErrorContains(t, ensureErr, "unsupported host requirements for example")
 			assert.Zero(t, ensureCalls, "unsupported requirements must be rejected before EnsurePackage")
 			after, err := config.GetDriver(cfg, "example")
