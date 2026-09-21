@@ -25,9 +25,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -38,10 +38,12 @@ import (
 )
 
 const (
-	installReceiptName        = "dbc-install-receipt.json"
-	legacyPackageManifestName = "MANIFEST"
-	packageV2MetadataName     = "dbc-package.toml"
-	maxPackageMetadataSize    = 1 << 20
+	installReceiptName               = "dbc-install-receipt.json"
+	legacyPackageManifestName        = "MANIFEST"
+	packageV2MetadataName            = "dbc-package.toml"
+	maxPackageMetadataSize           = 1 << 20
+	registrationFingerprintAlgorithm = "sha256"
+	registrationFingerprintVersion   = 1
 )
 
 // ExpectedPackageMetadata describes the resolution that selected an archive.
@@ -61,15 +63,18 @@ type ExpectedPackageMetadata struct {
 // digests. ArchiveHash covers the compressed package; InstalledLibraryHash
 // covers the extracted file referenced by [Files].driver.
 type InstallReceipt struct {
-	SourceType           string `json:"source_type"`
-	SourceIdentity       string `json:"source_identity"`
-	DriverID             string `json:"driver_id"`
-	DriverVersion        string `json:"driver_version"`
-	Platform             string `json:"platform"`
-	ArchiveHash          string `json:"archive_hash"`
-	ArchiveSize          int64  `json:"archive_size"`
-	InstalledLibrary     string `json:"installed_library,omitempty"`
-	InstalledLibraryHash string `json:"installed_library_hash,omitempty"`
+	SourceType                       string `json:"source_type"`
+	SourceIdentity                   string `json:"source_identity"`
+	DriverID                         string `json:"driver_id"`
+	DriverVersion                    string `json:"driver_version"`
+	Platform                         string `json:"platform"`
+	ArchiveHash                      string `json:"archive_hash"`
+	ArchiveSize                      int64  `json:"archive_size"`
+	InstalledLibrary                 string `json:"installed_library,omitempty"`
+	InstalledLibraryHash             string `json:"installed_library_hash,omitempty"`
+	RegistrationFingerprintAlgorithm string `json:"registration_fingerprint_algorithm,omitempty"`
+	RegistrationFingerprintVersion   int    `json:"registration_fingerprint_version,omitempty"`
+	RegistrationFingerprint          string `json:"registration_fingerprint,omitempty"`
 }
 
 // InstallOptions supplies verification that must finish before an installation
@@ -82,8 +87,34 @@ type InstallOptions struct {
 // archive. VerifiedLibraryHash is empty when the package has no separate
 // driver library file.
 type PackageValidation struct {
-	VerifiedLibraryHash string
-	Registration        DriverInfo
+	VerifiedLibraryHash              string
+	Registration                     DriverInfo
+	RegistrationFingerprintAlgorithm string
+	RegistrationFingerprintVersion   int
+	RegistrationFingerprint          string
+	registrationSharedIdentity       registrationSharedIdentity
+}
+
+type registrationSharedIdentity struct {
+	Kind              string `json:"kind"`
+	PackageFile       string `json:"package_file,omitempty"`
+	ExternalReference string `json:"external_reference,omitempty"`
+}
+
+type runtimeRegistrationFingerprintV1 struct {
+	SchemaVersion int                        `json:"schema_version"`
+	ID            string                     `json:"id"`
+	Platform      string                     `json:"platform"`
+	Source        string                     `json:"source"`
+	Name          string                     `json:"name"`
+	Publisher     string                     `json:"publisher"`
+	License       string                     `json:"license"`
+	Entrypoint    string                     `json:"entrypoint"`
+	Version       *string                    `json:"version"`
+	ADBCVersion   *string                    `json:"adbc_version"`
+	Supported     []string                   `json:"supported_features"`
+	Unsupported   []string                   `json:"unsupported_features"`
+	Shared        registrationSharedIdentity `json:"shared"`
 }
 
 type packageManifest struct {
@@ -711,7 +742,7 @@ func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPac
 	}()
 
 	finalDir := filepath.Join(workDir, "installed")
-	manifest, payloadDir, err := stagePackageArchive(workDir, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
+	manifest, payloadDir, sharedIdentity, err := stagePackageArchive(workDir, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
 	if err != nil {
 		return PackageValidation{}, err
 	}
@@ -719,25 +750,92 @@ func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPac
 	if !ok {
 		return PackageValidation{}, errors.New("could not read validated package receipt")
 	}
-	return PackageValidation{VerifiedLibraryHash: receipt.InstalledLibraryHash, Registration: manifest.DriverInfo}, nil
+	return PackageValidation{
+		VerifiedLibraryHash: receipt.InstalledLibraryHash, Registration: manifest.DriverInfo,
+		RegistrationFingerprintAlgorithm: receipt.RegistrationFingerprintAlgorithm,
+		RegistrationFingerprintVersion:   receipt.RegistrationFingerprintVersion,
+		RegistrationFingerprint:          receipt.RegistrationFingerprint,
+		registrationSharedIdentity:       sharedIdentity,
+	}, nil
 }
 
 // SameRuntimeDriverRegistration reports whether two driver registrations have
 // the same effective runtime metadata for platform. FilePath is intentionally
 // ignored because it identifies where a registration is stored rather than
-// what it registers.
+// what it registers. Versions are compared as canonical semantic strings, so
+// original spelling differences normalize while build metadata remains
+// significant. Feature lists are compared as sets; the effective shared
+// reference remains exact.
 func SameRuntimeDriverRegistration(current, candidate DriverInfo, platform string) bool {
 	if current.ID != candidate.ID || current.Name != candidate.Name || current.Publisher != candidate.Publisher ||
 		current.License != candidate.License || current.Source != candidate.Source ||
 		current.Driver.Entrypoint != candidate.Driver.Entrypoint ||
 		current.Driver.Shared.Get(platform) != candidate.Driver.Shared.Get(platform) ||
-		!reflect.DeepEqual(current.AdbcInfo, candidate.AdbcInfo) {
+		!semverEquivalent(current.Version, candidate.Version) ||
+		!semverEquivalent(current.AdbcInfo.Version, candidate.AdbcInfo.Version) ||
+		!slices.Equal(normalizedFeatureSet(current.AdbcInfo.Features.Supported), normalizedFeatureSet(candidate.AdbcInfo.Features.Supported)) ||
+		!slices.Equal(normalizedFeatureSet(current.AdbcInfo.Features.Unsupported), normalizedFeatureSet(candidate.AdbcInfo.Features.Unsupported)) {
 		return false
 	}
-	if current.Version == nil || candidate.Version == nil {
-		return current.Version == nil && candidate.Version == nil
+	return true
+}
+
+// InstallReceiptMatchesRuntimeRegistration verifies that a receipt previously
+// obtained through InspectInstallReceipt or InspectDriverInstallReceipt proves
+// the current registration's canonical runtime metadata. It does not verify
+// library bytes; callers must use VerifyInstallReceiptLibraryIntegrity for
+// that separate proof. For package-owned libraries it also requires the
+// registered shared basename to match the receipt's installed filename.
+func InstallReceiptMatchesRuntimeRegistration(receipt InstallReceipt, current DriverInfo, platform string) bool {
+	if !validRegistrationFingerprint(receipt.RegistrationFingerprintAlgorithm, receipt.RegistrationFingerprintVersion, receipt.RegistrationFingerprint) ||
+		receipt.DriverID != current.ID || receipt.Platform != platform || current.Version == nil || receipt.DriverVersion != current.Version.String() {
+		return false
 	}
-	return current.Version.String() == candidate.Version.String()
+	sharedPath := current.Driver.Shared.Get(platform)
+	var identity registrationSharedIdentity
+	if receipt.InstalledLibrary != "" {
+		if validateFlatName(receipt.InstalledLibrary) != nil || sharedPath == "" || filepath.Base(filepath.Clean(sharedPath)) != receipt.InstalledLibrary {
+			return false
+		}
+		identity = registrationSharedIdentity{Kind: "package_file", PackageFile: receipt.InstalledLibrary}
+	} else {
+		identity = registrationSharedIdentity{Kind: "external", ExternalReference: sharedPath}
+	}
+	fingerprint, err := runtimeRegistrationFingerprint(current, platform, identity)
+	if err == nil && fingerprint == receipt.RegistrationFingerprint {
+		return true
+	}
+	// Packages without Files.driver and without an external shared reference
+	// retain the historical package-directory runtime fallback. Its generated
+	// generation directory is not registration identity.
+	if receipt.InstalledLibrary == "" && sharedPath != "" && isGeneratedPackageDirectoryRegistration(current, sharedPath) {
+		fingerprint, err = runtimeRegistrationFingerprint(current, platform, registrationSharedIdentity{Kind: "external"})
+		return err == nil && fingerprint == receipt.RegistrationFingerprint
+	}
+	return false
+}
+
+// PackageValidationMatchesRuntimeRegistration compares a current registration
+// with evidence returned by ValidatePackage. The candidate's shared identity
+// is private validation output, so callers cannot label an arbitrary path as
+// a package-owned file. Library bytes and receipt identity remain separate
+// checks for callers that require them.
+func PackageValidationMatchesRuntimeRegistration(current DriverInfo, candidate PackageValidation, platform string) bool {
+	if candidate.RegistrationFingerprintAlgorithm != registrationFingerprintAlgorithm ||
+		candidate.RegistrationFingerprintVersion != registrationFingerprintVersion ||
+		!validRegistrationFingerprint(candidate.RegistrationFingerprintAlgorithm, candidate.RegistrationFingerprintVersion, candidate.RegistrationFingerprint) {
+		return false
+	}
+	if !registrationSharedIdentityValid(candidate.registrationSharedIdentity) ||
+		!sharedIdentityMatchesRegistration(candidate.registrationSharedIdentity, current, platform) {
+		return false
+	}
+	candidateFingerprint, err := runtimeRegistrationFingerprint(candidate.Registration, platform, candidate.registrationSharedIdentity)
+	if err != nil || candidateFingerprint != candidate.RegistrationFingerprint {
+		return false
+	}
+	currentFingerprint, err := runtimeRegistrationFingerprint(current, platform, candidate.registrationSharedIdentity)
+	return err == nil && currentFingerprint == candidate.RegistrationFingerprint
 }
 
 func installPackage(cfg Config, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions, registerManifest func(Config, DriverInfo) error) (Manifest, error) {
@@ -811,7 +909,7 @@ func installPackageLocked(cfg Config, runtimeID, loc string, downloaded *os.File
 	}
 	finalDir := reservedDir
 
-	manifest, payloadDir, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
+	manifest, payloadDir, _, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
 	if err != nil {
 		return Manifest{}, previous, err
 	}
@@ -971,9 +1069,117 @@ func uninstallDriverWithInstallLock(cfg Config, info DriverInfo, uninstall func(
 }
 
 func sameDriverRegistration(first, second DriverInfo) bool {
-	first.FilePath = normalizedRegistrationPath(first.FilePath)
-	second.FilePath = normalizedRegistrationPath(second.FilePath)
-	return reflect.DeepEqual(first, second)
+	return normalizedRegistrationPath(first.FilePath) == normalizedRegistrationPath(second.FilePath) &&
+		first.ID == second.ID && first.Name == second.Name && first.Publisher == second.Publisher &&
+		first.License == second.License && first.Source == second.Source &&
+		semverEquivalent(first.Version, second.Version) &&
+		semverEquivalent(first.AdbcInfo.Version, second.AdbcInfo.Version) &&
+		slices.Equal(normalizedFeatureSet(first.AdbcInfo.Features.Supported), normalizedFeatureSet(second.AdbcInfo.Features.Supported)) &&
+		slices.Equal(normalizedFeatureSet(first.AdbcInfo.Features.Unsupported), normalizedFeatureSet(second.AdbcInfo.Features.Unsupported)) &&
+		first.Driver.Entrypoint == second.Driver.Entrypoint &&
+		first.Driver.Shared.defaultPath == second.Driver.Shared.defaultPath &&
+		maps.Equal(first.Driver.Shared.platformMap, second.Driver.Shared.platformMap)
+}
+
+func runtimeRegistrationFingerprint(info DriverInfo, platform string, shared registrationSharedIdentity) (string, error) {
+	if err := validatePlatformIdentifier(platform); err != nil {
+		return "", fmt.Errorf("invalid registration fingerprint platform: %w", err)
+	}
+	if !registrationSharedIdentityValid(shared) {
+		return "", errors.New("invalid registration fingerprint shared identity")
+	}
+	wire := runtimeRegistrationFingerprintV1{
+		SchemaVersion: registrationFingerprintVersion,
+		ID:            info.ID,
+		Platform:      platform,
+		Source:        info.Source,
+		Name:          info.Name,
+		Publisher:     info.Publisher,
+		License:       info.License,
+		Entrypoint:    info.Driver.Entrypoint,
+		Version:       semverString(info.Version),
+		ADBCVersion:   semverString(info.AdbcInfo.Version),
+		Supported:     normalizedFeatureSet(info.AdbcInfo.Features.Supported),
+		Unsupported:   normalizedFeatureSet(info.AdbcInfo.Features.Unsupported),
+		Shared:        shared,
+	}
+	data, err := json.Marshal(wire)
+	if err != nil {
+		return "", fmt.Errorf("could not encode canonical runtime registration: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func registrationSharedIdentityValid(identity registrationSharedIdentity) bool {
+	switch identity.Kind {
+	case "package_file":
+		return validateFlatName(identity.PackageFile) == nil && identity.ExternalReference == ""
+	case "external":
+		return identity.PackageFile == ""
+	default:
+		return false
+	}
+}
+
+func semverString(version *semver.Version) *string {
+	if version == nil {
+		return nil
+	}
+	value := version.String()
+	return &value
+}
+
+func semverEquivalent(first, second *semver.Version) bool {
+	if first == nil || second == nil {
+		return first == nil && second == nil
+	}
+	return first.String() == second.String()
+}
+
+func normalizedFeatureSet(features []string) []string {
+	normalized := slices.Clone(features)
+	slices.Sort(normalized)
+	normalized = slices.Compact(normalized)
+	if normalized == nil {
+		return []string{}
+	}
+	return normalized
+}
+
+func validRegistrationFingerprint(algorithm string, version int, fingerprint string) bool {
+	if algorithm != registrationFingerprintAlgorithm || version != registrationFingerprintVersion {
+		return false
+	}
+	_, err := parseSHA256(fingerprint)
+	return err == nil
+}
+
+func sharedIdentityMatchesRegistration(identity registrationSharedIdentity, current DriverInfo, platform string) bool {
+	sharedPath := current.Driver.Shared.Get(platform)
+	switch identity.Kind {
+	case "package_file":
+		return validateFlatName(identity.PackageFile) == nil && sharedPath != "" && filepath.Base(filepath.Clean(sharedPath)) == identity.PackageFile
+	case "external":
+		if sharedPath == identity.ExternalReference {
+			return true
+		}
+		return identity.ExternalReference == "" && sharedPath != "" && isGeneratedPackageDirectoryRegistration(current, sharedPath)
+	default:
+		return false
+	}
+}
+
+func isGeneratedPackageDirectoryRegistration(current DriverInfo, sharedPath string) bool {
+	if current.ID == "" || current.FilePath == "" {
+		return false
+	}
+	sharedDirectory := filepath.Clean(sharedPath)
+	registrationDirectory := filepath.Clean(current.FilePath)
+	if filepath.Dir(sharedDirectory) != registrationDirectory {
+		return false
+	}
+	return isManagedPackageGenerationDirectory(filepath.Base(sharedDirectory), current.ID)
 }
 
 func normalizedRegistrationPath(path string) string {
@@ -1540,7 +1746,7 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 		return result, fmt.Errorf("could not create private installation staging directory: %w", err)
 	}
 	defer os.RemoveAll(workDir)
-	manifest, payloadDir, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, nil, workDir)
+	manifest, payloadDir, _, err := stagePackageArchive(loc, runtimeID, finalDir, downloaded, expected, nil, workDir)
 	if err != nil {
 		return result, err
 	}
@@ -1550,38 +1756,39 @@ func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded 
 	return manifest, nil
 }
 
-func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.File, expected ExpectedPackageMetadata, verify func(string, Manifest) error, workDir string) (Manifest, string, error) {
+func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.File, expected ExpectedPackageMetadata, verify func(string, Manifest) error, workDir string) (Manifest, string, registrationSharedIdentity, error) {
 	var result Manifest
+	var sharedIdentity registrationSharedIdentity
 	archivePath := filepath.Join(workDir, "archive.tgz")
 	archiveHash, archiveSize, err := snapshotArchive(downloaded, archivePath)
 	if err != nil {
-		return result, "", fmt.Errorf("could not snapshot package archive: %w", err)
+		return result, "", sharedIdentity, fmt.Errorf("could not snapshot package archive: %w", err)
 	}
 	if expected.ArchiveHash != "" && expected.ArchiveHash != archiveHash {
-		return result, "", fmt.Errorf("package archive hash mismatch: got %s, expected %s", archiveHash, expected.ArchiveHash)
+		return result, "", sharedIdentity, fmt.Errorf("package archive hash mismatch: got %s, expected %s", archiveHash, expected.ArchiveHash)
 	}
 	if expected.ArchiveSize > 0 && expected.ArchiveSize != archiveSize {
-		return result, "", fmt.Errorf("package archive size mismatch: got %d, expected %d", archiveSize, expected.ArchiveSize)
+		return result, "", sharedIdentity, fmt.Errorf("package archive size mismatch: got %d, expected %d", archiveSize, expected.ArchiveSize)
 	}
 
 	payloadDir := filepath.Join(workDir, "payload")
 	if err := os.Mkdir(payloadDir, 0o700); err != nil {
-		return result, "", fmt.Errorf("could not create private package staging directory: %w", err)
+		return result, "", sharedIdentity, fmt.Errorf("could not create private package staging directory: %w", err)
 	}
 	manifest, meta, files, err := extractPackageArchive(archivePath, payloadDir)
 	if err != nil {
-		return result, "", fmt.Errorf("failed to extract package archive: %w", err)
+		return result, "", sharedIdentity, fmt.Errorf("failed to extract package archive: %w", err)
 	}
 	if expected.ID != "" && meta.v2 && expected.ID != meta.id {
-		return result, "", fmt.Errorf("package id mismatch: archive declares %q, expected %q", meta.id, expected.ID)
+		return result, "", sharedIdentity, fmt.Errorf("package id mismatch: archive declares %q, expected %q", meta.id, expected.ID)
 	}
 	if expected.Version != "" && manifest.Version.String() != expected.Version {
-		return result, "", fmt.Errorf("package version mismatch: archive declares %q, expected %q", manifest.Version, expected.Version)
+		return result, "", sharedIdentity, fmt.Errorf("package version mismatch: archive declares %q, expected %q", manifest.Version, expected.Version)
 	}
 	platform := expected.Platform
 	if meta.v2 {
 		if platform != "" && meta.platform != platform {
-			return result, "", fmt.Errorf("package platform mismatch: archive declares %q, expected %q", meta.platform, platform)
+			return result, "", sharedIdentity, fmt.Errorf("package platform mismatch: archive declares %q, expected %q", meta.platform, platform)
 		}
 		platform = meta.platform
 	}
@@ -1589,10 +1796,18 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 		platform = PlatformTuple()
 	}
 	if err := validatePackageFileReferences(manifest, files, meta.v2); err != nil {
-		return result, "", err
+		return result, "", sharedIdentity, err
 	}
 	if _, exists := files[strings.ToLower(installReceiptName)]; exists {
-		return result, "", fmt.Errorf("package archive uses reserved file name %q", installReceiptName)
+		return result, "", sharedIdentity, fmt.Errorf("package archive uses reserved file name %q", installReceiptName)
+	}
+	if manifest.Files.Driver != "" {
+		if err := validateFlatName(manifest.Files.Driver); err != nil {
+			return result, "", sharedIdentity, fmt.Errorf("invalid package driver file name: %w", err)
+		}
+		sharedIdentity = registrationSharedIdentity{Kind: "package_file", PackageFile: manifest.Files.Driver}
+	} else {
+		sharedIdentity = registrationSharedIdentity{Kind: "external", ExternalReference: manifest.DriverInfo.Driver.Shared.Get(platform)}
 	}
 
 	manifest.DriverInfo.ID = runtimeID
@@ -1605,11 +1820,11 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 		manifest.DriverInfo.Driver.Shared.Set(platform, finalDir)
 	}
 	if err := os.Chmod(payloadDir, 0o755); err != nil {
-		return result, "", fmt.Errorf("could not prepare package directory for publication: %w", err)
+		return result, "", sharedIdentity, fmt.Errorf("could not prepare package directory for publication: %w", err)
 	}
 	if verify != nil {
 		if err := verify(payloadDir, manifest); err != nil {
-			return result, "", fmt.Errorf("package verification failed: %w", err)
+			return result, "", sharedIdentity, fmt.Errorf("package verification failed: %w", err)
 		}
 	}
 	installedHash := ""
@@ -1617,26 +1832,33 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 		libraryPath := filepath.Join(payloadDir, installedLibrary)
 		libraryInfo, err := os.Lstat(libraryPath)
 		if err != nil {
-			return result, "", fmt.Errorf("could not inspect verified driver file: %w", err)
+			return result, "", sharedIdentity, fmt.Errorf("could not inspect verified driver file: %w", err)
 		}
 		if !libraryInfo.Mode().IsRegular() {
-			return result, "", errors.New("verified driver file is not a regular file")
+			return result, "", sharedIdentity, errors.New("verified driver file is not a regular file")
 		}
 		installedHash, err = hashFile(libraryPath)
 		if err != nil {
-			return result, "", fmt.Errorf("could not hash verified driver file: %w", err)
+			return result, "", sharedIdentity, fmt.Errorf("could not hash verified driver file: %w", err)
 		}
+	}
+	registrationFingerprint, err := runtimeRegistrationFingerprint(manifest.DriverInfo, platform, sharedIdentity)
+	if err != nil {
+		return result, "", sharedIdentity, fmt.Errorf("could not fingerprint package registration: %w", err)
 	}
 	receipt := InstallReceipt{
 		SourceType: expected.SourceType, SourceIdentity: expected.SourceIdentity,
 		DriverID: runtimeID, DriverVersion: manifest.Version.String(), Platform: platform,
 		ArchiveHash: archiveHash, ArchiveSize: archiveSize, InstalledLibrary: installedLibrary,
-		InstalledLibraryHash: installedHash,
+		InstalledLibraryHash:             installedHash,
+		RegistrationFingerprintAlgorithm: registrationFingerprintAlgorithm,
+		RegistrationFingerprintVersion:   registrationFingerprintVersion,
+		RegistrationFingerprint:          registrationFingerprint,
 	}
 	if err := writeInstallReceipt(payloadDir, receipt); err != nil {
-		return result, "", fmt.Errorf("could not write installation receipt: %w", err)
+		return result, "", sharedIdentity, fmt.Errorf("could not write installation receipt: %w", err)
 	}
-	return manifest, payloadDir, nil
+	return manifest, payloadDir, sharedIdentity, nil
 }
 
 func hasRuntimeSharedPath(shared driverMap) bool {
