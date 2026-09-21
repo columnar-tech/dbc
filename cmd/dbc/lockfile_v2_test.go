@@ -798,7 +798,7 @@ func TestResolvedTGZArtifactReplaysThroughPackageValidation(t *testing.T) {
 		cfg: config.Config{Level: config.ConfigEnv, Location: t.TempDir()}}
 	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
 	require.NoError(t, err)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	require.Len(t, prepared.items, 1)
 	require.NotNil(t, prepared.items[0].Validation)
 	assert.Equal(t, "tgz", prepared.lock.Drivers[0].Artifacts[0].Format,
@@ -834,7 +834,7 @@ func TestSyncOpensRelativePathArtifactFromProjectDirectory(t *testing.T) {
 		cfg: config.Config{Level: config.ConfigEnv, Location: filepath.Join(projectDir, "install")}}
 	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
 	require.NoError(t, err)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	require.Len(t, prepared.lock.Drivers, 1)
 	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath}, prepared.lock.Drivers[0].Artifacts[0].Location,
 		"opening a project-relative artifact must not rewrite its lock identity")

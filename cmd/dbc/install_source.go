@@ -192,7 +192,7 @@ func (reader *installProgressReadCloser) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func closeDirectInstallArchive(item *installItem) error {
+func closeDirectInstallResources(item *installItem) error {
 	if item == nil {
 		return nil
 	}

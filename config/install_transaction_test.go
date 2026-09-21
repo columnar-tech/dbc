@@ -346,7 +346,7 @@ func TestInspectDriverInstallReceiptUsesSelectedEnvironmentPath(t *testing.T) {
 	}
 }
 
-func TestValidatePackageReturnsAndComparesRuntimeRegistration(t *testing.T) {
+func TestPreparePackageReturnsAndComparesRuntimeRegistration(t *testing.T) {
 	root := t.TempDir()
 	externalLibrary := filepath.Join(root, "external-driver.so")
 	if err := os.WriteFile(externalLibrary, []byte("external library"), 0o644); err != nil {
@@ -362,11 +362,20 @@ shared = %q
 `, externalLibrary))
 	archive := makeInstallArchiveWithEntries(t, installArchiveEntry{name: "MANIFEST", data: manifest})
 	file := writeInstallArchive(t, archive, "external-registration")
-	validation, err := ValidatePackage("example", file, installExpected("example", "source", archive), InstallOptions{})
+	cfg := Config{Level: ConfigEnv, Location: root}
+	validation, err := PreparePackage(cfg, "example", file, installExpected("example", "source", archive), InstallOptions{})
 	_ = file.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
+	if validation.Prepared == nil {
+		t.Fatal("package preparation returned no prepared payload")
+	}
+	t.Cleanup(func() {
+		if err := validation.Prepared.Close(); err != nil {
+			t.Errorf("close prepared package: %v", err)
+		}
+	})
 	if validation.VerifiedLibraryHash != "" {
 		t.Fatalf("manifest-only package library hash = %q, want empty", validation.VerifiedLibraryHash)
 	}

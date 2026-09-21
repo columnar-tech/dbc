@@ -135,10 +135,18 @@ func TestPackageValidationFingerprintMatchesInstalledReceipt(t *testing.T) {
 	expected.Version = "1.2.3"
 	validationFile := writeInstallArchive(t, archive, "fingerprint-validation")
 	defer validationFile.Close()
-	validation, err := ValidatePackage("example", validationFile, expected, InstallOptions{})
+	validation, err := PreparePackage(cfg, "example", validationFile, expected, InstallOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if validation.Prepared == nil {
+		t.Fatal("package preparation returned no prepared payload")
+	}
+	t.Cleanup(func() {
+		if err := validation.Prepared.Close(); err != nil {
+			t.Errorf("close prepared package: %v", err)
+		}
+	})
 	if validation.RegistrationFingerprintAlgorithm != registrationFingerprintAlgorithm || validation.RegistrationFingerprintVersion != registrationFingerprintVersion {
 		t.Fatalf("validation fingerprint algorithm/version = %q/%d", validation.RegistrationFingerprintAlgorithm, validation.RegistrationFingerprintVersion)
 	}

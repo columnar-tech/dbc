@@ -1133,7 +1133,7 @@ func (s syncModel) runSyncWorker(worker *syncWorker) (result syncWorkerResultMsg
 
 	prepared, err := s.prepareInstallItems(ctx, items)
 	defer func() {
-		if cleanupErr := closePreparedArchives(prepared.items); cleanupErr != nil {
+		if cleanupErr := closePreparedItems(prepared.items); cleanupErr != nil {
 			result.err = errors.Join(result.err, fmt.Errorf("failed to clean up prepared package workspaces: %w", cleanupErr))
 			if result.code == "" {
 				result.code = "sync_failed"
@@ -1212,7 +1212,7 @@ func (s syncModel) runSyncWorker(worker *syncWorker) (result syncWorkerResultMsg
 	return result
 }
 
-func closePreparedArchives(items []installItem) error {
+func closePreparedItems(items []installItem) error {
 	var closeErr error
 	for i := range items {
 		if items[i].Archive != nil {

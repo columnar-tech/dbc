@@ -226,7 +226,7 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 
 	prepared, err := model.prepareInstallItems(context.Background(), items)
 	require.NoError(t, err)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	require.Len(t, prepared.lock.Drivers, 1)
 	locked := prepared.lock.Drivers[0]
 	assert.Equal(t, "packslip", locked.Source.Type)
@@ -283,7 +283,7 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	assert.Equal(t, archiveSize, *replayedArtifact.Size)
 	replayed, err := replay.prepareInstallItems(context.Background(), replayItems)
 	require.NoError(t, err)
-	defer closePreparedArchives(replayed.items)
+	defer closePreparedItems(replayed.items)
 	assert.Equal(t, 1, downloadCalls)
 	assert.ElementsMatch(t, prepared.lock.Drivers[0].Artifacts, replayed.lock.Drivers[0].Artifacts)
 }
@@ -292,6 +292,18 @@ func assertFileClosed(t *testing.T, file *os.File) {
 	t.Helper()
 	_, err := file.Stat()
 	assert.Error(t, err, "stat on a closed file must fail")
+}
+
+func assertNoPreparedWorkspaces(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.False(t, strings.HasPrefix(entry.Name(), ".dbc-install-"), "unexpected prepared workspace %q", entry.Name())
+	}
 }
 
 func TestPathResolutionDerivesVersionAndUsesProjectRelativeArchive(t *testing.T) {
@@ -322,7 +334,7 @@ func TestPathResolutionDerivesVersionAndUsesProjectRelativeArchive(t *testing.T)
 
 	prepared, err := model.prepareInstallItems(context.Background(), items)
 	require.NoError(t, err)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	locked := prepared.lock.Drivers[0]
 	assert.Equal(t, "1.0.0", locked.Version.String())
 	assert.Equal(t, declaredPath, locked.Source.Path)
@@ -351,7 +363,7 @@ func TestPathPackageV2MarkerSurvivesResolutionAndLockSnapshot(t *testing.T) {
 	assert.Equal(t, "1.2.3", items[0].Release.Version)
 	prepared, err := model.prepareInstallItems(context.Background(), items)
 	require.NoError(t, err)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	require.Len(t, prepared.lock.Drivers, 1)
 	assert.Equal(t, 2, prepared.lock.Drivers[0].Artifacts[0].PackageVersion)
 	expected, _, err := expectedSyncPackageMetadata(prepared.items[0])
@@ -374,7 +386,7 @@ func TestPathArchiveMutationAfterResolutionFailsBeforeCandidateLock(t *testing.T
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(archivePath, append(archiveBytes, []byte("changed")...), 0o600))
 	prepared, err := model.prepareInstallItems(context.Background(), items)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	require.ErrorContains(t, err, "package archive hash mismatch")
 	assert.NoFileExists(t, model.LockFilePath)
 }
@@ -410,7 +422,7 @@ func TestPathMetadataDerivedRefreshAdoptsArchiveVersionWithoutOldSnapshotProof(t
 
 	prepared, err := model.prepareInstallItems(context.Background(), items)
 	require.NoError(t, err)
-	defer closePreparedArchives(prepared.items)
+	defer closePreparedItems(prepared.items)
 	require.Len(t, prepared.lock.Drivers, 1)
 	candidate := prepared.lock.Drivers[0]
 	assert.Equal(t, "1.2.3", candidate.Version.String())
@@ -1400,11 +1412,7 @@ func (suite *SubcommandTestSuite) TestSyncCandidateLockFailureDoesNotInstall() {
 	suite.Require().NoError(err)
 	suite.Equal(oldLock, newLock)
 	assertFileClosed(suite.T(), downloadedArchive)
-	entries, err := os.ReadDir(suite.Dir())
-	suite.Require().NoError(err)
-	for _, entry := range entries {
-		suite.False(strings.HasPrefix(entry.Name(), ".dbc-install-"), "candidate-save failure leaked prepared staging directory %q", entry.Name())
-	}
+	assertNoPreparedWorkspaces(suite.T(), suite.Dir())
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLock() {
@@ -1517,8 +1525,10 @@ func (suite *SubcommandTestSuite) TestSyncLegacyLibraryProofUsesValidatedArchive
 		ID: "test-driver-1", Version: "1.0.0", Platform: config.PlatformTuple(),
 		SourceType: "registry", SourceIdentity: testRegistry.BaseURL.String(),
 	}
-	validation, err := config.ValidatePackage("test-driver-1", archive, expected, config.InstallOptions{})
+	validation, err := config.PreparePackage(config.Config{Level: suite.configLevel, Location: suite.Dir()}, "test-driver-1", archive, expected, config.InstallOptions{})
 	suite.Require().NoError(err)
+	suite.Require().NotNil(validation.Prepared)
+	suite.NoError(validation.Prepared.Close())
 	suite.NoError(archive.Close())
 	libraryHash := strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
 	legacyLock := fmt.Sprintf("version = 1\n\n[[drivers]]\nname = %q\nversion = %q\nplatform = %q\nchecksum = %q\n", "test-driver-1", "1.0.0", config.PlatformTuple(), libraryHash)
@@ -1582,7 +1592,7 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		root, listPath, lockPath, archivePath, proofHash string
 		oldLock                                          []byte
 	}
-	setup := func(t *testing.T, currentPath, candidatePath string, proofData, candidateData []byte, candidateExists bool, currentEntrypoint, candidateEntrypoint string, registered bool) fixture {
+	setup := func(t *testing.T, currentPath, candidatePath string, proofData, candidateData []byte) fixture {
 		t.Helper()
 		root := t.TempDir()
 		t.Setenv("ADBC_DRIVER_PATH", root)
@@ -1600,27 +1610,23 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 				t.Fatal(err)
 			}
 		}
-		if registered {
-			writeExternal(currentPath, proofData)
-			if err := os.WriteFile(filepath.Join(filepath.Dir(currentPath), "LICENSE"), []byte("external sibling"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			current := config.DriverInfo{
-				ID: "test-driver-1", Name: "Legacy Shared Driver", Version: semver.MustParse("1.1.0"), Source: "dbc",
-			}
-			current.Driver.Entrypoint = currentEntrypoint
-			current.Driver.Shared.Set(config.PlatformTuple(), currentPath)
-			if err := config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: root}, current); err != nil {
-				t.Fatal(err)
-			}
+		writeExternal(currentPath, proofData)
+		if err := os.WriteFile(filepath.Join(filepath.Dir(currentPath), "LICENSE"), []byte("external sibling"), 0o644); err != nil {
+			t.Fatal(err)
 		}
-		if candidateExists {
-			if candidatePath != currentPath || !registered {
-				writeExternal(candidatePath, candidateData)
-			}
+		if candidatePath != currentPath {
+			writeExternal(candidatePath, candidateData)
 			if err := os.WriteFile(filepath.Join(filepath.Dir(candidatePath), "LICENSE"), []byte("candidate sibling"), 0o644); err != nil {
 				t.Fatal(err)
 			}
+		}
+		current := config.DriverInfo{
+			ID: "test-driver-1", Name: "Legacy Shared Driver", Version: semver.MustParse("1.1.0"), Source: "dbc",
+		}
+		current.Driver.Entrypoint = "DriverInit"
+		current.Driver.Shared.Set(config.PlatformTuple(), currentPath)
+		if err := config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: root}, current); err != nil {
+			t.Fatal(err)
 		}
 		proofFile := filepath.Join(t.TempDir(), "proof-library")
 		if err := os.WriteFile(proofFile, proofData, 0o600); err != nil {
@@ -1635,7 +1641,7 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 			t.Fatal(err)
 		}
 		archivePath := filepath.Join(t.TempDir(), "manifest-only.tar.gz")
-		archiveBytes := makeSyncManifestOnlyArchive(t, "1.1.0", candidatePath, candidateEntrypoint)
+		archiveBytes := makeSyncManifestOnlyArchive(t, "1.1.0", candidatePath, "DriverInit")
 		if err := os.WriteFile(archivePath, archiveBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -1645,7 +1651,7 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		}
 	}
 
-	run := func(t *testing.T, root, driverListPath, archivePath string, count *syncArchiveRunCounts, registry func() ([]dbc.Driver, error)) (string, error) {
+	run := func(t *testing.T, driverListPath, archivePath string, count *syncArchiveRunCounts, registry func() ([]dbc.Driver, error)) (string, error) {
 		t.Helper()
 		model := SyncCmd{Path: driverListPath, NoVerify: true}.GetModelCustom(baseModel{
 			getDriverRegistry: func() ([]dbc.Driver, error) {
@@ -1703,9 +1709,9 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		t := suite.T()
 		path := filepath.Join(t.TempDir(), "external", "library.so")
 		data := []byte("legacy external library")
-		fixture := setup(t, path, path, data, data, true, "DriverInit", "DriverInit", true)
+		fixture := setup(t, path, path, data, data)
 		counts := &syncArchiveRunCounts{}
-		_, err := run(t, fixture.root, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+		_, err := run(t, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
 		suite.NoError(err)
 		suite.Equal(syncArchiveRunCounts{registry: 1, download: 1, install: 0}, *counts)
 		updated, err := loadLockFile(fixture.lockPath)
@@ -1724,7 +1730,7 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		suite.NotEqual(fixture.oldLock, lockAfterMigration)
 
 		replayCounts := &syncArchiveRunCounts{}
-		_, err = run(t, fixture.root, fixture.listPath, fixture.archivePath, replayCounts, func() ([]dbc.Driver, error) {
+		_, err = run(t, fixture.listPath, fixture.archivePath, replayCounts, func() ([]dbc.Driver, error) {
 			return nil, errors.New("locked v2 replay must not discover registry")
 		})
 		suite.NoError(err)
@@ -1734,48 +1740,36 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		suite.Equal(lockAfterMigration, lockAfterReplay)
 	})
 
-	for _, test := range []struct {
-		name           string
-		candidateData  []byte
-		candidateFound bool
-	}{
-		{name: "candidate bytes mismatch", candidateData: []byte("not the legacy library"), candidateFound: true},
-	} {
-		suite.Run(test.name, func() {
-			t := suite.T()
-			root := t.TempDir()
-			currentPath := filepath.Join(root, "external-current", "library.so")
-			candidatePath := filepath.Join(root, "external-candidate", "library.so")
-			proofData := []byte("preserved legacy library")
-			fixture := setup(t, currentPath, candidatePath, proofData, test.candidateData, test.candidateFound, "DriverInit", "DriverInit", true)
-			beforeManifest, err := os.ReadFile(filepath.Join(fixture.root, "test-driver-1.toml"))
-			suite.Require().NoError(err)
-			counts := &syncArchiveRunCounts{}
-			out, err := run(t, fixture.root, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
-			suite.Error(err)
-			suite.Contains(out, "candidate package external library does not match the legacy lock proof")
-			suite.Equal(1, counts.registry)
-			suite.Equal(1, counts.download)
-			suite.Equal(0, counts.install)
-			lockAfter, err := os.ReadFile(fixture.lockPath)
-			suite.Require().NoError(err)
-			suite.Equal(fixture.oldLock, lockAfter)
-			manifestAfter, err := os.ReadFile(filepath.Join(fixture.root, "test-driver-1.toml"))
-			suite.Require().NoError(err)
-			suite.Equal(beforeManifest, manifestAfter)
-			currentAfter, err := os.ReadFile(currentPath)
-			suite.Require().NoError(err)
-			suite.Equal(proofData, currentAfter)
-			if test.candidateFound {
-				candidateAfter, err := os.ReadFile(candidatePath)
-				suite.Require().NoError(err)
-				suite.Equal(test.candidateData, candidateAfter)
-			} else {
-				_, err := os.Stat(candidatePath)
-				suite.ErrorIs(err, os.ErrNotExist)
-			}
-		})
-	}
+	suite.Run("mismatched candidate proof fails before mutation", func() {
+		t := suite.T()
+		root := t.TempDir()
+		currentPath := filepath.Join(root, "external-current", "library.so")
+		candidatePath := filepath.Join(root, "external-candidate", "library.so")
+		proofData := []byte("preserved legacy library")
+		candidateData := []byte("not the legacy library")
+		fixture := setup(t, currentPath, candidatePath, proofData, candidateData)
+		beforeManifest, err := os.ReadFile(filepath.Join(fixture.root, "test-driver-1.toml"))
+		suite.Require().NoError(err)
+		counts := &syncArchiveRunCounts{}
+		out, err := run(t, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+		suite.Error(err)
+		suite.Contains(out, "candidate package external library does not match the legacy lock proof")
+		suite.Equal(1, counts.registry)
+		suite.Equal(1, counts.download)
+		suite.Equal(0, counts.install)
+		lockAfter, err := os.ReadFile(fixture.lockPath)
+		suite.Require().NoError(err)
+		suite.Equal(fixture.oldLock, lockAfter)
+		manifestAfter, err := os.ReadFile(filepath.Join(fixture.root, "test-driver-1.toml"))
+		suite.Require().NoError(err)
+		suite.Equal(beforeManifest, manifestAfter)
+		currentAfter, err := os.ReadFile(currentPath)
+		suite.Require().NoError(err)
+		suite.Equal(proofData, currentAfter)
+		candidateAfter, err := os.ReadFile(candidatePath)
+		suite.Require().NoError(err)
+		suite.Equal(candidateData, candidateAfter)
+	})
 
 }
 
@@ -2367,11 +2361,7 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			if preparedPayload != nil {
 				suite.NoError(preparedPayload.Close(), "prepared payload should already have been closed by worker cleanup")
 			}
-			entries, readErr := os.ReadDir(suite.Dir())
-			suite.Require().NoError(readErr)
-			for _, entry := range entries {
-				suite.False(strings.HasPrefix(entry.Name(), ".dbc-install-"), "cancellation leaked staging workspace %q", entry.Name())
-			}
+			assertNoPreparedWorkspaces(suite.T(), suite.Dir())
 			projectLock, lockErr := fslock.Acquire(projectLockPath, time.Second)
 			suite.NoError(lockErr)
 			if lockErr == nil {

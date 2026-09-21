@@ -18,6 +18,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -489,7 +490,7 @@ func TestInflateTarballRejectsArchiveAttacks(t *testing.T) {
 	}
 }
 
-func TestInstallPackageArchiveChecksMetadataAndDigests(t *testing.T) {
+func TestInstallPackageChecksMetadataAndDigests(t *testing.T) {
 	archive := validV2Archive(t, []byte("library"))
 	tests := []struct {
 		name   string
@@ -508,7 +509,7 @@ func TestInstallPackageArchiveChecksMetadataAndDigests(t *testing.T) {
 			expected := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/example/project", archive)
 			tt.mutate(&expected)
 			f := openPackageArchive(t, archive)
-			_, err := config.InstallPackageArchive(cfg, f, expected)
+			_, err := config.InstallPackage(cfg, "example", f, expected, config.InstallOptions{})
 			_ = f.Close()
 			require.Error(t, err)
 			assert.NoDirExists(t, filepath.Join(root, "example"))
@@ -539,8 +540,11 @@ shared = "external-driver"
 
 	candidate := expectedPackage("example", "1.2.3", config.PlatformTuple(), "packslip-project", archive)
 	candidateFile := openPackageArchive(t, archive)
-	_, err = config.ValidatePackage("example", candidateFile, candidate, config.InstallOptions{})
+	validation, err := config.PreparePackage(cfg, "example", candidateFile, candidate, config.InstallOptions{})
 	require.ErrorContains(t, err, "dbc package version mismatch: archive declares 0, expected 2")
+	if validation.Prepared != nil {
+		require.NoError(t, validation.Prepared.Close())
+	}
 	_, err = candidateFile.Seek(0, 0)
 	require.NoError(t, err)
 	_, err = config.InstallPackage(cfg, "example", candidateFile, candidate, config.InstallOptions{})
@@ -555,7 +559,7 @@ shared = "external-driver"
 	assert.Equal(t, beforeLibrary, afterLibrary)
 }
 
-func TestValidatePackageIsNonMutatingAndArchiveCanBeInstalledAfterward(t *testing.T) {
+func TestPreparePackageIsNonMutatingAndPreparedPackageCanBeInstalled(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
 	oldArchive := validV2Archive(t, []byte("existing library"))
@@ -590,14 +594,16 @@ func TestValidatePackageIsNonMutatingAndArchiveCanBeInstalledAfterward(t *testin
 		}
 		return nil
 	}}
-	validation, err := config.ValidatePackage("example", candidateFile, candidate, options)
+	validation, err := config.PreparePackage(cfg, "example", candidateFile, candidate, options)
 	require.NoError(t, err)
+	require.NotNil(t, validation.Prepared)
+	t.Cleanup(func() { require.NoError(t, validation.Prepared.Close()) })
 	wantLibraryHash := sha256.Sum256(candidateLibrary)
 	assert.Equal(t, "sha256:"+hex.EncodeToString(wantLibraryHash[:]), validation.VerifiedLibraryHash)
 	assert.NotEqual(t, candidate.ArchiveHash, validation.VerifiedLibraryHash)
 	assert.Equal(t, 1, verifyCalls)
 	_, err = os.Stat(validationStagingDir)
-	assert.ErrorIs(t, err, os.ErrNotExist, "validation staging directory must be removed before return")
+	assert.NoError(t, err, "prepared payload remains staged until it is installed or closed")
 
 	registrationAfterValidation, err := os.ReadFile(filepath.Join(root, "example.toml"))
 	require.NoError(t, err)
@@ -607,17 +613,24 @@ func TestValidatePackageIsNonMutatingAndArchiveCanBeInstalledAfterward(t *testin
 	assert.Equal(t, oldLibrary, currentLibrary)
 	entriesAfter, err := os.ReadDir(root)
 	require.NoError(t, err)
-	assert.Equal(t, entryNames(entriesBefore), entryNames(entriesAfter))
+	assert.Len(t, entriesAfter, len(entriesBefore)+1, "preparation adds one private workspace without changing the registered package")
+	assert.Contains(t, entryNames(entriesAfter), filepath.Base(filepath.Dir(validationStagingDir)))
 
-	installed, err := config.InstallPackage(cfg, "example", candidateFile, candidate, options)
-	require.NoError(t, err, "the archive should remain reusable after validation")
-	assert.Equal(t, 2, verifyCalls, "install should perform its own verification")
-	installedLibrary, err := os.ReadFile(installed.Driver.Shared.Get(config.PlatformTuple()))
+	ensure, err := config.EnsurePackage(context.Background(), cfg, "example", candidate, config.EnsurePackageCallbacks{
+		CurrentMatches: func(*config.DriverInfo) (bool, error) { return false, nil },
+		Prepare:        func(context.Context) (*config.PreparedPackage, error) { return validation.Prepared, nil },
+	})
+	require.NoError(t, err, "the prepared payload should remain reusable for EnsurePackage")
+	require.NotNil(t, ensure.Manifest)
+	assert.Equal(t, 1, verifyCalls, "prepared package verification is reused for installation")
+	_, err = os.Stat(validationStagingDir)
+	assert.ErrorIs(t, err, os.ErrNotExist, "EnsurePackage closes the consumed prepared workspace")
+	installedLibrary, err := os.ReadFile(ensure.Manifest.Driver.Shared.Get(config.PlatformTuple()))
 	require.NoError(t, err)
 	assert.Equal(t, candidateLibrary, installedLibrary)
 }
 
-func TestValidatePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
+func TestPreparePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
 	archive := validV2Archive(t, []byte("library"))
 	mutations := []struct {
 		name   string
@@ -637,7 +650,11 @@ func TestValidatePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
 			tt.mutate(&expected)
 			file := openPackageArchive(t, archive)
 			defer file.Close()
-			_, err := config.ValidatePackage("example", file, expected, config.InstallOptions{})
+			cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+			validation, err := config.PreparePackage(cfg, "example", file, expected, config.InstallOptions{})
+			if validation.Prepared != nil {
+				require.NoError(t, validation.Prepared.Close())
+			}
 			require.Error(t, err)
 		})
 	}
@@ -647,12 +664,16 @@ func TestValidatePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
 		var stagingDir string
 		file := openPackageArchive(t, archive)
 		defer file.Close()
-		_, err := config.ValidatePackage("example", file,
+		cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+		validation, err := config.PreparePackage(cfg, "example", file,
 			expectedPackage("example", "1.2.3", config.PlatformTuple(), "source", archive),
 			config.InstallOptions{Verify: func(dir string, _ config.Manifest) error {
 				stagingDir = dir
 				return verifyErr
 			}})
+		if validation.Prepared != nil {
+			require.NoError(t, validation.Prepared.Close())
+		}
 		require.ErrorIs(t, err, verifyErr)
 		_, statErr := os.Stat(stagingDir)
 		assert.ErrorIs(t, statErr, os.ErrNotExist)
@@ -667,20 +688,21 @@ func entryNames(entries []os.DirEntry) []string {
 	return names
 }
 
-func TestInstallPackageArchiveReceiptReplacementAndRuntimeManifest(t *testing.T) {
+func TestInstallPackageReceiptReplacementAndRuntimeManifest(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
 	firstArchive := validV2Archive(t, []byte("first library"))
 	first := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/first/source", firstArchive)
 	f := openPackageArchive(t, firstArchive)
-	manifest, err := config.InstallPackageArchive(cfg, f, first)
+	manifest, err := config.InstallPackage(cfg, "example", f, first, config.InstallOptions{})
 	require.NoError(t, err)
 	_ = f.Close()
 	assert.Equal(t, "dbc", manifest.Source)
-	assert.FileExists(t, filepath.Join(root, "example", "libexample.so"))
+	firstLibraryPath := manifest.Driver.Shared.Get(config.PlatformTuple())
+	assert.FileExists(t, firstLibraryPath)
 
-	receiptPath := filepath.Join(root, "example", "dbc-install-receipt.json")
-	firstReceiptBytes, err := os.ReadFile(receiptPath)
+	firstReceiptPath := filepath.Join(filepath.Dir(firstLibraryPath), "dbc-install-receipt.json")
+	firstReceiptBytes, err := os.ReadFile(firstReceiptPath)
 	require.NoError(t, err)
 	var firstReceipt config.InstallReceipt
 	require.NoError(t, json.Unmarshal(firstReceiptBytes, &firstReceipt))
@@ -695,15 +717,17 @@ func TestInstallPackageArchiveReceiptReplacementAndRuntimeManifest(t *testing.T)
 	secondArchive := validV2Archive(t, []byte("second library"))
 	second := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/second/source", secondArchive)
 	f = openPackageArchive(t, secondArchive)
-	manifest, err = config.InstallPackageArchive(cfg, f, second)
+	manifest, err = config.InstallPackage(cfg, "example", f, second, config.InstallOptions{})
 	require.NoError(t, err)
 	_ = f.Close()
 	assert.Equal(t, "dbc", manifest.Source, "runtime source retains dbc uninstall semantics")
-	contents, err := os.ReadFile(filepath.Join(root, "example", "libexample.so"))
+	secondLibraryPath := manifest.Driver.Shared.Get(config.PlatformTuple())
+	contents, err := os.ReadFile(secondLibraryPath)
 	require.NoError(t, err)
 	assert.Equal(t, "second library", string(contents))
 
-	secondReceiptBytes, err := os.ReadFile(receiptPath)
+	secondReceiptPath := filepath.Join(filepath.Dir(secondLibraryPath), "dbc-install-receipt.json")
+	secondReceiptBytes, err := os.ReadFile(secondReceiptPath)
 	require.NoError(t, err)
 	var secondReceipt config.InstallReceipt
 	require.NoError(t, json.Unmarshal(secondReceiptBytes, &secondReceipt))
@@ -725,7 +749,7 @@ func TestInstallPackageArchiveReceiptReplacementAndRuntimeManifest(t *testing.T)
 	loaded, err := config.GetDriver(cfg, "example")
 	require.NoError(t, err)
 	assert.Equal(t, "dbc", loaded.Source)
-	assert.Equal(t, filepath.Join(root, "example", "libexample.so"), loaded.Driver.Shared.Get(config.PlatformTuple()))
+	assert.Equal(t, secondLibraryPath, loaded.Driver.Shared.Get(config.PlatformTuple()))
 }
 
 func TestInstallReceiptPackageVersionProofPreservesUnspecifiedSources(t *testing.T) {
@@ -752,29 +776,31 @@ func TestFailedReplacementPreservesExistingPackage(t *testing.T) {
 	archive := validV2Archive(t, []byte("installed library"))
 	expected := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/example/source", archive)
 	f := openPackageArchive(t, archive)
-	_, err := config.InstallPackageArchive(cfg, f, expected)
+	installed, err := config.InstallPackage(cfg, "example", f, expected, config.InstallOptions{})
 	require.NoError(t, err)
 	_ = f.Close()
-	originalLibrary, err := os.ReadFile(filepath.Join(root, "example", "libexample.so"))
+	originalLibraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
+	originalReceiptPath := filepath.Join(filepath.Dir(originalLibraryPath), "dbc-install-receipt.json")
+	originalLibrary, err := os.ReadFile(originalLibraryPath)
 	require.NoError(t, err)
-	originalReceipt, err := os.ReadFile(filepath.Join(root, "example", "dbc-install-receipt.json"))
+	originalReceipt, err := os.ReadFile(originalReceiptPath)
 	require.NoError(t, err)
 
 	badExpected := expected
 	badExpected.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
 	f = openPackageArchive(t, validV2Archive(t, []byte("replacement library")))
-	_, err = config.InstallPackageArchive(cfg, f, badExpected)
+	_, err = config.InstallPackage(cfg, "example", f, badExpected, config.InstallOptions{})
 	_ = f.Close()
 	require.Error(t, err)
-	currentLibrary, err := os.ReadFile(filepath.Join(root, "example", "libexample.so"))
+	currentLibrary, err := os.ReadFile(originalLibraryPath)
 	require.NoError(t, err)
-	currentReceipt, err := os.ReadFile(filepath.Join(root, "example", "dbc-install-receipt.json"))
+	currentReceipt, err := os.ReadFile(originalReceiptPath)
 	require.NoError(t, err)
 	assert.Equal(t, originalLibrary, currentLibrary)
 	assert.Equal(t, originalReceipt, currentReceipt)
 }
 
-func TestConcurrentInstallPackageArchiveSerializesSameTarget(t *testing.T) {
+func TestConcurrentInstallPackageSerializesSameTarget(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
 	firstArchive := validV2Archive(t, []byte("first library"))
@@ -786,12 +812,12 @@ func TestConcurrentInstallPackageArchiveSerializesSameTarget(t *testing.T) {
 
 	results := make(chan error, 2)
 	go func() {
-		_, err := config.InstallPackageArchive(cfg, firstFile, firstExpected)
+		_, err := config.InstallPackage(cfg, "example", firstFile, firstExpected, config.InstallOptions{})
 		_ = firstFile.Close()
 		results <- err
 	}()
 	go func() {
-		_, err := config.InstallPackageArchive(cfg, secondFile, secondExpected)
+		_, err := config.InstallPackage(cfg, "example", secondFile, secondExpected, config.InstallOptions{})
 		_ = secondFile.Close()
 		results <- err
 	}()
@@ -799,11 +825,14 @@ func TestConcurrentInstallPackageArchiveSerializesSameTarget(t *testing.T) {
 		require.NoError(t, <-results)
 	}
 
+	installed, err := config.GetDriver(cfg, "example")
+	require.NoError(t, err)
+	libraryPath := installed.Driver.Shared.Get(config.PlatformTuple())
 	var receipt config.InstallReceipt
-	receiptBytes, err := os.ReadFile(filepath.Join(root, "example", "dbc-install-receipt.json"))
+	receiptBytes, err := os.ReadFile(filepath.Join(filepath.Dir(libraryPath), "dbc-install-receipt.json"))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(receiptBytes, &receipt))
-	library, err := os.ReadFile(filepath.Join(root, "example", "libexample.so"))
+	library, err := os.ReadFile(libraryPath)
 	require.NoError(t, err)
 	switch receipt.SourceIdentity {
 	case firstExpected.SourceIdentity:

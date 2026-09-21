@@ -435,19 +435,6 @@ func decodeDriverShared(value any, required bool) (driverMap, error) {
 	return result, nil
 }
 
-// InstallPackageArchive verifies and installs an already-downloaded package.
-// The expected metadata must describe the resolution that selected the
-// archive. The archive remains open for the caller.
-func InstallPackageArchive(cfg Config, downloaded *os.File, expected ExpectedPackageMetadata) (Manifest, error) {
-	if downloaded == nil {
-		return Manifest{}, errors.New("package archive is nil")
-	}
-	if err := validateExpectedPackage(expected); err != nil {
-		return Manifest{}, err
-	}
-	return installPackageArchive(cfg, expected.ID, expected.ID, downloaded, expected)
-}
-
 // InstallPackage prepares a package in a private generation directory, verifies
 // it, registers its runtime manifest, and then removes a previous managed
 // generation when its receipt proves ownership. The downloaded archive remains
@@ -880,47 +867,6 @@ func PreparePackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 		RegistrationFingerprint:          receipt.RegistrationFingerprint,
 		registrationSharedIdentity:       sharedIdentity,
 		Prepared:                         prepared,
-	}, nil
-}
-
-// ValidatePackage verifies an already-downloaded archive without retaining a
-// staged payload. The archive remains open for the caller.
-func ValidatePackage(runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata, options InstallOptions) (validation PackageValidation, err error) {
-	if downloaded == nil {
-		return PackageValidation{}, errors.New("package archive is nil")
-	}
-	expected, err = normalizePackageInstallMetadata(runtimeID, expected)
-	if err != nil {
-		return PackageValidation{}, err
-	}
-	workDir, err := os.MkdirTemp("", "dbc-package-validate-")
-	if err != nil {
-		return PackageValidation{}, fmt.Errorf("could not create private package validation directory: %w", err)
-	}
-	defer func() {
-		if cleanupErr := os.RemoveAll(workDir); cleanupErr != nil {
-			validation = PackageValidation{}
-			err = errors.Join(err, fmt.Errorf("could not remove package validation directory: %w", cleanupErr))
-		}
-	}()
-
-	finalDir := filepath.Join(workDir, "installed")
-	manifest, payloadDir, sharedIdentity, err := stagePackageArchive(workDir, runtimeID, finalDir, downloaded, expected, options.Verify, workDir)
-	if err != nil {
-		return PackageValidation{}, err
-	}
-	receipt, ok := readPackageReceiptEvidence(workDir, runtimeID, payloadDir)
-	if !ok {
-		return PackageValidation{}, errors.New("could not read validated package receipt")
-	}
-	return PackageValidation{
-		VerifiedLibraryHash: receipt.InstalledLibraryHash,
-		ArchiveHash:         receipt.ArchiveHash, ArchiveSize: receipt.ArchiveSize,
-		PackageVersion: manifest.PackageVersion, Registration: manifest.DriverInfo,
-		RegistrationFingerprintAlgorithm: receipt.RegistrationFingerprintAlgorithm,
-		RegistrationFingerprintVersion:   receipt.RegistrationFingerprintVersion,
-		RegistrationFingerprint:          receipt.RegistrationFingerprint,
-		registrationSharedIdentity:       sharedIdentity,
 	}, nil
 }
 

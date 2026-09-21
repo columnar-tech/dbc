@@ -259,7 +259,7 @@ func (e *packageExecutor) prepareItem(ctx context.Context, item *installItem) er
 
 	needsArchive := item.AlreadyInstalled == nil || !canReuseLockedEntry(*item)
 	if needsArchive {
-		if err := e.downloadAndValidateItem(ctx, item); err != nil {
+		if err := e.downloadAndPrepareItem(ctx, item); err != nil {
 			return err
 		}
 		if sameVersionInstalled != nil {
@@ -293,7 +293,7 @@ func (e *packageExecutor) prepareItem(ctx context.Context, item *installItem) er
 	return nil
 }
 
-func (e *packageExecutor) downloadAndValidateItem(ctx context.Context, item *installItem) error {
+func (e *packageExecutor) downloadAndPrepareItem(ctx context.Context, item *installItem) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -431,7 +431,7 @@ func (e *packageExecutor) ensurePreparedPackage(ctx context.Context, item *insta
 		},
 		Prepare: func(ctx context.Context) (*config.PreparedPackage, error) {
 			if item.Validation == nil || item.Validation.Prepared == nil {
-				if err := e.downloadAndValidateItem(ctx, item); err != nil {
+				if err := e.downloadAndPrepareItem(ctx, item); err != nil {
 					return nil, err
 				}
 			}
