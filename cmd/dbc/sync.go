@@ -473,6 +473,9 @@ func (s syncModel) registryDiscoveryNeeded(list DriversList) (bool, error) {
 }
 
 func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
+	if !driverSourceMatchesLock(spec.Source, entry.Source) {
+		return false
+	}
 	if entry.Version == nil {
 		return false
 	}
@@ -485,6 +488,34 @@ func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 		return spec.Version.Check(entry.Version)
 	}
 	return entry.Version.Prerelease() == "" || spec.Prerelease == "allow"
+}
+
+func driverSourceMatchesLock(source *dbc.DriverSource, locked lockSource) bool {
+	if source == nil {
+		return locked.Type == string(dbc.DriverSourceRegistry)
+	}
+	switch source.Type {
+	case dbc.DriverSourceRegistry:
+		return locked.Type == string(dbc.DriverSourceRegistry) && locked.URL == source.URL
+	case dbc.DriverSourcePackslip:
+		return locked.Type == string(dbc.DriverSourcePackslip) &&
+			canonicalPackslipProject(locked.Project) == canonicalPackslipProject(source.Project)
+	case dbc.DriverSourcePath:
+		return locked.Type == string(dbc.DriverSourcePath) && locked.Path == source.Path
+	default:
+		return false
+	}
+}
+
+func canonicalPackslipProject(project string) string {
+	parts := strings.Split(project, "/")
+	if len(parts) < 3 {
+		return project
+	}
+	for i := 0; i < 3; i++ {
+		parts[i] = strings.ToLower(parts[i])
+	}
+	return strings.Join(parts, "/")
 }
 
 func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {

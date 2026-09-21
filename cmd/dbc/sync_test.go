@@ -67,7 +67,10 @@ func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testi
 func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
 	requested, err := semver.NewConstraint("1.2.3+foo")
 	require.NoError(t, err)
-	entry := lockInfo{Version: semver.MustParse("1.2.3+bar")}
+	entry := lockInfo{
+		Version: semver.MustParse("1.2.3+bar"),
+		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
+	}
 	packslipSpec := driverSpec{
 		Version: requested,
 		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/example/driver"},
@@ -78,9 +81,62 @@ func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
 
 	registryConstraint, err := semver.NewConstraint(">=1.2.3")
 	require.NoError(t, err)
-	registryEntry := lockInfo{Version: semver.MustParse("1.2.3+bar")}
+	registryEntry := lockInfo{
+		Version: semver.MustParse("1.2.3+bar"),
+		Source:  lockSource{Type: "registry", URL: "https://registry.example.test"},
+	}
 	assert.True(t, lockVersionSatisfiesSpec(registryEntry, driverSpec{Version: registryConstraint}),
 		"registry constraints retain existing SemVer precedence behavior")
+}
+
+func TestLockVersionSatisfiesSpecRequiresMatchingSource(t *testing.T) {
+	version := semver.MustParse("1.2.3")
+	packslipConstraint, err := semver.NewConstraint("1.2.3")
+	require.NoError(t, err)
+	packslipSpec := driverSpec{
+		Version: packslipConstraint,
+		Source:  &dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/Example/Driver"},
+	}
+	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "registry", URL: "https://registry.example.test"},
+	}, packslipSpec), "a same-version registry lock cannot satisfy a Packslip declaration")
+	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
+	}, packslipSpec), "GitHub host, owner, and repo are canonicalized consistently")
+
+	registryConstraint, err := semver.NewConstraint("1.2.3")
+	require.NoError(t, err)
+	defaultRegistrySpec := driverSpec{Version: registryConstraint}
+	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "registry", URL: "https://custom.example.test"},
+	}, defaultRegistrySpec), "legacy/default registry declarations do not pin an undeclared URL")
+	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "packslip", Project: "github.com/example/driver"},
+	}, defaultRegistrySpec))
+
+	explicitRegistry := &dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test"}
+	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "registry", URL: explicitRegistry.URL},
+	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}))
+	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "registry", URL: "https://other.example.test"},
+	}, driverSpec{Version: registryConstraint, Source: explicitRegistry}))
+
+	pathSource := &dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "./packages/driver.tgz"}
+	assert.True(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "path", Path: pathSource.Path},
+	}, driverSpec{Version: registryConstraint, Source: pathSource}))
+	assert.False(t, lockVersionSatisfiesSpec(lockInfo{
+		Version: version,
+		Source:  lockSource{Type: "path", Path: "./packages/other.tgz"},
+	}, driverSpec{Version: registryConstraint, Source: pathSource}))
 }
 
 func TestPackageVersionIdentityDependsOnSource(t *testing.T) {

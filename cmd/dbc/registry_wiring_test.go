@@ -786,6 +786,66 @@ func TestAddAbortsWhenTargetSourceChangesDuringRegistryLookup(t *testing.T) {
 	assert.Equal(t, concurrentContent, string(data), "source drift must leave concurrent contents unchanged")
 }
 
+func TestAddAbortsWhenTargetEntryPresenceChangesDuringRegistryLookup(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+	tests := []struct {
+		name              string
+		initialContent    string
+		concurrentContent string
+	}{
+		{
+			name:              "concurrent remove with nil source",
+			initialContent:    "[drivers.test-driver-1]\nversion = '>=1.0.0'\n",
+			concurrentContent: "[drivers]\n",
+		},
+		{
+			name:              "concurrent add with nil source",
+			initialContent:    "[drivers]\n",
+			concurrentContent: "[drivers.test-driver-1]\nversion = '>=1.0.0'\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tomlPath := filepath.Join(dir, "dbc.toml")
+			require.NoError(t, os.WriteFile(tomlPath, []byte(tt.initialContent), 0o644))
+
+			lookupStarted := make(chan struct{})
+			unblock := make(chan struct{})
+			slowRegistry := func() ([]dbc.Driver, error) {
+				close(lookupStarted)
+				<-unblock
+				return getTestDriverRegistry()
+			}
+
+			done := make(chan tea.Msg, 1)
+			go func() {
+				m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1>=1.1.0"}}.GetModelCustom(
+					baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+				)
+				done <- runTeaCmdToCompletion(t, m.(interface {
+					Init() tea.Cmd
+					Update(tea.Msg) (tea.Model, tea.Cmd)
+				}))
+			}()
+
+			<-lookupStarted
+			require.NoError(t, os.WriteFile(tomlPath, []byte(tt.concurrentContent), 0o644))
+			close(unblock)
+
+			msgOut := <-done
+			err, ok := msgOut.(error)
+			require.True(t, ok, "add must reject target entry creation/removal during lookup")
+			assert.ErrorContains(t, err, "entry presence changed")
+
+			data, readErr := os.ReadFile(tomlPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, tt.concurrentContent, string(data), "target presence drift must preserve concurrent contents")
+		})
+	}
+}
+
 func TestAddAbortsOnConcurrentInvalidDriverSource(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 

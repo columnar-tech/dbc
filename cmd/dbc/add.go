@@ -96,6 +96,11 @@ type addDoneMsg struct {
 	resolvedPath string
 }
 
+type addTargetSnapshot struct {
+	present bool
+	source  *dbc.DriverSource
+}
+
 type addModel struct {
 	baseModel
 
@@ -158,6 +163,16 @@ func (m addModel) Init() tea.Cmd {
 			f.Close()
 			readLock.Release()
 			return err
+		}
+		originalTargets := make(map[string]addTargetSnapshot, len(specs))
+		for _, spec := range specs {
+			original, present := m.list.Drivers[spec.Name]
+			snapshot := addTargetSnapshot{present: present}
+			if original.Source != nil {
+				sourceCopy := *original.Source
+				snapshot.source = &sourceCopy
+			}
+			originalTargets[spec.Name] = snapshot
 		}
 		f.Close()
 		readLock.Release()
@@ -295,9 +310,12 @@ func (m addModel) Init() tea.Cmd {
 		}
 		for _, spec := range specs {
 			updated := m.list.Drivers[spec.Name]
-			latest := current.Drivers[spec.Name]
-			initial := m.list.Drivers[spec.Name]
-			if !reflect.DeepEqual(initial.Source, latest.Source) {
+			latest, present := current.Drivers[spec.Name]
+			original := originalTargets[spec.Name]
+			if original.present != present {
+				return fmt.Errorf("driver %q entry presence changed while resolving drivers; please retry `dbc add`", spec.Name)
+			}
+			if !reflect.DeepEqual(original.source, latest.Source) {
 				return fmt.Errorf("driver %q source changed while resolving drivers; please retry `dbc add`", spec.Name)
 			}
 			if latest.Source != nil {
