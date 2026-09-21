@@ -689,17 +689,22 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 	}
 	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
 	require.NoError(t, err)
-	assert.Equal(t, registryURL.String(), item.Driver.Registry.BaseURL.String())
-	assert.Equal(t, "https://assets.example.test/archive.tar.gz", item.Package.Path.String(), "artifact host is independent of source identity")
-	assert.Equal(t, entry.Artifacts[0].Hash, item.Package.ArtifactHash)
-	assert.Equal(t, *entry.Artifacts[0].Size, *item.Package.ArtifactSize)
+	assert.Equal(t, registryURL.String(), item.Release.Source.Reference)
+	selected, err := item.selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "https://assets.example.test/archive.tar.gz", selected.Location.Value, "artifact host is independent of source identity")
+	assert.Equal(t, entry.Artifacts[0].Hash, selected.Hash)
+	assert.Equal(t, *entry.Artifacts[0].Size, *selected.Size)
 	assert.True(t, canReuseLockedEntry(item))
-	item.ArtifactFormat = "tgz"
+	selected.Format = "tgz"
 	assert.False(t, canReuseLockedEntry(item), "a locked artifact with a different format is not the selected artifact proof")
-	item.ArtifactFormat = entry.Artifacts[0].Format
-	item.HostRequirements.Libs = []string{"libc.so.6"}
+	selected.Format = entry.Artifacts[0].Format
+	selected.PackageVersion = 2
+	assert.False(t, canReuseLockedEntry(item), "a different package version declaration is not the selected artifact proof")
+	selected.PackageVersion = entry.Artifacts[0].PackageVersion
+	selected.HostRequirements.Libs = []string{"libc.so.6"}
 	assert.False(t, canReuseLockedEntry(item), "a locked artifact with different host requirements is not the selected artifact proof")
-	item.HostRequirements.Libs = nil
+	selected.HostRequirements.Libs = nil
 	item.InstalledLibraryHash = strings.Repeat("f", 64)
 
 	updated, err := lockEntryForItem(item)
@@ -743,31 +748,31 @@ func TestSyncAdapterPreservesLockedURLSpellingWhenReusingSnapshot(t *testing.T) 
 }
 
 func TestSyncAdapterRejectsFreshEntryWithoutArchiveMetadata(t *testing.T) {
-	registryURL, err := url.Parse("https://registry.example.test")
-	require.NoError(t, err)
-	packageURL, err := url.Parse("https://registry.example.test/archive.tar.gz")
-	require.NoError(t, err)
-	item := installItem{
-		Driver:  dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: registryURL}},
-		Package: dbc.PkgInfo{Version: semver.MustParse("1.2.3"), PlatformTuple: "linux_amd64", Path: packageURL},
-	}
-	_, err = lockEntryForItem(item)
+	item := mustTestInstallItem(t, resolution.ResolvedRelease{
+		DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "registry", Reference: "https://registry.example.test"},
+		Artifacts: []resolution.Artifact{{
+			Target: testTarget("linux_amd64"), Format: "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"},
+		}},
+	}, "linux_amd64", nil)
+	_, err := lockEntryForItem(item)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "hash and size must either both be present or both be absent")
+	assert.Contains(t, err.Error(), "has no finalized hash")
 }
 
-func TestSyncAdapterRejectsPathArtifactForRegistryReplay(t *testing.T) {
+func TestSyncAdapterPreservesLockedPathArtifactLocation(t *testing.T) {
 	entry := testRegistryLockEntryForPlatform(config.PlatformTuple())
 	entry.Artifacts[0].Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./archive.tar.gz"}
-	_, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
-	assert.ErrorContains(t, err, "not a remote URL artifact")
+	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
+	require.NoError(t, err)
+	selected, err := item.selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "./archive.tar.gz"}, selected.Location)
 }
 
 func TestSyncAdapterVerifiesLegacyLibraryProofBeforeReusingV2Entry(t *testing.T) {
 	platform := config.PlatformTuple()
 	registryURL, err := url.Parse("https://registry.example.test")
-	require.NoError(t, err)
-	packageURL, err := url.Parse("https://registry.example.test/archive.tar.gz")
 	require.NoError(t, err)
 	entry := lockInfo{
 		Name:    "example",
@@ -779,11 +784,9 @@ func TestSyncAdapterVerifiesLegacyLibraryProofBeforeReusingV2Entry(t *testing.T)
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(10),
 		}},
 	}
-	item := installItem{
-		Driver:               dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: registryURL}},
-		Package:              dbc.PkgInfo{Version: entry.Version, PlatformTuple: platform, Path: packageURL},
-		InstalledLibraryHash: strings.Repeat("0", 64), LockEntry: &entry,
-	}
+	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
+	require.NoError(t, err)
+	item.InstalledLibraryHash = strings.Repeat("0", 64)
 	_, err = lockEntryForItem(item)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "legacy installed-library checksum mismatch")
@@ -797,11 +800,16 @@ func TestDownloadedArchiveSnapshotUsesArchiveBytes(t *testing.T) {
 	require.NoError(t, err)
 	defer archive.Close()
 
-	item := installItem{Package: dbc.PkgInfo{}}
+	item := mustTestInstallItem(t, resolution.ResolvedRelease{
+		DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "registry", Reference: "https://registry.example.test"},
+		Artifacts: []resolution.Artifact{{Target: testTarget(config.PlatformTuple()), Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"}}},
+	}, config.PlatformTuple(), nil)
 	require.NoError(t, snapshotDownloadedArchive(&item, archive))
 	digest := sha256.Sum256(archiveBytes)
-	assert.Equal(t, "sha256:"+hex.EncodeToString(digest[:]), item.ArchiveHash)
-	assert.EqualValues(t, len(archiveBytes), item.ArchiveSize)
+	selected, err := item.selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:"+hex.EncodeToString(digest[:]), selected.Hash)
+	assert.EqualValues(t, len(archiveBytes), *selected.Size)
 	assert.Empty(t, item.InstalledLibraryHash, "archive bytes must not be recorded as an installed-library hash")
 }
 
@@ -815,17 +823,18 @@ func TestLockedArchiveDownloadMustMatchExpectedHashAndSize(t *testing.T) {
 
 	tests := []struct {
 		name string
-		pkg  dbc.PkgInfo
+		hash string
+		size *int64
 		want string
 	}{
 		{
 			name: "hash mismatch",
-			pkg:  dbc.PkgInfo{ArtifactHash: "sha256:" + strings.Repeat("a", 64), ArtifactSize: &actualSize},
+			hash: "sha256:" + strings.Repeat("a", 64), size: &actualSize,
 			want: "does not match expected hash",
 		},
 		{
 			name: "size mismatch",
-			pkg:  dbc.PkgInfo{ArtifactHash: actualHash, ArtifactSize: int64Pointer(actualSize + 1)},
+			hash: actualHash, size: int64Pointer(actualSize + 1),
 			want: "does not match expected size",
 		},
 	}
@@ -834,11 +843,17 @@ func TestLockedArchiveDownloadMustMatchExpectedHashAndSize(t *testing.T) {
 			archive, err := os.Open(archivePath)
 			require.NoError(t, err)
 			defer archive.Close()
-			item := installItem{Package: tt.pkg}
+			item := mustTestInstallItem(t, resolution.ResolvedRelease{
+				DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "registry", Reference: "https://registry.example.test"},
+				Artifacts: []resolution.Artifact{{Target: testTarget(config.PlatformTuple()), Format: "tar.gz",
+					Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://registry.example.test/archive.tar.gz"}, Hash: tt.hash, Size: cloneInt64(tt.size)}},
+			}, config.PlatformTuple(), nil)
 			err = snapshotDownloadedArchive(&item, archive)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.want)
-			assert.Empty(t, item.ArchiveHash, "failed verification must not produce a lock snapshot")
+			selected, selectErr := item.selectedArtifact()
+			require.NoError(t, selectErr)
+			assert.Equal(t, tt.hash, selected.Hash, "failed verification must not produce a lock snapshot")
 		})
 	}
 }
@@ -870,10 +885,12 @@ func TestV2RegistryReplaySkipsDiscoveryAndUsesLockedURLAndMetadata(t *testing.T)
 	require.True(t, ok, "expected lock replay install items, got %T", msg)
 	require.Len(t, items, 1)
 	assert.Zero(t, discoveryCalls, "registry discovery must not run for a complete v2 registry artifact")
-	assert.Equal(t, entry.Artifacts[0].Location.Value, items[0].Package.Path.String())
-	assert.Equal(t, entry.Artifacts[0].Hash, items[0].Package.ArtifactHash)
-	assert.Equal(t, *entry.Artifacts[0].Size, *items[0].Package.ArtifactSize)
-	assert.Equal(t, entry.Source.URL, items[0].Driver.Registry.BaseURL.String())
+	selected, err := items[0].selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, entry.Artifacts[0].Location, selected.Location)
+	assert.Equal(t, entry.Artifacts[0].Hash, selected.Hash)
+	assert.Equal(t, *entry.Artifacts[0].Size, *selected.Size)
+	assert.Equal(t, entry.Source.URL, items[0].Release.Source.Reference)
 
 	// The normal completion path builds the entry from the locked PkgInfo and
 	// rewrites v2 without changing its artifact snapshot.
@@ -957,7 +974,7 @@ func TestV2RegistryReplayAllowsExplicitPrereleaseConstraintOffline(t *testing.T)
 	items, ok := msg.([]installItem)
 	require.True(t, ok, "expected explicit prerelease constraint to replay lock, got %T", msg)
 	require.Len(t, items, 1)
-	assert.Equal(t, "1.2.3-beta.1", items[0].Package.Version.String())
+	assert.Equal(t, "1.2.3-beta.1", items[0].Release.Version)
 	assert.Zero(t, discoveryCalls, "an explicit matching prerelease constraint must not trigger registry discovery")
 }
 
@@ -1044,11 +1061,13 @@ func TestResolvedTGZArtifactReplaysThroughPackageValidation(t *testing.T) {
 	assert.Equal(t, "tgz", selected.Format)
 	item, err := installItemFromLockedArtifact("test-driver-1", loaded.lockinfo["test-driver-1"], selected)
 	require.NoError(t, err)
-	assert.Equal(t, "tgz", item.ArtifactFormat)
+	selectedArtifact, err := item.selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "tgz", selectedArtifact.Format)
 
 	model := syncModel{baseModel: baseModel{downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
 		return os.Open(archivePath)
-	}}}
+	}}, LockFilePath: filepath.Join(t.TempDir(), "dbc.lock")}
 	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
 	require.NoError(t, err)
 	defer closePreparedArchives(prepared.items)
@@ -1059,6 +1078,41 @@ func TestResolvedTGZArtifactReplaysThroughPackageValidation(t *testing.T) {
 	assert.Equal(t, entry.Artifacts[0], prepared.lock.Drivers[0].Artifacts[0])
 }
 
+func TestSyncOpensRelativePathArtifactFromProjectDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	packageDir := filepath.Join(projectDir, "packages")
+	require.NoError(t, os.MkdirAll(packageDir, 0o700))
+	archivePath := filepath.Join(packageDir, "test-driver-1.tar.gz")
+	archiveBytes, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(archivePath, archiveBytes, 0o600))
+	digest := sha256.Sum256(archiveBytes)
+	size := int64(len(archiveBytes))
+	declaredPath := "./packages/test-driver-1.tar.gz"
+	release := resolution.ResolvedRelease{
+		DriverID: "test-driver-1", Version: "1.0.0",
+		Source: resolution.SourceSpec{Type: "path", Reference: declaredPath},
+		Artifacts: []resolution.Artifact{{
+			Target: testTarget(config.PlatformTuple()), Format: "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath},
+			Hash:     "sha256:" + hex.EncodeToString(digest[:]), Size: &size,
+		}},
+	}
+	entry, err := lockInfoFromResolvedRelease(release.DriverID, release)
+	require.NoError(t, err)
+	item, err := installItemFromLockedArtifact(release.DriverID, entry, entry.Artifacts[0])
+	require.NoError(t, err)
+	model := syncModel{LockFilePath: filepath.Join(projectDir, "dbc.lock")}
+	prepared, err := model.prepareInstallItems(context.Background(), []installItem{item})
+	require.NoError(t, err)
+	defer closePreparedArchives(prepared.items)
+	require.Len(t, prepared.lock.Drivers, 1)
+	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath}, prepared.lock.Drivers[0].Artifacts[0].Location,
+		"opening a project-relative artifact must not rewrite its lock identity")
+	assert.Equal(t, entry.Artifacts[0].Hash, prepared.lock.Drivers[0].Artifacts[0].Hash)
+	assert.Equal(t, entry.Artifacts[0].Size, prepared.lock.Drivers[0].Artifacts[0].Size)
+}
+
 func TestSelectedArtifactMetadataCopiesHostRequirements(t *testing.T) {
 	requirements := resolution.HostRequirements{
 		OSMin:    "3.2",
@@ -1066,13 +1120,19 @@ func TestSelectedArtifactMetadataCopiesHostRequirements(t *testing.T) {
 		Libs:     []string{"libssl.so.3"},
 		Bins:     []resolution.NamedRequirement{{Name: "git", Min: "2.40"}},
 	}
-	item := installItem{}
-	require.NoError(t, setSelectedArtifactMetadata(&item, resolution.Artifact{Format: "tgz", HostRequirements: requirements}))
+	release := resolution.ResolvedRelease{
+		DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "path", Reference: "./example.tgz"},
+		Artifacts: []resolution.Artifact{{Target: testTarget(config.PlatformTuple()), Format: "tgz", HostRequirements: requirements}},
+	}
+	item, err := newInstallItem(release, 0, config.PlatformTuple(), nil)
+	require.NoError(t, err)
 	requirements.Libs[0] = "changed"
 	requirements.Bins[0].Name = "changed"
-	assert.Equal(t, "tgz", item.ArtifactFormat)
-	assert.Equal(t, []string{"libssl.so.3"}, item.HostRequirements.Libs)
-	assert.Equal(t, []resolution.NamedRequirement{{Name: "git", Min: "2.40"}}, item.HostRequirements.Bins)
+	selected, err := item.selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "tgz", selected.Format)
+	assert.Equal(t, []string{"libssl.so.3"}, selected.HostRequirements.Libs)
+	assert.Equal(t, []resolution.NamedRequirement{{Name: "git", Min: "2.40"}}, selected.HostRequirements.Bins)
 }
 
 func TestResolvedReleaseHostRequirementsSurviveLockWriteAndReload(t *testing.T) {
@@ -1132,16 +1192,11 @@ func TestUnsupportedHostRequirementsFailClosedBeforePreparationOrEnsure(t *testi
 			loaded, err := config.GetDriver(cfg, "example")
 			require.NoError(t, err)
 
-			registryURL, err := url.Parse("https://registry.example.test")
-			require.NoError(t, err)
-			packageURL, err := url.Parse("https://assets.example.test/example.tgz")
-			require.NoError(t, err)
-			item := installItem{
-				Driver:           dbc.Driver{Path: "example", Registry: &dbc.Registry{BaseURL: registryURL}},
-				Package:          dbc.PkgInfo{Version: semver.MustParse("1.2.3"), PlatformTuple: config.PlatformTuple(), Path: packageURL},
-				ArtifactFormat:   "tgz",
-				HostRequirements: tt.requirements,
-			}
+			item := mustTestInstallItem(t, resolution.ResolvedRelease{
+				DriverID: "example", Version: "1.2.3", Source: resolution.SourceSpec{Type: "registry", Reference: "https://registry.example.test"},
+				Artifacts: []resolution.Artifact{{Target: testTarget(config.PlatformTuple()), Format: "tgz",
+					Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/example.tgz"}, HostRequirements: tt.requirements}},
+			}, config.PlatformTuple(), nil)
 			downloadCalls, ensureCalls := 0, 0
 			worker := newSyncWorker()
 			worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.InstallOptions, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {

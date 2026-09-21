@@ -38,9 +38,17 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func mustTestInstallItem(t *testing.T, release resolution.ResolvedRelease, platform string, lockEntry *lockInfo) installItem {
+	t.Helper()
+	item, err := newInstallItem(release, 0, platform, lockEntry)
+	require.NoError(t, err)
+	return item
+}
 
 func TestSyncProgressPercentTracksCompletedItems(t *testing.T) {
 	if got := syncProgressPercent(0, 2); got != 0.5 {
@@ -61,8 +69,10 @@ func TestFreshRegistryInstallItemDefaultsToTarGZWithoutHostRequirements(t *testi
 	items, err := model.createInstallList(DriversList{Drivers: map[string]driverSpec{"test-driver-1": {}}})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, "tar.gz", items[0].ArtifactFormat)
-	assert.Empty(t, items[0].HostRequirements)
+	selected, err := items[0].selectedArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "tar.gz", selected.Format)
+	assert.Empty(t, selected.HostRequirements)
 }
 
 func TestSyncRejectsNonRegistrySourcesBeforeRegistryLookup(t *testing.T) {
@@ -150,9 +160,7 @@ func TestRegistrySourceChangeDiscardsOldLockEntryBeforeFallback(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, items, 1)
 	assert.Nil(t, items[0].LockEntry, "the old registry A entry must not be merged into a registry B candidate")
-	resolvedSource, err := packageLockSource(items[0])
-	require.NoError(t, err)
-	assert.Equal(t, registryBURL.String(), resolvedSource.URL)
+	assert.Equal(t, registryBURL.String(), items[0].Release.Source.Reference)
 }
 
 func registryScopedTestDriver(t *testing.T, driverID, registryURL string) dbc.Driver {
@@ -190,12 +198,8 @@ func TestCreateInstallListSelectsDriverFromDeclaredRegistry(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, "https://registry-b.example.test", items[0].Driver.Registry.BaseURL.String())
-
-	resolvedSource, err := packageLockSource(items[0])
-	require.NoError(t, err)
-	assert.Equal(t, "https://registry-b.example.test", resolvedSource.URL)
-	expected, _, err := expectedRegistryPackageMetadata(items[0].Package)
+	assert.Equal(t, "https://registry-b.example.test", items[0].Release.Source.Reference)
+	expected, _, err := expectedSyncPackageMetadata(items[0])
 	require.NoError(t, err)
 	assert.Equal(t, "https://registry-b.example.test", expected.SourceIdentity)
 }
@@ -244,7 +248,7 @@ func TestCreateInstallListPreservesDefaultRegistryPrecedence(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, "https://registry-a.example.test", items[0].Driver.Registry.BaseURL.String())
+	assert.Equal(t, "https://registry-a.example.test", items[0].Release.Source.Reference)
 }
 
 func TestPackslipLockVersionRequiresExactBuildMetadata(t *testing.T) {
@@ -396,10 +400,8 @@ func TestExplicitRegistryURLNormalizationAllowsOfflineLockedReplay(t *testing.T)
 	require.Len(t, items, 1)
 	require.NotNil(t, items[0].LockEntry)
 	assert.Nil(t, model.driverIndex, "locked replay must not need registry discovery")
-	resolvedSource, err := packageLockSource(items[0])
-	require.NoError(t, err)
-	assert.Equal(t, "https://registry.example.test", resolvedSource.URL)
-	expected, _, err := expectedRegistryPackageMetadata(items[0].Package)
+	assert.Equal(t, "https://registry.example.test", items[0].Release.Source.Reference)
+	expected, _, err := expectedSyncPackageMetadata(items[0])
 	require.NoError(t, err)
 	assert.Equal(t, "https://registry.example.test", expected.SourceIdentity)
 }
@@ -906,7 +908,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 	path := filepath.Join(suite.tempdir, "dbc.toml")
 	lockPath := filepath.Join(suite.tempdir, "dbc.lock")
 	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n[drivers.test-driver-no-sig]\n"), 0644))
-	var downloadedPaths []string
+	var preparedPaths []string
 	var downloadedDrivers []string
 	model := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
@@ -921,21 +923,24 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 				return nil, fmt.Errorf("unexpected driver %q", pkg.Driver.Path)
 			}
 			copyPath := suite.copyArchiveForSyncTest(source)
-			downloadedPaths = append(downloadedPaths, copyPath)
 			downloadedDrivers = append(downloadedDrivers, pkg.Driver.Path)
 			return os.Open(copyPath)
 		},
 	}).(syncModel)
+	model.worker.hooks.duringPrepare = func(_ context.Context, _ int, item installItem) error {
+		preparedPaths = append(preparedPaths, item.Archive.File.Name())
+		return nil
+	}
 	model.writeCandidateLock = func(path string, lock LockFile) error {
 		if err := writeLockFileAtomic(path, lock); err != nil {
 			return err
 		}
-		if len(downloadedPaths) != 2 {
-			return fmt.Errorf("expected two prepared archives, got %d", len(downloadedPaths))
+		if len(preparedPaths) != 2 {
+			return fmt.Errorf("expected two prepared archive snapshots, got %d", len(preparedPaths))
 		}
 		// Corrupt the final item only after the complete candidate is durable,
 		// forcing execution to fail after one install while preserving the lock.
-		return os.WriteFile(downloadedPaths[len(downloadedPaths)-1], []byte("broken after prepare"), 0600)
+		return os.WriteFile(preparedPaths[len(preparedPaths)-1], []byte("broken after prepare"), 0600)
 	}
 	suite.runCmdErr(model)
 
@@ -1434,7 +1439,7 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnc
 			return os.Open(v2Path)
 		},
 	})
-	suite.Contains(suite.runCmdErr(v2Model), "registry package v2 requires archive hash and size metadata")
+	suite.Contains(suite.runCmdErr(v2Model), "package v2 requires archive hash and size metadata")
 	suite.Equal(1, v2Downloads)
 }
 
@@ -1757,10 +1762,13 @@ func (suite *SubcommandTestSuite) TestSyncManifestOnlyInstallFailureConvergesFro
 			if err != nil {
 				return nil, err
 			}
-			preparedArchivePath = archive.Name()
 			return archive, nil
 		},
 	}).(syncModel)
+	first.worker.hooks.duringPrepare = func(_ context.Context, _ int, item installItem) error {
+		preparedArchivePath = item.Archive.File.Name()
+		return nil
+	}
 	first.worker.hooks.beforeCandidateSave = func(context.Context) error {
 		return os.WriteFile(preparedArchivePath, []byte("corrupted after validation"), 0o600)
 	}
@@ -2159,7 +2167,7 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			var releaseOnce sync.Once
 			unblock := func() { releaseOnce.Do(func() { close(release) }) }
 			defer unblock()
-			var archive *os.File
+			var downloadedArchive, preparedArchive *os.File
 			model := SyncCmd{Path: path, NoVerify: true, Json: stage != "prepare", JsonStreamProgress: stage == "prepare"}.GetModelCustom(baseModel{
 				getDriverRegistry: func() ([]dbc.Driver, error) {
 					if stage == "registry" {
@@ -2169,14 +2177,18 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 					return getTestDriverRegistry()
 				},
 				downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
-					archive, err = downloadTestPkg(pkg)
+					downloadedArchive, err = downloadTestPkg(pkg)
 					if stage == "download" {
 						close(entered)
 						<-release
 					}
-					return archive, err
+					return downloadedArchive, err
 				},
 			}).(syncModel)
+			model.worker.hooks.duringPrepare = func(_ context.Context, _ int, item installItem) error {
+				preparedArchive = item.Archive.File
+				return nil
+			}
 			block := func(context.Context) error {
 				close(entered)
 				<-release
@@ -2185,7 +2197,7 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			switch stage {
 			case "prepare":
 				model.worker.hooks.duringPrepare = func(ctx context.Context, _ int, item installItem) error {
-					archive = item.Archive
+					preparedArchive = item.Archive.File
 					return block(ctx)
 				}
 			case "candidate-save":
@@ -2198,7 +2210,7 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 						if err != nil {
 							return nil, err
 						}
-						archive = file
+						preparedArchive = file
 						close(entered)
 						<-release
 						return nil, ctx.Err()
@@ -2222,11 +2234,15 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			default:
 			}
 			var statErr error
-			if archive != nil {
-				_, statErr = archive.Stat()
-				suite.NoError(statErr, "prepared archive must stay open until the worker exits")
-			} else {
-				suite.Equal("registry", stage, "only registry discovery runs before an archive is opened")
+			switch stage {
+			case "registry":
+				suite.Nil(downloadedArchive)
+			case "download":
+				_, statErr = downloadedArchive.Stat()
+				suite.NoError(statErr, "source response stays open until the interrupted snapshot completes")
+			default:
+				_, statErr = preparedArchive.Stat()
+				suite.NoError(statErr, "prepared snapshot stays open until the worker exits")
 			}
 			lockCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			_, lockErr := fslock.AcquireContext(lockCtx, projectLockPath)
@@ -2260,8 +2276,12 @@ func (suite *SubcommandTestSuite) TestSyncCancellationWaitsForWorkerCleanup() {
 			}
 			suite.Equal(1, errorEnvelopes, "cancel should emit one terminal JSON error envelope")
 			waitSyncTestSignal(suite.T(), model.worker.done)
-			if archive != nil {
-				_, statErr = archive.Stat()
+			if preparedArchive != nil {
+				_, statErr = preparedArchive.Stat()
+				suite.ErrorIs(statErr, os.ErrClosed)
+			}
+			if stage == "download" {
+				_, statErr = downloadedArchive.Stat()
 				suite.ErrorIs(statErr, os.ErrClosed)
 			}
 			projectLock, lockErr := fslock.Acquire(projectLockPath, time.Second)
@@ -2550,14 +2570,14 @@ func (suite *SubcommandTestSuite) TestSyncTerminalErrorsUseSingleOutputContract(
 					_, wantErr = checksum(missingPath)
 					info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
 					info.Driver.Shared.Set(config.PlatformTuple(), missingPath)
-					message = installedDrvMsg{info: info}
+					message = installedDrvMsg{info: info, item: installItem{Platform: config.PlatformTuple()}}
 					code = "checksum_failed"
 				case "checksum-mismatch":
 					libraryPath := filepath.Join(suite.T().TempDir(), "driver.so")
 					suite.Require().NoError(os.WriteFile(libraryPath, []byte("installed library"), 0600))
 					info := config.DriverInfo{ID: "example", Version: semver.MustParse("1.0.0")}
 					info.Driver.Shared.Set(config.PlatformTuple(), libraryPath)
-					item := installItem{InstalledLibraryHash: strings.Repeat("0", 64)}
+					item := installItem{Platform: config.PlatformTuple(), InstalledLibraryHash: strings.Repeat("0", 64)}
 					message = installedDrvMsg{info: info, item: item}
 					wantErr = errors.New("installed library checksum does not match validated package")
 					code = "checksum_failed"

@@ -61,6 +61,7 @@ func defaultBaseModel() baseModel {
 	return baseModel{
 		getDriverRegistry: getDriverRegistry,
 		downloadPkg:       downloadPkg,
+		downloadArtifact:  downloadPackage,
 	}
 }
 

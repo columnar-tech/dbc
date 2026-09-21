@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"slices"
@@ -202,6 +203,13 @@ func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
 	})
 }
 
+func downloadPackage(ctx context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+	if err := initDBCClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize authenticated download client: %w", err)
+	}
+	return dbcClient.Download(ctx, pkg)
+}
+
 func getConfig(c config.ConfigLevel) config.Config {
 	switch c {
 	case config.ConfigSystem, config.ConfigUser:
@@ -218,6 +226,7 @@ func getConfig(c config.ConfigLevel) config.Config {
 type baseModel struct {
 	getDriverRegistry func() ([]dbc.Driver, error)
 	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
+	downloadArtifact  func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
 
 	status int
 	err    error

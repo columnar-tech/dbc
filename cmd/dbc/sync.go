@@ -337,21 +337,60 @@ func reloadConfigTarget(selected config.Config) config.Config {
 }
 
 type installItem struct {
-	Driver               dbc.Driver
-	Package              dbc.PkgInfo
-	ArtifactFormat       string
-	PackageVersion       int
-	HostRequirements     resolution.HostRequirements
-	Checksum             string
-	ArchiveHash          string
-	ArchiveSize          int64
+	Release              resolution.ResolvedRelease
+	ArtifactIndex        int
+	Platform             string
 	InstalledLibraryHash string
 	ValidatedLibraryHash string
 	LockEntry            *lockInfo
-	Archive              *os.File
+	Archive              *sourceresolution.OpenedArtifact
 	Expected             config.ExpectedPackageMetadata
 	Validation           *config.PackageValidation
 	AlreadyInstalled     *config.DriverInfo
+}
+
+func (item *installItem) selectedArtifact() (*resolution.Artifact, error) {
+	if item == nil || item.ArtifactIndex < 0 || item.ArtifactIndex >= len(item.Release.Artifacts) {
+		return nil, errors.New("install item has no selected artifact")
+	}
+	return &item.Release.Artifacts[item.ArtifactIndex], nil
+}
+
+func newInstallItem(release resolution.ResolvedRelease, artifactIndex int, platform string, lockEntry *lockInfo) (installItem, error) {
+	item := installItem{Release: cloneResolvedReleaseForSync(release), ArtifactIndex: artifactIndex, Platform: platform}
+	if artifactIndex < 0 || artifactIndex >= len(release.Artifacts) {
+		return installItem{}, errors.New("resolved release has no selected artifact")
+	}
+	if release.DriverID == "" || release.Version == "" || release.Source.Type == "" || release.Source.Reference == "" {
+		return installItem{}, errors.New("resolved release is missing driver, version, or source identity")
+	}
+	if platform == "" {
+		return installItem{}, errors.New("install item is missing its target platform")
+	}
+	target, err := resolution.TargetFromPlatformTuple(platform)
+	if err != nil {
+		return installItem{}, fmt.Errorf("invalid install platform %q: %w", platform, err)
+	}
+	if release.Artifacts[artifactIndex].Target != target {
+		return installItem{}, fmt.Errorf("selected artifact target %v does not match platform %q", release.Artifacts[artifactIndex].Target, platform)
+	}
+	if lockEntry != nil {
+		copy := cloneLockInfo(*lockEntry)
+		item.LockEntry = &copy
+	}
+	return item, nil
+}
+
+func cloneResolvedReleaseForSync(release resolution.ResolvedRelease) resolution.ResolvedRelease {
+	clone := release
+	clone.Evidence = append([]resolution.Evidence(nil), release.Evidence...)
+	clone.Artifacts = make([]resolution.Artifact, len(release.Artifacts))
+	for i, artifact := range release.Artifacts {
+		clone.Artifacts[i] = artifact
+		clone.Artifacts[i].Size = cloneInt64(artifact.Size)
+		clone.Artifacts[i].HostRequirements = cloneHostRequirements(artifact.HostRequirements)
+	}
+	return clone
 }
 
 type preparedSyncMsg struct {
@@ -433,21 +472,15 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		items = append(items, installItem{
-			Driver:           drv,
-			Package:          pkg,
-			ArtifactFormat:   "tar.gz",
-			HostRequirements: resolution.HostRequirements{},
-			Checksum:         info.legacyChecksumFor(config.PlatformTuple()),
-			LockEntry: func() *lockInfo {
-				if info.Version == nil {
-					return nil
-				}
-				copy := info
-				return &copy
-			}(),
-		})
+		var priorLock *lockInfo
+		if info.Version != nil {
+			priorLock = &info
+		}
+		item, err := installItemFromRegistryPackage(drv, pkg, priorLock)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
 	return items, nil
 }
@@ -520,6 +553,36 @@ func findDriverInDeclaredRegistry(name string, drivers []dbc.Driver, source *dbc
 	return driver, nil
 }
 
+func installItemFromRegistryPackage(driver dbc.Driver, pkg dbc.PkgInfo, priorLock *lockInfo) (installItem, error) {
+	if driver.Path == "" || pkg.Version == nil || strings.TrimSpace(pkg.PlatformTuple) == "" {
+		return installItem{}, errors.New("registry package metadata is incomplete")
+	}
+	if driver.Registry == nil || driver.Registry.BaseURL == nil {
+		return installItem{}, fmt.Errorf("driver %q has no registry identity", driver.Path)
+	}
+	if pkg.Path == nil {
+		return installItem{}, fmt.Errorf("registry package metadata for %q has no archive URL", driver.Path)
+	}
+	target, err := resolution.TargetFromPlatformTuple(pkg.PlatformTuple)
+	if err != nil {
+		return installItem{}, fmt.Errorf("invalid registry package platform %q: %w", pkg.PlatformTuple, err)
+	}
+	size := cloneInt64(pkg.ArtifactSize)
+	release := resolution.ResolvedRelease{
+		DriverID: driver.Path,
+		Version:  pkg.Version.String(),
+		Source:   resolution.SourceSpec{Type: "registry", Reference: driver.Registry.BaseURL.String()},
+		Artifacts: []resolution.Artifact{{
+			Target: target, Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: pkg.Path.String()},
+			Hash: pkg.ArtifactHash, Size: size,
+		}},
+	}
+	if err := resolution.ValidateResolvedReleaseCandidate(release); err != nil {
+		return installItem{}, fmt.Errorf("invalid registry package metadata: %w", err)
+	}
+	return newInstallItem(release, 0, pkg.PlatformTuple, priorLock)
+}
+
 func lockVersionSatisfiesSpec(entry lockInfo, spec driverSpec) bool {
 	if !driverSourceMatchesLock(spec.Source, entry.Source) {
 		return false
@@ -556,9 +619,6 @@ func driverSourceMatchesLock(source *dbc.DriverSource, locked lockSource) bool {
 }
 
 func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArtifact) (installItem, error) {
-	if artifact.Location.Kind != resolution.ArtifactLocationURL || artifact.Location.Value == "" {
-		return installItem{}, fmt.Errorf("locked registry artifact for %s is not a remote URL artifact", name)
-	}
 	if err := validateInstallableArtifactFormat(artifact.Format); err != nil {
 		return installItem{}, fmt.Errorf("locked artifact for %s: %w", name, err)
 	}
@@ -566,55 +626,27 @@ func installItemFromLockedArtifact(name string, entry lockInfo, artifact lockArt
 	if err := validateHostRequirements(name, requirements); err != nil {
 		return installItem{}, err
 	}
-	packageURL, err := url.Parse(artifact.Location.Value)
-	if err != nil || !packageURL.IsAbs() || packageURL.Hostname() == "" {
-		return installItem{}, fmt.Errorf("invalid locked artifact URL for %s: %q", name, artifact.Location.Value)
+	if err := resolution.ValidateArtifactLocation(artifact.Location); err != nil {
+		return installItem{}, fmt.Errorf("invalid locked artifact location for %s: %w", name, err)
 	}
-	registryURL, err := url.Parse(entry.Source.URL)
-	if err != nil || !registryURL.IsAbs() || registryURL.Hostname() == "" {
-		return installItem{}, fmt.Errorf("invalid locked registry identity for %s: %q", name, entry.Source.URL)
+	release := entry.resolvedRelease()
+	artifactIndex := -1
+	for index := range release.Artifacts {
+		if release.Artifacts[index].Target == artifact.Target {
+			artifactIndex = index
+			break
+		}
 	}
-	driver := dbc.Driver{Path: name, Title: name, Registry: &dbc.Registry{BaseURL: registryURL}}
-	pkg := dbc.PkgInfo{
-		Driver:        driver,
-		Version:       entry.Version,
-		PlatformTuple: config.PlatformTuple(),
-		Path:          packageURL,
-		ArtifactHash:  artifact.Hash,
-		ArtifactSize:  cloneInt64(artifact.Size),
+	if artifactIndex < 0 {
+		return installItem{}, fmt.Errorf("locked artifact for %s is not part of its release snapshot", name)
 	}
-	copy := cloneLockInfo(entry)
-	item := installItem{
-		Driver:         driver,
-		Package:        pkg,
-		PackageVersion: artifact.PackageVersion,
-		Checksum:       entry.legacyChecksumFor(config.PlatformTuple()),
-		LockEntry:      &copy,
+	if !reflect.DeepEqual(lockArtifactFromResolved(release.Artifacts[artifactIndex]), artifact) {
+		return installItem{}, fmt.Errorf("locked artifact for %s does not match its release snapshot", name)
 	}
-	if err := setSelectedArtifactMetadata(&item, resolution.Artifact{
-		Format:           artifact.Format,
-		PackageVersion:   artifact.PackageVersion,
-		HostRequirements: requirements,
-	}); err != nil {
-		return installItem{}, err
+	if release.DriverID != name {
+		return installItem{}, fmt.Errorf("locked release driver ID %q does not match %q", release.DriverID, name)
 	}
-	return item, nil
-}
-
-// setSelectedArtifactMetadata copies source-neutral execution metadata from a
-// resolved artifact onto an install item. Source integrations should call this
-// after selecting the concrete target artifact.
-func setSelectedArtifactMetadata(item *installItem, artifact resolution.Artifact) error {
-	if item == nil {
-		return errors.New("cannot set artifact metadata on a nil install item")
-	}
-	if err := validateInstallableArtifactFormat(artifact.Format); err != nil {
-		return err
-	}
-	item.ArtifactFormat = artifact.Format
-	item.PackageVersion = artifact.PackageVersion
-	item.HostRequirements = cloneHostRequirements(artifact.HostRequirements)
-	return nil
+	return newInstallItem(release, artifactIndex, config.PlatformTuple(), &entry)
 }
 
 func validateInstallableArtifactFormat(format string) error {
@@ -701,44 +733,63 @@ func (s syncModel) persistCandidateLock(lock LockFile) error {
 }
 
 func canReuseLockedEntry(item installItem) bool {
-	if item.LockEntry == nil || item.LockEntry.Version == nil || item.Package.Version == nil ||
-		!packageVersionsMatch(item.LockEntry.Source.Type, item.LockEntry.Version, item.Package.Version) {
+	selected, err := item.selectedArtifact()
+	if err != nil || item.LockEntry == nil || item.LockEntry.Version == nil {
 		return false
 	}
-	source, err := packageLockSource(item)
+	version, err := semver.NewVersion(item.Release.Version)
+	if err != nil || !packageVersionsMatch(item.LockEntry.Source.Type, item.LockEntry.Version, version) {
+		return false
+	}
+	source, err := lockSourceForResolvedRelease(item.Release)
 	if err != nil || !sameLockSourceIdentity(item.LockEntry.Source, source) {
 		return false
 	}
-	artifact, err := selectLockedArtifact(*item.LockEntry, config.PlatformTuple(), false)
-	if err != nil || artifact.Location.Kind != resolution.ArtifactLocationURL || artifact.Location.Value == "" || item.Package.Path == nil || item.Package.ArtifactSize == nil {
+	locked, err := selectLockedArtifact(*item.LockEntry, item.Platform, false)
+	if err != nil {
 		return false
 	}
-	if artifact.Format != item.ArtifactFormat ||
-		!reflect.DeepEqual(canonicalHostRequirements(artifact.HostRequirements), canonicalHostRequirements(lockHostRequirementsFromResolution(item.HostRequirements))) {
-		return false
-	}
-	lockedURL, err := url.Parse(artifact.Location.Value)
-	if err != nil || lockedURL == nil {
-		return false
-	}
-	return item.Package.Path.String() == lockedURL.String() &&
-		item.Package.ArtifactHash == artifact.Hash && *item.Package.ArtifactSize == *artifact.Size
+	return locked.Target == selected.Target && locked.Location == selected.Location &&
+		locked.Hash == selected.Hash && sameLockSize(locked.Size, selected.Size) &&
+		locked.Format == selected.Format && locked.PackageVersion == selected.PackageVersion &&
+		reflect.DeepEqual(canonicalHostRequirements(locked.HostRequirements), canonicalHostRequirements(lockHostRequirementsFromResolution(selected.HostRequirements)))
 }
 
 func packageVersionsMatch(sourceType string, locked, resolved *semver.Version) bool {
 	return sourceresolution.SameReleaseVersion(sourceidentity.Kind(sourceType), locked, resolved)
 }
 
-func packageLockSource(item installItem) (lockSource, error) {
-	if item.Driver.Registry == nil || item.Driver.Registry.BaseURL == nil {
-		return lockSource{}, fmt.Errorf("driver %q has no registry identity", item.Driver.Path)
+func lockSourceForResolvedRelease(release resolution.ResolvedRelease) (lockSource, error) {
+	source := lockSource{Type: release.Source.Type}
+	switch release.Source.Type {
+	case "registry":
+		source.URL = release.Source.Reference
+	case "packslip":
+		source.Project = release.Source.Reference
+	case "path":
+		source.Path = release.Source.Reference
+	default:
+		return lockSource{}, fmt.Errorf("unsupported resolved source type %q", release.Source.Type)
 	}
-	return lockSource{Type: "registry", URL: item.Driver.Registry.BaseURL.String()}, nil
+	if _, err := lockSourceIdentity(source); err != nil {
+		return lockSource{}, err
+	}
+	return source, nil
 }
 
 func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
 	if archive == nil {
 		return fmt.Errorf("download returned no archive")
+	}
+	selected, err := item.selectedArtifact()
+	if err != nil {
+		return err
+	}
+	if (selected.Hash == "") != (selected.Size == nil) {
+		return errors.New("artifact hash and size must either both be present or both be absent")
+	}
+	if err := resolution.ValidateArtifactMetadata(selected.Hash, selected.Size); err != nil {
+		return err
 	}
 	info, err := archive.Stat()
 	if err != nil {
@@ -753,18 +804,60 @@ func snapshotDownloadedArchive(item *installItem, archive *os.File) error {
 	if err := resolution.ValidateArtifactMetadata(actualHash, &actualSize); err != nil {
 		return err
 	}
-	if item.Package.ArtifactHash != "" && item.Package.ArtifactHash != actualHash {
-		return fmt.Errorf("downloaded archive hash %s does not match expected hash %s", actualHash, item.Package.ArtifactHash)
+	if selected.Hash != "" && selected.Hash != actualHash {
+		return fmt.Errorf("downloaded archive hash %s does not match expected hash %s", actualHash, selected.Hash)
 	}
-	if item.Package.ArtifactSize != nil && *item.Package.ArtifactSize != actualSize {
-		return fmt.Errorf("downloaded archive size %d does not match expected size %d", actualSize, *item.Package.ArtifactSize)
+	if selected.Size != nil && *selected.Size != actualSize {
+		return fmt.Errorf("downloaded archive size %d does not match expected size %d", actualSize, *selected.Size)
 	}
-	item.ArchiveHash = actualHash
-	item.ArchiveSize = actualSize
+	selected.Hash = actualHash
+	selected.Size = cloneInt64(&actualSize)
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to rewind downloaded archive: %w", err)
 	}
 	return nil
+}
+
+func (s syncModel) openResolvedArtifact(ctx context.Context, item installItem) (*sourceresolution.OpenedArtifact, error) {
+	selected, err := item.selectedArtifact()
+	if err != nil {
+		return nil, err
+	}
+	basePath := s.LockFilePath
+	if basePath == "" {
+		basePath = s.Path
+	}
+	if basePath == "" {
+		return nil, errors.New("sync project path is not set")
+	}
+	baseDir, err := filepath.Abs(filepath.Dir(basePath))
+	if err != nil {
+		return nil, fmt.Errorf("resolve project directory: %w", err)
+	}
+	fetchURL := func(ctx context.Context, artifactURL *url.URL) (io.ReadCloser, error) {
+		version, err := semver.NewVersion(item.Release.Version)
+		if err != nil {
+			return nil, fmt.Errorf("invalid resolved package version %q: %w", item.Release.Version, err)
+		}
+		pkg := dbc.PkgInfo{
+			Driver:        dbc.Driver{Path: item.Release.DriverID, Title: item.Release.DriverID},
+			Version:       version,
+			PlatformTuple: item.Platform,
+			Path:          artifactURL,
+			ArtifactHash:  selected.Hash,
+			ArtifactSize:  cloneInt64(selected.Size),
+		}
+		if s.downloadArtifact != nil {
+			return s.downloadArtifact(ctx, pkg)
+		}
+		if s.downloadPkg == nil {
+			return nil, errors.New("no artifact downloader is configured")
+		}
+		// Existing test adapters and custom models expose the legacy file-based
+		// hook. Production sync uses downloadArtifact, which calls Client.Download.
+		return s.downloadPkg(pkg)
+	}
+	return sourceresolution.OpenArtifact(ctx, fetchURL, selected.Location, baseDir)
 }
 
 func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem) (preparedSyncMsg, error) {
@@ -774,16 +867,20 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 			return prepared, err
 		}
 		item := &prepared.items[i]
-		if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
-			return prepared, fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+		selected, err := item.selectedArtifact()
+		if err != nil {
+			return prepared, err
 		}
-		if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
+		if err := validateInstallableArtifactFormat(selected.Format); err != nil {
+			return prepared, fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
+		}
+		if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
 			return prepared, err
 		}
 		var sameVersionInstalled *config.DriverInfo
 		if s.cfg.Exists {
-			if installed, ok := s.cfg.Drivers[item.Driver.Path]; ok {
-				if installed.Version != nil && item.Package.Version.String() == installed.Version.String() {
+			if installed, ok := s.cfg.Drivers[item.Release.DriverID]; ok {
+				if installed.Version != nil && item.Release.Version == installed.Version.String() {
 					installedCopy := installed
 					sameVersionInstalled = &installedCopy
 					expected, _, err := expectedSyncPackageMetadata(*item)
@@ -796,7 +893,7 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 						return prepared, err
 					}
 					if matches {
-						libraryHash, hashErr := checksum(installed.Driver.Shared.Get(config.PlatformTuple()))
+						libraryHash, hashErr := checksum(installed.Driver.Shared.Get(item.Platform))
 						if hashErr != nil {
 							return prepared, fmt.Errorf("failed to checksum installed driver: %w", hashErr)
 						}
@@ -817,7 +914,7 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 					return prepared, err
 				}
 				if matches {
-					libraryHash, hashErr := checksum(sameVersionInstalled.Driver.Shared.Get(config.PlatformTuple()))
+					libraryHash, hashErr := checksum(sameVersionInstalled.Driver.Shared.Get(item.Platform))
 					if hashErr != nil {
 						return prepared, fmt.Errorf("failed to checksum installed driver: %w", hashErr)
 					}
@@ -827,7 +924,7 @@ func (s syncModel) prepareInstallItems(ctx context.Context, items []installItem)
 			if item.AlreadyInstalled == nil {
 				item.InstalledLibraryHash = item.ValidatedLibraryHash
 				if item.Validation != nil && item.Validation.VerifiedLibraryHash == "" &&
-					item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
+					item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, item.Platform) {
 					item.InstalledLibraryHash = item.LockEntry.Legacy.LibraryHash
 				}
 			}
@@ -858,31 +955,35 @@ func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installIte
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
-		return fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+	selected, err := item.selectedArtifact()
+	if err != nil {
+		return err
 	}
-	if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
+	if err := validateInstallableArtifactFormat(selected.Format); err != nil {
+		return fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
+	}
+	if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
+		return err
+	}
+	expected, hasMetadata, err := expectedSyncPackageMetadata(*item)
+	if err != nil {
 		return err
 	}
 	if item.Archive == nil {
-		// downloadPkg has no context API. The worker retains the project lock and
-		// checks cancellation immediately after this synchronous call returns.
-		archive, err := s.downloadPkg(item.Package)
-		if archive != nil {
-			item.Archive = archive
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
+		archive, err := s.openResolvedArtifact(ctx, *item)
 		if err != nil {
-			return fmt.Errorf("failed to download driver: %w", err)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("failed to open driver artifact: %w", err)
 		}
+		item.Archive = archive
 	}
-	archive := item.Archive
+	archive := item.Archive.File
 	if err := snapshotDownloadedArchive(item, archive); err != nil {
 		return fmt.Errorf("failed to snapshot downloaded driver archive: %w", err)
 	}
-	expected, hasMetadata, err := expectedSyncPackageMetadata(*item)
+	selected, err = item.selectedArtifact()
 	if err != nil {
 		return err
 	}
@@ -894,16 +995,14 @@ func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installIte
 		if inspectErr != nil {
 			return inspectErr
 		}
-		item.PackageVersion = packageManifest.PackageVersion
-		expected.PackageVersion = item.PackageVersion
+		selected.PackageVersion = packageManifest.PackageVersion
+		expected.PackageVersion = selected.PackageVersion
 		if packageManifest.PackageVersion == 2 {
-			return errors.New("registry package v2 requires archive hash and size metadata")
+			return errors.New("package v2 requires archive hash and size metadata")
 		}
 	}
-	item.Package.ArtifactHash = item.ArchiveHash
-	item.Package.ArtifactSize = cloneInt64(&item.ArchiveSize)
-	expected.ArchiveHash = item.ArchiveHash
-	expected.ArchiveSize = item.ArchiveSize
+	expected.ArchiveHash = selected.Hash
+	expected.ArchiveSize = *selected.Size
 	item.Expected = expected
 	if _, err := archive.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to rewind downloaded driver archive: %w", err)
@@ -914,21 +1013,21 @@ func (s syncModel) downloadAndValidateItem(ctx context.Context, item *installIte
 			return dbc.VerifyPackageSignature(stagingDir, manifest)
 		}
 	}
-	validation, err := config.ValidatePackage(item.Driver.Path, archive, expected, config.InstallOptions{Verify: verify})
+	validation, err := config.ValidatePackage(item.Release.DriverID, archive, expected, config.InstallOptions{Verify: verify})
 	if err != nil {
 		if isPackageVerificationFailure(err) {
 			return fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
 		}
 		return fmt.Errorf("failed to validate driver package: %w", err)
 	}
-	item.PackageVersion = validation.PackageVersion
+	selected.PackageVersion = validation.PackageVersion
 	expected.PackageVersion = validation.PackageVersion
 	item.Expected = expected
 	item.Validation = &validation
 	item.ValidatedLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")
 	if item.ValidatedLibraryHash == "" {
-		candidateLibrary := validation.Registration.Driver.Shared.Get(config.PlatformTuple())
-		if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
+		candidateLibrary := validation.Registration.Driver.Shared.Get(item.Platform)
+		if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, item.Platform) {
 			if err := verifyLegacyExternalLibrary(candidateLibrary, item.LockEntry.Legacy.LibraryHash); err != nil {
 				return fmt.Errorf("candidate package external library does not match the legacy lock proof: %w", err)
 			}
@@ -946,24 +1045,24 @@ func (s syncModel) itemCurrentMatches(item *installItem, current *config.DriverI
 	if err != nil {
 		return false, fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
 	}
-	libraryPath := current.Driver.Shared.Get(config.PlatformTuple())
+	libraryPath := current.Driver.Shared.Get(item.Platform)
 	if managed && present {
 		if !valid || !config.InstallReceiptMatchesExpectedPackage(receipt, item.Expected) ||
 			!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) ||
-			!config.InstallReceiptMatchesRuntimeRegistration(receipt, *current, config.PlatformTuple()) {
+			!config.InstallReceiptMatchesRuntimeRegistration(receipt, *current, item.Platform) {
 			return false, nil
 		}
 		if item.Validation != nil {
 			if item.Validation.VerifiedLibraryHash == "" || item.Validation.VerifiedLibraryHash != receipt.InstalledLibraryHash ||
-				!config.PackageValidationMatchesRuntimeRegistration(*current, *item.Validation, config.PlatformTuple()) {
+				!config.PackageValidationMatchesRuntimeRegistration(*current, *item.Validation, item.Platform) {
 				return false, nil
 			}
 		}
 		return true, nil
 	}
 	if present || item.Validation == nil || item.LockEntry == nil || item.LockEntry.Legacy == nil ||
-		!samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) ||
-		!config.PackageValidationMatchesRuntimeRegistration(*current, *item.Validation, config.PlatformTuple()) {
+		!samePlatformTarget(item.LockEntry.Legacy.Platform, item.Platform) ||
+		!config.PackageValidationMatchesRuntimeRegistration(*current, *item.Validation, item.Platform) {
 		return false, nil
 	}
 	proofHash := item.LockEntry.Legacy.LibraryHash
@@ -977,7 +1076,7 @@ func (s syncModel) itemCurrentMatches(item *installItem, current *config.DriverI
 	if item.Validation.VerifiedLibraryHash != "" {
 		return item.ValidatedLibraryHash == proofHash, nil
 	}
-	if err := verifyLegacyExternalLibrary(item.Validation.Registration.Driver.Shared.Get(config.PlatformTuple()), proofHash); err != nil {
+	if err := verifyLegacyExternalLibrary(item.Validation.Registration.Driver.Shared.Get(item.Platform), proofHash); err != nil {
 		return false, nil
 	}
 	return true, nil
@@ -987,10 +1086,14 @@ func (s syncModel) ensurePreparedPackage(ctx context.Context, item *installItem)
 	if err := ctx.Err(); err != nil {
 		return config.EnsurePackageResult{}, err
 	}
-	if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
-		return config.EnsurePackageResult{}, fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+	selected, err := item.selectedArtifact()
+	if err != nil {
+		return config.EnsurePackageResult{}, err
 	}
-	if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
+	if err := validateInstallableArtifactFormat(selected.Format); err != nil {
+		return config.EnsurePackageResult{}, fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
+	}
+	if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
 		return config.EnsurePackageResult{}, err
 	}
 	callbacks := config.EnsurePackageCallbacks{
@@ -1006,10 +1109,10 @@ func (s syncModel) ensurePreparedPackage(ctx context.Context, item *installItem)
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if _, err := item.Archive.Seek(0, io.SeekStart); err != nil {
+			if _, err := item.Archive.File.Seek(0, io.SeekStart); err != nil {
 				return nil, fmt.Errorf("failed to rewind prepared driver archive: %w", err)
 			}
-			return item.Archive, nil
+			return item.Archive.File, nil
 		},
 		ValidateResult: func(result config.EnsurePackageResult) error {
 			return s.validateEnsureResult(item, result)
@@ -1025,7 +1128,7 @@ func (s syncModel) ensurePreparedPackage(ctx context.Context, item *installItem)
 	if ensure == nil {
 		ensure = config.EnsurePackage
 	}
-	result, err := ensure(ctx, s.cfg, item.Driver.Path, item.Expected, config.InstallOptions{Verify: verify}, callbacks)
+	result, err := ensure(ctx, s.cfg, item.Release.DriverID, item.Expected, config.InstallOptions{Verify: verify}, callbacks)
 	if err != nil && isPackageVerificationFailure(err) {
 		return result, fmt.Errorf("failed to verify signature: %w", packageVerificationError(err))
 	}
@@ -1049,16 +1152,16 @@ func (s syncModel) validateEnsureResult(item *installItem, result config.EnsureP
 	if item.Validation == nil || result.Manifest == nil {
 		return errors.New("installed package is missing validated candidate evidence")
 	}
-	if !config.PackageValidationMatchesRuntimeRegistration(*result.Installed, *item.Validation, config.PlatformTuple()) ||
-		!config.PackageValidationMatchesRuntimeRegistration(result.Manifest.DriverInfo, *item.Validation, config.PlatformTuple()) {
+	if !config.PackageValidationMatchesRuntimeRegistration(*result.Installed, *item.Validation, item.Platform) ||
+		!config.PackageValidationMatchesRuntimeRegistration(result.Manifest.DriverInfo, *item.Validation, item.Platform) {
 		return errors.New("installed registration does not match the validated package")
 	}
 	if result.Installed.Version == nil || result.Installed.Version.String() != item.Expected.Version {
 		return errors.New("installed driver version does not match the selected package")
 	}
 	if item.Validation.VerifiedLibraryHash == "" {
-		path := result.Installed.Driver.Shared.Get(config.PlatformTuple())
-		if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
+		path := result.Installed.Driver.Shared.Get(item.Platform)
+		if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, item.Platform) {
 			if err := verifyLegacyExternalLibrary(path, item.LockEntry.Legacy.LibraryHash); err != nil {
 				return fmt.Errorf("installed package external library does not match the legacy lock proof: %w", err)
 			}
@@ -1069,10 +1172,10 @@ func (s syncModel) validateEnsureResult(item *installItem, result config.EnsureP
 	if err != nil {
 		return fmt.Errorf("failed to resolve installed driver receipt location: %w", err)
 	}
-	libraryPath := result.Installed.Driver.Shared.Get(config.PlatformTuple())
+	libraryPath := result.Installed.Driver.Shared.Get(item.Platform)
 	if !managed || !present || !valid || !config.InstallReceiptMatchesExpectedPackage(receipt, item.Expected) ||
 		receipt.InstalledLibraryHash != item.Validation.VerifiedLibraryHash ||
-		!config.InstallReceiptMatchesRuntimeRegistration(receipt, *result.Installed, config.PlatformTuple()) ||
+		!config.InstallReceiptMatchesRuntimeRegistration(receipt, *result.Installed, item.Platform) ||
 		!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) {
 		return errors.New("installed package receipt does not match the validated package")
 	}
@@ -1087,12 +1190,32 @@ func (s syncModel) validateEnsureResult(item *installItem, result config.EnsureP
 }
 
 func expectedSyncPackageMetadata(item installItem) (config.ExpectedPackageMetadata, bool, error) {
-	expected, hasMetadata, err := expectedRegistryPackageMetadata(item.Package)
+	selected, err := item.selectedArtifact()
 	if err != nil {
 		return config.ExpectedPackageMetadata{}, false, err
 	}
-	expected.PackageVersion = item.PackageVersion
-	return expected, hasMetadata, nil
+	if item.Release.DriverID == "" || item.Release.Version == "" || item.Platform == "" ||
+		item.Release.Source.Type == "" || item.Release.Source.Reference == "" {
+		return config.ExpectedPackageMetadata{}, false, errors.New("resolved package metadata is incomplete")
+	}
+	hasHash := selected.Hash != ""
+	hasSize := selected.Size != nil
+	if hasHash != hasSize {
+		return config.ExpectedPackageMetadata{}, false, errors.New("package metadata must include both archive hash and size")
+	}
+	if selected.PackageVersion == 2 && !hasHash {
+		return config.ExpectedPackageMetadata{}, false, errors.New("package v2 requires archive hash and size metadata")
+	}
+	expected := config.ExpectedPackageMetadata{
+		ID: item.Release.DriverID, Version: item.Release.Version, Platform: item.Platform,
+		SourceType: item.Release.Source.Type, SourceIdentity: item.Release.Source.Reference,
+		PackageVersion: selected.PackageVersion,
+	}
+	if hasHash {
+		expected.ArchiveHash = selected.Hash
+		expected.ArchiveSize = *selected.Size
+	}
+	return expected, hasHash, nil
 }
 
 func markAlreadyInstalled(item *installItem, installed config.DriverInfo, libraryHash string) {
@@ -1223,7 +1346,7 @@ func (s syncModel) runSyncWorker(worker *syncWorker) syncWorkerResultMsg {
 		return fail("sync_failed", ctx.Err())
 	}
 	for _, item := range items {
-		if !worker.send(ctx, syncResolvingMsg{driver: item.Driver.Path}) {
+		if !worker.send(ctx, syncResolvingMsg{driver: item.Release.DriverID}) {
 			return fail("sync_failed", ctx.Err())
 		}
 	}
@@ -1330,15 +1453,19 @@ func (s syncModel) fail(code string, err error) (syncModel, tea.Cmd) {
 }
 
 func lockEntryForItem(item installItem) (lockInfo, error) {
-	if err := validateInstallableArtifactFormat(item.ArtifactFormat); err != nil {
-		return lockInfo{}, fmt.Errorf("driver %s: %w", item.Driver.Path, err)
+	selected, err := item.selectedArtifact()
+	if err != nil {
+		return lockInfo{}, err
 	}
-	if err := validateHostRequirements(item.Driver.Path, item.HostRequirements); err != nil {
+	if err := validateInstallableArtifactFormat(selected.Format); err != nil {
+		return lockInfo{}, fmt.Errorf("driver %s: %w", item.Release.DriverID, err)
+	}
+	if err := validateHostRequirements(item.Release.DriverID, selected.HostRequirements); err != nil {
 		return lockInfo{}, err
 	}
 	legacyProofMatches := true
-	if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
-		if err := verifyLegacyLibraryProof(*item.LockEntry, config.PlatformTuple(), item.InstalledLibraryHash); err != nil {
+	if item.LockEntry != nil && item.LockEntry.Legacy != nil && samePlatformTarget(item.LockEntry.Legacy.Platform, item.Platform) {
+		if err := verifyLegacyLibraryProof(*item.LockEntry, item.Platform, item.InstalledLibraryHash); err != nil {
 			if !hasValidatedReplacementEvidence(item) {
 				return lockInfo{}, err
 			}
@@ -1351,63 +1478,24 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 	if canReuseLockedEntry(item) && legacyProofMatches {
 		return *item.LockEntry, nil
 	}
-	if item.Package.Version == nil || item.Package.Path == nil {
-		return lockInfo{}, fmt.Errorf("driver %q has incomplete resolved package metadata", item.Driver.Path)
-	}
-	source, err := packageLockSource(item)
-	if err != nil {
-		return lockInfo{}, err
-	}
-	target, err := resolution.TargetFromPlatformTuple(item.Package.PlatformTuple)
-	if err != nil {
-		return lockInfo{}, fmt.Errorf("invalid resolved package target %q: %w", item.Package.PlatformTuple, err)
-	}
-	hash := item.ArchiveHash
-	if hash == "" {
-		hash = item.Package.ArtifactHash
-	}
-	size := item.ArchiveSize
-	if item.ArchiveHash == "" && item.Package.ArtifactSize != nil {
-		size = *item.Package.ArtifactSize
-	}
-	release := resolution.ResolvedRelease{
-		DriverID: item.Driver.Path,
-		Version:  item.Package.Version.String(),
-		Source:   resolution.SourceSpec{Type: source.Type, Reference: source.URL},
-		Artifacts: []resolution.Artifact{{
-			Target:           target,
-			Format:           item.ArtifactFormat,
-			PackageVersion:   item.PackageVersion,
-			Location:         resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: item.Package.Path.String()},
-			Hash:             hash,
-			Size:             &size,
-			HostRequirements: cloneHostRequirements(item.HostRequirements),
-		}},
-	}
-	candidate, err := lockInfoFromResolvedRelease(item.Driver.Path, release)
+	candidate, err := lockInfoFromResolvedRelease(item.Release.DriverID, item.Release)
 	if err != nil {
 		return lockInfo{}, err
 	}
 	if item.LockEntry == nil || item.LockEntry.Version == nil ||
-		!packageVersionsMatch(candidate.Source.Type, item.LockEntry.Version, item.Package.Version) {
-		return candidate, nil
-	}
-	if item.LockEntry.Version == nil {
+		!packageVersionsMatch(candidate.Source.Type, item.LockEntry.Version, candidate.Version) {
 		return candidate, nil
 	}
 	if len(item.LockEntry.Artifacts) == 0 {
-		if item.LockEntry.Version == nil {
-			return candidate, nil
-		}
 		if item.LockEntry.Legacy != nil {
 			if !legacyProofMatches {
 				return candidate, nil
 			}
 			var verified *VerifiedLegacyLibrary
-			if samePlatformTarget(item.LockEntry.Legacy.Platform, config.PlatformTuple()) {
-				verified = &VerifiedLegacyLibrary{Platform: config.PlatformTuple(), LibraryHash: item.InstalledLibraryHash}
+			if samePlatformTarget(item.LockEntry.Legacy.Platform, item.Platform) {
+				verified = &VerifiedLegacyLibrary{Platform: item.Platform, LibraryHash: item.InstalledLibraryHash}
 			}
-			return migrateV1Entry(*item.LockEntry, release, config.PlatformTuple(), verified)
+			return migrateV1Entry(*item.LockEntry, item.Release, item.Platform, verified)
 		}
 		return candidate, nil
 	}
@@ -1419,23 +1507,19 @@ func lockEntryForItem(item installItem) (lockInfo, error) {
 }
 
 func hasValidatedReplacementEvidence(item installItem) bool {
-	if item.AlreadyInstalled != nil || item.Archive == nil || item.ArchiveHash == "" || item.ArchiveSize <= 0 || item.ValidatedLibraryHash == "" {
+	selected, err := item.selectedArtifact()
+	if err != nil || item.AlreadyInstalled != nil || item.Archive == nil || selected.Hash == "" || selected.Size == nil || *selected.Size <= 0 || item.ValidatedLibraryHash == "" {
 		return false
 	}
 	if validateLegacyLibraryHash(item.ValidatedLibraryHash) != nil ||
-		item.Expected.ID != item.Driver.Path || item.Package.Version == nil || item.Expected.Version != item.Package.Version.String() ||
-		item.Expected.Platform == "" || item.Expected.Platform != item.Package.PlatformTuple ||
-		item.Expected.SourceType == "" || item.Expected.SourceIdentity == "" ||
-		item.Expected.ArchiveHash != item.ArchiveHash || item.Expected.ArchiveSize != item.ArchiveSize ||
-		item.Package.ArtifactHash != item.ArchiveHash || item.Package.ArtifactSize == nil || *item.Package.ArtifactSize != item.ArchiveSize {
+		item.Expected.ID != item.Release.DriverID || item.Expected.Version != item.Release.Version ||
+		item.Expected.Platform == "" || item.Expected.Platform != item.Platform ||
+		item.Expected.SourceType != item.Release.Source.Type || item.Expected.SourceIdentity != item.Release.Source.Reference ||
+		item.Expected.ArchiveHash != selected.Hash || item.Expected.ArchiveSize != *selected.Size {
 		return false
 	}
-	if item.Driver.Registry == nil || item.Driver.Registry.BaseURL == nil ||
-		item.Expected.SourceType != "registry" || item.Expected.SourceIdentity != item.Driver.Registry.BaseURL.String() {
-		return false
-	}
-	archiveInfo, err := item.Archive.Stat()
-	return err == nil && archiveInfo.Size() == item.ArchiveSize
+	archiveInfo, err := item.Archive.File.Stat()
+	return err == nil && archiveInfo.Size() == *selected.Size
 }
 
 func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1523,7 +1607,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// this progress event. Retain the direct-update path for isolated model
 		// tests and embedders that inject the event without a worker.
 		if s.worker == nil {
-			chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
+			chksum, err := checksum(msg.info.Driver.Shared.Get(msg.item.Platform))
 			if err != nil {
 				return s.fail("checksum_failed", err)
 			}
@@ -1619,7 +1703,7 @@ func (s syncModel) View() tea.View {
 	cellsAvail := max(0, s.width-lipgloss.Width(spin+prog+driverCount))
 
 	driverIndex := min(s.index, len(s.installItems)-1)
-	driverName := s.installItems[driverIndex].Driver.Path
+	driverName := s.installItems[driverIndex].Release.DriverID
 	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + driverName)
 
 	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))
