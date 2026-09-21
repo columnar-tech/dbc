@@ -1399,6 +1399,7 @@ func validatePackageFileReferences(manifest Manifest, files map[string]string, r
 	driver := manifest.Files.Driver
 	if driver == "" {
 		if requireDriver {
+			// TODO: Model externally managed drivers as an explicit package variant with ownership semantics, not an empty Files.driver exception.
 			return fmt.Errorf("%w: Files.driver is required", ErrInvalidManifest)
 		}
 	} else {
