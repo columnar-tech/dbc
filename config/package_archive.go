@@ -1302,7 +1302,7 @@ func cleanupOwnedPackageDirectoriesWithRemoveAll(location, runtimeID string, pre
 			}
 		}
 	}
-	entries, err := os.ReadDir(location)
+	entries, err := readDirEntries(location)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("could not inspect package directory %s: %w", location, err))

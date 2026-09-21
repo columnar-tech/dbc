@@ -22,6 +22,10 @@ import (
 	"path/filepath"
 )
 
+func readDirEntries(dir string) ([]os.DirEntry, error) {
+	return os.ReadDir(dir)
+}
+
 func loadDir(dir string) (map[string]DriverInfo, error) {
 	if _, err := os.Stat(dir); err != nil {
 		return nil, err
