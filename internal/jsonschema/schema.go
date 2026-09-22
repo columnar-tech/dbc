@@ -265,6 +265,13 @@ type SyncError struct {
 	Error string `json:"error"`
 }
 
+// SyncMigration records a lockfile schema migration completed by sync.
+// It is omitted when the input lockfile was already at the current version.
+type SyncMigration struct {
+	FromVersion int `json:"from_version"`
+	ToVersion   int `json:"to_version"`
+}
+
 // SyncStatus is the final JSON payload emitted after a sync operation completes.
 type SyncStatus struct {
 	// Installed lists drivers that were newly installed.
@@ -273,6 +280,8 @@ type SyncStatus struct {
 	Skipped []SyncedDriver `json:"skipped"`
 	// Errors lists drivers that failed to install.
 	Errors []SyncError `json:"errors"`
+	// Migration describes a lockfile schema migration, when one was persisted.
+	Migration *SyncMigration `json:"migration,omitempty"`
 }
 
 // -----------------------------------------------------------------------------

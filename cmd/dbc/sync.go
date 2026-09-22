@@ -139,7 +139,12 @@ func (s syncModel) FinalOutput() string {
 		Installed: installed,
 		Skipped:   skipped,
 		Errors:    []jsonschema.SyncError{},
+		Migration: s.migration,
 	})
+}
+
+func syncMigrationMessage(migration jsonschema.SyncMigration) string {
+	return fmt.Sprintf("Migrated dbc.lock from v%d to v%d. v2 records package archive hashes; verified v1 installed-library checksums are retained as legacy proofs where applicable.", migration.FromVersion, migration.ToVersion)
 }
 
 type syncModel struct {
@@ -177,6 +182,8 @@ type syncModel struct {
 	skippedDrivers []jsonschema.SyncedDriver
 	// newlyInstalled tracks freshly installed drivers for JSON output
 	newlyInstalled []jsonschema.SyncedDriver
+	// migration is set only after the worker has persisted a v2 candidate lock.
+	migration *jsonschema.SyncMigration
 
 	jsonOut  io.Writer
 	worker   *syncWorker
@@ -200,6 +207,10 @@ type syncWorker struct {
 	abandoned bool
 	finish    sync.Once
 	hooks     syncWorkerHooks
+	// inputLockVersion belongs to the worker that owns the sync transaction.
+	// Keeping it here avoids relying on a copied tea model after the worker has
+	// read the input lock and before it persists the v2 candidate.
+	inputLockVersion int
 }
 
 func newSyncWorker() *syncWorker {
@@ -214,6 +225,11 @@ type syncWorkerResultMsg struct {
 	err  error
 	code string
 	lock LockFile
+}
+
+type syncLockMigratedMsg struct {
+	fromVersion int
+	toVersion   int
 }
 
 type syncResolvingMsg struct{ driver string }
@@ -402,10 +418,23 @@ type preparedSyncMsg struct {
 type candidateLockSavedMsg struct{ lock LockFile }
 
 func (s syncModel) planSyncItems(list DriversList) ([]plannedSyncItem, bool, error) {
+	planned, needsRegistry, _, err := s.planSyncItemsWithVersion(list)
+	return planned, needsRegistry, err
+}
+
+// planSyncItemsWithVersion returns the version from the exact lock snapshot
+// used for planning. Callers that need migration state must use this method so
+// they do not load the lockfile a second time between planning and persisting.
+func (s syncModel) planSyncItemsWithVersion(list DriversList) ([]plannedSyncItem, bool, int, error) {
 	lf, err := loadLockFile(s.LockFilePath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, false, err
+		return nil, false, 0, err
 	}
+	planned, needsRegistry, err := s.planSyncItemsFromLock(list, lf)
+	return planned, needsRegistry, lf.Version, err
+}
+
+func (s syncModel) planSyncItemsFromLock(list DriversList, lf LockFile) ([]plannedSyncItem, bool, error) {
 
 	planned := make([]plannedSyncItem, 0, len(list.Drivers))
 	needsRegistry := false
@@ -1097,10 +1126,14 @@ func (s syncModel) runSyncWorker(worker *syncWorker) (result syncWorkerResultMsg
 		return fail("sync_failed", err)
 	}
 
-	planned, needsRegistry, err := s.planSyncItems(s.list)
+	planned, needsRegistry, inputLockVersion, err := s.planSyncItemsWithVersion(s.list)
 	if err != nil {
 		return fail("sync_failed", fmt.Errorf("failed to inspect lock file: %w", err))
 	}
+	// Keep the version from the snapshot that actually drove planning in the
+	// worker. The model is copied through Bubble Tea messages, while this value
+	// must remain tied to the candidate being persisted.
+	worker.inputLockVersion = inputLockVersion
 	if needsRegistry {
 		// Registry clients are currently contextless. The project lock remains
 		// held until this call returns, after which cancellation is observed.
@@ -1159,6 +1192,14 @@ func (s syncModel) runSyncWorker(worker *syncWorker) (result syncWorkerResultMsg
 	}
 	if err := s.persistCandidateLock(prepared.lock); err != nil {
 		return fail("sync_failed", fmt.Errorf("failed to write candidate lock file: %w", err))
+	}
+	if worker.inputLockVersion == lockFileVersionV1 {
+		if !worker.send(ctx, syncLockMigratedMsg{
+			fromVersion: lockFileVersionV1,
+			toVersion:   lockFileVersion,
+		}) {
+			return fail("sync_failed", ctx.Err())
+		}
 	}
 	result.lock = prepared.lock
 
@@ -1346,6 +1387,25 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			})
 		}
 		return s, s.worker.nextEvent()
+	case syncLockMigratedMsg:
+		// The worker sends this only after the candidate v2 lock has been
+		// persisted atomically. Keep it on the model for the final JSON status,
+		// while streaming an explicit event only in progress mode.
+		s.migration = &jsonschema.SyncMigration{
+			FromVersion: msg.fromVersion,
+			ToVersion:   msg.toVersion,
+		}
+		if s.jsonStreamProgress {
+			s.emitJSON("sync.migration", *s.migration)
+			return s, s.worker.nextEvent()
+		}
+		if s.jsonOutput {
+			return s, s.worker.nextEvent()
+		}
+		return s, tea.Sequence(
+			tea.Printf("%s", syncMigrationMessage(*s.migration)),
+			s.worker.nextEvent(),
+		)
 	case alreadyInstalledDrvMsg:
 		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,

@@ -1328,6 +1328,46 @@ func (suite *SubcommandTestSuite) TestSync_JSONProgressStream() {
 	suite.Equal("sync.status", kinds[len(kinds)-1])
 }
 
+func TestSyncMigrationNotificationIsStructuredAndDeferredForJSON(t *testing.T) {
+	var out bytes.Buffer
+	worker := newSyncWorker()
+	model := syncModel{
+		jsonOutput: true,
+		jsonOut:    &out,
+		worker:     worker,
+	}
+	updated, _ := model.Update(syncLockMigratedMsg{fromVersion: lockFileVersionV1, toVersion: lockFileVersion})
+	got := updated.(syncModel)
+	require.NotNil(t, got.migration)
+	assert.Equal(t, &jsonschema.SyncMigration{FromVersion: 1, ToVersion: 2}, got.migration)
+	assert.Empty(t, out.String(), "--json keeps migration in the final status envelope")
+
+	var status jsonschema.SyncStatus
+	var envelope jsonschema.Envelope
+	require.NoError(t, json.Unmarshal([]byte(got.FinalOutput()), &envelope))
+	require.NoError(t, json.Unmarshal(envelope.Payload, &status))
+	require.NotNil(t, status.Migration)
+	assert.Equal(t, 1, status.Migration.FromVersion)
+	assert.Equal(t, 2, status.Migration.ToVersion)
+}
+
+func TestSyncMigrationNotificationStreamsOnlyInProgressMode(t *testing.T) {
+	var out bytes.Buffer
+	worker := newSyncWorker()
+	model := syncModel{
+		jsonOutput:         true,
+		jsonStreamProgress: true,
+		jsonOut:            &out,
+		worker:             worker,
+	}
+	updated, _ := model.Update(syncLockMigratedMsg{fromVersion: lockFileVersionV1, toVersion: lockFileVersion})
+	got := updated.(syncModel)
+	var envelope jsonschema.Envelope
+	require.NoError(t, json.Unmarshal(bytes.TrimSpace(out.Bytes()), &envelope))
+	assert.Equal(t, "sync.migration", envelope.Kind)
+	assert.NotNil(t, got.migration)
+}
+
 func (suite *SubcommandTestSuite) TestSyncPrepareFailurePreservesRuntimeAndLock() {
 	path := filepath.Join(suite.tempdir, "dbc.toml")
 	lockPath := filepath.Join(suite.tempdir, "dbc.lock")
@@ -1413,6 +1453,83 @@ func (suite *SubcommandTestSuite) TestSyncCandidateLockFailureDoesNotInstall() {
 	suite.Equal(oldLock, newLock)
 	assertFileClosed(suite.T(), downloadedArchive)
 	assertNoPreparedWorkspaces(suite.T(), suite.Dir())
+}
+
+func (suite *SubcommandTestSuite) TestSyncLockMigrationNotificationFollowsCandidatePersist() {
+	path := filepath.Join(suite.tempdir, "dbc.toml")
+	lockPath := filepath.Join(suite.tempdir, "dbc.lock")
+	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	legacyLock := "version = 1\n\n[[drivers]]\nname = \"test-driver-1\"\nversion = \"1.0.0\"\n"
+	suite.Require().NoError(os.WriteFile(lockPath, []byte(legacyLock), 0o644))
+	runPlain := func(model tea.Model) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var output bytes.Buffer
+		program := tea.NewProgram(model, tea.WithInput(nil), tea.WithOutput(&output), tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
+		prog = program
+		defer func() { prog = nil }()
+		programModel := tea.Model(model)
+		finalModel, runErr := program.Run()
+		notifyProgramExited(programModel)
+		program.Wait()
+		if runErr != nil {
+			return output.String(), runErr
+		}
+		status := finalModel.(HasStatus)
+		if err := status.Err(); err != nil {
+			return output.String() + "\n" + formatErr(err), err
+		}
+		return output.String(), nil
+	}
+
+	model := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(testBaseModel())
+	first, err := runPlain(model)
+	suite.Require().NoError(err)
+	suite.Equal(1, strings.Count(first, "Migrated dbc.lock from v1 to v2."))
+
+	// The successful migration leaves a v2 lock behind. Replaying it must not
+	// produce another migration notification for the same lockfile.
+	model = SyncCmd{Path: path, NoVerify: true}.GetModelCustom(testBaseModel())
+	second, err := runPlain(model)
+	suite.Require().NoError(err)
+	suite.NotContains(second, "Migrated dbc.lock from v1 to v2.")
+
+	// A failed candidate persist must not claim that migration happened, even
+	// though the input lock was v1.
+	suite.Require().NoError(os.WriteFile(lockPath, []byte(legacyLock), 0o644))
+	failureModel := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(testBaseModel()).(syncModel)
+	failureModel.writeCandidateLock = func(string, LockFile) error { return errors.New("injected candidate save failure") }
+	failure := suite.runCmdErr(failureModel)
+	suite.NotContains(failure, "Migrated dbc.lock from v1 to v2.")
+}
+
+func (suite *SubcommandTestSuite) TestSyncLockMigrationNotificationSurvivesInstallFailure() {
+	path := filepath.Join(suite.tempdir, "dbc.toml")
+	lockPath := filepath.Join(suite.tempdir, "dbc.lock")
+	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.Require().NoError(os.WriteFile(lockPath, []byte("version = 1\n\n[[drivers]]\nname = \"test-driver-1\"\nversion = \"1.0.0\"\n"), 0o644))
+
+	model := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(testBaseModel()).(syncModel)
+	model.worker.hooks.ensurePackage = func(context.Context, config.Config, string, config.ExpectedPackageMetadata, config.EnsurePackageCallbacks) (config.EnsurePackageResult, error) {
+		return config.EnsurePackageResult{}, errors.New("injected install failure")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var output bytes.Buffer
+	program := tea.NewProgram(model, tea.WithInput(nil), tea.WithOutput(&output), tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
+	prog = program
+	defer func() { prog = nil }()
+	programModel := tea.Model(model)
+	finalModel, runErr := program.Run()
+	notifyProgramExited(programModel)
+	program.Wait()
+	suite.Require().NoError(runErr)
+	suite.Equal(1, finalModel.(HasStatus).Status())
+	out := output.String()
+	suite.Equal(1, strings.Count(out, "Migrated dbc.lock from v1 to v2."))
+	lock, err := loadLockFile(lockPath)
+	suite.Require().NoError(err)
+	suite.Equal(lockFileVersion, lock.Version, "candidate lock was persisted before install failure")
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLock() {
@@ -1674,7 +1791,7 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		defer cancel()
 		var output bytes.Buffer
 		program := tea.NewProgram(model, tea.WithInput(nil), tea.WithOutput(&output),
-			tea.WithoutRenderer(), tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
+			tea.WithContext(ctx), tea.WithFilter(filterProgramMessage))
 		prog = program
 		defer func() { prog = nil }()
 		programModel := tea.Model(model)
@@ -1711,8 +1828,9 @@ func (suite *SubcommandTestSuite) TestSyncLegacyManifestOnlyProofCompatibility()
 		data := []byte("legacy external library")
 		fixture := setup(t, path, path, data, data)
 		counts := &syncArchiveRunCounts{}
-		_, err := run(t, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
+		out, err := run(t, fixture.listPath, fixture.archivePath, counts, getTestDriverRegistry)
 		suite.NoError(err)
+		suite.Contains(out, "Migrated dbc.lock from v1 to v2. v2 records package archive hashes; verified v1 installed-library checksums are retained as legacy proofs where applicable.")
 		suite.Equal(syncArchiveRunCounts{registry: 1, download: 1, install: 0}, *counts)
 		updated, err := loadLockFile(fixture.lockPath)
 		suite.Require().NoError(err)
