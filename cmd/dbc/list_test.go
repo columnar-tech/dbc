@@ -118,3 +118,97 @@ func (suite *SubcommandTestSuite) TestListUnreadableConfigJSON() {
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "list_failed", "failed to list drivers")
 }
+
+func (suite *SubcommandTestSuite) TestListHidesNonHostPlatformDriver() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	const platform = "linux_amd64"
+	install := InstallCmd{
+		Driver:   "test-driver-1",
+		Level:    config.ConfigEnv,
+		Platform: config.Platform(platform),
+	}.GetModelCustom(testBaseModel())
+	suite.runCmd(install)
+
+	m := ListCmd{Level: config.ConfigEnv}.GetModel()
+	out := suite.runCmd(m)
+
+	host := config.PlatformTuple()
+	if host == platform {
+		suite.Contains(out, "test-driver-1")
+	} else {
+		suite.NotContains(out, "test-driver-1")
+	}
+}
+
+func (suite *SubcommandTestSuite) TestListAllPlatformsShowsCrossPlatformDriver() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	const platform = "linux_amd64"
+	install := InstallCmd{
+		Driver:   "test-driver-1",
+		Level:    config.ConfigEnv,
+		Platform: config.Platform(platform),
+	}.GetModelCustom(testBaseModel())
+	suite.runCmd(install)
+
+	m := ListCmd{Level: config.ConfigEnv, AllPlatforms: true}.GetModel()
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "test-driver-1")
+	suite.Contains(out, "PLATFORM")
+	host := config.PlatformTuple()
+	if host == platform {
+		suite.Contains(out, platform+" (*)")
+	} else {
+		suite.Contains(out, platform)
+		suite.NotContains(out, platform+" (*)")
+	}
+}
+
+func (suite *SubcommandTestSuite) TestListAllPlatformsJSONIncludesPlatform() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	const platform = "linux_amd64"
+	install := InstallCmd{
+		Driver:   "test-driver-1",
+		Level:    config.ConfigEnv,
+		Platform: config.Platform(platform),
+	}.GetModelCustom(testBaseModel())
+	suite.runCmd(install)
+
+	m := ListCmd{Level: config.ConfigEnv, AllPlatforms: true, Json: true}.GetModel()
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env))
+	suite.Equal("list.results", env.Kind)
+
+	var resp jsonschema.ListResponse
+	suite.Require().NoError(json.Unmarshal(env.Payload, &resp))
+	suite.Len(resp.Drivers, 1)
+	suite.NotEmpty(resp.Drivers[0].Platform)
+	suite.Contains(resp.Drivers[0].Platform, platform)
+}
+
+func (suite *SubcommandTestSuite) TestListAllPlatformsMarksHostDriver() {
+	if runtime.GOOS == "windows" {
+		suite.T().Skip()
+	}
+
+	install := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(testBaseModel())
+	suite.runCmd(install)
+
+	m := ListCmd{Level: config.ConfigEnv, AllPlatforms: true}.GetModel()
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "test-driver-1")
+	suite.Contains(out, config.PlatformTuple()+" (*)")
+}

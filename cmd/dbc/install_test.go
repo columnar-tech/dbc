@@ -629,3 +629,26 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
 	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
 }
+
+func (suite *SubcommandTestSuite) TestInstallWithPlatform() {
+	const platform = "linux_amd64"
+	m := InstallCmd{
+		Driver:   "test-driver-1",
+		Level:    suite.configLevel,
+		Platform: config.Platform(platform),
+	}.GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+
+	suite.validateOutput(
+		"\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
+		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), out)
+
+	driver := suite.getInstalledDriver("test-driver-1")
+	sharedPath := driver.Driver.Shared.Get(platform)
+	suite.NotEmpty(sharedPath, "manifest should record the requested platform tuple")
+	suite.FileExists(sharedPath)
+	if platform != config.PlatformTuple() {
+		suite.Empty(driver.Driver.Shared.Get(config.PlatformTuple()),
+			"manifest should not use the host platform tuple when --platform is set")
+	}
+}

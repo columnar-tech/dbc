@@ -21,6 +21,7 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -83,6 +84,29 @@ func (d driverMap) Get(platformTuple string) string {
 		return d.defaultPath
 	}
 	return d.platformMap[platformTuple]
+}
+
+// HasPlatform reports whether a shared library path is recorded for platform.
+func (d driverMap) HasPlatform(platformTuple string) bool {
+	return d.Get(platformTuple) != ""
+}
+
+// PlatformTuples returns sorted platform keys from a multi-platform shared map.
+// When shared is a single default path, the slice is empty.
+func (d driverMap) PlatformTuples() []string {
+	if d.defaultPath != "" {
+		return nil
+	}
+	platforms := make([]string, 0, len(d.platformMap))
+	for platform := range d.platformMap {
+		platforms = append(platforms, platform)
+	}
+	slices.Sort(platforms)
+	return platforms
+}
+
+func (d driverMap) UsesDefaultPath() bool {
+	return d.defaultPath != ""
 }
 
 func (d driverMap) Paths() iter.Seq[string] {
