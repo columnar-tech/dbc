@@ -223,7 +223,7 @@ func getEnvConfigDir() string {
 	return strings.Join(envConfigLoc, string(filepath.ListSeparator))
 }
 
-func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {
+func InstallDriver(cfg Config, shortName string, downloaded *os.File, platform string) (Manifest, error) {
 	var (
 		loc string
 		err error
@@ -247,7 +247,7 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 
 	manifest.DriverInfo.ID = shortName
 	manifest.DriverInfo.Source = "dbc"
-	manifest.DriverInfo.Driver.Shared.Set(PlatformTuple(), driverPath)
+	manifest.DriverInfo.Driver.Shared.Set(platform, driverPath)
 
 	return manifest, nil
 }

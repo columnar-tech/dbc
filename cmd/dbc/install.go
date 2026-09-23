@@ -66,6 +66,7 @@ type InstallCmd struct {
 	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
 	Driver             string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
+	Platform           config.Platform    `arg:"--platform" placeholder:"TUPLE" help:"Platform tuple to install for (e.g. linux_amd64). Defaults to the host platform."`
 	Json               bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
 	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
 	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
@@ -89,6 +90,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	}
 	return progressiveInstallModel{
 		Driver:             c.Driver,
+		platform:           c.Platform.Resolve(),
 		NoVerify:           c.NoVerify,
 		jsonOutput:         c.Json || c.JsonStreamProgress,
 		jsonStreamProgress: c.JsonStreamProgress,
@@ -111,12 +113,12 @@ func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
 }
 
-func verifySignature(m config.Manifest, noVerify bool) error {
+func verifySignature(m config.Manifest, platform string, noVerify bool) error {
 	if m.Files.Driver == "" || noVerify {
 		return nil
 	}
 
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
+	path := filepath.Dir(m.Driver.Shared.Get(platform))
 
 	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
 	if err != nil {
@@ -215,6 +217,7 @@ type progressiveInstallModel struct {
 	baseModel
 
 	Driver             string
+	platform           string
 	VersionInput       *semver.Version
 	NoVerify           bool
 	jsonOutput         bool
@@ -353,8 +356,8 @@ func (m progressiveInstallModel) FinalOutput() string {
 			installStatus.Message = m.postInstallMessage
 		}
 
-		if !m.insecureNoChecksum && m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
-			driverPath := m.installedDriverInfo.Driver.Shared.Get(config.PlatformTuple())
+		if !m.insecureNoChecksum && m.installedDriverInfo.Driver.Shared.Get(m.platform) != "" {
+			driverPath := m.installedDriverInfo.Driver.Shared.Get(m.platform)
 			chksum, err := checksum(driverPath)
 			if err != nil && m.jsonOutput {
 				return marshalEnvelope("error", jsonschema.ErrorResponse{
@@ -415,14 +418,14 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	return m, func() tea.Msg {
 		if vers != nil {
 			vers.IncludePrerelease = m.Pre
-			pkg, err := d.GetWithConstraint(vers, config.PlatformTuple())
+			pkg, err := d.GetWithConstraint(vers, m.platform)
 			if err != nil {
 				return err
 			}
 			return pkg
 		}
 
-		pkg, err := d.GetPackage(nil, config.PlatformTuple(), m.Pre)
+		pkg, err := d.GetPackage(nil, m.platform, m.Pre)
 		if err != nil {
 			if !m.Pre && !d.HasNonPrerelease() {
 				for _, cfg := range config.Get() {
@@ -442,8 +445,8 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	m.state = stDownloading
 	if m.isAlreadyInstalled() {
 		m.state = stDone
-		if m.jsonOutput && !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
-			driverPath := m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple())
+		if m.jsonOutput && !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(m.platform) != "" {
+			driverPath := m.conflictingInfo.Driver.Shared.Get(m.platform)
 			return m, func() tea.Msg {
 				chksum, err := checksum(driverPath)
 				if err != nil {
@@ -470,7 +473,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	if m.isLocal {
 		driverName := strings.TrimSuffix(
 			strings.TrimSuffix(filepath.Base(m.Driver), ".tar.gz"), ".tgz")
-		parts := strings.Split(driverName, "_"+config.PlatformTuple()+"_")
+		parts := strings.Split(driverName, "_"+m.platform+"_")
 		if len(parts) < 2 {
 			m.Driver = driverName
 		} else {
@@ -485,7 +488,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 			}
 		}
 
-		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded)
+		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded, m.platform)
 		if err != nil {
 			return err
 		}
@@ -557,8 +560,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.addEvent("extract.complete")
 		m = m.addEvent("verify.start")
 		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.NoVerify); err != nil {
-				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
+			if err := verifySignature(msg, m.platform, m.NoVerify); err != nil {
+				path := filepath.Dir(msg.Driver.Shared.Get(m.platform))
 				_ = os.RemoveAll(path)
 				return err
 			}
