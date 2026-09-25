@@ -334,14 +334,24 @@ func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	assert.Len(t, merged.Artifacts, 3)
 }
 
-func TestRefreshBackfillsMissingPackslipPackageVersion(t *testing.T) {
+func TestRefreshKeepsPackslipPackageVersionUnspecified(t *testing.T) {
 	existing := testLockEntry()
-	existing.Artifacts[0].PackageVersion = 0
-	refreshed := testLockEntry()
+	for i := range existing.Artifacts {
+		existing.Artifacts[i].PackageVersion = 0
+	}
+
+	resolved := existing.resolvedRelease()
+	for i := range resolved.Artifacts {
+		resolved.Artifacts[i].PackageVersion = 0
+	}
+	refreshed, err := lockInfoFromResolvedRelease(existing.Name, resolved)
+	require.NoError(t, err)
 
 	merged, err := refreshLockEntry(existing, refreshed)
 	require.NoError(t, err)
-	assert.Equal(t, 2, merged.Artifacts[0].PackageVersion)
+	for _, artifact := range merged.Artifacts {
+		assert.Zero(t, artifact.PackageVersion)
+	}
 }
 
 func TestRefreshBackfillsMissingNonPackslipPackageVersion(t *testing.T) {
