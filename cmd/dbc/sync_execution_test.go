@@ -382,7 +382,7 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnc
 	path := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n[drivers.test-driver-no-sig]\n"), 0644))
 	downloaded := map[string]int{}
-	model := SyncCmd{Path: path, NoVerify: true}.GetModelCustom(baseModel{
+	model := SyncCmd{Path: path, Level: suite.configLevel, NoVerify: true}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
 			downloaded[pkg.Driver.Path]++
@@ -413,7 +413,7 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnc
 	v2List := filepath.Join(suite.tempdir, "v2.toml")
 	suite.Require().NoError(os.WriteFile(v2List, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0644))
 	v2Downloads := 0
-	v2Model := SyncCmd{Path: v2List, NoVerify: true}.GetModelCustom(baseModel{
+	v2Model := SyncCmd{Path: v2List, Level: suite.configLevel, NoVerify: true}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
 			v2Downloads++
