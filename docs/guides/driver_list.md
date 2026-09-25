@@ -106,18 +106,20 @@ The first time you run `dbc sync`, dbc creates a [lockfile](#lockfile) in the sa
 By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.
 
 When a complete lock entry exists, `dbc sync` replays the exact version and
-artifact, verifying its digest and size without registry or Packslip discovery.
-If the current platform is absent, the lock is partial: a refresh may add that
-target for the same source and version, but existing target entries are
-immutable.
+artifact, verifying its SHA-256 digest and any recorded size without registry
+or Packslip discovery. A partial lock may gain the current target; existing
+targets remain unchanged.
 
 ## Lockfile
 
 `dbc sync` automatically creates a lockfile file in the same directory as the driver list. By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.
 
 The v2 lockfile records an exact version, source identity, verification
-evidence, and concrete target artifacts with their location, SHA-256 digest,
-and size. A missing target is not evidence that the target is available.
+evidence, and target artifacts with a required SHA-256 digest and optional size
+from signed Packslip metadata or local measurement. Registry artifact metadata
+may include a hash but no size; downloaded sizes are not added to locks.
+Existing recorded sizes remain valid and are verified. A missing target is not
+evidence that the target is available.
 
 For example, a source can be pinned explicitly:
 
