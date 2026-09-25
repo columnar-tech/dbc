@@ -227,7 +227,8 @@ type ResolvedRelease struct {
 }
 
 // Artifact describes one downloadable archive for one concrete target. Hash
-// and Size are either both absent before download or both present afterward.
+// may be absent before resolution but is required for a finalized snapshot.
+// Size is optional metadata.
 type Artifact struct {
 	Target Target
 	Format string
