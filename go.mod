@@ -14,7 +14,7 @@
 
 module github.com/columnar-tech/dbc
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.5
 
@@ -38,7 +38,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/theupdateframework/go-tuf/v2 v2.4.2
 	github.com/zeroshade/machine-id v0.0.0-20251223181436-930511047eef
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.48.0
 )
 
 require (
