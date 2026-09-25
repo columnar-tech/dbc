@@ -292,13 +292,6 @@ func validateLockInfo(entry lockInfo) error {
 	if err := validateLockArtifacts(entry.Artifacts); err != nil {
 		return err
 	}
-	if entry.Source.Type == "packslip" {
-		for i, artifact := range entry.Artifacts {
-			if artifact.PackageVersion != 2 {
-				return fmt.Errorf("driver %q packslip artifact %d must declare dbc package_version = 2, got %d", entry.Name, i, artifact.PackageVersion)
-			}
-		}
-	}
 	return nil
 }
 

@@ -88,9 +88,6 @@ func (requirement Requirement) Plan(existing *resolution.ResolvedRelease, locked
 	if err := validateExistingIdentity(*existing); err != nil {
 		return Plan{outcome: PlanReject, reason: "invalid existing release identity: " + err.Error()}
 	}
-	if err := validatePackslipReleaseArtifacts(*existing); err != nil {
-		return Plan{outcome: PlanReject, reason: err.Error()}
-	}
 	if err := requirement.validateReleaseIdentity(*existing); err != nil {
 		return Plan{outcome: PlanResolve}
 	}

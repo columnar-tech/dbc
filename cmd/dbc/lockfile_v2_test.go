@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -210,50 +209,9 @@ func TestLockFileV2AllowsPartialArtifactSetAndReplayNeedsNoDiscovery(t *testing.
 	assert.Contains(t, err.Error(), "locked mode")
 }
 
-func TestPackslipLockRequiresPackageVersionTwoForEveryArtifact(t *testing.T) {
-	for artifactIndex := range testLockEntry().Artifacts {
-		t.Run(strconv.Itoa(artifactIndex), func(t *testing.T) {
-			entry := testLockEntry()
-			entry.Artifacts[artifactIndex].PackageVersion = 0
-
-			err := validateLockInfo(entry)
-			require.ErrorContains(t, err, "packslip artifact")
-			require.ErrorContains(t, err, "package_version = 2")
-		})
-	}
-}
-
-func TestPackslipLockWithoutPackageVersionIsRejectedDuringLoad(t *testing.T) {
-	tests := []struct {
-		name        string
-		replacement string
-	}{
-		{name: "missing", replacement: ""},
-		{name: "zero", replacement: "package_version = 0\n"},
-		{name: "unknown", replacement: "package_version = 3\n"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "dbc.lock")
-			require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{testLockEntry()}}))
-			data, err := os.ReadFile(path)
-			require.NoError(t, err)
-			data = []byte(strings.ReplaceAll(string(data), "package_version = 2\n", test.replacement))
-			require.NoError(t, os.WriteFile(path, data, 0o600))
-
-			_, err = loadLockFile(path)
-			if test.name != "unknown" {
-				require.ErrorContains(t, err, "packslip artifact")
-				require.ErrorContains(t, err, "package_version = 2")
-			} else {
-				require.ErrorContains(t, err, "unsupported dbc package version 3")
-			}
-		})
-	}
-}
-
-func TestPackageVersionZeroRemainsAllowedForRegistryAndPathLocks(t *testing.T) {
+func TestPackageVersionZeroIsAllowedForAllLockSources(t *testing.T) {
 	sources := []lockSource{
+		{Type: "packslip", Project: "github.com/example/driver"},
 		{Type: "registry", URL: "https://registry.example.test"},
 		{Type: "path", Path: "./drivers/example"},
 	}
@@ -273,6 +231,10 @@ func TestPackageVersionZeroRemainsAllowedForRegistryAndPathLocks(t *testing.T) {
 			for _, artifact := range loaded.lockinfo[entry.Name].Artifacts {
 				assert.Zero(t, artifact.PackageVersion)
 			}
+
+			entry.Artifacts[0].PackageVersion = 3
+			err = validateLockInfo(entry)
+			require.ErrorContains(t, err, "unsupported dbc package version 3")
 		})
 	}
 }
@@ -372,15 +334,14 @@ func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	assert.Len(t, merged.Artifacts, 3)
 }
 
-func TestRefreshRejectsUnprovenPackslipLockInsteadOfBackfilling(t *testing.T) {
+func TestRefreshBackfillsMissingPackslipPackageVersion(t *testing.T) {
 	existing := testLockEntry()
 	existing.Artifacts[0].PackageVersion = 0
 	refreshed := testLockEntry()
 
-	_, err := refreshLockEntry(existing, refreshed)
-	require.ErrorContains(t, err, "existing lock entry")
-	require.ErrorContains(t, err, "packslip artifact")
-	require.ErrorContains(t, err, "package_version = 2")
+	merged, err := refreshLockEntry(existing, refreshed)
+	require.NoError(t, err)
+	assert.Equal(t, 2, merged.Artifacts[0].PackageVersion)
 }
 
 func TestRefreshBackfillsMissingNonPackslipPackageVersion(t *testing.T) {

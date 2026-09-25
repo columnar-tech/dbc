@@ -324,9 +324,6 @@ func (requirement Requirement) ValidateResolverResult(release resolution.Resolve
 	if err := resolution.ValidateResolvedReleaseCandidate(release); err != nil {
 		return resolution.Artifact{}, fmt.Errorf("invalid resolved release: %w", err)
 	}
-	if err := validatePackslipReleaseArtifacts(release); err != nil {
-		return resolution.Artifact{}, err
-	}
 	artifact, ok := artifactForTarget(release.Artifacts, requirement.target)
 	if !ok {
 		return resolution.Artifact{}, fmt.Errorf("resolved release has no artifact for target %v", requirement.target)
@@ -346,18 +343,6 @@ func (requirement Requirement) validateReleaseIdentity(release resolution.Resolv
 	}
 	if !requirement.version.matches(release.Version) {
 		return fmt.Errorf("resolved version %q does not match requirement", release.Version)
-	}
-	return nil
-}
-
-func validatePackslipReleaseArtifacts(release resolution.ResolvedRelease) error {
-	if release.Source.Type != string(sourceidentity.Packslip) {
-		return nil
-	}
-	for i, artifact := range release.Artifacts {
-		if artifact.PackageVersion != 2 {
-			return fmt.Errorf("resolved Packslip artifact %d has unsupported dbc package_version %d", i, artifact.PackageVersion)
-		}
 	}
 	return nil
 }
