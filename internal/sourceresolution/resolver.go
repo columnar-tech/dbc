@@ -82,6 +82,9 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 		if artifact.PackageVersion != 2 {
 			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d must declare dbc package_version 2", i)
 		}
+		if artifact.Size == nil {
+			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d must declare archive size", i)
+		}
 	}
 	return release, nil
 }

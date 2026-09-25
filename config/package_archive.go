@@ -166,7 +166,7 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 	if expected.ArchiveHash != "" && expected.ArchiveHash != archiveHash {
 		return result, "", sharedIdentity, fmt.Errorf("package archive hash mismatch: got %s, expected %s", archiveHash, expected.ArchiveHash)
 	}
-	if expected.ArchiveSize > 0 && expected.ArchiveSize != archiveSize {
+	if expected.hasExpectedArchiveSize() && expected.ArchiveSize != archiveSize {
 		return result, "", sharedIdentity, fmt.Errorf("package archive size mismatch: got %d, expected %d", archiveSize, expected.ArchiveSize)
 	}
 

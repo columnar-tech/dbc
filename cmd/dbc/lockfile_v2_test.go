@@ -497,6 +497,8 @@ func TestLockArtifactsAllowSharedLocationOnlyWithConsistentMetadata(t *testing.T
 	second := testLockArtifact("macos_arm64", "a", 10)
 	second.Location = first.Location
 	assert.NoError(t, validateLockArtifacts([]lockArtifact{first, second}))
+	second.Size = nil
+	assert.NoError(t, validateLockArtifacts([]lockArtifact{first, second}), "an omitted size is compatible with a known size")
 	second.Size = int64Pointer(11)
 	assert.ErrorContains(t, validateLockArtifacts([]lockArtifact{first, second}), "conflicting hash or size")
 	second.Size = int64Pointer(10)
@@ -505,6 +507,18 @@ func TestLockArtifactsAllowSharedLocationOnlyWithConsistentMetadata(t *testing.T
 	second = testLockArtifact("macos_arm64", "b", 11)
 	second.Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: first.Location.Value}
 	assert.NotEqual(t, first.Location, second.Location, "same value with distinct kinds has a distinct identity")
+}
+
+func TestLockHashOnlyArtifactRoundTrips(t *testing.T) {
+	entry := testLockEntry()
+	entry.Artifacts[0].Size = nil
+	require.NoError(t, validateLockInfo(entry))
+	path := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
+	reloaded, err := loadLockFile(path)
+	require.NoError(t, err)
+	require.Len(t, reloaded.lockinfo[entry.Name].Artifacts, len(entry.Artifacts))
+	assert.Nil(t, reloaded.lockinfo[entry.Name].Artifacts[0].Size)
 }
 
 func TestLockRoundTripPreservesOneArtifactLocationSharedBySeveralTargets(t *testing.T) {
@@ -618,6 +632,31 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, entry.Artifacts[0].Hash, reloaded.lockinfo["example"].Artifacts[0].Hash,
 		"post-install lock rewrite must keep the archive snapshot rather than the installed-library hash")
+}
+
+func TestSyncAdapterReplaysAndReusesHashOnlyRegistryLock(t *testing.T) {
+	platform := config.PlatformTuple()
+	entry := lockInfo{
+		Name: "example", Version: semver.MustParse("1.2.3"),
+		Source: lockSource{Type: "registry", URL: "https://registry.example.test"},
+		Artifacts: []lockArtifact{{
+			Target: testTarget(platform), Format: "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/archive.tar.gz"},
+			Hash:     "sha256:" + strings.Repeat("a", 64),
+		}},
+	}
+	item, err := installItemFromLockedArtifact("example", entry, entry.Artifacts[0])
+	require.NoError(t, err)
+	assert.True(t, canReuseLockedEntry(item))
+	expected, hasMetadata, err := expectedSyncPackageMetadata(item)
+	require.NoError(t, err)
+	assert.True(t, hasMetadata)
+	assert.Equal(t, entry.Artifacts[0].Hash, expected.ArchiveHash)
+	assert.False(t, expected.ArchiveSizePresent)
+
+	updated, err := lockEntryForItem(item)
+	require.NoError(t, err)
+	assert.Nil(t, updated.Artifacts[0].Size, "replay does not invent a registry size")
 }
 
 func TestSyncAdapterPreservesLockedURLSpellingWhenReusingSnapshot(t *testing.T) {

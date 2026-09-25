@@ -422,14 +422,15 @@ func hasValidatedReplacementEvidence(item installItem) bool {
 	selected, err := item.selectedArtifact()
 	if err != nil || item.AlreadyInstalled != nil || item.Validation == nil || item.Validation.Prepared == nil ||
 		!item.Validation.Prepared.MatchesExpected(item.Expected) ||
-		selected.Hash == "" || selected.Size == nil || *selected.Size <= 0 || item.ValidatedLibraryHash == "" {
+		selected.Hash == "" || item.Validation.ArchiveSize <= 0 || item.ValidatedLibraryHash == "" {
 		return false
 	}
 	if validateLegacyLibraryHash(item.ValidatedLibraryHash) != nil ||
 		item.Expected.ID != item.Release.DriverID || item.Expected.Version != item.Release.Version ||
 		item.Expected.Platform == "" || item.Expected.Platform != item.Platform ||
 		item.Expected.SourceType != item.Release.Source.Type || item.Expected.SourceIdentity != item.Release.Source.Reference ||
-		item.Expected.ArchiveHash != selected.Hash || item.Expected.ArchiveSize != *selected.Size {
+		item.Expected.ArchiveHash != selected.Hash ||
+		(item.Expected.ArchiveSizePresent && item.Expected.ArchiveSize != item.Validation.ArchiveSize) {
 		return false
 	}
 	return true

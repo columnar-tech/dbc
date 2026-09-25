@@ -80,7 +80,7 @@ func newV2InstallServer(t *testing.T, archive []byte, metadata string) *httptest
             url: package.tar.gz
 `, config.PlatformTuple())
 	if metadata == "complete" {
-		index += fmt.Sprintf("            hash: %q\n            size: %d\n", "sha256:"+hex.EncodeToString(digest[:]), len(archive))
+		index += fmt.Sprintf("            hash: %q\n            future_metadata: ignored\n", "sha256:"+hex.EncodeToString(digest[:]))
 	} else if metadata == "hash-only" {
 		index += fmt.Sprintf("            hash: %q\n", "sha256:"+hex.EncodeToString(digest[:]))
 	}
@@ -344,21 +344,26 @@ func TestClientInstallPackageV2WithoutRegistryMetadataIsRejected(t *testing.T) {
 
 	_, err := c.Install(t.Context(), cfg, "v2-driver")
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registry package v2 requires archive hash and size metadata")
+	assert.Contains(t, err.Error(), "registry package v2 requires archive hash metadata")
 	assert.NoFileExists(t, filepath.Join(root, "v2-driver.toml"))
 }
 
-func TestClientInstallRejectsPartialRegistryArchiveMetadata(t *testing.T) {
+func TestClientInstallAcceptsHashOnlyRegistryArchiveMetadata(t *testing.T) {
 	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
 	srv := newV2InstallServer(t, archive, "hash-only")
 	c := newTestClientForServer(t, srv.URL)
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
 
-	_, err := c.Install(t.Context(), cfg, "v2-driver")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registry package metadata must include both archive hash and size")
-	assert.NoDirExists(t, filepath.Join(root, "v2-driver"))
+	manifest, err := c.Install(t.Context(), cfg, "v2-driver")
+	require.NoError(t, err)
+	require.NotNil(t, manifest)
+	var receipt config.InstallReceipt
+	receiptBytes, err := os.ReadFile(filepath.Join(filepath.Dir(manifest.DriverInfo.Driver.Shared.Get(config.PlatformTuple())), "dbc-install-receipt.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(receiptBytes, &receipt))
+	assert.NotEmpty(t, receipt.ArchiveHash)
+	assert.Positive(t, receipt.ArchiveSize, "receipt retains the measured archive size")
 }
 
 func TestClientUninstall(t *testing.T) {

@@ -443,12 +443,13 @@ func PreparePackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 		return PackageValidation{}, errors.New("could not read prepared package receipt")
 	}
 	if manifest.PackageVersion == 2 && requested.ArchiveHash == "" {
-		return PackageValidation{}, errors.New("package v2 requires archive hash and size metadata")
+		return PackageValidation{}, errors.New("package v2 requires archive hash metadata")
 	}
 	finalExpected := requested
 	finalExpected.PackageVersion = manifest.PackageVersion
 	finalExpected.ArchiveHash = receipt.ArchiveHash
 	finalExpected.ArchiveSize = receipt.ArchiveSize
+	finalExpected.ArchiveSizePresent = true
 	prepared := &PreparedPackage{
 		root: root, runtimeID: runtimeID, requested: requested, expected: finalExpected,
 		workDir: workDir, payloadDir: payloadDir, finalDir: finalDir, manifest: manifest,
@@ -528,11 +529,11 @@ func InstallReceiptMatchesRuntimeRegistration(receipt InstallReceipt, current Dr
 // expectation requires an exact receipt match.
 func InstallReceiptMatchesExpectedPackage(receipt InstallReceipt, expected ExpectedPackageMetadata) bool {
 	return expected.ID != "" && expected.Version != "" && expected.Platform != "" &&
-		expected.SourceType != "" && expected.SourceIdentity != "" && expected.ArchiveHash != "" && expected.ArchiveSize > 0 &&
+		expected.SourceType != "" && expected.SourceIdentity != "" && expected.ArchiveHash != "" &&
 		receipt.DriverID == expected.ID && receipt.DriverVersion == expected.Version &&
 		receipt.Platform == expected.Platform && receipt.SourceType == expected.SourceType &&
 		receipt.SourceIdentity == expected.SourceIdentity && receipt.ArchiveHash == expected.ArchiveHash &&
-		receipt.ArchiveSize == expected.ArchiveSize &&
+		(!expected.hasExpectedArchiveSize() || receipt.ArchiveSize == expected.ArchiveSize) &&
 		(expected.PackageVersion == 0 || receipt.PackageVersion == expected.PackageVersion)
 }
 
@@ -710,7 +711,7 @@ func normalizePackageInstallMetadata(runtimeID string, expected ExpectedPackageM
 	if expected.ID != runtimeID {
 		return ExpectedPackageMetadata{}, fmt.Errorf("expected package id %q does not match runtime driver id %q", expected.ID, runtimeID)
 	}
-	if expected.ArchiveHash != "" || expected.ArchiveSize != 0 {
+	if expected.ArchiveHash != "" || expected.hasExpectedArchiveSize() {
 		if err := validateExpectedPackage(expected); err != nil {
 			return ExpectedPackageMetadata{}, err
 		}

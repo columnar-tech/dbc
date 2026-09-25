@@ -117,8 +117,7 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 		mutate  func(*ResolvedRelease)
 		wantErr string
 	}{
-		{name: "missing hash", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Hash = "" }, wantErr: "hash and size must either both be present or both be absent"},
-		{name: "missing size", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Size = nil }, wantErr: "hash and size must either both be present or both be absent"},
+		{name: "missing hash", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Hash = "" }, wantErr: "has a size without a hash"},
 		{name: "missing location", mutate: func(r *ResolvedRelease) { r.Artifacts[0].Location = ArtifactLocation{} }, wantErr: "invalid location"},
 		{name: "unsupported package version 1", mutate: func(r *ResolvedRelease) { r.Artifacts[0].PackageVersion = 1 }, wantErr: "unsupported dbc package version 1"},
 		{name: "negative package version", mutate: func(r *ResolvedRelease) { r.Artifacts[0].PackageVersion = -1 }, wantErr: "unsupported dbc package version -1"},
@@ -139,7 +138,7 @@ func TestValidateResolvedReleaseRequiresFinalizedArtifacts(t *testing.T) {
 	}
 }
 
-func TestValidateResolvedReleaseCandidateAllowsMissingArchiveHashAndSize(t *testing.T) {
+func TestValidateResolvedReleaseCandidateAllowsOptionalArchiveSize(t *testing.T) {
 	size := int64(12)
 	candidate := ResolvedRelease{Artifacts: []Artifact{{
 		Target:   Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
@@ -149,10 +148,11 @@ func TestValidateResolvedReleaseCandidateAllowsMissingArchiveHashAndSize(t *test
 	assert.NoError(t, ValidateResolvedReleaseCandidate(candidate))
 	assert.ErrorContains(t, ValidateResolvedRelease(candidate), "no finalized hash")
 	candidate.Artifacts[0].Size = &size
-	assert.ErrorContains(t, ValidateResolvedReleaseCandidate(candidate), "hash and size must either both be present or both be absent")
+	assert.ErrorContains(t, ValidateResolvedReleaseCandidate(candidate), "size without a hash")
 	candidate.Artifacts[0].Size = nil
 	candidate.Artifacts[0].Hash = "sha256:" + strings.Repeat("a", 64)
-	assert.ErrorContains(t, ValidateResolvedReleaseCandidate(candidate), "hash and size must either both be present or both be absent")
+	assert.NoError(t, ValidateResolvedReleaseCandidate(candidate))
+	assert.NoError(t, ValidateResolvedRelease(candidate))
 	candidate.Artifacts[0].Size = &size
 	assert.NoError(t, ValidateResolvedReleaseCandidate(candidate))
 	assert.NoError(t, ValidateResolvedRelease(candidate))
@@ -194,6 +194,9 @@ func TestResolvedReleaseAllowsSharedLocationButRejectsConflictingMetadata(t *tes
 		Target: Target{OS: "macos", Arch: "arm64"}, Location: base.Location, Hash: base.Hash, Size: &size,
 	}}}
 	assert.NoError(t, ValidateResolvedRelease(release))
+	release.Artifacts[1].Size = nil
+	assert.NoError(t, ValidateResolvedRelease(release), "a known size is compatible with an omitted size")
+	release.Artifacts[1].Size = &size
 	release.Artifacts[1].Hash = "sha256:" + strings.Repeat("b", 64)
 	assert.ErrorContains(t, ValidateResolvedRelease(release), "conflicting hash or size")
 }

@@ -107,19 +107,7 @@ func (p registryPackage) resolveArtifact() (resolution.Artifact, error) {
 		return resolution.Artifact{}, fmt.Errorf("artifact hash must not be empty")
 	}
 
-	var size *int64
-	if p.Size.Kind != 0 {
-		if p.Size.Kind != yaml.ScalarNode || p.Size.Tag != "!!int" {
-			return resolution.Artifact{}, fmt.Errorf("artifact size must be an integer")
-		}
-		var value int64
-		if err := p.Size.Decode(&value); err != nil {
-			return resolution.Artifact{}, fmt.Errorf("invalid artifact size: %w", err)
-		}
-		size = &value
-	}
-
-	if err := resolution.ValidateArtifactMetadata(hash, size); err != nil {
+	if err := resolution.ValidateArtifactMetadata(hash, nil); err != nil {
 		return resolution.Artifact{}, err
 	}
 	target, err := resolution.TargetFromPlatformTuple(p.PlatformTuple)
@@ -129,7 +117,6 @@ func (p registryPackage) resolveArtifact() (resolution.Artifact, error) {
 	return resolution.Artifact{
 		Target: target,
 		Hash:   hash,
-		Size:   size,
 	}, nil
 }
 

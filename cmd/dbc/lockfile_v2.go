@@ -36,6 +36,69 @@ var (
 	ErrArtifactAmbiguous         = errors.New("locked artifact selection is ambiguous")
 )
 
+func validateLockArtifacts(artifacts []lockArtifact) error {
+	seenTargets := make(map[resolution.Target]struct{}, len(artifacts))
+	seenLocations := make(map[resolution.ArtifactLocation]lockArtifact, len(artifacts))
+	for i, artifact := range artifacts {
+		if artifact.PackageVersion != 0 && artifact.PackageVersion != 2 {
+			return fmt.Errorf("artifact %d has unsupported dbc package version %d", i, artifact.PackageVersion)
+		}
+		if err := resolution.ValidateConcreteTarget(artifact.Target); err != nil {
+			return fmt.Errorf("artifact %d has invalid target: %w", i, err)
+		}
+		if canonical := resolution.CanonicalTarget(artifact.Target); canonical != artifact.Target {
+			return fmt.Errorf("artifact %d target is not canonical", i)
+		}
+		if err := resolution.ValidateArtifactLocation(artifact.Location); err != nil {
+			return fmt.Errorf("artifact %d has invalid location: %w", i, err)
+		}
+		if artifact.Hash == "" {
+			return fmt.Errorf("artifact %d must have a finalized hash", i)
+		}
+		if err := validateLockHash(artifact.Hash); err != nil {
+			return fmt.Errorf("artifact %d: %w", i, err)
+		}
+		if artifact.Size != nil && *artifact.Size < 0 {
+			return fmt.Errorf("artifact %d has negative size", i)
+		}
+		if _, exists := seenTargets[artifact.Target]; exists {
+			return fmt.Errorf("duplicate artifact target %q", artifactSelectorIdentity(artifact))
+		}
+		seenTargets[artifact.Target] = struct{}{}
+		if prior, exists := seenLocations[artifact.Location]; exists {
+			if prior.Hash != artifact.Hash || !compatibleLockSize(prior.Size, artifact.Size) {
+				return fmt.Errorf("artifacts sharing location %q have conflicting hash or size", artifact.Location.Value)
+			}
+			if prior.Size == nil && artifact.Size != nil {
+				seenLocations[artifact.Location] = artifact
+			}
+		} else {
+			seenLocations[artifact.Location] = artifact
+		}
+	}
+	return nil
+}
+
+func sameLockSize(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func compatibleLockSize(left, right *int64) bool {
+	return left == nil || right == nil || *left == *right
+}
+
+func validateLockHash(hash string) error {
+	// Share the resolution layer's canonical digest contract.
+	return resolution.ValidateArtifactMetadata(hash, nil)
+}
+
+func artifactSelectorIdentity(artifact lockArtifact) string {
+	return targetIdentity(artifact.Target)
+}
+
 // LockRefreshRequiredError distinguishes a normal install that can be fixed
 // by explicitly refreshing the lock from a locked-mode failure.
 type LockRefreshRequiredError struct {

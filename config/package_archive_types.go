@@ -33,16 +33,23 @@ const (
 
 // ExpectedPackageMetadata describes the resolution that selected an archive.
 // Hashes use the canonical form "sha256:<lowercase hex>". ArchiveSize is the
-// size of the compressed archive, not the extracted library.
+// optional size of the compressed archive, not the extracted library. A
+// nonzero size is treated as present for compatibility with existing callers;
+// ArchiveSizePresent allows callers to explicitly require a zero-byte size.
 type ExpectedPackageMetadata struct {
-	ID             string
-	Version        string
-	PackageVersion int
-	Platform       string
-	SourceType     string
-	SourceIdentity string
-	ArchiveHash    string
-	ArchiveSize    int64
+	ID                 string
+	Version            string
+	PackageVersion     int
+	Platform           string
+	SourceType         string
+	SourceIdentity     string
+	ArchiveHash        string
+	ArchiveSize        int64
+	ArchiveSizePresent bool
+}
+
+func (expected ExpectedPackageMetadata) hasExpectedArchiveSize() bool {
+	return expected.ArchiveSizePresent || expected.ArchiveSize != 0
 }
 
 // InstallReceipt records the resolved source and the two distinct artifact

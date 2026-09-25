@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/resolution"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func (suite *SubcommandTestSuite) TestSyncLegacyLibraryProofUsesValidatedArchiveBeforeInstall() {
@@ -62,6 +66,51 @@ func (suite *SubcommandTestSuite) TestSyncLegacyLibraryProofUsesValidatedArchive
 	entry := updated.lockinfo["test-driver-1"]
 	suite.Require().NotNil(entry.Legacy)
 	suite.Equal(libraryHash, entry.Legacy.LibraryHash)
+}
+
+func TestPackageExecutorKeepsSourceArtifactMetadataInLock(t *testing.T) {
+	for _, test := range []struct {
+		name            string
+		sourceType      string
+		sourceReference string
+		packageVersion  int
+	}{
+		{name: "registry metadata without package version", sourceType: "registry", sourceReference: "https://registry.example.test", packageVersion: 0},
+		{name: "Packslip declared metadata", sourceType: "packslip", sourceReference: "github.com/example/driver", packageVersion: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			archivePath := filepath.Join(t.TempDir(), "driver.tar.gz")
+			archive, archiveHash := makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+			size := int64(len(archive))
+			target := testTarget(config.PlatformTuple())
+			release := resolution.ResolvedRelease{
+				DriverID: "test-driver-1", Version: "1.2.3",
+				Source: resolution.SourceSpec{Type: test.sourceType, Reference: test.sourceReference},
+				Artifacts: []resolution.Artifact{{
+					Target: target, Format: "tar.gz", PackageVersion: test.packageVersion,
+					Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/driver.tar.gz"},
+					Hash:     archiveHash, Size: &size,
+				}},
+			}
+			before, err := lockInfoFromResolvedRelease(release.DriverID, release)
+			require.NoError(t, err)
+			item, err := newInstallItem(release, 0, config.PlatformTuple(), nil)
+			require.NoError(t, err)
+			executor := newPackageExecutor(config.Config{Level: config.ConfigEnv, Location: filepath.Join(t.TempDir(), "install")}, t.TempDir(), true,
+				func(context.Context, dbc.PkgInfo) (io.ReadCloser, error) { return os.Open(archivePath) }, nil, nil, nil)
+			executor.fetchPackslip = func(context.Context, *url.URL) (io.ReadCloser, error) { return os.Open(archivePath) }
+			require.NoError(t, executor.prepareItem(context.Background(), &item))
+			require.NotNil(t, item.Validation)
+			require.NoError(t, item.Validation.Prepared.Close())
+			after, err := lockEntryForItem(item)
+			require.NoError(t, err)
+			require.Len(t, before.Artifacts, 1)
+			require.Len(t, after.Artifacts, 1)
+			assert.Equal(t, before.Artifacts[0].Hash, after.Artifacts[0].Hash)
+			assert.Equal(t, before.Artifacts[0].Size, after.Artifacts[0].Size)
+			assert.Equal(t, before.Artifacts[0].PackageVersion, after.Artifacts[0].PackageVersion)
+		})
+	}
 }
 
 func (suite *SubcommandTestSuite) TestSyncLegacyProofDoesNotSkipDifferentCandidateLibrary() {
@@ -343,6 +392,19 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnc
 	suite.runCmd(model)
 	suite.Equal(map[string]int{"test-driver-1": 1, "test-driver-no-sig": 1}, downloaded)
 
+	locked, err := loadLockFile(strings.TrimSuffix(path, ".toml") + ".lock")
+	suite.Require().NoError(err)
+	lockedArtifact, err := selectLockedArtifact(locked.lockinfo["test-driver-1"], config.PlatformTuple(), false)
+	suite.Require().NoError(err)
+	suite.NotEmpty(lockedArtifact.Hash, "legacy registry downloads finalize the archive hash")
+	suite.Nil(lockedArtifact.Size, "host-measured registry size must not be added to the lock")
+	installed, err := config.GetDriver(config.Config{Level: suite.configLevel, Location: suite.Dir()}, "test-driver-1")
+	suite.Require().NoError(err)
+	receipt, managed, present, valid, err := config.InspectDriverInstallReceipt(config.Config{Level: suite.configLevel, Location: suite.Dir()}, installed)
+	suite.Require().NoError(err)
+	suite.True(managed && present && valid)
+	suite.Positive(receipt.ArchiveSize, "the receipt still retains the measured archive size")
+
 	// The registry fixture omits archive metadata. A v2 archive must therefore
 	// be rejected after its one download rather than treating measured values as
 	// source-provided metadata.
@@ -358,7 +420,7 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnc
 			return os.Open(v2Path)
 		},
 	})
-	suite.Contains(suite.runCmdErr(v2Model), "package v2 requires archive hash and size metadata")
+	suite.Contains(suite.runCmdErr(v2Model), "package v2 requires archive hash metadata")
 	suite.Equal(1, v2Downloads)
 }
 
@@ -492,8 +554,7 @@ func (suite *SubcommandTestSuite) TestSyncManifestOnlyInstallUsesPreparedSnapsho
 	artifact, err := selectLockedArtifact(locked.lockinfo["test-driver-1"], config.PlatformTuple(), false)
 	suite.Require().NoError(err)
 	suite.NotEmpty(artifact.Hash)
-	suite.Require().NotNil(artifact.Size)
-	suite.Equal(int64(len(archiveBytes)), *artifact.Size)
+	suite.Nil(artifact.Size, "registry downloads do not add measured size to the lock")
 	installed, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: root}, "test-driver-1")
 	suite.Require().NoError(err)
 	suite.Equal(externalLibrary, installed.Driver.Shared.Get(config.PlatformTuple()))

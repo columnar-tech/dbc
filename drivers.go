@@ -324,7 +324,6 @@ type registryPackage struct {
 	PlatformTuple string    `yaml:"platform"`
 	URL           string    `yaml:"url"`
 	Hash          yaml.Node `yaml:"hash,omitempty"`
-	Size          yaml.Node `yaml:"size,omitempty"`
 }
 
 func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
@@ -352,7 +351,6 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 				PlatformTuple: platformTuple,
 				Path:          uri,
 				ArtifactHash:  artifact.Hash,
-				ArtifactSize:  artifact.Size,
 			}, nil
 		}
 	}
@@ -472,6 +470,47 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 	}
 
 	return pkg.GetPackage(d, platformTuple)
+}
+
+// GetPackages returns every artifact described by the exact registry release.
+// The returned packages are ordered by platform tuple so callers can use the
+// metadata to build deterministic release snapshots. A nil version is not
+// accepted because this method must not select a release independently from
+// the normal registry version-resolution path.
+func (d Driver) GetPackages(version *semver.Version) ([]PkgInfo, error) {
+	if version == nil {
+		return nil, errors.New("exact registry version is required")
+	}
+	var release *pkginfo
+	for i := range d.PkgInfo {
+		if d.PkgInfo[i].Version.Equal(version) {
+			release = &d.PkgInfo[i]
+			break
+		}
+	}
+	if release == nil {
+		return nil, fmt.Errorf("version %s not found", version)
+	}
+
+	packages := make([]PkgInfo, 0, len(release.Packages))
+	for _, artifact := range release.Packages {
+		uri, err := resolveRegistryPackageURL(d, release.Version, artifact)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := artifact.resolveArtifact()
+		if err != nil {
+			return nil, err
+		}
+		packages = append(packages, PkgInfo{
+			Driver: d, Version: release.Version, PlatformTuple: artifact.PlatformTuple,
+			Path: uri, ArtifactHash: metadata.Hash,
+		})
+	}
+	sort.Slice(packages, func(i, j int) bool {
+		return packages[i].PlatformTuple < packages[j].PlatformTuple
+	})
+	return packages, nil
 }
 
 func (d Driver) MaxVersion() (VersionInfo, bool) {

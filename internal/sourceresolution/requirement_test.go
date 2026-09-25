@@ -226,7 +226,7 @@ func TestRequirementPlanOutcomesAndStaleReleaseIsolation(t *testing.T) {
 	invalidSnapshot.Artifacts[0].Hash = ""
 	invalidPlan := requirement.Plan(&invalidSnapshot, false)
 	assert.Equal(t, PlanReject, invalidPlan.Outcome())
-	assert.ErrorContains(t, invalidPlan.Err(), "hash and size must either both be present or both be absent")
+	assert.ErrorContains(t, invalidPlan.Err(), "size without a hash")
 	_, ok = invalidPlan.Release()
 	assert.False(t, ok)
 }

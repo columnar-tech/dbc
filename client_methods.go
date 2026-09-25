@@ -291,7 +291,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 			return nil, fmt.Errorf("failed to inspect package for driver %s: %w", driverName, inspectErr)
 		}
 		if packageManifest.PackageVersion == 2 {
-			return nil, fmt.Errorf("failed to install driver %s: registry package v2 requires archive hash and size metadata", driverName)
+			return nil, fmt.Errorf("failed to install driver %s: registry package v2 requires archive hash metadata", driverName)
 		}
 	}
 
@@ -309,10 +309,6 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 
 func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadata, bool, error) {
 	hasHash := pkg.ArtifactHash != ""
-	hasSize := pkg.ArtifactSize != nil
-	if hasHash != hasSize {
-		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata must include both archive hash and size")
-	}
 	if pkg.Version == nil {
 		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its version")
 	}
@@ -333,7 +329,6 @@ func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadat
 	}
 	if hasHash {
 		expected.ArchiveHash = pkg.ArtifactHash
-		expected.ArchiveSize = *pkg.ArtifactSize
 	}
 	return expected, hasHash, nil
 }

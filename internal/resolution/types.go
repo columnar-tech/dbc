@@ -318,9 +318,9 @@ func ValidateEvidence(evidence []Evidence) error {
 }
 
 // ValidateResolvedReleaseCandidate checks a resolved release before it is
-// downloaded or used to form an install candidate. Archive hashes and sizes
-// may both be absent at this stage, but any supplied pair and all other
-// metadata must be valid.
+// downloaded or used to form an install candidate. Archive metadata may be
+// absent or contain a hash with an optional size; a size without a hash is
+// invalid.
 func ValidateResolvedReleaseCandidate(release ResolvedRelease) error {
 	if err := ValidateEvidence(release.Evidence); err != nil {
 		return fmt.Errorf("invalid evidence: %w", err)
@@ -349,15 +349,18 @@ func ValidateResolvedReleaseCandidate(release ResolvedRelease) error {
 		}
 		seenTargets[artifact.Target] = struct{}{}
 		if prior, ok := seenLocations[artifact.Location]; ok {
-			if prior.Hash != artifact.Hash || !sameSize(prior.Size, artifact.Size) {
+			if !compatibleArtifactMetadata(prior, artifact) {
 				return fmt.Errorf("artifacts sharing a location have conflicting hash or size")
+			}
+			if prior.Hash == "" && artifact.Hash != "" || prior.Size == nil && artifact.Size != nil {
+				seenLocations[artifact.Location] = artifact
 			}
 		} else {
 			seenLocations[artifact.Location] = artifact
 		}
 
-		if (artifact.Hash == "") != (artifact.Size == nil) {
-			return fmt.Errorf("artifact %d hash and size must either both be present or both be absent", i)
+		if artifact.Hash == "" && artifact.Size != nil {
+			return fmt.Errorf("artifact %d has a size without a hash", i)
 		}
 		if err := ValidateArtifactMetadata(artifact.Hash, artifact.Size); err != nil {
 			return fmt.Errorf("artifact %d has invalid metadata: %w", i, err)
@@ -368,7 +371,7 @@ func ValidateResolvedReleaseCandidate(release ResolvedRelease) error {
 
 // ValidateResolvedRelease checks the contract required before a release can
 // become a lockfile snapshot. In addition to candidate validation, every
-// artifact must have a finalized hash and size.
+// artifact must have a finalized hash; size remains optional metadata.
 func ValidateResolvedRelease(release ResolvedRelease) error {
 	if err := ValidateResolvedReleaseCandidate(release); err != nil {
 		return err
@@ -377,16 +380,13 @@ func ValidateResolvedRelease(release ResolvedRelease) error {
 		if artifact.Hash == "" {
 			return fmt.Errorf("artifact %d has no finalized hash", i)
 		}
-		if artifact.Size == nil {
-			return fmt.Errorf("artifact %d has no finalized size", i)
-		}
 	}
 	return nil
 }
 
-func sameSize(left, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
+func compatibleArtifactMetadata(left, right Artifact) bool {
+	if left.Hash != "" && right.Hash != "" && left.Hash != right.Hash {
+		return false
 	}
-	return *left == *right
+	return left.Size == nil || right.Size == nil || *left.Size == *right.Size
 }

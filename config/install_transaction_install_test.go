@@ -104,6 +104,10 @@ func TestInstallPackageMetadataFailuresPreserveOldGeneration(t *testing.T) {
 		{name: "archive digest mismatch", mutate: func(expected *ExpectedPackageMetadata) {
 			expected.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
 		}},
+		{name: "explicit zero archive size mismatch", mutate: func(expected *ExpectedPackageMetadata) {
+			expected.ArchiveSize = 0
+			expected.ArchiveSizePresent = true
+		}},
 		{name: "package version mismatch", mutate: func(expected *ExpectedPackageMetadata) {
 			expected.Version = "2.0.0"
 		}},
@@ -162,6 +166,46 @@ func TestInstallPackageReceiptHashesLibraryAfterVerification(t *testing.T) {
 	wantHash := "sha256:" + hex.EncodeToString(digest[:])
 	if receipt.InstalledLibraryHash != wantHash {
 		t.Fatalf("receipt library hash = %q, want %q", receipt.InstalledLibraryHash, wantHash)
+	}
+}
+
+func TestInstallPackageHashOnlyMetadataRetainsMeasuredSizeAndMatchesReceipt(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := makeInstallArchive(t, "example", "1.0.0", "driver.so", []byte("hash-only archive"))
+	expected := installExpected("example", "hash-only-source", archive)
+	expected.ArchiveSize = 0
+	file := writeInstallArchive(t, archive, "hash-only")
+	installed, err := InstallPackage(cfg, "example", file, expected, InstallOptions{})
+	_ = file.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	receiptData, err := os.ReadFile(filepath.Join(filepath.Dir(installed.Driver.Shared.Get(PlatformTuple())), installReceiptName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receipt InstallReceipt
+	if err := json.Unmarshal(receiptData, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.ArchiveSize != int64(len(archive)) || receipt.ArchiveSize <= 0 {
+		t.Fatalf("receipt archive size = %d, want measured positive size %d", receipt.ArchiveSize, len(archive))
+	}
+	if !InstallReceiptMatchesExpectedPackage(receipt, expected) {
+		t.Fatal("hash-only expected metadata did not match its installation receipt")
+	}
+
+	wrongZero := expected
+	wrongZero.ArchiveSizePresent = true
+	if InstallReceiptMatchesExpectedPackage(receipt, wrongZero) {
+		t.Fatal("receipt matched an explicitly expected zero archive size")
+	}
+	wrongSize := expected
+	wrongSize.ArchiveSize = receipt.ArchiveSize + 1
+	if InstallReceiptMatchesExpectedPackage(receipt, wrongSize) {
+		t.Fatal("receipt matched a mismatched expected archive size")
 	}
 }
 

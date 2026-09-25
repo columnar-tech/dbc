@@ -10,4 +10,4 @@ drivers:
           - platform: linux_amd64
             url: example-driver/1.2.3/example-driver-linux_amd64.tar.gz
             hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
-            size: 12345
+            future_metadata: ignored

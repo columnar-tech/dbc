@@ -31,6 +31,7 @@ import (
 	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/columnar-tech/dbc/internal/sourceresolution"
+	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -733,6 +734,132 @@ func TestRegistryPackageAdapterRejectsDifferentSourceIdentity(t *testing.T) {
 		Path:          archiveURL,
 	})
 	require.ErrorContains(t, err, "different source")
+}
+
+func TestRegistrySyncUsesOnlyExactReleaseMetadataForAllTargetLock(t *testing.T) {
+	for _, completeMetadata := range []bool{true, false} {
+		name := "complete metadata"
+		if !completeMetadata {
+			name = "missing non-host hash keeps partial lock"
+		}
+		t.Run(name, func(t *testing.T) {
+			const driverID, version = "test-driver-1", "1.2.3"
+			dir := t.TempDir()
+			archivePath := filepath.Join(dir, "host.tar.gz")
+			_, hostHash := makeSyncPackageV2Archive(t, archivePath, driverID, version, config.PlatformTuple())
+			platforms := []string{"windows_amd64", "linux_amd64", "darwin_arm64"}
+			var otherPlatform, missingHashPlatform string
+			for _, platform := range platforms {
+				if platform == config.PlatformTuple() {
+					continue
+				}
+				if otherPlatform == "" {
+					otherPlatform = platform
+				} else {
+					missingHashPlatform = platform
+					break
+				}
+			}
+			require.NotEmpty(t, otherPlatform)
+			require.NotEmpty(t, missingHashPlatform)
+			missingHashLine := "            hash: sha256:" + strings.Repeat("c", 64) + "\n"
+			if !completeMetadata {
+				missingHashLine = ""
+			}
+			index := fmt.Sprintf(`drivers:
+  - name: Test Driver
+    description: synthetic multi-target registry fixture
+    license: MIT
+    path: %s
+    pkginfo:
+      - version: %s
+        packages:
+          - platform: %s
+            url: host.tar.gz
+            hash: %s
+            future_metadata: ignored
+          - platform: %s
+            url: other.tar.gz
+            hash: sha256:%s
+          - platform: %s
+            url: missing-hash.tar.gz
+
+%s`, driverID, version, config.PlatformTuple(), hostHash,
+				otherPlatform, strings.Repeat("b", 64), missingHashPlatform, missingHashLine)
+			var fixture struct {
+				Drivers []dbc.Driver `yaml:"drivers"`
+			}
+			require.NoError(t, yaml.NewDecoder(strings.NewReader(index)).Decode(&fixture))
+			require.Len(t, fixture.Drivers, 1)
+			registryURL, err := url.Parse("https://registry.example.test")
+			require.NoError(t, err)
+			fixture.Drivers[0].Registry = &dbc.Registry{BaseURL: registryURL}
+
+			constraint, err := semver.NewConstraint(version)
+			require.NoError(t, err)
+			source := dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: registryURL.String()}
+			var downloaded []string
+			model := syncModel{
+				baseModel: baseModel{
+					downloadArtifact: func(_ context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+						downloaded = append(downloaded, pkg.PlatformTuple)
+						return os.Open(archivePath)
+					},
+				},
+				Path: filepath.Join(dir, "dbc.toml"), LockFilePath: filepath.Join(dir, "dbc.lock"),
+				NoVerify: true, driverIndex: fixture.Drivers,
+				cfg: config.Config{Level: config.ConfigEnv, Location: filepath.Join(dir, "install")},
+			}
+			planned, needsRegistry, err := model.planSyncItems(DriversList{Drivers: map[string]driverSpec{
+				driverID: {Version: constraint, Source: &source},
+			}})
+			require.NoError(t, err)
+			assert.True(t, needsRegistry, "the registry source requires registry resolution")
+			items, err := model.createInstallList(planned)
+			require.NoError(t, err)
+			require.Len(t, items, 1)
+			assert.Empty(t, downloaded, "planning must use index metadata without fetching archives")
+			if completeMetadata {
+				require.Len(t, items[0].Release.Artifacts, 3)
+				var nonHost *resolution.Artifact
+				for i := range items[0].Release.Artifacts {
+					if items[0].Release.Artifacts[i].Target != items[0].Release.Artifacts[items[0].ArtifactIndex].Target {
+						nonHost = &items[0].Release.Artifacts[i]
+					}
+				}
+				require.NotNil(t, nonHost)
+				assert.Equal(t, "sha256:"+strings.Repeat("b", 64), nonHost.Hash)
+				assert.Nil(t, nonHost.Size, "hash-only registry metadata must not invent a size")
+			} else {
+				require.Len(t, items[0].Release.Artifacts, 2)
+			}
+
+			prepared, err := model.prepareInstallItems(context.Background(), items)
+			require.NoError(t, err)
+			defer closePreparedItems(prepared.items)
+			assert.Equal(t, []string{config.PlatformTuple()}, downloaded, "only the current host artifact may be fetched")
+			wantArtifacts := 2 // Host plus the hash-bearing non-host target.
+			if completeMetadata {
+				wantArtifacts = 3
+			}
+			require.Len(t, prepared.lock.Drivers, 1)
+			require.Len(t, prepared.lock.Drivers[0].Artifacts, wantArtifacts)
+			if completeMetadata {
+				var nonHost *lockArtifact
+				for i := range prepared.lock.Drivers[0].Artifacts {
+					if prepared.lock.Drivers[0].Artifacts[i].Target != items[0].Release.Artifacts[items[0].ArtifactIndex].Target {
+						nonHost = &prepared.lock.Drivers[0].Artifacts[i]
+					}
+				}
+				require.NotNil(t, nonHost)
+				assert.Contains(t, []string{
+					"sha256:" + strings.Repeat("b", 64),
+					"sha256:" + strings.Repeat("c", 64),
+				}, nonHost.Hash)
+				assert.Nil(t, nonHost.Size)
+			}
+		})
+	}
 }
 
 func mustTestRegistryDrivers(t *testing.T) []dbc.Driver {

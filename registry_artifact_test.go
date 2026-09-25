@@ -42,8 +42,7 @@ func TestRegistryArtifactMetadataFixture(t *testing.T) {
 	pkg, err := driver.GetPackage(nil, "linux_amd64", false)
 	require.NoError(t, err)
 	assert.Equal(t, "sha256:0000000000000000000000000000000000000000000000000000000000000000", pkg.ArtifactHash)
-	require.NotNil(t, pkg.ArtifactSize)
-	assert.EqualValues(t, 12345, *pkg.ArtifactSize)
+	assert.Nil(t, pkg.ArtifactSize, "registry size metadata is ignored")
 
 	// The fixture intentionally describes only one target platform.
 	_, err = driver.GetPackage(nil, "windows_amd64", false)
@@ -57,11 +56,17 @@ func TestRegistryArtifactMetadataOptional(t *testing.T) {
 	assert.Empty(t, artifact.Hash)
 	assert.Nil(t, artifact.Size)
 
-	pkg = decodeRegistryPackage(t, "platform: linux_amd64\nsize: 0\n")
+	pkg = decodeRegistryPackage(t, "platform: linux_amd64\nfuture_metadata: anything\n")
 	artifact, err = pkg.resolveArtifact()
 	require.NoError(t, err)
-	require.NotNil(t, artifact.Size)
-	assert.Zero(t, *artifact.Size)
+	assert.Empty(t, artifact.Hash)
+	assert.Nil(t, artifact.Size, "unknown registry keys are ignored")
+
+	pkg = decodeRegistryPackage(t, "platform: linux_amd64\nhash: sha256:"+strings.Repeat("a", 64)+"\n")
+	artifact, err = pkg.resolveArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:"+strings.Repeat("a", 64), artifact.Hash)
+	assert.Nil(t, artifact.Size)
 }
 
 func TestResolveRegistryPackageURLStateTable(t *testing.T) {
@@ -257,7 +262,7 @@ func TestRegistryTupleAliasesCanonicalizeWithoutChangingImplicitAssetURL(t *test
 		"implicit asset filenames retain the raw registry tuple")
 }
 
-func TestRegistryArtifactMetadataRejectsInvalidValues(t *testing.T) {
+func TestRegistryArtifactMetadataRejectsInvalidHashes(t *testing.T) {
 	tests := []struct {
 		name     string
 		metadata string
@@ -270,10 +275,6 @@ func TestRegistryArtifactMetadataRejectsInvalidValues(t *testing.T) {
 		{name: "non-string digest", metadata: "hash: 123\n", want: "hash must be a string"},
 		{name: "empty digest", metadata: "hash: \"\"\n", want: "hash must not be empty"},
 		{name: "null digest", metadata: "hash: null\n", want: "hash must be a string"},
-		{name: "non-integer size", metadata: "size: 1.5\n", want: "size must be an integer"},
-		{name: "string size", metadata: "size: \"123\"\n", want: "size must be an integer"},
-		{name: "null size", metadata: "size: null\n", want: "size must be an integer"},
-		{name: "negative size", metadata: "size: -1\n", want: "must not be negative"},
 	}
 
 	for _, tt := range tests {
@@ -283,6 +284,14 @@ func TestRegistryArtifactMetadataRejectsInvalidValues(t *testing.T) {
 			require.ErrorContains(t, err, tt.want)
 		})
 	}
+}
+
+func TestRegistryUnknownMetadataKeyIsIgnored(t *testing.T) {
+	pkg := decodeRegistryPackage(t, "platform: linux_amd64\nhash: sha256:"+strings.Repeat("a", 64)+"\nfuture_metadata: anything\n")
+	artifact, err := pkg.resolveArtifact()
+	require.NoError(t, err)
+	assert.Equal(t, "sha256:"+strings.Repeat("a", 64), artifact.Hash)
+	assert.Nil(t, artifact.Size)
 }
 
 func decodeRegistryPackage(t *testing.T, data string) registryPackage {

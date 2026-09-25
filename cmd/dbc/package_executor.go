@@ -141,11 +141,11 @@ func expectedSyncPackageMetadata(item installItem) (config.ExpectedPackageMetada
 	}
 	hasHash := selected.Hash != ""
 	hasSize := selected.Size != nil
-	if hasHash != hasSize {
-		return config.ExpectedPackageMetadata{}, false, errors.New("package metadata must include both archive hash and size")
+	if !hasHash && hasSize {
+		return config.ExpectedPackageMetadata{}, false, errors.New("package metadata cannot include size without archive hash")
 	}
 	if selected.PackageVersion == 2 && !hasHash {
-		return config.ExpectedPackageMetadata{}, false, errors.New("package v2 requires archive hash and size metadata")
+		return config.ExpectedPackageMetadata{}, false, errors.New("package v2 requires archive hash metadata")
 	}
 	expected := config.ExpectedPackageMetadata{
 		ID: item.Release.DriverID, Version: item.Release.Version, Platform: item.Platform,
@@ -154,7 +154,10 @@ func expectedSyncPackageMetadata(item installItem) (config.ExpectedPackageMetada
 	}
 	if hasHash {
 		expected.ArchiveHash = selected.Hash
-		expected.ArchiveSize = *selected.Size
+		if hasSize {
+			expected.ArchiveSize = *selected.Size
+			expected.ArchiveSizePresent = true
+		}
 	}
 	return expected, hasHash, nil
 }
@@ -339,14 +342,22 @@ func (e *packageExecutor) downloadAndPrepareItem(ctx context.Context, item *inst
 	if err != nil {
 		return err
 	}
+	archiveHashWasMissing := selected.Hash == ""
 	if selected.Hash == "" {
 		selected.Hash = validation.ArchiveHash
-		selected.Size = cloneInt64(&validation.ArchiveSize)
+		selected.PackageVersion = validation.PackageVersion
 	}
-	selected.PackageVersion = validation.PackageVersion
 	expected, _, err = expectedSyncPackageMetadata(*item)
 	if err != nil {
 		return err
+	}
+	if archiveHashWasMissing {
+		// A legacy registry release has no source digest to constrain this
+		// download. Finalize its identity with the measured hash for the lock,
+		// while keeping the measured size in the receipt rather than the lock.
+		expected.ArchiveHash = validation.ArchiveHash
+		expected.ArchiveSize = validation.ArchiveSize
+		expected.ArchiveSizePresent = true
 	}
 	item.Expected = expected
 	item.ValidatedLibraryHash = strings.TrimPrefix(validation.VerifiedLibraryHash, "sha256:")

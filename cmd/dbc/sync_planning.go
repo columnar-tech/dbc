@@ -471,7 +471,7 @@ func (s syncModel) resolveRegistryPlan(planned plannedSyncItem) (installItem, er
 		return installItem{}, err
 	}
 
-	release, err := resolvedReleaseFromRegistryPackage(driver, pkg)
+	release, err := resolvedRegistryReleaseFromMetadata(driver, pkg)
 	if err != nil {
 		return installItem{}, err
 	}
@@ -576,20 +576,96 @@ func resolvedReleaseFromRegistryPackage(driver dbc.Driver, pkg dbc.PkgInfo) (res
 	if err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("invalid registry package platform %q: %w", pkg.PlatformTuple, err)
 	}
-	size := cloneInt64(pkg.ArtifactSize)
 	release := resolution.ResolvedRelease{
 		DriverID: driver.Path,
 		Version:  pkg.Version.String(),
 		Source:   resolution.SourceSpec{Type: "registry", Reference: registryKey.Reference},
 		Artifacts: []resolution.Artifact{{
 			Target: target, Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: pkg.Path.String()},
-			Hash: pkg.ArtifactHash, Size: size,
+			Hash: pkg.ArtifactHash,
 		}},
 	}
 	if err := resolution.ValidateResolvedReleaseCandidate(release); err != nil {
 		return resolution.ResolvedRelease{}, fmt.Errorf("invalid registry package metadata: %w", err)
 	}
 	return release, nil
+}
+
+// resolvedRegistryReleaseFromMetadata expands the selected registry artifact
+// to the exact release's metadata-only artifact set when every target has a
+// hash. If any target lacks a hash, retain the host and every hash-bearing
+// target in a partial candidate; sync never downloads other platforms merely
+// to complete a lock.
+func resolvedRegistryReleaseFromMetadata(driver dbc.Driver, selected dbc.PkgInfo) (resolution.ResolvedRelease, error) {
+	hostRelease, err := resolvedReleaseFromRegistryPackage(driver, selected)
+	if err != nil {
+		return resolution.ResolvedRelease{}, err
+	}
+	metadataPackages, err := driver.GetPackages(selected.Version)
+	if err != nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("read registry metadata for exact release %s: %w", selected.Version, err)
+	}
+
+	metadataRelease := hostRelease
+	metadataRelease.Artifacts = make([]resolution.Artifact, 0, len(metadataPackages))
+	allHashesPresent := len(metadataPackages) > 0
+	selectedMetadataMatches := false
+	for _, metadataPackage := range metadataPackages {
+		if metadataPackage.PlatformTuple == selected.PlatformTuple {
+			if metadataPackage.Version == nil || metadataPackage.Version.String() != selected.Version.String() ||
+				metadataPackage.Path == nil || selected.Path == nil || metadataPackage.Path.String() != selected.Path.String() ||
+				metadataPackage.ArtifactHash != selected.ArtifactHash {
+				return resolution.ResolvedRelease{}, errors.New("selected registry artifact does not match the exact release metadata")
+			}
+			selectedMetadataMatches = true
+		}
+		artifactRelease, err := resolvedReleaseFromRegistryPackage(driver, metadataPackage)
+		if err != nil {
+			return resolution.ResolvedRelease{}, err
+		}
+		if artifactRelease.Version != hostRelease.Version || artifactRelease.Source != hostRelease.Source {
+			return resolution.ResolvedRelease{}, errors.New("registry metadata returned artifacts from a different release")
+		}
+		artifact := artifactRelease.Artifacts[0]
+		metadataRelease.Artifacts = append(metadataRelease.Artifacts, artifact)
+		if artifact.Hash == "" {
+			allHashesPresent = false
+		}
+	}
+	if !selectedMetadataMatches {
+		return resolution.ResolvedRelease{}, errors.New("selected registry artifact is missing from exact release metadata")
+	}
+	// Validate the complete metadata set before deciding whether it can support
+	// a full snapshot. This keeps malformed duplicates and conflicting metadata
+	// from being hidden by the partial-lock fallback.
+	if err := resolution.ValidateResolvedReleaseCandidate(metadataRelease); err != nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("invalid registry release metadata: %w", err)
+	}
+	if allHashesPresent {
+		return metadataRelease, nil
+	}
+	// Keep every hash-bearing target because its complete artifact identity is
+	// available from metadata. Keep the selected host target even when its hash
+	// is absent so installation can finalize that artifact after download.
+	partialRelease := metadataRelease
+	partialRelease.Artifacts = make([]resolution.Artifact, 0, len(metadataRelease.Artifacts))
+	hostTarget := hostRelease.Artifacts[0].Target
+	hostFound := false
+	for _, artifact := range metadataRelease.Artifacts {
+		if artifact.Target == hostTarget {
+			hostFound = true
+		}
+		if artifact.Hash != "" || artifact.Target == hostTarget {
+			partialRelease.Artifacts = append(partialRelease.Artifacts, artifact)
+		}
+	}
+	if !hostFound {
+		return resolution.ResolvedRelease{}, errors.New("selected registry artifact is missing from exact release metadata")
+	}
+	if err := resolution.ValidateResolvedReleaseCandidate(partialRelease); err != nil {
+		return resolution.ResolvedRelease{}, fmt.Errorf("invalid partial registry release metadata: %w", err)
+	}
+	return partialRelease, nil
 }
 
 func installItemFromResolverResult(requirement sourceresolution.Requirement, release resolution.ResolvedRelease, priorLock *lockInfo) (installItem, error) {

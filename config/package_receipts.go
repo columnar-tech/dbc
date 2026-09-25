@@ -573,8 +573,8 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	if err := validatePlatformIdentifier(expected.Platform); err != nil {
 		return fmt.Errorf("invalid expected package platform: %w", err)
 	}
-	if expected.ArchiveSize <= 0 {
-		return errors.New("expected archive size must be positive")
+	if expected.ArchiveSize < 0 {
+		return errors.New("expected archive size must not be negative")
 	}
 	if _, err := parseSHA256(expected.ArchiveHash); err != nil {
 		return fmt.Errorf("invalid expected archive hash: %w", err)

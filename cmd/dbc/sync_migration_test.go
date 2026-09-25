@@ -326,8 +326,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsCompleteCandidateLo
 	suite.Equal(failedDriver, observedPackage.Driver.Path)
 	suite.Equal(lockedArtifact.Location.Value, observedPackage.Path.String())
 	suite.Equal(lockedArtifact.Hash, observedPackage.ArtifactHash)
-	suite.Require().NotNil(observedPackage.ArtifactSize)
-	suite.Equal(*lockedArtifact.Size, *observedPackage.ArtifactSize)
+	suite.Nil(observedPackage.ArtifactSize, "the hash-only registry lock has no source-declared size")
 	for _, name := range []string{"test-driver-1", "test-driver-no-sig"} {
 		_, err := config.GetDriver(config.Get()[suite.configLevel], name)
 		suite.NoError(err)
