@@ -87,3 +87,39 @@ To allow the pre-release in this case, either:
 
 - Add `prerelease = 'allow'`
 - Change the constraint to reference the pre-release: `version = '>=0.1.1-beta.1'`
+
+## Registries
+
+{{ since_version('v0.4.0') }}
+
+A driver list may declare additional [driver registries](../concepts/driver_registry.md#configuring-registries) to resolve drivers from, using one or more `[[registries]]` entries and an optional top-level `replace_defaults` key. These registries are used by `dbc add`, `dbc sync`, `dbc search`, `dbc info`, and `dbc docs` when run against this driver list.
+
+```toml
+replace_defaults = false
+
+[[registries]]
+url = "https://my-registry.example.com"
+name = "my-registry"
+
+[drivers]
+[drivers.my-driver]
+version = '>=1.0.0'
+```
+
+### `url`
+
+Required. The base URL of the registry. Must be an `http` or `https` URL with a host.
+
+### `name`
+
+Optional. A short label for the registry, shown as a `[name]` tag in `dbc search` output to indicate which registry a driver came from.
+
+### `replace_defaults`
+
+Optional. Controls whether dbc's built-in default registries are used in addition to the ones you configure.
+
+- Omitted: inherit the value from the global `config.toml`.
+- `true`: use only the configured project and global registries; drop the built-in defaults.
+- `false`: always include the built-in defaults, even if the global `config.toml` set `replace_defaults = true`.
+
+See [Configuring registries](../concepts/driver_registry.md#configuring-registries) for the full priority order across project, global, and built-in registries.
