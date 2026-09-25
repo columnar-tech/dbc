@@ -70,7 +70,7 @@ func TestResolvePackslipRejectsMismatchedMetadata(t *testing.T) {
 		{name: "source identity", change: func(r *resolution.ResolvedRelease) { r.Source.Reference = "github.com/other/driver" }, want: "source identity"},
 		{name: "artifact hash", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Hash = "" }, want: "size without a hash"},
 		{name: "artifact size", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Size = nil }, want: "must declare archive size"},
-		{name: "missing package marker", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 0 }, want: "must declare dbc package_version 2"},
+		{name: "declared package format", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 2 }, want: "remain unspecified"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -188,7 +188,7 @@ func resolvedPackslipRelease(project, version, driverID string) resolution.Resol
 		Version:  version,
 		Source:   resolution.SourceSpec{Type: "packslip", Reference: project},
 		Artifacts: []resolution.Artifact{{
-			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Format: "tar.gz", PackageVersion: 2,
+			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Format: "tar.gz", PackageVersion: 0,
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
 			Hash:     "sha256:" + strings.Repeat("a", 64), Size: &size,
 		}},

@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDBCReleaseExtensionRequiresExactDeclaration(t *testing.T) {
+func TestDBCReleaseExtensionValidatesRequiredFieldsAndIgnoresAdditiveFields(t *testing.T) {
 	tests := []struct {
 		name    string
 		raw     json.RawMessage
@@ -26,9 +26,11 @@ func TestDBCReleaseExtensionRequiresExactDeclaration(t *testing.T) {
 		{name: "null", raw: json.RawMessage("null"), want: "non-null object"},
 		{name: "malformed", raw: json.RawMessage("{"), want: "invalid packslip predicate.extensions.dbc declaration"},
 		{name: "array", raw: json.RawMessage("[]"), want: "non-null object"},
-		{name: "unknown field", raw: json.RawMessage(`{"schema_version":1,"driver_id":"driver","future":true}`), want: "unknown field"},
+		{name: "invalid schema type", raw: json.RawMessage(`{"schema_version":"1","driver_id":"driver"}`), want: "cannot unmarshal"},
 		{name: "unknown schema", raw: json.RawMessage(`{"schema_version":2,"driver_id":"driver"}`), want: "unsupported dbc release extension schema_version"},
 		{name: "missing schema", raw: json.RawMessage(`{"driver_id":"driver"}`), want: "schema_version 0"},
+		{name: "missing driver ID", raw: json.RawMessage(`{"schema_version":1}`), want: "invalid dbc release driver_id"},
+		{name: "invalid driver ID type", raw: json.RawMessage(`{"schema_version":1,"driver_id":7}`), want: "cannot unmarshal"},
 		{name: "invalid id", raw: json.RawMessage(`{"schema_version":1,"driver_id":"../driver"}`), want: "invalid dbc release driver_id"},
 		{name: "reserved id", raw: json.RawMessage(`{"schema_version":1,"driver_id":"CON"}`), want: "reserved by Windows"},
 	}
@@ -50,9 +52,11 @@ func TestDBCReleaseExtensionRequiresExactDeclaration(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, validateDBCReleaseExtensions(release))
 	require.Equal(t, "driver", release.driverID)
+	release.predicate.Extensions["dbc"] = json.RawMessage(`{"schema_version":1,"driver_id":"driver","homepage":"https://example.com","future_hint":true}`)
+	require.NoError(t, validateDBCReleaseExtensions(release), "supported declarations ignore additive fields")
 }
 
-func TestDBCArtifactExtensionRequiresExactPackageMarker(t *testing.T) {
+func TestDBCArtifactExtensionIsExtensibleMembershipMarker(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  json.RawMessage
@@ -61,9 +65,6 @@ func TestDBCArtifactExtensionRequiresExactPackageMarker(t *testing.T) {
 		{name: "null", raw: json.RawMessage("null"), want: "non-null object"},
 		{name: "malformed", raw: json.RawMessage("{"), want: "invalid packslip artifact"},
 		{name: "array", raw: json.RawMessage("[]"), want: "non-null object"},
-		{name: "unknown field", raw: json.RawMessage(`{"package_version":2,"future":true}`), want: "unknown field"},
-		{name: "missing package version", raw: json.RawMessage(`{}`), want: "package_version 0"},
-		{name: "unsupported package version", raw: json.RawMessage(`{"package_version":1}`), want: "unsupported dbc package_version"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -78,7 +79,12 @@ func TestDBCArtifactExtensionRequiresExactPackageMarker(t *testing.T) {
 	release, err := parseRelease(validRelease("1.0.0"), testProject)
 	require.NoError(t, err)
 	require.NoError(t, validateDBCReleaseExtensions(release))
-	require.Equal(t, 2, release.predicate.Artifacts[0].dbcPackageVersion)
+	require.True(t, release.predicate.Artifacts[0].dbcArtifact)
+	release.predicate.Artifacts[0].Extensions["dbc"] = json.RawMessage(`{"future_optional_metadata":"x","package_version":2}`)
+	require.NoError(t, validateDBCReleaseExtensions(release), "all artifact dbc object keys are additive metadata")
+	require.True(t, release.predicate.Artifacts[0].dbcArtifact)
+	release.predicate.Artifacts[0].Extensions["dbc"] = json.RawMessage(`true`)
+	require.ErrorContains(t, validateDBCReleaseExtensions(release), "non-null object")
 }
 
 func TestDBCArtifactEligibilityExcludesUnrelatedArchivesFromTargetsAndAmbiguity(t *testing.T) {
@@ -86,7 +92,7 @@ func TestDBCArtifactEligibilityExcludesUnrelatedArchivesFromTargetsAndAmbiguity(
 	selected := releaseArtifact{
 		Name: "dbc-linux.tar.gz", OS: ptr("linux"), Arch: ptr("amd64"), LibC: ptr("gnu"),
 		Size: ptr(uint64(10)), Format: &format, URL: ptr("https://dl.example/dbc-linux.tar.gz"),
-		Extensions: map[string]json.RawMessage{"dbc": mustJSON(dbcArtifactExtension{PackageVersion: 2})},
+		Extensions: map[string]json.RawMessage{"dbc": json.RawMessage(`{}`)},
 	}
 	other := selected
 	other.Name = "unrelated-windows.tar.gz"

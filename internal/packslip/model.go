@@ -54,19 +54,19 @@ type releasePredicate struct {
 }
 
 type releaseArtifact struct {
-	Name              string                     `json:"name"`
-	OS                *string                    `json:"os,omitempty"`
-	Arch              *string                    `json:"arch,omitempty"`
-	LibC              *string                    `json:"libc,omitempty"`
-	Variant           *string                    `json:"variant,omitempty"`
-	Size              *uint64                    `json:"size"`
-	URL               *string                    `json:"url,omitempty"`
-	Format            *string                    `json:"format"`
-	Bin               []json.RawMessage          `json:"bin,omitempty"`
-	Requires          *requirements              `json:"requires,omitempty"`
-	Provenance        []string                   `json:"provenance,omitempty"`
-	Extensions        map[string]json.RawMessage `json:"extensions,omitempty"`
-	dbcPackageVersion int
+	Name        string                     `json:"name"`
+	OS          *string                    `json:"os,omitempty"`
+	Arch        *string                    `json:"arch,omitempty"`
+	LibC        *string                    `json:"libc,omitempty"`
+	Variant     *string                    `json:"variant,omitempty"`
+	Size        *uint64                    `json:"size"`
+	URL         *string                    `json:"url,omitempty"`
+	Format      *string                    `json:"format"`
+	Bin         []json.RawMessage          `json:"bin,omitempty"`
+	Requires    *requirements              `json:"requires,omitempty"`
+	Provenance  []string                   `json:"provenance,omitempty"`
+	Extensions  map[string]json.RawMessage `json:"extensions,omitempty"`
+	dbcArtifact bool
 }
 
 type requirements struct {

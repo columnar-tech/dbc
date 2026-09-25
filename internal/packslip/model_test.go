@@ -34,7 +34,7 @@ func validRelease(version string, artifacts ...releaseArtifact) []byte {
 	}
 	for i := range artifacts {
 		if artifacts[i].Extensions == nil {
-			artifacts[i].Extensions = map[string]json.RawMessage{"dbc": mustJSON(dbcArtifactExtension{PackageVersion: 2})}
+			artifacts[i].Extensions = map[string]json.RawMessage{"dbc": json.RawMessage(`{}`)}
 		}
 	}
 	project := testProject

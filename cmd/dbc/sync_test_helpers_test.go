@@ -99,8 +99,8 @@ func makeSyncPackslipRelease(id, version, url, hash string, size int64) resoluti
 			Hash:     "sha256:" + strings.Repeat("a", 64),
 		}},
 		Artifacts: []resolution.Artifact{
-			{Target: primary, Format: "tgz", PackageVersion: 2, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: url}, Hash: hash, Size: &size},
-			{Target: secondary, Format: "tar.gz", PackageVersion: 2, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: &otherSize},
+			{Target: primary, Format: "tgz", PackageVersion: 0, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: url}, Hash: hash, Size: &size},
+			{Target: secondary, Format: "tar.gz", PackageVersion: 0, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: &otherSize},
 		},
 	}
 }

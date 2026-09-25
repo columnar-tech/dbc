@@ -406,7 +406,7 @@ func deriveConcreteTargets(release *parsedRelease) ([]Target, error) {
 	targetSet := make(map[Target]struct{}, len(release.predicate.Artifacts))
 	for i := range release.predicate.Artifacts {
 		artifact := &release.predicate.Artifacts[i]
-		if artifact.dbcPackageVersion != 2 || !supportedArchiveFormat(stringValue(artifact.Format)) || artifact.OS == nil || artifact.Arch == nil {
+		if !artifact.dbcArtifact || !supportedArchiveFormat(stringValue(artifact.Format)) || artifact.OS == nil || artifact.Arch == nil {
 			continue
 		}
 		target := resolution.CanonicalTarget(Target{
@@ -482,7 +482,7 @@ func provenancePresence(release *parsedRelease) (map[string]bool, error) {
 	}
 	result := make(map[string]bool, len(release.predicate.Artifacts))
 	for _, artifact := range release.predicate.Artifacts {
-		if artifact.dbcPackageVersion != 2 || !supportedArchiveFormat(stringValue(artifact.Format)) {
+		if !artifact.dbcArtifact || !supportedArchiveFormat(stringValue(artifact.Format)) {
 			continue
 		}
 		selector := artifactSelectorKey(&artifact)

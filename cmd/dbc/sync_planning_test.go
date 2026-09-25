@@ -140,7 +140,7 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	primaryArtifact, ok := lockedByLocation[release.Artifacts[0].Location.Value]
 	require.True(t, ok, "the lock retains the selected host artifact regardless of canonical artifact order")
 	assert.Equal(t, release.Artifacts[0].Target, primaryArtifact.Target)
-	assert.Equal(t, 2, primaryArtifact.PackageVersion)
+	assert.Zero(t, primaryArtifact.PackageVersion)
 	assert.Equal(t, "tgz", primaryArtifact.Format)
 	secondaryArtifact, ok := lockedByLocation[release.Artifacts[1].Location.Value]
 	require.True(t, ok, "the lock retains the secondary artifact regardless of canonical artifact order")

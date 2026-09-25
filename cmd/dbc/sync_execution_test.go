@@ -76,7 +76,7 @@ func TestPackageExecutorKeepsSourceArtifactMetadataInLock(t *testing.T) {
 		packageVersion  int
 	}{
 		{name: "registry metadata without package version", sourceType: "registry", sourceReference: "https://registry.example.test", packageVersion: 0},
-		{name: "Packslip declared metadata", sourceType: "packslip", sourceReference: "github.com/example/driver", packageVersion: 2},
+		{name: "Packslip unspecified format", sourceType: "packslip", sourceReference: "github.com/example/driver", packageVersion: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			archivePath := filepath.Join(t.TempDir(), "driver.tar.gz")

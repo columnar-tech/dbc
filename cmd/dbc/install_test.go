@@ -73,7 +73,7 @@ func packslipInstallRelease(t *testing.T, id, version, artifactURL string, archi
 			Hash: "sha256:" + strings.Repeat("a", 64),
 		}},
 		Artifacts: []resolution.Artifact{{
-			Target: target, Format: "tgz", PackageVersion: 2,
+			Target: target, Format: "tgz", PackageVersion: 0,
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
 			Hash:     "sha256:" + hex.EncodeToString(digest[:]), Size: &size,
 		}},
@@ -471,6 +471,23 @@ func (suite *SubcommandTestSuite) TestInstallPackslipDirectUsesSignedIDWithoutRe
 		_, statErr := os.Stat(filepath.Join(projectDir, path))
 		suite.True(os.IsNotExist(statErr), "%s should not be created by direct install", path)
 	}
+}
+
+func (suite *SubcommandTestSuite) TestInstallPackslipDirectInspectsLegacyManifestArchive() {
+	archive, err := os.ReadFile(filepath.Join("testdata", "test-driver-1.1.tar.gz"))
+	suite.Require().NoError(err)
+	artifactURL := "https://assets.example.test/releases/legacy-package.tgz"
+	resolver := &installPackslipResolverStub{release: packslipInstallRelease(suite.T(), "legacy-signed-id", "1.1.0", artifactURL, archive)}
+	base := testBaseModel()
+	base.newPackslipResolver = func() (packslip.Resolver, error) { return resolver, nil }
+	base.fetchPackslipArtifact = func(context.Context, *url.URL) (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(archive)), nil
+	}
+	command := InstallCmd{Driver: "github.com/example/repo=1.1.0", Level: suite.configLevel, NoVerify: true}.
+		GetModelCustom(base)
+	out := suite.runCmd(command)
+	suite.Contains(out, "Installed legacy-signed-id 1.1.0")
+	suite.driverIsInstalled("legacy-signed-id", true)
 }
 
 func (suite *SubcommandTestSuite) TestInstallPackslipDirectFailsClosedBeforeRuntimeMutation() {

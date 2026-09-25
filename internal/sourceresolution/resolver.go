@@ -79,8 +79,8 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 		return resolution.ResolvedRelease{}, fmt.Errorf("packslip resolver returned an invalid release: %w", err)
 	}
 	for i, artifact := range release.Artifacts {
-		if artifact.PackageVersion != 2 {
-			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d must declare dbc package_version 2", i)
+		if artifact.PackageVersion != 0 {
+			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d package format must remain unspecified until archive inspection", i)
 		}
 		if artifact.Size == nil {
 			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d must declare archive size", i)

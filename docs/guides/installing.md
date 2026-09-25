@@ -271,7 +271,7 @@ dbc can install drivers from local archives as an alternative to a [Driver Regis
 
 ### Package archive metadata
 
-dbc 0.4.0 (unreleased) archives use a root-level file named exactly `dbc-package.toml` with `package_version = 2` to describe their contents. Archives for dbc 0.3.0 and earlier use a root-level file named exactly `MANIFEST` and remain accepted for compatibility. These package metadata files are separate from Packslip release metadata and the installed `<driver>.toml` ADBC Driver Manifest (`manifest_version = 1`).
+dbc accepts both package formats from local paths, registries, and Packslip releases. Legacy archives with a root-level `MANIFEST` remain fully supported, including for dbc 0.3.x compatibility. `dbc-package.toml` with `package_version = 2` is an optional package format that gives the archive explicit driver identity and platform metadata and separates dbc packaging details from the installed `<driver>.toml` ADBC Driver Manifest (`manifest_version = 1`). Source metadata, including Packslip extensions, identifies the artifact but does not need to declare its package format; dbc determines that format by inspecting the downloaded archive.
 
 For example, `dbc-package.toml` can contain:
 

@@ -27,7 +27,7 @@ func selectArtifact(release *parsedRelease, target Target) (*releaseArtifact, er
 	eligible := *release
 	eligible.predicate.Artifacts = make([]releaseArtifact, 0, len(release.predicate.Artifacts))
 	for _, artifact := range release.predicate.Artifacts {
-		if artifact.dbcPackageVersion == 2 && supportedArchiveFormat(stringValue(artifact.Format)) {
+		if artifact.dbcArtifact && supportedArchiveFormat(stringValue(artifact.Format)) {
 			eligible.predicate.Artifacts = append(eligible.predicate.Artifacts, artifact)
 		}
 	}
@@ -91,12 +91,12 @@ func supportedArchiveFormat(format string) bool {
 }
 
 // validateSupportedArtifactSet ensures the release inventory contains at
-// least one artifact that declares dbc package support and an installable
+// least one artifact that declares dbc membership and an installable
 // archive format. Selection ambiguity is checked only for concrete targets.
 func validateSupportedArtifactSet(release *parsedRelease) error {
 	count := 0
 	for i := range release.predicate.Artifacts {
-		if release.predicate.Artifacts[i].dbcPackageVersion == 2 && supportedArchiveFormat(stringValue(release.predicate.Artifacts[i].Format)) {
+		if release.predicate.Artifacts[i].dbcArtifact && supportedArchiveFormat(stringValue(release.predicate.Artifacts[i].Format)) {
 			count++
 		}
 	}
@@ -184,7 +184,7 @@ func convertArtifact(release *parsedRelease, artifact *releaseArtifact, artifact
 	result := resolution.Artifact{
 		Target:         resolution.CanonicalTarget(target),
 		Format:         stringValue(artifact.Format),
-		PackageVersion: artifact.dbcPackageVersion,
+		PackageVersion: 0,
 		Location:       resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
 		Hash:           "sha256:" + subject.Digest["sha256"],
 		Size:           &size,

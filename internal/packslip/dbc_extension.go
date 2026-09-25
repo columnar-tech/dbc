@@ -21,10 +21,6 @@ type dbcReleaseExtension struct {
 	DriverID      string `json:"driver_id"`
 }
 
-type dbcArtifactExtension struct {
-	PackageVersion int `json:"package_version"`
-}
-
 // validateDBCReleaseExtensions applies dbc's consumer contract to a verified
 // Packslip release. Other Packslip extensions remain owned by their consumers.
 func validateDBCReleaseExtensions(release *parsedRelease) error {
@@ -53,14 +49,10 @@ func validateDBCReleaseExtensions(release *parsedRelease) error {
 		if !ok {
 			continue
 		}
-		var declaration dbcArtifactExtension
-		if err := decodeDBCObject(raw, &declaration); err != nil {
+		if err := validateDBCArtifactMarker(raw); err != nil {
 			return fmt.Errorf("invalid packslip artifact %q extensions.dbc declaration: %w", artifact.Name, err)
 		}
-		if declaration.PackageVersion != 2 {
-			return fmt.Errorf("unsupported dbc package_version %d on packslip artifact %q", declaration.PackageVersion, artifact.Name)
-		}
-		artifact.dbcPackageVersion = declaration.PackageVersion
+		artifact.dbcArtifact = true
 	}
 	return nil
 }
@@ -70,8 +62,23 @@ func decodeDBCObject(raw json.RawMessage, destination any) error {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return errors.New("must be a non-null object")
 	}
-	if err := decodeStrict(trimmed, destination); err != nil {
+	if err := decodeWire(trimmed, destination); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateDBCArtifactMarker(raw json.RawMessage) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return errors.New("must be a non-null object")
+	}
+	var marker map[string]json.RawMessage
+	if err := decodeWire(trimmed, &marker); err != nil {
+		return err
+	}
+	if marker == nil {
+		return errors.New("must be a non-null object")
 	}
 	return nil
 }
