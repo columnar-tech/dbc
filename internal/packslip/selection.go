@@ -182,12 +182,11 @@ func convertArtifact(release *parsedRelease, artifact *releaseArtifact, artifact
 	}
 	size := int64(*artifact.Size)
 	result := resolution.Artifact{
-		Target:         resolution.CanonicalTarget(target),
-		Format:         stringValue(artifact.Format),
-		PackageVersion: 0,
-		Location:       resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
-		Hash:           "sha256:" + subject.Digest["sha256"],
-		Size:           &size,
+		Target:   resolution.CanonicalTarget(target),
+		Format:   stringValue(artifact.Format),
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL},
+		Hash:     "sha256:" + subject.Digest["sha256"],
+		Size:     &size,
 	}
 	if artifact.Requires != nil {
 		requires := artifact.Requires

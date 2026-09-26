@@ -274,7 +274,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}
-	expected, hasMetadata, err := expectedRegistryPackageMetadata(pkg)
+	expected, err := expectedRegistryPackageMetadata(pkg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
 	}
@@ -285,15 +285,6 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer f.Close()
 	defer os.RemoveAll(filepath.Dir(f.Name()))
-	if !hasMetadata {
-		packageManifest, inspectErr := config.InspectPackageMetadata(f)
-		if inspectErr != nil {
-			return nil, fmt.Errorf("failed to inspect package for driver %s: %w", driverName, inspectErr)
-		}
-		if packageManifest.PackageVersion == 2 {
-			return nil, fmt.Errorf("failed to install driver %s: registry package v2 requires archive hash metadata", driverName)
-		}
-	}
 
 	manifest, err := config.InstallPackage(cfg, expected.ID, f, expected, config.InstallOptions{
 		Verify: func(stagingDir string, manifest config.Manifest) error {
@@ -307,19 +298,19 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	return &manifest, nil
 }
 
-func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadata, bool, error) {
+func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadata, error) {
 	hasHash := pkg.ArtifactHash != ""
 	if pkg.Version == nil {
-		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its version")
+		return config.ExpectedPackageMetadata{}, errors.New("registry package metadata is missing its version")
 	}
 	if strings.TrimSpace(pkg.PlatformTuple) == "" {
-		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its platform")
+		return config.ExpectedPackageMetadata{}, errors.New("registry package metadata is missing its platform")
 	}
 	if pkg.Driver.Registry == nil || pkg.Driver.Registry.BaseURL == nil {
-		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its source identity")
+		return config.ExpectedPackageMetadata{}, errors.New("registry package metadata is missing its source identity")
 	}
 	if strings.TrimSpace(pkg.Driver.Path) == "" {
-		return config.ExpectedPackageMetadata{}, false, errors.New("registry package metadata is missing its driver ID")
+		return config.ExpectedPackageMetadata{}, errors.New("registry package metadata is missing its driver ID")
 	}
 	expected := config.ExpectedPackageMetadata{
 		ID:         pkg.Driver.Path,
@@ -330,7 +321,7 @@ func expectedRegistryPackageMetadata(pkg PkgInfo) (config.ExpectedPackageMetadat
 	if hasHash {
 		expected.ArchiveHash = pkg.ArtifactHash
 	}
-	return expected, hasHash, nil
+	return expected, nil
 }
 
 // Uninstall uninstalls a driver with the given name from the specified configuration.

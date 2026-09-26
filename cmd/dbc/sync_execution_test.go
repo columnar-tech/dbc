@@ -73,21 +73,20 @@ func TestPackageExecutorKeepsSourceArtifactMetadataInLock(t *testing.T) {
 		name            string
 		sourceType      string
 		sourceReference string
-		packageVersion  int
 	}{
-		{name: "registry metadata without package version", sourceType: "registry", sourceReference: "https://registry.example.test", packageVersion: 0},
-		{name: "Packslip unspecified format", sourceType: "packslip", sourceReference: "github.com/example/driver", packageVersion: 0},
+		{name: "registry metadata", sourceType: "registry", sourceReference: "https://registry.example.test"},
+		{name: "Packslip metadata", sourceType: "packslip", sourceReference: "github.com/example/driver"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			archivePath := filepath.Join(t.TempDir(), "driver.tar.gz")
-			archive, archiveHash := makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+			archive, archiveHash := makeSyncLegacyPackageArchive(t, archivePath, "1.2.3")
 			size := int64(len(archive))
 			target := testTarget(config.PlatformTuple())
 			release := resolution.ResolvedRelease{
 				DriverID: "test-driver-1", Version: "1.2.3",
 				Source: resolution.SourceSpec{Type: test.sourceType, Reference: test.sourceReference},
 				Artifacts: []resolution.Artifact{{
-					Target: target, Format: "tar.gz", PackageVersion: test.packageVersion,
+					Target: target, Format: "tar.gz",
 					Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/driver.tar.gz"},
 					Hash:     archiveHash, Size: &size,
 				}},
@@ -96,7 +95,7 @@ func TestPackageExecutorKeepsSourceArtifactMetadataInLock(t *testing.T) {
 			require.NoError(t, err)
 			item, err := newInstallItem(release, 0, config.PlatformTuple(), nil)
 			require.NoError(t, err)
-			executor := newPackageExecutor(config.Config{Level: config.ConfigEnv, Location: filepath.Join(t.TempDir(), "install")}, t.TempDir(), true,
+			executor := newPackageExecutor(config.Config{Level: config.ConfigEnv, Location: filepath.Join(t.TempDir(), "install")}, t.TempDir(), test.sourceType == "registry",
 				func(context.Context, dbc.PkgInfo) (io.ReadCloser, error) { return os.Open(archivePath) }, nil, nil, nil)
 			executor.fetchPackslip = func(context.Context, *url.URL) (io.ReadCloser, error) { return os.Open(archivePath) }
 			require.NoError(t, executor.prepareItem(context.Background(), &item))
@@ -108,7 +107,13 @@ func TestPackageExecutorKeepsSourceArtifactMetadataInLock(t *testing.T) {
 			require.Len(t, after.Artifacts, 1)
 			assert.Equal(t, before.Artifacts[0].Hash, after.Artifacts[0].Hash)
 			assert.Equal(t, before.Artifacts[0].Size, after.Artifacts[0].Size)
-			assert.Equal(t, before.Artifacts[0].PackageVersion, after.Artifacts[0].PackageVersion)
+			if test.sourceType == "packslip" {
+				item.Release.Artifacts[0].Hash = ""
+				item.Release.Artifacts[0].Size = nil
+				executor.noVerify = true
+				err := executor.downloadAndPrepareItem(context.Background(), &item)
+				require.ErrorContains(t, err, "requires an authenticated archive hash")
+			}
 		})
 	}
 }
@@ -378,7 +383,7 @@ shared = %q
 	return output.Bytes()
 }
 
-func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnceAndRejectsV2WithoutMetadata() {
+func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnce() {
 	path := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(path, []byte("[drivers]\n[drivers.test-driver-1]\n[drivers.test-driver-no-sig]\n"), 0644))
 	downloaded := map[string]int{}
@@ -405,23 +410,6 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryDownloadsEachArchiveOnc
 	suite.True(managed && present && valid)
 	suite.Positive(receipt.ArchiveSize, "the receipt still retains the measured archive size")
 
-	// The registry fixture omits archive metadata. A v2 archive must therefore
-	// be rejected after its one download rather than treating measured values as
-	// source-provided metadata.
-	v2Path := filepath.Join(suite.tempdir, "v2-without-registry-metadata.tar.gz")
-	makeSyncPackageV2Archive(suite.T(), v2Path, "test-driver-1", "1.1.0", config.PlatformTuple())
-	v2List := filepath.Join(suite.tempdir, "v2.toml")
-	suite.Require().NoError(os.WriteFile(v2List, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0644))
-	v2Downloads := 0
-	v2Model := SyncCmd{Path: v2List, Level: suite.configLevel, NoVerify: true}.GetModelCustom(baseModel{
-		getDriverRegistry: getTestDriverRegistry,
-		downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
-			v2Downloads++
-			return os.Open(v2Path)
-		},
-	})
-	suite.Contains(suite.runCmdErr(v2Model), "package v2 requires archive hash metadata")
-	suite.Equal(1, v2Downloads)
 }
 
 func (suite *SubcommandTestSuite) TestSyncExactLockedArtifactConvergesWithoutRegistryDiscovery() {
@@ -569,7 +557,7 @@ func (suite *SubcommandTestSuite) TestSyncPathReplayUsesReceiptBeforeOpeningChan
 	archivePath := filepath.Join(root, "packages", "driver.tar.gz")
 	declaredPath := "./packages/driver.tar.gz"
 	suite.Require().NoError(os.MkdirAll(filepath.Dir(archivePath), 0o700))
-	makeSyncPackageV2Archive(suite.T(), archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	makeSyncLegacyPackageArchive(suite.T(), archivePath, "1.2.3")
 	suite.Require().NoError(os.WriteFile(projectPath, []byte("[drivers.test-driver-1.source]\ntype = 'path'\npath = '"+declaredPath+"'\n"), 0o600))
 
 	registryCalls := 0

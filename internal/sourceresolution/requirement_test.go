@@ -152,7 +152,7 @@ func TestRequirementValidateResolvedReleaseChecksSourceDriverVersionAndStructure
 			r.Source = resolution.SourceSpec{Type: "path", Reference: "./driver.tar.gz"}
 		}, want: "source"},
 		{name: "version", change: func(r *resolution.ResolvedRelease) { r.Version = "1.2.4" }, want: "version"},
-		{name: "artifact structure", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 3 }, want: "unsupported dbc package version"},
+		{name: "artifact structure", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Hash = "invalid" }, want: "hash"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -267,50 +267,53 @@ func TestExplicitSourceAcceptsOnlyExactCanonicalKey(t *testing.T) {
 	_, err = requirement.ValidateResolverResult(differentBuild)
 	assert.ErrorContains(t, err, "version")
 
-	missingMarker := cloneResolvedRelease(matching)
-	missingMarker.Artifacts[0].PackageVersion = 0
-	_, err = requirement.ValidateResolverResult(missingMarker)
-	assert.NoError(t, err, "package version zero is source-neutral unspecified metadata")
+	snapshot := cloneResolvedRelease(matching)
+	_, err = requirement.ValidateResolverResult(snapshot)
+	assert.NoError(t, err, "source metadata is valid")
 	for _, locked := range []bool{false, true} {
-		plan := requirement.Plan(&missingMarker, locked)
+		plan := requirement.Plan(&snapshot, locked)
 		assert.Equal(t, PlanReplay, plan.Outcome())
-		selected, hasArtifact := plan.Artifact()
+		_, hasArtifact := plan.Artifact()
 		assert.True(t, hasArtifact)
-		assert.Zero(t, selected.PackageVersion)
 	}
 	newVersionRequirement := mustRequirement(t, "driver", selection, mustPackslipVersion(t, "1.2.4"), planTarget)
-	assert.Equal(t, PlanResolve, newVersionRequirement.Plan(&missingMarker, false).Outcome(),
-		"a stale version is resolved without reinterpreting package version metadata")
+	assert.Equal(t, PlanResolve, newVersionRequirement.Plan(&snapshot, false).Outcome(),
+		"a stale version is resolved")
 }
 
-func TestPackageVersionZeroIsSourceNeutral(t *testing.T) {
-	registryRequirement := mustRequirement(t, "driver", DefaultRegistrySelection(), mustRegistryVersion(t, "=1.2.3", PrereleaseForbidden), planTarget)
-	registryRelease := validPlanRelease("registry", "https://registry.example.test", "1.2.3", "driver", planTarget)
-	registryRelease.Artifacts[0].PackageVersion = 0
-	assertPackageVersionZeroCanReplay(t, registryRequirement, registryRelease)
-
-	pathKey, err := sourceidentity.Parse(sourceidentity.Path, "./driver.tar.gz")
-	require.NoError(t, err)
-	pathSelection, err := ExplicitSourceSelection(pathKey)
-	require.NoError(t, err)
-	pathVersion, err := PathVersionRequirement("1.2.3")
-	require.NoError(t, err)
-	pathRequirement := mustRequirement(t, "driver", pathSelection, pathVersion, planTarget)
-	pathRelease := validPlanRelease("path", "./driver.tar.gz", "1.2.3", "driver", planTarget)
-	pathRelease.Artifacts[0].PackageVersion = 0
-	assertPackageVersionZeroCanReplay(t, pathRequirement, pathRelease)
-}
-
-func assertPackageVersionZeroCanReplay(t *testing.T, requirement Requirement, release resolution.ResolvedRelease) {
-	t.Helper()
-	selected, err := requirement.ValidateResolverResult(release)
-	require.NoError(t, err)
-	assert.Zero(t, selected.PackageVersion)
-	plan := requirement.Plan(&release, false)
-	assert.Equal(t, PlanReplay, plan.Outcome())
-	selected, ok := plan.Artifact()
-	require.True(t, ok)
-	assert.Zero(t, selected.PackageVersion)
+func TestReplayIsSourceNeutral(t *testing.T) {
+	for _, source := range []sourceidentity.Kind{sourceidentity.Registry, sourceidentity.Packslip, sourceidentity.Path} {
+		reference := "https://registry.example.test"
+		if source == sourceidentity.Packslip {
+			reference = "github.com/example/driver"
+		}
+		if source == sourceidentity.Path {
+			reference = "./driver.tar.gz"
+		}
+		key, err := sourceidentity.Parse(source, reference)
+		require.NoError(t, err)
+		selection, err := ExplicitSourceSelection(key)
+		require.NoError(t, err)
+		version := mustRegistryVersion(t, "=1.2.3", PrereleaseForbidden)
+		if source == sourceidentity.Packslip {
+			version = mustPackslipVersion(t, "1.2.3")
+		}
+		if source == sourceidentity.Path {
+			version, err = PathVersionRequirement("1.2.3")
+			require.NoError(t, err)
+		}
+		requirement := mustRequirement(t, "driver", selection, version, planTarget)
+		release := validPlanRelease(string(source), reference, "1.2.3", "driver", planTarget)
+		_, err = requirement.ValidateResolverResult(release)
+		require.NoError(t, err)
+		for _, locked := range []bool{false, true} {
+			plan := requirement.Plan(&release, locked)
+			assert.Equal(t, PlanReplay, plan.Outcome())
+			selected, ok := plan.Artifact()
+			require.True(t, ok)
+			assert.Equal(t, release.Artifacts[0], selected)
+		}
+	}
 }
 
 func mustRequirement(t *testing.T, driverID string, source SourceSelection, version VersionRequirement, target resolution.Target) Requirement {
@@ -336,21 +339,16 @@ func mustPackslipVersion(t *testing.T, value string) VersionRequirement {
 
 func validPlanRelease(sourceType, reference, version, driverID string, target resolution.Target) resolution.ResolvedRelease {
 	size := int64(1)
-	packageVersion := 0
-	if sourceType == "packslip" {
-		packageVersion = 2
-	}
 	return resolution.ResolvedRelease{
 		DriverID: driverID,
 		Version:  version,
 		Source:   resolution.SourceSpec{Type: sourceType, Reference: reference},
 		Artifacts: []resolution.Artifact{{
-			Target:         target,
-			Format:         "tar.gz",
-			PackageVersion: packageVersion,
-			Location:       resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
-			Hash:           "sha256:" + strings.Repeat("a", 64),
-			Size:           &size,
+			Target:   target,
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
+			Hash:     "sha256:" + strings.Repeat("a", 64),
+			Size:     &size,
 		}},
 	}
 }

@@ -91,7 +91,7 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	const version = "1.2.3+build.5"
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "driver.tgz")
-	archiveBytes, archiveHash := makeSyncPackageV2Archive(t, archivePath, driverID, version, config.PlatformTuple())
+	archiveBytes, archiveHash := makeSyncLegacyPackageArchive(t, archivePath, version)
 	archiveSize := int64(len(archiveBytes))
 	location := "https://assets.example.test/driver.tgz"
 	release := makeSyncPackslipRelease(driverID, version, location, archiveHash, archiveSize)
@@ -109,7 +109,7 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 				return os.Open(archivePath)
 			},
 		},
-		Path: projectPath, LockFilePath: filepath.Join(dir, "dbc.lock"), NoVerify: true,
+		Path: projectPath, LockFilePath: filepath.Join(dir, "dbc.lock"),
 		cfg: config.Config{Level: config.ConfigEnv, Location: filepath.Join(dir, "install")},
 	}
 
@@ -140,7 +140,6 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 	primaryArtifact, ok := lockedByLocation[release.Artifacts[0].Location.Value]
 	require.True(t, ok, "the lock retains the selected host artifact regardless of canonical artifact order")
 	assert.Equal(t, release.Artifacts[0].Target, primaryArtifact.Target)
-	assert.Zero(t, primaryArtifact.PackageVersion)
 	assert.Equal(t, "tgz", primaryArtifact.Format)
 	secondaryArtifact, ok := lockedByLocation[release.Artifacts[1].Location.Value]
 	require.True(t, ok, "the lock retains the secondary artifact regardless of canonical artifact order")
@@ -165,7 +164,7 @@ func TestFreshPackslipResolutionSnapshotsAndReplaysWithoutDiscovery(t *testing.T
 				return os.Open(archivePath)
 			},
 		},
-		Path: projectPath, LockFilePath: model.LockFilePath, NoVerify: true,
+		Path: projectPath, LockFilePath: model.LockFilePath,
 		cfg: config.Config{Level: config.ConfigEnv, Location: filepath.Join(dir, "replay-install")},
 	}
 	replayPlan, replayNeedsRegistry, err := replay.planSyncItems(list)
@@ -239,14 +238,13 @@ func TestPathResolutionDerivesVersionAndUsesProjectRelativeArchive(t *testing.T)
 	assert.Equal(t, declaredPath, locked.Source.Path)
 	require.Len(t, locked.Artifacts, 1)
 	assert.Equal(t, declaredPath, locked.Artifacts[0].Location.Value)
-	assert.Equal(t, 0, locked.Artifacts[0].PackageVersion, "legacy MANIFEST path packages remain supported")
 	assert.NotEmpty(t, locked.Artifacts[0].Hash)
 }
 
-func TestPathPackageV2MarkerSurvivesResolutionAndLockSnapshot(t *testing.T) {
+func TestPathLegacyPackageResolutionAndLockSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "driver.tar.gz")
-	makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	makeSyncLegacyPackageArchive(t, archivePath, "1.2.3")
 	source := dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "driver.tar.gz"}
 	model := syncModel{Path: filepath.Join(dir, "dbc.toml"), LockFilePath: filepath.Join(dir, "dbc.lock"), NoVerify: true,
 		cfg: config.Config{Level: config.ConfigEnv, Location: filepath.Join(dir, "install")}}
@@ -258,16 +256,14 @@ func TestPathPackageV2MarkerSurvivesResolutionAndLockSnapshot(t *testing.T) {
 	items, err := model.createInstallListContext(context.Background(), planned)
 	require.NoError(t, err)
 	require.Len(t, items, 1)
-	assert.Equal(t, 2, items[0].Release.Artifacts[0].PackageVersion)
 	assert.Equal(t, "1.2.3", items[0].Release.Version)
 	prepared, err := model.prepareInstallItems(context.Background(), items)
 	require.NoError(t, err)
 	defer closePreparedItems(prepared.items)
 	require.Len(t, prepared.lock.Drivers, 1)
-	assert.Equal(t, 2, prepared.lock.Drivers[0].Artifacts[0].PackageVersion)
 	expected, _, err := expectedSyncPackageMetadata(prepared.items[0])
 	require.NoError(t, err)
-	assert.Equal(t, 2, expected.PackageVersion)
+	assert.Equal(t, items[0].Release.Artifacts[0].Hash, expected.ArchiveHash)
 }
 
 func TestPathArchiveMutationAfterResolutionFailsBeforeCandidateLock(t *testing.T) {
@@ -295,7 +291,7 @@ func TestPathMetadataDerivedRefreshAdoptsArchiveVersionWithoutOldSnapshotProof(t
 	const declaredPath = "./packages/driver.tar.gz"
 	archivePath := filepath.Join(dir, "packages", "driver.tar.gz")
 	require.NoError(t, os.MkdirAll(filepath.Dir(archivePath), 0o700))
-	_, newHash := makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	_, newHash := makeSyncLegacyPackageArchive(t, archivePath, "1.2.3")
 	stat, err := os.Stat(archivePath)
 	require.NoError(t, err)
 	oldEntry := partialPathLockForSync(t, declaredPath, "1.1.0", "sha256:"+strings.Repeat("b", 64), 17)
@@ -342,7 +338,7 @@ func TestPathExactRefreshStillRejectsChangedArchiveVersion(t *testing.T) {
 	const declaredPath = "./packages/driver.tar.gz"
 	archivePath := filepath.Join(dir, "packages", "driver.tar.gz")
 	require.NoError(t, os.MkdirAll(filepath.Dir(archivePath), 0o700))
-	makeSyncPackageV2Archive(t, archivePath, "test-driver-1", "1.2.3", config.PlatformTuple())
+	makeSyncLegacyPackageArchive(t, archivePath, "1.2.3")
 	oldEntry := partialPathLockForSync(t, declaredPath, "1.1.0", "sha256:"+strings.Repeat("b", 64), 17)
 	lockPath := filepath.Join(dir, "dbc.lock")
 	require.NoError(t, writeLockFileAtomic(lockPath, LockFile{Version: lockFileVersion, Drivers: []lockInfo{oldEntry}}))
@@ -376,7 +372,7 @@ func partialPathLockForSync(t *testing.T, declaredPath, version, hash string, si
 			Hash:     "sha256:" + strings.Repeat("d", 64),
 		}},
 		Artifacts: []resolution.Artifact{{
-			Target: resolution.Target{OS: "plan9", Arch: "amd64"}, Format: "tar.gz", PackageVersion: 2,
+			Target: resolution.Target{OS: "plan9", Arch: "amd64"}, Format: "tar.gz",
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaredPath},
 			Hash:     hash, Size: &size,
 		}},
@@ -392,7 +388,6 @@ func TestSourceVersionOrIdentityMismatchDiscardsOldLockProof(t *testing.T) {
 	entry.DriverID = "test-driver-1"
 	entry.Source = resolution.SourceSpec{Type: "packslip", Reference: "github.com/example/old"}
 	entry.Version = "1.2.3+foo"
-	entry.Artifacts[0].PackageVersion = 2
 	oldLock, err := lockInfoFromResolvedRelease(entry.DriverID, entry)
 	require.NoError(t, err)
 	oldLock.Legacy = &legacyLibraryProof{Platform: config.PlatformTuple(), LibraryHash: strings.Repeat("c", 64)}
@@ -746,7 +741,7 @@ func TestRegistrySyncUsesOnlyExactReleaseMetadataForAllTargetLock(t *testing.T) 
 			const driverID, version = "test-driver-1", "1.2.3"
 			dir := t.TempDir()
 			archivePath := filepath.Join(dir, "host.tar.gz")
-			_, hostHash := makeSyncPackageV2Archive(t, archivePath, driverID, version, config.PlatformTuple())
+			_, hostHash := makeSyncLegacyPackageArchive(t, archivePath, version)
 			platforms := []string{"windows_amd64", "linux_amd64", "darwin_arm64"}
 			var otherPlatform, missingHashPlatform string
 			for _, platform := range platforms {

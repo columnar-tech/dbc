@@ -260,7 +260,7 @@ func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 	if err := os.Mkdir(payloadDir, 0o700); err != nil {
 		return Manifest{}, fmt.Errorf("could not create private extraction directory: %w", err)
 	}
-	manifest, _, files, err := extractPackageArchive(archivePath, payloadDir)
+	manifest, files, err := extractPackageArchive(archivePath, payloadDir)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("could not extract tarball: %w", err)
 	}
@@ -280,10 +280,6 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 	if err := toml.NewDecoder(r).Decode(&di); err != nil {
 		return Manifest{}, fmt.Errorf("error decoding manifest: %w", err)
 	}
-	if di.PackageVersion != nil {
-		return Manifest{}, fmt.Errorf("%w: package manifest cannot be loaded as an ADBC runtime manifest", ErrInvalidManifest)
-	}
-
 	if di.ManifestVersion > currentManifestVersion {
 		return Manifest{}, fmt.Errorf("manifest version %d is unsupported, only %d and lower are supported by this version of dbc",
 			di.ManifestVersion, currentManifestVersion)

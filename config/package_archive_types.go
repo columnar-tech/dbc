@@ -25,7 +25,7 @@ import (
 const (
 	installReceiptName               = "dbc-install-receipt.json"
 	legacyPackageManifestName        = "MANIFEST"
-	packageV2MetadataName            = "dbc-package.toml"
+	reservedPackageMetadataName      = "dbc-package.toml"
 	maxPackageMetadataSize           = 1 << 20
 	registrationFingerprintAlgorithm = "sha256"
 	registrationFingerprintVersion   = 1
@@ -39,7 +39,6 @@ const (
 type ExpectedPackageMetadata struct {
 	ID                 string
 	Version            string
-	PackageVersion     int
 	Platform           string
 	SourceType         string
 	SourceIdentity     string
@@ -61,7 +60,6 @@ type InstallReceipt struct {
 	DriverID                         string `json:"driver_id"`
 	DriverVersion                    string `json:"driver_version"`
 	Platform                         string `json:"platform"`
-	PackageVersion                   int    `json:"package_version"`
 	ArchiveHash                      string `json:"archive_hash"`
 	ArchiveSize                      int64  `json:"archive_size"`
 	InstalledLibrary                 string `json:"installed_library,omitempty"`
@@ -84,7 +82,6 @@ type PackageValidation struct {
 	VerifiedLibraryHash              string
 	ArchiveHash                      string
 	ArchiveSize                      int64
-	PackageVersion                   int
 	Registration                     DriverInfo
 	RegistrationFingerprintAlgorithm string
 	RegistrationFingerprintVersion   int
@@ -131,8 +128,8 @@ func (p *PreparedPackage) Close() error {
 
 // MatchesExpected reports whether this unconsumed prepared payload was
 // validated for the supplied expected package metadata. It also accepts the
-// finalized metadata whose archive hash, size, and package version were
-// measured while preparing the package.
+// finalized metadata whose archive hash and size were measured while preparing
+// the package.
 func (p *PreparedPackage) MatchesExpected(expected ExpectedPackageMetadata) bool {
 	if p == nil {
 		return false
@@ -188,28 +185,6 @@ type runtimeRegistrationFingerprintV1 struct {
 	Supported     []string                   `json:"supported_features"`
 	Unsupported   []string                   `json:"unsupported_features"`
 	Shared        registrationSharedIdentity `json:"shared"`
-}
-
-type packageManifest struct {
-	manifest Manifest
-	id       string
-	platform string
-	v2       bool
-}
-
-type packageManifestV2Wire struct {
-	PackageVersion  int64  `toml:"package_version"`
-	ManifestVersion *int64 `toml:"manifest_version"`
-	ID              string `toml:"id"`
-	Name            string `toml:"name"`
-	Version         string `toml:"version"`
-	Platform        string `toml:"platform"`
-	Driver          struct {
-		Entrypoint string `toml:"entrypoint"`
-	} `toml:"Driver"`
-	Files struct {
-		Driver string `toml:"driver"`
-	} `toml:"Files"`
 }
 
 // This is the legacy package wire format. It deliberately remains separate

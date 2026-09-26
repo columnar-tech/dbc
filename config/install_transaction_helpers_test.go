@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -33,20 +34,17 @@ type installArchiveEntry struct {
 
 func makeInstallArchive(t *testing.T, id, version, library string, libraryData []byte) []byte {
 	t.Helper()
-	manifest := []byte(fmt.Sprintf(`package_version = 2
-id = %q
-name = "Example Driver"
+	manifest := []byte(fmt.Sprintf(`name = %q
 version = %q
-platform = %q
 
 [Driver]
 entrypoint = "AdbcDriverExampleInit"
 
 [Files]
 driver = %q
-`, id, version, PlatformTuple(), library))
+`, strings.ToUpper(id[:1])+id[1:]+" Driver", version, library))
 	return makeInstallArchiveWithEntries(t,
-		installArchiveEntry{name: "dbc-package.toml", data: manifest},
+		installArchiveEntry{name: "MANIFEST", data: manifest},
 		installArchiveEntry{name: library, data: libraryData},
 	)
 }

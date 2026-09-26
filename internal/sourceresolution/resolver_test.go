@@ -70,7 +70,6 @@ func TestResolvePackslipRejectsMismatchedMetadata(t *testing.T) {
 		{name: "source identity", change: func(r *resolution.ResolvedRelease) { r.Source.Reference = "github.com/other/driver" }, want: "source identity"},
 		{name: "artifact hash", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Hash = "" }, want: "size without a hash"},
 		{name: "artifact size", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].Size = nil }, want: "must declare archive size"},
-		{name: "declared package format", change: func(r *resolution.ResolvedRelease) { r.Artifacts[0].PackageVersion = 2 }, want: "remain unspecified"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -100,7 +99,7 @@ func TestResolvePathUsesProjectBaseAndPreservesDeclaration(t *testing.T) {
 	projectDir := t.TempDir()
 	cwd := t.TempDir()
 	require.NoError(t, os.Mkdir(filepath.Join(projectDir, "packages"), 0o700))
-	archive := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
+	archive := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
 	archivePath := filepath.Join(projectDir, "packages", "driver.tar.gz")
 	require.NoError(t, os.WriteFile(archivePath, archive, 0o600))
 	t.Chdir(cwd)
@@ -117,33 +116,9 @@ func TestResolvePathUsesProjectBaseAndPreservesDeclaration(t *testing.T) {
 	artifact := release.Artifacts[0]
 	assert.Equal(t, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: declaration}, artifact.Location)
 	assert.Equal(t, "tar.gz", artifact.Format)
-	assert.Equal(t, 2, artifact.PackageVersion)
 	assert.Equal(t, int64(len(archive)), *artifact.Size)
 	assert.Equal(t, digest(archive), artifact.Hash)
 	assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, artifact.Target)
-}
-
-func TestResolvePathRejectsV2DriverIDAndPlatformMismatch(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		metadata []byte
-		platform string
-		want     string
-	}{
-		{name: "driver ID", metadata: v2Metadata("other", "1.2.3", "linux_amd64"), platform: "linux_amd64", want: "ID"},
-		{name: "platform", metadata: v2Metadata("example", "1.2.3", "macos_arm64"), platform: "linux_amd64", want: "platform"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			projectDir := t.TempDir()
-			archive := testPackageArchive(t, "dbc-package.toml", test.metadata)
-			require.NoError(t, os.WriteFile(filepath.Join(projectDir, "driver.tar.gz"), archive, 0o600))
-			_, err := ResolvePath(context.Background(), "driver.tar.gz", Request{
-				DriverID: "example", Version: "1.2.3", Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
-				Platform: test.platform, BaseDir: projectDir,
-			})
-			require.ErrorContains(t, err, test.want)
-		})
-	}
 }
 
 func TestResolvePathAdaptsLegacyPackageToRequestedIdentityAndTarget(t *testing.T) {
@@ -163,8 +138,8 @@ func TestResolvePathAdaptsLegacyPackageToRequestedIdentityAndTarget(t *testing.T
 func TestResolvePathDetectsMissingAndMutatedArchives(t *testing.T) {
 	projectDir := t.TempDir()
 	path := filepath.Join(projectDir, "driver.tar.gz")
-	firstBytes := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
-	secondBytes := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
+	firstBytes := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
+	secondBytes := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
 	secondBytes = append(secondBytes, 0)
 	require.NoError(t, os.WriteFile(path, firstBytes, 0o600))
 	request := Request{DriverID: "example", Version: "1.2.3", Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Platform: "linux_amd64", BaseDir: projectDir}
@@ -188,15 +163,22 @@ func resolvedPackslipRelease(project, version, driverID string) resolution.Resol
 		Version:  version,
 		Source:   resolution.SourceSpec{Type: "packslip", Reference: project},
 		Artifacts: []resolution.Artifact{{
-			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Format: "tar.gz", PackageVersion: 0,
+			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, Format: "tar.gz",
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/driver.tar.gz"},
 			Hash:     "sha256:" + strings.Repeat("a", 64), Size: &size,
 		}},
 	}
 }
 
-func v2Metadata(id, version, platform string) []byte {
-	return []byte(fmt.Sprintf("package_version = 2\nid = %q\nname = 'Example Driver'\nversion = %q\nplatform = %q\n\n[Driver]\nentrypoint = 'ExampleInit'\n\n[Files]\ndriver = 'driver.so'\n", id, version, platform))
+func legacyMetadata(version string) []byte {
+	return []byte(fmt.Sprintf(`manifest_version = 1
+name = 'Example Driver'
+version = %q
+[Driver]
+entrypoint = 'ExampleInit'
+[Files]
+driver = 'driver.so'
+`, version))
 }
 
 func testPackageArchive(t *testing.T, metadataName string, metadata []byte) []byte {
@@ -219,7 +201,7 @@ func digest(contents []byte) string {
 
 func TestResolvePathRequiresDeclaredVersion(t *testing.T) {
 	projectDir := t.TempDir()
-	archive := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
+	archive := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "driver.tar.gz"), archive, 0o600))
 	_, err := ResolvePath(context.Background(), "driver.tar.gz", Request{
 		DriverID: "example", Version: "1.2.4", Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
@@ -230,7 +212,7 @@ func TestResolvePathRequiresDeclaredVersion(t *testing.T) {
 
 func TestResolvePathDerivesOmittedVersionFromPackageMetadata(t *testing.T) {
 	projectDir := t.TempDir()
-	archive := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
+	archive := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "driver.tar.gz"), archive, 0o600))
 
 	release, err := ResolvePath(context.Background(), "driver.tar.gz", Request{
@@ -243,7 +225,7 @@ func TestResolvePathDerivesOmittedVersionFromPackageMetadata(t *testing.T) {
 
 func TestResolvePathRejectsNonArchiveExtension(t *testing.T) {
 	projectDir := t.TempDir()
-	archive := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
+	archive := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "driver.zip"), archive, 0o600))
 	_, err := ResolvePath(context.Background(), "driver.zip", Request{
 		DriverID: "example", Version: "1.2.3", Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"},
@@ -262,7 +244,7 @@ func TestResolvePathRequiresAbsoluteProjectBase(t *testing.T) {
 
 func TestResolvePathRequiresPlatformTargetConsistency(t *testing.T) {
 	projectDir := t.TempDir()
-	archive := testPackageArchive(t, "dbc-package.toml", v2Metadata("example", "1.2.3", "linux_amd64"))
+	archive := testPackageArchive(t, "MANIFEST", legacyMetadata("1.2.3"))
 	require.NoError(t, os.WriteFile(filepath.Join(projectDir, "driver.tar.gz"), archive, 0o600))
 	_, err := ResolvePath(context.Background(), "driver.tar.gz", Request{
 		DriverID: "example", Version: "1.2.3", Target: resolution.Target{OS: "macos", Arch: "arm64"},

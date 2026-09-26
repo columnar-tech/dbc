@@ -41,19 +41,16 @@ type archiveEntry struct {
 	linkname string
 }
 
-func packageV2Manifest(id, version, platform, driverFile string) []byte {
-	return []byte(fmt.Sprintf(`package_version = 2
-id = %q
-name = "Example Driver"
+func legacyPackageManifest(version, driverFile string) []byte {
+	return []byte(fmt.Sprintf(`name = "Example Driver"
 version = %q
-platform = %q
 
 [Driver]
 entrypoint = "AdbcDriverExampleInit"
 
 [Files]
 driver = %q
-`, id, version, platform, driverFile))
+`, version, driverFile))
 }
 
 func makePackageArchive(t *testing.T, entries ...archiveEntry) []byte {
@@ -100,37 +97,20 @@ func openPackageArchive(t *testing.T, data []byte) *os.File {
 	return file
 }
 
-func differentPackagePlatform() string {
-	switch config.PlatformTuple() {
-	case "linux_amd64":
-		return "linux_arm64"
-	case "linux_arm64":
-		return "linux_amd64"
-	case "macos_amd64":
-		return "macos_arm64"
-	case "macos_arm64":
-		return "macos_amd64"
-	case "windows_amd64":
-		return "linux_amd64"
-	default:
-		return "linux_amd64"
-	}
-}
-
 func expectedPackage(id, version, platform, source string, archive []byte) config.ExpectedPackageMetadata {
 	digest := sha256.Sum256(archive)
 	return config.ExpectedPackageMetadata{
-		ID: id, Version: version, PackageVersion: 2, Platform: platform,
+		ID: id, Version: version, Platform: platform,
 		SourceType: "packslip", SourceIdentity: source,
 		ArchiveHash: "sha256:" + hex.EncodeToString(digest[:]), ArchiveSize: int64(len(archive)),
 	}
 }
 
-func validV2Archive(t *testing.T, contents []byte) []byte {
+func validLegacyArchive(t *testing.T, contents []byte) []byte {
 	t.Helper()
-	manifest := packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "libexample.so")
+	manifest := legacyPackageManifest("1.2.3", "libexample.so")
 	return makePackageArchive(t,
-		archiveEntry{name: "dbc-package.toml", data: manifest},
+		archiveEntry{name: "MANIFEST", data: manifest},
 		archiveEntry{name: "libexample.so", data: contents},
 		archiveEntry{name: "LICENSE", data: []byte("license")},
 	)
@@ -148,57 +128,14 @@ func TestPackageArchiveMetadataVersions(t *testing.T) {
 		assert.FileExists(t, filepath.Join(outDir, manifest.Files.Driver))
 	})
 
-	t.Run("package v2 is decoded separately from runtime v1", func(t *testing.T) {
-		data := makePackageArchive(t,
-			archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", "1.2.3", "linux_amd64", "libexample.so")},
-			archiveEntry{name: "libexample.so", data: []byte("library")},
-		)
-		f := openPackageArchive(t, data)
-		manifest, err := config.InflateTarball(f, t.TempDir())
-		require.NoError(t, err)
-		assert.Equal(t, "example", manifest.ID)
-		assert.Equal(t, 2, manifest.PackageVersion)
-		assert.Equal(t, "AdbcDriverExampleInit", manifest.Driver.Entrypoint)
-		assert.Equal(t, "libexample.so", manifest.Files.Driver)
-		assert.Empty(t, manifest.Driver.Shared.Get("linux_amd64"))
-
-		inspected, err := config.InspectPackageMetadata(openPackageArchive(t, data))
-		require.NoError(t, err)
-		assert.Equal(t, 2, inspected.PackageVersion)
-	})
-
-	t.Run("legacy package remains distinguishable from v2", func(t *testing.T) {
+	t.Run("legacy metadata is inspected", func(t *testing.T) {
 		archivePath := filepath.Join("..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz")
 		f, err := os.Open(archivePath)
 		require.NoError(t, err)
 		defer f.Close()
 		manifest, err := config.InspectPackageMetadata(f)
 		require.NoError(t, err)
-		assert.Zero(t, manifest.PackageVersion)
-	})
-
-	t.Run("unknown discriminator does not fall back to legacy", func(t *testing.T) {
-		manifest := []byte("package_version = 3\nname = 'Legacy-looking name'\nversion = '1.0.0'\n\n[Files]\ndriver = 'driver.so'\n")
-		data := makePackageArchive(t,
-			archiveEntry{name: "dbc-package.toml", data: manifest},
-			archiveEntry{name: "driver.so", data: []byte("library")},
-		)
-		f := openPackageArchive(t, data)
-		_, err := config.InflateTarball(f, t.TempDir())
-		require.Error(t, err)
-		assert.ErrorIs(t, err, config.ErrInvalidManifest)
-	})
-
-	t.Run("malformed discriminator does not fall back to legacy", func(t *testing.T) {
-		manifest := []byte("package_version = '2'\nname = 'Legacy-looking name'\nversion = '1.0.0'\n\n[Files]\ndriver = 'driver.so'\n")
-		data := makePackageArchive(t,
-			archiveEntry{name: "dbc-package.toml", data: manifest},
-			archiveEntry{name: "driver.so", data: []byte("library")},
-		)
-		f := openPackageArchive(t, data)
-		_, err := config.InflateTarball(f, t.TempDir())
-		require.Error(t, err)
-		assert.ErrorIs(t, err, config.ErrInvalidManifest)
+		assert.Equal(t, "Test Driver 1", manifest.Name)
 	})
 
 	t.Run("legacy manifest-only package keeps its runtime shared value", func(t *testing.T) {
@@ -254,59 +191,7 @@ entrypoint = "AdbcDriverLegacyTableInit"
 	})
 }
 
-func TestPackageV2RequiresStrictSemVer(t *testing.T) {
-	for _, version := range []string{
-		"1.2.3",
-		"1.2.3-rc.1",
-		"1.2.3+build.5",
-		"1.2.3-rc.1+build.5",
-	} {
-		t.Run("accepts "+version, func(t *testing.T) {
-			archive := makePackageArchive(t,
-				archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", version, config.PlatformTuple(), "driver.so")},
-				archiveEntry{name: "driver.so", data: []byte("library")},
-			)
-			for name, inspect := range map[string]func(*os.File) (config.Manifest, error){
-				"inspect": config.InspectPackageMetadata,
-				"extract": func(file *os.File) (config.Manifest, error) {
-					return config.InflateTarball(file, t.TempDir())
-				},
-			} {
-				t.Run(name, func(t *testing.T) {
-					manifest, err := inspect(openPackageArchive(t, archive))
-					require.NoError(t, err)
-					require.NotNil(t, manifest.Version)
-					assert.Equal(t, version, manifest.Version.String())
-				})
-			}
-		})
-	}
-
-	for _, version := range []string{"v1.2.3", "1.2", "01.2.3"} {
-		t.Run("rejects "+version, func(t *testing.T) {
-			archive := makePackageArchive(t,
-				archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", version, config.PlatformTuple(), "driver.so")},
-				archiveEntry{name: "driver.so", data: []byte("library")},
-			)
-			for name, inspect := range map[string]func(*os.File) error{
-				"inspect": func(file *os.File) error {
-					_, err := config.InspectPackageMetadata(file)
-					return err
-				},
-				"extract": func(file *os.File) error {
-					_, err := config.InflateTarball(file, t.TempDir())
-					return err
-				},
-			} {
-				t.Run(name, func(t *testing.T) {
-					err := inspect(openPackageArchive(t, archive))
-					require.ErrorIs(t, err, config.ErrInvalidManifest)
-					assert.Contains(t, err.Error(), "must be valid SemVer 2.0.0")
-				})
-			}
-		})
-	}
-
+func TestLegacyPackageManifestVersionParsing(t *testing.T) {
 	t.Run("legacy manifest keeps permissive version parsing", func(t *testing.T) {
 		archive := makePackageArchive(t, archiveEntry{name: "MANIFEST", data: []byte(`name = "Legacy Driver"
 version = "1.2"
@@ -323,8 +208,6 @@ shared = "legacy_driver"
 
 func TestPackageArchiveMetadataFilenames(t *testing.T) {
 	legacy := []byte("name = 'Legacy Driver'\nversion = '1.0.0'\n")
-	v2 := packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "driver.so")
-	v2WithRuntimeVersion := bytes.Replace(v2, []byte("id = "), []byte("manifest_version = 1\nid = "), 1)
 	tests := []struct {
 		name        string
 		entries     []archiveEntry
@@ -333,31 +216,29 @@ func TestPackageArchiveMetadataFilenames(t *testing.T) {
 		{
 			name:        "missing metadata",
 			entries:     []archiveEntry{{name: "driver.so", data: []byte("library")}},
-			wantMessage: "must contain exactly one of MANIFEST or dbc-package.toml",
+			wantMessage: "must contain MANIFEST metadata",
 		},
 		{
 			name: "both formats",
 			entries: []archiveEntry{
 				{name: "MANIFEST", data: legacy},
-				{name: "dbc-package.toml", data: v2},
+				{name: "dbc-package.toml", data: []byte("not valid TOML =")},
 				{name: "driver.so", data: []byte("library")},
 			},
-			wantMessage: "not both",
+			wantMessage: "must not contain both",
 		},
 		{
-			name:        "legacy filename requires legacy format",
-			entries:     []archiveEntry{{name: "MANIFEST", data: v2}, {name: "driver.so", data: []byte("library")}},
-			wantMessage: "package_version is not allowed in legacy MANIFEST",
+			name: "both formats in reverse order",
+			entries: []archiveEntry{
+				{name: "dbc-package.toml", data: []byte("not valid TOML =")},
+				{name: "MANIFEST", data: legacy},
+			},
+			wantMessage: "must not contain both",
 		},
 		{
-			name:        "v2 filename requires package version",
-			entries:     []archiveEntry{{name: "dbc-package.toml", data: []byte("name = 'Legacy-looking name'\nversion = '1.0.0'\n")}, {name: "driver.so", data: []byte("library")}},
-			wantMessage: "package_version = 2 is required",
-		},
-		{
-			name:        "v2 metadata rejects runtime manifest version",
-			entries:     []archiveEntry{{name: "dbc-package.toml", data: v2WithRuntimeVersion}, {name: "driver.so", data: []byte("library")}},
-			wantMessage: "must not set runtime manifest_version",
+			name:        "reserved filename is recognized without parsing or extraction",
+			entries:     []archiveEntry{{name: "dbc-package.toml", data: []byte("not valid TOML =")}, {name: "payload.bin", data: []byte("payload")}},
+			wantMessage: "reserved for future use and is not supported yet",
 		},
 		{
 			name:        "legacy filename case mismatch",
@@ -365,8 +246,8 @@ func TestPackageArchiveMetadataFilenames(t *testing.T) {
 			wantMessage: `must be named exactly "MANIFEST"`,
 		},
 		{
-			name:        "v2 filename case mismatch",
-			entries:     []archiveEntry{{name: "dbc-Package.toml", data: v2}},
+			name:        "reserved filename case mismatch",
+			entries:     []archiveEntry{{name: "dbc-Package.toml", data: []byte("reserved")}},
 			wantMessage: `must be named exactly "dbc-package.toml"`,
 		},
 		{
@@ -377,40 +258,30 @@ func TestPackageArchiveMetadataFilenames(t *testing.T) {
 			},
 			wantMessage: "collide by name",
 		},
-		{
-			name: "v2 case collision",
-			entries: []archiveEntry{
-				{name: "dbc-package.toml", data: v2},
-				{name: "DBC-PACKAGE.TOML", data: v2},
-			},
-			wantMessage: "collide by name",
-		},
-		{
-			name: "duplicate v2 metadata",
-			entries: []archiveEntry{
-				{name: "dbc-package.toml", data: v2},
-				{name: "dbc-package.toml", data: v2},
-			},
-			wantMessage: "collide by name",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			archive := makePackageArchive(t, tt.entries...)
-			for name, inspect := range map[string]func(*os.File) error{
-				"inspect": func(file *os.File) error {
+			for name, inspect := range map[string]func(*os.File, string) error{
+				"inspect": func(file *os.File, _ string) error {
 					_, err := config.InspectPackageMetadata(file)
 					return err
 				},
-				"extract": func(file *os.File) error {
-					_, err := config.InflateTarball(file, t.TempDir())
+				"extract": func(file *os.File, outDir string) error {
+					_, err := config.InflateTarball(file, outDir)
 					return err
 				},
 			} {
 				t.Run(name, func(t *testing.T) {
-					err := inspect(openPackageArchive(t, archive))
+					outDir := t.TempDir()
+					err := inspect(openPackageArchive(t, archive), outDir)
 					require.Error(t, err)
 					assert.Contains(t, err.Error(), tt.wantMessage)
+					if tt.name == "reserved filename is recognized without parsing or extraction" && name == "extract" {
+						entries, readErr := os.ReadDir(outDir)
+						require.NoError(t, readErr)
+						assert.Empty(t, entries)
+					}
 				})
 			}
 		})
@@ -419,7 +290,7 @@ func TestPackageArchiveMetadataFilenames(t *testing.T) {
 
 func TestInspectPackageMetadataScansPastMetadata(t *testing.T) {
 	archive := makePackageArchive(t,
-		archiveEntry{name: "dbc-package.toml", data: packageV2Manifest("example", "1.2.3", config.PlatformTuple(), "driver.so")},
+		archiveEntry{name: "MANIFEST", data: legacyPackageManifest("1.2.3", "driver.so")},
 		archiveEntry{name: "driver.so", data: []byte("library")},
 		archiveEntry{name: "nested/file", data: []byte("unsafe")},
 	)
@@ -428,26 +299,24 @@ func TestInspectPackageMetadataScansPastMetadata(t *testing.T) {
 	assert.Contains(t, err.Error(), "path separators")
 }
 
-func TestPackageMetadataSizeLimitAppliesToBothFormats(t *testing.T) {
+func TestPackageMetadataSizeLimitAppliesToMetadataFilenames(t *testing.T) {
 	oversized := bytes.Repeat([]byte("x"), (1<<20)+1)
 	for _, name := range []string{"MANIFEST", "dbc-package.toml"} {
-		t.Run(name, func(t *testing.T) {
-			archive := makePackageArchive(t, archiveEntry{name: name, data: oversized})
-			for _, inspect := range []func(*os.File) error{
-				func(file *os.File) error {
-					_, err := config.InspectPackageMetadata(file)
-					return err
-				},
-				func(file *os.File) error {
-					_, err := config.InflateTarball(file, t.TempDir())
-					return err
-				},
-			} {
-				err := inspect(openPackageArchive(t, archive))
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), "exceeds 1 MiB")
-			}
-		})
+		archive := makePackageArchive(t, archiveEntry{name: name, data: oversized})
+		for _, inspect := range []func(*os.File) error{
+			func(file *os.File) error {
+				_, err := config.InspectPackageMetadata(file)
+				return err
+			},
+			func(file *os.File) error {
+				_, err := config.InflateTarball(file, t.TempDir())
+				return err
+			},
+		} {
+			err := inspect(openPackageArchive(t, archive))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "exceeds 1 MiB")
+		}
 	}
 }
 
@@ -491,14 +360,14 @@ func TestInflateTarballRejectsArchiveAttacks(t *testing.T) {
 }
 
 func TestInstallPackageChecksMetadataAndDigests(t *testing.T) {
-	archive := validV2Archive(t, []byte("library"))
+	archive := validLegacyArchive(t, []byte("library"))
 	tests := []struct {
 		name   string
 		mutate func(*config.ExpectedPackageMetadata)
 	}{
 		{name: "id mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.ID = "other" }},
 		{name: "version mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.Version = "1.2.4" }},
-		{name: "platform mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.Platform = differentPackagePlatform() }},
+		{name: "invalid platform", mutate: func(e *config.ExpectedPackageMetadata) { e.Platform = "invalid platform" }},
 		{name: "archive hash mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.ArchiveHash = "sha256:" + strings.Repeat("0", 63) + "1" }},
 		{name: "archive size mismatch", mutate: func(e *config.ExpectedPackageMetadata) { e.ArchiveSize++ }},
 	}
@@ -517,7 +386,7 @@ func TestInstallPackageChecksMetadataAndDigests(t *testing.T) {
 	}
 }
 
-func TestPackslipPackageVersionRejectsLegacyArchiveBeforeRuntimeMutation(t *testing.T) {
+func TestPackslipPackageInstallsLegacyArchive(t *testing.T) {
 	legacy := []byte(`name = "Legacy Driver"
 version = "1.2.3"
 
@@ -527,42 +396,23 @@ shared = "external-driver"
 	archive := makePackageArchive(t, archiveEntry{name: "MANIFEST", data: legacy})
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-	existingArchive := validV2Archive(t, []byte("existing"))
-	existingFile := openPackageArchive(t, existingArchive)
-	installed, err := config.InstallPackage(cfg, "example", existingFile,
-		expectedPackage("example", "1.2.3", config.PlatformTuple(), "existing", existingArchive), config.InstallOptions{})
-	require.NoError(t, err)
-	require.NoError(t, existingFile.Close())
-	beforeManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
-	require.NoError(t, err)
-	beforeLibrary, err := os.ReadFile(installed.Driver.Shared.Get(config.PlatformTuple()))
-	require.NoError(t, err)
-
 	candidate := expectedPackage("example", "1.2.3", config.PlatformTuple(), "packslip-project", archive)
 	candidateFile := openPackageArchive(t, archive)
-	validation, err := config.PreparePackage(cfg, "example", candidateFile, candidate, config.InstallOptions{})
-	require.ErrorContains(t, err, "dbc package version mismatch: archive declares 0, expected 2")
-	if validation.Prepared != nil {
-		require.NoError(t, validation.Prepared.Close())
-	}
-	_, err = candidateFile.Seek(0, 0)
+	installed, err := config.InstallPackage(cfg, "example", candidateFile, candidate, config.InstallOptions{})
 	require.NoError(t, err)
-	_, err = config.InstallPackage(cfg, "example", candidateFile, candidate, config.InstallOptions{})
-	require.ErrorContains(t, err, "dbc package version mismatch")
 	require.NoError(t, candidateFile.Close())
-
-	afterManifest, err := os.ReadFile(filepath.Join(root, "example.toml"))
+	assert.Equal(t, "dbc", installed.Source)
+	assert.Empty(t, installed.Files.Driver)
+	assert.Equal(t, "external-driver", installed.Driver.Shared.Get(config.PlatformTuple()))
+	receipts, err := filepath.Glob(filepath.Join(root, "*", "dbc-install-receipt.json"))
 	require.NoError(t, err)
-	afterLibrary, err := os.ReadFile(installed.Driver.Shared.Get(config.PlatformTuple()))
-	require.NoError(t, err)
-	assert.Equal(t, beforeManifest, afterManifest)
-	assert.Equal(t, beforeLibrary, afterLibrary)
+	assert.Len(t, receipts, 1)
 }
 
 func TestPreparePackageIsNonMutatingAndPreparedPackageCanBeInstalled(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-	oldArchive := validV2Archive(t, []byte("existing library"))
+	oldArchive := validLegacyArchive(t, []byte("existing library"))
 	oldFile := openPackageArchive(t, oldArchive)
 	oldManifest, err := config.InstallPackage(cfg, "example", oldFile,
 		expectedPackage("example", "1.2.3", config.PlatformTuple(), "old-source", oldArchive), config.InstallOptions{})
@@ -576,7 +426,7 @@ func TestPreparePackageIsNonMutatingAndPreparedPackageCanBeInstalled(t *testing.
 	require.NoError(t, err)
 
 	candidateLibrary := []byte("candidate verified library")
-	candidateArchive := validV2Archive(t, candidateLibrary)
+	candidateArchive := validLegacyArchive(t, candidateLibrary)
 	candidate := expectedPackage("example", "1.2.3", config.PlatformTuple(), "candidate-source", candidateArchive)
 	candidateFile := openPackageArchive(t, candidateArchive)
 	defer candidateFile.Close()
@@ -631,14 +481,14 @@ func TestPreparePackageIsNonMutatingAndPreparedPackageCanBeInstalled(t *testing.
 }
 
 func TestPreparePackageRejectsMetadataAndVerifierFailures(t *testing.T) {
-	archive := validV2Archive(t, []byte("library"))
+	archive := validLegacyArchive(t, []byte("library"))
 	mutations := []struct {
 		name   string
 		mutate func(*config.ExpectedPackageMetadata)
 	}{
 		{name: "id", mutate: func(expected *config.ExpectedPackageMetadata) { expected.ID = "other" }},
 		{name: "version", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Version = "1.2.4" }},
-		{name: "platform", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Platform = differentPackagePlatform() }},
+		{name: "platform", mutate: func(expected *config.ExpectedPackageMetadata) { expected.Platform = "invalid platform" }},
 		{name: "archive hash", mutate: func(expected *config.ExpectedPackageMetadata) {
 			expected.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
 		}},
@@ -691,7 +541,7 @@ func entryNames(entries []os.DirEntry) []string {
 func TestInstallPackageReceiptReplacementAndRuntimeManifest(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-	firstArchive := validV2Archive(t, []byte("first library"))
+	firstArchive := validLegacyArchive(t, []byte("first library"))
 	first := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/first/source", firstArchive)
 	f := openPackageArchive(t, firstArchive)
 	manifest, err := config.InstallPackage(cfg, "example", f, first, config.InstallOptions{})
@@ -708,13 +558,12 @@ func TestInstallPackageReceiptReplacementAndRuntimeManifest(t *testing.T) {
 	require.NoError(t, json.Unmarshal(firstReceiptBytes, &firstReceipt))
 	assert.Equal(t, "github.com/first/source", firstReceipt.SourceIdentity)
 	assert.Equal(t, first.ArchiveHash, firstReceipt.ArchiveHash)
-	assert.Equal(t, 2, firstReceipt.PackageVersion)
-	assert.True(t, config.InstallReceiptMatchesExpectedPackage(firstReceipt, first), "the new package version is part of the receipt proof")
+	assert.True(t, config.InstallReceiptMatchesExpectedPackage(firstReceipt, first), "the receipt proves the selected source and archive")
 	assert.NotEqual(t, firstReceipt.ArchiveHash, firstReceipt.InstalledLibraryHash)
 	installedDigest := sha256.Sum256([]byte("first library"))
 	assert.Equal(t, "sha256:"+hex.EncodeToString(installedDigest[:]), firstReceipt.InstalledLibraryHash)
 
-	secondArchive := validV2Archive(t, []byte("second library"))
+	secondArchive := validLegacyArchive(t, []byte("second library"))
 	second := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/second/source", secondArchive)
 	f = openPackageArchive(t, secondArchive)
 	manifest, err = config.InstallPackage(cfg, "example", f, second, config.InstallOptions{})
@@ -743,7 +592,6 @@ func TestInstallPackageReceiptReplacementAndRuntimeManifest(t *testing.T) {
 	assert.Contains(t, runtimeText, "manifest_version = 1")
 	assert.Contains(t, runtimeText, "source = 'dbc'")
 	assert.Contains(t, runtimeText, "[Driver.shared]")
-	assert.NotContains(t, runtimeText, "package_version")
 	assert.NotContains(t, runtimeText, "[Files]")
 
 	loaded, err := config.GetDriver(cfg, "example")
@@ -752,28 +600,26 @@ func TestInstallPackageReceiptReplacementAndRuntimeManifest(t *testing.T) {
 	assert.Equal(t, secondLibraryPath, loaded.Driver.Shared.Get(config.PlatformTuple()))
 }
 
-func TestInstallReceiptPackageVersionProofPreservesUnspecifiedSources(t *testing.T) {
+func TestInstallReceiptProofIncludesSourceAndArchive(t *testing.T) {
 	expected := config.ExpectedPackageMetadata{
-		ID: "example", Version: "1.2.3", PackageVersion: 2, Platform: config.PlatformTuple(),
+		ID: "example", Version: "1.2.3", Platform: config.PlatformTuple(),
 		SourceType: "packslip", SourceIdentity: "github.com/example/driver",
 		ArchiveHash: "sha256:" + strings.Repeat("a", 64), ArchiveSize: 10,
 	}
 	receipt := config.InstallReceipt{
-		DriverID: "example", DriverVersion: "1.2.3", PackageVersion: 2, Platform: config.PlatformTuple(),
+		DriverID: "example", DriverVersion: "1.2.3", Platform: config.PlatformTuple(),
 		SourceType: "packslip", SourceIdentity: "github.com/example/driver",
 		ArchiveHash: expected.ArchiveHash, ArchiveSize: expected.ArchiveSize,
 	}
 	assert.True(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected))
-	receipt.PackageVersion = 0
-	assert.False(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected), "old receipts cannot prove the Packslip package contract")
-	expected.PackageVersion = 0
-	assert.True(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected), "registry and local legacy sources retain unspecified package-version matching")
+	receipt.SourceIdentity = "another/source"
+	assert.False(t, config.InstallReceiptMatchesExpectedPackage(receipt, expected))
 }
 
 func TestFailedReplacementPreservesExistingPackage(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-	archive := validV2Archive(t, []byte("installed library"))
+	archive := validLegacyArchive(t, []byte("installed library"))
 	expected := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/example/source", archive)
 	f := openPackageArchive(t, archive)
 	installed, err := config.InstallPackage(cfg, "example", f, expected, config.InstallOptions{})
@@ -788,7 +634,7 @@ func TestFailedReplacementPreservesExistingPackage(t *testing.T) {
 
 	badExpected := expected
 	badExpected.ArchiveHash = "sha256:" + strings.Repeat("0", 64)
-	f = openPackageArchive(t, validV2Archive(t, []byte("replacement library")))
+	f = openPackageArchive(t, validLegacyArchive(t, []byte("replacement library")))
 	_, err = config.InstallPackage(cfg, "example", f, badExpected, config.InstallOptions{})
 	_ = f.Close()
 	require.Error(t, err)
@@ -803,8 +649,8 @@ func TestFailedReplacementPreservesExistingPackage(t *testing.T) {
 func TestConcurrentInstallPackageSerializesSameTarget(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-	firstArchive := validV2Archive(t, []byte("first library"))
-	secondArchive := validV2Archive(t, []byte("second library"))
+	firstArchive := validLegacyArchive(t, []byte("first library"))
+	secondArchive := validLegacyArchive(t, []byte("second library"))
 	firstExpected := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/first/source", firstArchive)
 	secondExpected := expectedPackage("example", "1.2.3", config.PlatformTuple(), "github.com/second/source", secondArchive)
 	firstFile := openPackageArchive(t, firstArchive)

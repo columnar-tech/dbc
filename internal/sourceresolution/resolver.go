@@ -28,7 +28,7 @@ import (
 
 // Request is the small amount of project context needed to resolve one source.
 // BaseDir is the absolute directory containing dbc.toml/dbc.lock. Platform is
-// the current config platform tuple used by package v2 metadata.
+// the current config platform tuple used to validate the target.
 type Request struct {
 	DriverID string
 	Version  string // Optional for local path sources; an omitted version is read from package metadata.
@@ -79,9 +79,6 @@ func ResolvePackslip(ctx context.Context, resolver packslip.Resolver, project, d
 		return resolution.ResolvedRelease{}, fmt.Errorf("packslip resolver returned an invalid release: %w", err)
 	}
 	for i, artifact := range release.Artifacts {
-		if artifact.PackageVersion != 0 {
-			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d package format must remain unspecified until archive inspection", i)
-		}
 		if artifact.Size == nil {
 			return resolution.ResolvedRelease{}, fmt.Errorf("packslip artifact %d must declare archive size", i)
 		}
@@ -145,14 +142,6 @@ func ResolvePath(ctx context.Context, declaredPath string, request Request) (res
 	if request.Version != "" && resolvedVersion != request.Version {
 		return resolution.ResolvedRelease{}, fmt.Errorf("local package version %q does not match requested version %q", resolvedVersion, request.Version)
 	}
-	if manifest.PackageVersion == 2 {
-		if manifest.ID != request.DriverID {
-			return resolution.ResolvedRelease{}, fmt.Errorf("local package ID %q does not match requested driver %q", manifest.ID, request.DriverID)
-		}
-		if manifest.PackagePlatform != request.Platform {
-			return resolution.ResolvedRelease{}, fmt.Errorf("local package platform %q does not match current platform %q", manifest.PackagePlatform, request.Platform)
-		}
-	}
 	// Legacy MANIFEST packages predate package IDs and platform declarations.
 	// The existing installer supplies the requested runtime ID and current
 	// platform for that format, so the local source adapter uses the same rule.
@@ -166,12 +155,11 @@ func ResolvePath(ctx context.Context, declaredPath string, request Request) (res
 		Version:  resolvedVersion,
 		Source:   resolution.SourceSpec{Type: "path", Reference: declaredPath},
 		Artifacts: []resolution.Artifact{{
-			Target:         target,
-			Format:         format,
-			PackageVersion: manifest.PackageVersion,
-			Location:       location,
-			Hash:           archiveHash,
-			Size:           &size,
+			Target:   target,
+			Format:   format,
+			Location: location,
+			Hash:     archiveHash,
+			Size:     &size,
 		}},
 	}
 	if err := resolution.ValidateResolvedRelease(release); err != nil {

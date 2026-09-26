@@ -25,10 +25,10 @@ import (
 )
 
 // VerifyPackageSignature verifies a legacy package's library signature while
-// the extracted package is still in its private staging directory. Version 2
-// packages and packages without a library file do not use legacy signatures.
+// the extracted package is still in its private staging directory. Packages
+// without a library file do not use library signatures.
 func VerifyPackageSignature(stagingDir string, manifest config.Manifest) error {
-	if manifest.PackageVersion == 2 || manifest.Files.Driver == "" {
+	if manifest.Files.Driver == "" {
 		return nil
 	}
 

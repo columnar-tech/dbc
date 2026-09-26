@@ -72,7 +72,6 @@ type lockEvidence struct {
 type lockArtifact struct {
 	Target           resolution.Target           `toml:"target"`
 	Format           string                      `toml:"format,omitempty"`
-	PackageVersion   int                         `toml:"package_version,omitempty"`
 	Location         resolution.ArtifactLocation `toml:"location"`
 	Hash             string                      `toml:"hash"`
 	Size             *int64                      `toml:"size"`

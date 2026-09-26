@@ -53,7 +53,7 @@ func TestPackslipArtifactFetchPreservesSignedURLWithoutCredentials(t *testing.T)
 		DriverID: "example", Version: "1.2.3",
 		Source: resolution.SourceSpec{Type: "packslip", Reference: "github.com/example/driver"},
 		Artifacts: []resolution.Artifact{{
-			Target: target, Format: "tgz", PackageVersion: 0,
+			Target: target, Format: "tgz",
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: artifactURL.String()},
 		}},
 	}, 0, config.PlatformTuple(), nil)

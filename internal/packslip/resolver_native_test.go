@@ -533,7 +533,6 @@ func TestResolverUsesVersionBearingTagAndKeepsProjectAsSourceIdentity(t *testing
 	require.NotEqual(t, "https://downloads.example/driver-linux.tar.gz", resolved.Source.Reference)
 	require.NotEqual(t, "https://github.com/acme/driver/releases/download/v1.2.3/packslip.sigstore.json", resolved.Source.Reference)
 	require.Equal(t, "https://dl.example/driver-linux.tar.gz", resolved.Artifacts[0].Location.Value)
-	require.Zero(t, resolved.Artifacts[0].PackageVersion)
 }
 
 func TestResolverAdoptsSignedDriverIDWhenNoExpectedIDIsProvided(t *testing.T) {
@@ -543,7 +542,6 @@ func TestResolverAdoptsSignedDriverIDWhenNoExpectedIDIsProvided(t *testing.T) {
 	resolved, err := resolver.Resolve(context.Background(), PackslipSource{Project: testProject}, Request{Version: "1.2.3"})
 	require.NoError(t, err)
 	require.Equal(t, "driver", resolved.DriverID)
-	require.Zero(t, resolved.Artifacts[0].PackageVersion)
 }
 
 func TestResolverRejectsExpectedDriverIDThatDiffersFromSignedDeclaration(t *testing.T) {

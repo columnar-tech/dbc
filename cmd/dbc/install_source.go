@@ -86,22 +86,7 @@ func (m progressiveInstallModel) resolveDirectInstall(ctx context.Context) (inst
 		if err != nil {
 			return installItem{}, fmt.Errorf("resolve current directory for local package: %w", err)
 		}
-		inspection, err := os.Open(m.localPackagePath)
-		if err != nil {
-			return installItem{}, err
-		}
-		metadata, inspectErr := config.InspectPackageMetadata(inspection)
-		closeErr := inspection.Close()
-		if inspectErr != nil {
-			return installItem{}, inspectErr
-		}
-		if closeErr != nil {
-			return installItem{}, closeErr
-		}
 		driverID := legacyLocalPackageID(m.localPackagePath, platform)
-		if metadata.PackageVersion == 2 {
-			driverID = metadata.ID
-		}
 		release, err = sourceresolution.ResolvePath(ctx, m.localPackagePath, sourceresolution.Request{
 			DriverID: driverID,
 			Target:   target,

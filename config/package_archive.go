@@ -29,8 +29,7 @@ import (
 )
 
 // InspectPackageMetadata decodes the archive's package metadata without
-// installing files. It is intended to classify legacy and versioned package
-// formats before choosing an install policy; the installer still validates
+// installing files. The installer still validates
 // the full archive before publication. The archive remains open for the caller.
 func InspectPackageMetadata(downloaded *os.File) (Manifest, error) {
 	if downloaded == nil {
@@ -110,7 +109,7 @@ func InspectPackageMetadata(downloaded *os.File) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	return manifest.manifest, nil
+	return manifest, nil
 }
 
 func installPackageArchive(cfg Config, targetName, runtimeID string, downloaded *os.File, expected ExpectedPackageMetadata) (Manifest, error) {
@@ -174,30 +173,18 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 	if err := os.Mkdir(payloadDir, 0o700); err != nil {
 		return result, "", sharedIdentity, fmt.Errorf("could not create private package staging directory: %w", err)
 	}
-	manifest, meta, files, err := extractPackageArchive(archivePath, payloadDir)
+	manifest, files, err := extractPackageArchive(archivePath, payloadDir)
 	if err != nil {
 		return result, "", sharedIdentity, fmt.Errorf("failed to extract package archive: %w", err)
-	}
-	if expected.ID != "" && meta.v2 && expected.ID != meta.id {
-		return result, "", sharedIdentity, fmt.Errorf("package id mismatch: archive declares %q, expected %q", meta.id, expected.ID)
 	}
 	if expected.Version != "" && manifest.Version.String() != expected.Version {
 		return result, "", sharedIdentity, fmt.Errorf("package version mismatch: archive declares %q, expected %q", manifest.Version, expected.Version)
 	}
-	if expected.PackageVersion != 0 && expected.PackageVersion != manifest.PackageVersion {
-		return result, "", sharedIdentity, fmt.Errorf("dbc package version mismatch: archive declares %d, expected %d", manifest.PackageVersion, expected.PackageVersion)
-	}
 	platform := expected.Platform
-	if meta.v2 {
-		if platform != "" && meta.platform != platform {
-			return result, "", sharedIdentity, fmt.Errorf("package platform mismatch: archive declares %q, expected %q", meta.platform, platform)
-		}
-		platform = meta.platform
-	}
 	if platform == "" {
 		platform = PlatformTuple()
 	}
-	if err := validatePackageFileReferences(manifest, files, meta.v2); err != nil {
+	if err := validatePackageFileReferences(manifest, files); err != nil {
 		return result, "", sharedIdentity, err
 	}
 	if _, exists := files[strings.ToLower(installReceiptName)]; exists {
@@ -251,8 +238,7 @@ func stagePackageArchive(location, runtimeID, finalDir string, downloaded *os.Fi
 	receipt := InstallReceipt{
 		SourceType: expected.SourceType, SourceIdentity: expected.SourceIdentity,
 		DriverID: runtimeID, DriverVersion: manifest.Version.String(), Platform: platform,
-		PackageVersion: manifest.PackageVersion,
-		ArchiveHash:    archiveHash, ArchiveSize: archiveSize, InstalledLibrary: installedLibrary,
+		ArchiveHash: archiveHash, ArchiveSize: archiveSize, InstalledLibrary: installedLibrary,
 		InstalledLibraryHash:             installedHash,
 		RegistrationFingerprintAlgorithm: registrationFingerprintAlgorithm,
 		RegistrationFingerprintVersion:   registrationFingerprintVersion,
@@ -300,16 +286,16 @@ func snapshotArchive(source *os.File, target string) (string, int64, error) {
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
-func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageManifest, map[string]string, error) {
+func extractPackageArchive(archivePath, payloadDir string) (Manifest, map[string]string, error) {
 	var empty Manifest
 	archive, err := os.Open(archivePath)
 	if err != nil {
-		return empty, packageManifest{}, nil, err
+		return empty, nil, err
 	}
 	defer archive.Close()
 	gz, err := gzip.NewReader(archive)
 	if err != nil {
-		return empty, packageManifest{}, nil, fmt.Errorf("could not create gzip reader: %w", err)
+		return empty, nil, fmt.Errorf("could not create gzip reader: %w", err)
 	}
 	defer gz.Close()
 	reader := tar.NewReader(gz)
@@ -322,44 +308,44 @@ func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageMan
 			break
 		}
 		if err != nil {
-			return empty, packageManifest{}, nil, fmt.Errorf("error reading tar archive: %w", err)
+			return empty, nil, fmt.Errorf("error reading tar archive: %w", err)
 		}
 		if header.Typeflag == tar.TypeDir {
-			return empty, packageManifest{}, nil, fmt.Errorf("found a directory entry %q; driver archives must be flat", header.Name)
+			return empty, nil, fmt.Errorf("found a directory entry %q; driver archives must be flat", header.Name)
 		}
 		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
-			return empty, packageManifest{}, nil, fmt.Errorf("archive entry %q is not a regular file", header.Name)
+			return empty, nil, fmt.Errorf("archive entry %q is not a regular file", header.Name)
 		}
 		for key := range header.PAXRecords {
 			if strings.HasPrefix(key, "GNU.sparse") {
-				return empty, packageManifest{}, nil, fmt.Errorf("archive entry %q uses an unsupported sparse-file extension", header.Name)
+				return empty, nil, fmt.Errorf("archive entry %q uses an unsupported sparse-file extension", header.Name)
 			}
 		}
 		if err := validateFlatName(header.Name); err != nil {
-			return empty, packageManifest{}, nil, fmt.Errorf("invalid archive entry %q: %w", header.Name, err)
+			return empty, nil, fmt.Errorf("invalid archive entry %q: %w", header.Name, err)
 		}
 		if header.Size < 0 {
-			return empty, packageManifest{}, nil, fmt.Errorf("archive entry %q has a negative size", header.Name)
+			return empty, nil, fmt.Errorf("archive entry %q has a negative size", header.Name)
 		}
 		folded := strings.ToLower(header.Name)
 		if previous, ok := seen[folded]; ok {
-			return empty, packageManifest{}, nil, fmt.Errorf("archive entries %q and %q collide by name", previous, header.Name)
+			return empty, nil, fmt.Errorf("archive entries %q and %q collide by name", previous, header.Name)
 		}
 		seen[folded] = header.Name
 		metadataName, isMetadata, err := classifyPackageMetadataName(header.Name)
 		if err != nil {
-			return empty, packageManifest{}, nil, err
+			return empty, nil, err
 		}
 		if isMetadata {
 			if header.Size > maxPackageMetadataSize {
-				return empty, packageManifest{}, nil, errors.New("package metadata exceeds 1 MiB")
+				return empty, nil, errors.New("package metadata exceeds 1 MiB")
 			}
 			data, err := io.ReadAll(io.LimitReader(reader, maxPackageMetadataSize+1))
 			if err != nil {
-				return empty, packageManifest{}, nil, fmt.Errorf("could not read package metadata: %w", err)
+				return empty, nil, fmt.Errorf("could not read package metadata: %w", err)
 			}
 			if int64(len(data)) != header.Size {
-				return empty, packageManifest{}, nil, errors.New("package metadata size does not match its tar header")
+				return empty, nil, errors.New("package metadata size does not match its tar header")
 			}
 			metadata[metadataName] = data
 			continue
@@ -371,7 +357,7 @@ func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageMan
 		}
 		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 		if err != nil {
-			return empty, packageManifest{}, nil, fmt.Errorf("could not create staged package file %q: %w", header.Name, err)
+			return empty, nil, fmt.Errorf("could not create staged package file %q: %w", header.Name, err)
 		}
 		written, writeErr := io.Copy(file, reader)
 		if writeErr == nil && written != header.Size {
@@ -382,38 +368,33 @@ func extractPackageArchive(archivePath, payloadDir string) (Manifest, packageMan
 		}
 		closeErr := file.Close()
 		if writeErr != nil {
-			return empty, packageManifest{}, nil, fmt.Errorf("could not write staged package file %q: %w", header.Name, writeErr)
+			return empty, nil, fmt.Errorf("could not write staged package file %q: %w", header.Name, writeErr)
 		}
 		if closeErr != nil {
-			return empty, packageManifest{}, nil, fmt.Errorf("could not close staged package file %q: %w", header.Name, closeErr)
+			return empty, nil, fmt.Errorf("could not close staged package file %q: %w", header.Name, closeErr)
 		}
 		files[folded] = header.Name
 	}
 	metadataName, data, err := selectPackageMetadata(metadata)
 	if err != nil {
-		return empty, packageManifest{}, nil, err
+		return empty, nil, err
 	}
-	parsed, err := decodePackageManifest(metadataName, data)
+	manifest, err := decodePackageManifest(metadataName, data)
 	if err != nil {
-		return empty, packageManifest{}, nil, err
+		return empty, nil, err
 	}
 	if _, err := io.Copy(io.Discard, gz); err != nil {
-		return empty, packageManifest{}, nil, fmt.Errorf("could not verify gzip stream: %w", err)
+		return empty, nil, fmt.Errorf("could not verify gzip stream: %w", err)
 	}
-	if err := validatePackageFileReferences(parsed.manifest, files, parsed.v2); err != nil {
-		return empty, packageManifest{}, nil, err
+	if err := validatePackageFileReferences(manifest, files); err != nil {
+		return empty, nil, err
 	}
-	return parsed.manifest, parsed, files, nil
+	return manifest, files, nil
 }
 
-func validatePackageFileReferences(manifest Manifest, files map[string]string, requireDriver bool) error {
+func validatePackageFileReferences(manifest Manifest, files map[string]string) error {
 	driver := manifest.Files.Driver
-	if driver == "" {
-		if requireDriver {
-			// TODO: Model externally managed drivers as an explicit package variant with ownership semantics, not an empty Files.driver exception.
-			return fmt.Errorf("%w: Files.driver is required", ErrInvalidManifest)
-		}
-	} else {
+	if driver != "" {
 		if err := validateFlatName(driver); err != nil {
 			return fmt.Errorf("%w: invalid Files.driver: %v", ErrInvalidManifest, err)
 		}

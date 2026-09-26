@@ -15,9 +15,6 @@
 package dbc_test
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -37,44 +34,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func makeClientPackageV2Archive(t *testing.T, platform string) []byte {
+func readClientLegacyArchive(t *testing.T) []byte {
 	t.Helper()
-	manifest := fmt.Sprintf(`package_version = 2
-id = "v2-driver"
-name = "V2 Driver"
-version = "1.2.3"
-platform = %q
-
-[Driver]
-entrypoint = "AdbcDriverV2Init"
-
-[Files]
-driver = "driver.so"
-`, platform)
-	var buffer bytes.Buffer
-	gz := gzip.NewWriter(&buffer)
-	tw := tar.NewWriter(gz)
-	for _, entry := range []struct {
-		name string
-		data []byte
-	}{{"dbc-package.toml", []byte(manifest)}, {"driver.so", []byte("v2 library")}} {
-		require.NoError(t, tw.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o644, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}))
-		_, err := tw.Write(entry.data)
-		require.NoError(t, err)
-	}
-	require.NoError(t, tw.Close())
-	require.NoError(t, gz.Close())
-	return buffer.Bytes()
+	archive, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.1.tar.gz"))
+	require.NoError(t, err)
+	return archive
 }
 
-func newV2InstallServer(t *testing.T, archive []byte, metadata string) *httptest.Server {
+func newArchiveMetadataInstallServer(t *testing.T, archive []byte, metadata string) *httptest.Server {
 	t.Helper()
 	digest := sha256.Sum256(archive)
 	index := fmt.Sprintf(`drivers:
-  - name: V2 Driver
-    path: v2-driver
+  - name: Test Driver
+    path: test-driver-1
     pkginfo:
-      - version: v1.2.3
+      - version: v1.1.0
         packages:
           - platform: %s
             url: package.tar.gz
@@ -308,17 +282,16 @@ func TestClientInstallLegacyMetadataMismatchPreservesExistingInstallation(t *tes
 	assert.Equal(t, oldLibraryBytes, libraryBytes)
 }
 
-func TestClientInstallPackageV2UsesRegistryMetadata(t *testing.T) {
-	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
-	srv := newV2InstallServer(t, archive, "complete")
+func TestClientInstallLegacyPackageUsesRegistryMetadata(t *testing.T) {
+	archive := readClientLegacyArchive(t)
+	srv := newArchiveMetadataInstallServer(t, archive, "complete")
 	c := newTestClientForServer(t, srv.URL)
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
 
-	manifest, err := c.Install(t.Context(), cfg, "v2-driver")
+	manifest, err := c.Install(t.Context(), cfg, "test-driver-1")
 	require.NoError(t, err)
 	require.NotNil(t, manifest)
-	assert.Equal(t, 2, manifest.PackageVersion)
 
 	var receipt config.InstallReceipt
 	receiptBytes, err := os.ReadFile(filepath.Join(filepath.Dir(manifest.DriverInfo.Driver.Shared.Get(config.PlatformTuple())), "dbc-install-receipt.json"))
@@ -329,33 +302,19 @@ func TestClientInstallPackageV2UsesRegistryMetadata(t *testing.T) {
 	assert.NotEmpty(t, receipt.ArchiveHash)
 	assert.Positive(t, receipt.ArchiveSize)
 
-	runtimeManifest, err := os.ReadFile(filepath.Join(root, "v2-driver.toml"))
+	runtimeManifest, err := os.ReadFile(filepath.Join(root, "test-driver-1.toml"))
 	require.NoError(t, err)
 	assert.Contains(t, string(runtimeManifest), "manifest_version = 1")
-	assert.NotContains(t, string(runtimeManifest), "package_version")
-}
-
-func TestClientInstallPackageV2WithoutRegistryMetadataIsRejected(t *testing.T) {
-	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
-	srv := newV2InstallServer(t, archive, "none")
-	c := newTestClientForServer(t, srv.URL)
-	root := t.TempDir()
-	cfg := config.Config{Level: config.ConfigEnv, Location: root}
-
-	_, err := c.Install(t.Context(), cfg, "v2-driver")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "registry package v2 requires archive hash metadata")
-	assert.NoFileExists(t, filepath.Join(root, "v2-driver.toml"))
 }
 
 func TestClientInstallAcceptsHashOnlyRegistryArchiveMetadata(t *testing.T) {
-	archive := makeClientPackageV2Archive(t, config.PlatformTuple())
-	srv := newV2InstallServer(t, archive, "hash-only")
+	archive := readClientLegacyArchive(t)
+	srv := newArchiveMetadataInstallServer(t, archive, "hash-only")
 	c := newTestClientForServer(t, srv.URL)
 	root := t.TempDir()
 	cfg := config.Config{Level: config.ConfigEnv, Location: root}
 
-	manifest, err := c.Install(t.Context(), cfg, "v2-driver")
+	manifest, err := c.Install(t.Context(), cfg, "test-driver-1")
 	require.NoError(t, err)
 	require.NotNil(t, manifest)
 	var receipt config.InstallReceipt

@@ -230,11 +230,8 @@ type ResolvedRelease struct {
 // may be absent before resolution but is required for a finalized snapshot.
 // Size is optional metadata.
 type Artifact struct {
-	Target Target
-	Format string
-	// PackageVersion is the dbc package contract declared by the source. Zero
-	// means no explicit package-version marker is present.
-	PackageVersion   int
+	Target           Target
+	Format           string
 	Location         ArtifactLocation
 	Hash             string
 	Size             *int64
@@ -333,9 +330,6 @@ func ValidateResolvedReleaseCandidate(release ResolvedRelease) error {
 	seenTargets := make(map[Target]struct{}, len(release.Artifacts))
 	seenLocations := make(map[ArtifactLocation]Artifact, len(release.Artifacts))
 	for i, artifact := range release.Artifacts {
-		if artifact.PackageVersion != 0 && artifact.PackageVersion != 2 {
-			return fmt.Errorf("artifact %d has unsupported dbc package version %d", i, artifact.PackageVersion)
-		}
 		if err := ValidateArtifactLocation(artifact.Location); err != nil {
 			return fmt.Errorf("artifact %d has invalid location: %w", i, err)
 		}

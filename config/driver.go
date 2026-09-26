@@ -34,13 +34,6 @@ const currentManifestVersion = 1
 type Manifest struct {
 	DriverInfo
 
-	// PackageVersion is the parsed package wire version. It is in-memory
-	// metadata only; runtime ADBC manifests continue to use ManifestVersion.
-	PackageVersion int
-	// PackagePlatform is set when package metadata declares a concrete platform.
-	// Legacy package MANIFEST files do not carry this field.
-	PackagePlatform string
-
 	Files struct {
 		Driver    string `toml:"driver,omitempty"`
 		Signature string `toml:"signature,omitempty"`
@@ -125,10 +118,8 @@ func (d driverMap) String() string {
 }
 
 // runtimeManifestWire is the installed ADBC Driver Manifest format. A legacy
-// package's MANIFEST uses legacyPackageManifestWire, while dbc-package.toml
-// uses packageManifestV2Wire.
+// package's MANIFEST uses legacyPackageManifestWire.
 type runtimeManifestWire struct {
-	PackageVersion  *int64          `toml:"package_version,omitempty"`
 	ManifestVersion int32           `toml:"manifest_version"`
 	Name            string          `toml:"name"`
 	Publisher       string          `toml:"publisher"`

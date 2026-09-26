@@ -535,9 +535,6 @@ func readPackageReceiptEvidence(location, runtimeID, directory string) (InstallR
 }
 
 func parseReceiptMetadata(receipt InstallReceipt) error {
-	if err := validateExpectedPackageVersion(receipt.PackageVersion); err != nil {
-		return fmt.Errorf("invalid receipt package version: %w", err)
-	}
 	if _, err := semver.NewVersion(receipt.DriverVersion); err != nil {
 		return fmt.Errorf("invalid receipt driver version: %w", err)
 	}
@@ -567,9 +564,6 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	if _, err := semver.NewVersion(expected.Version); err != nil {
 		return fmt.Errorf("invalid expected package version %q: %w", expected.Version, err)
 	}
-	if err := validateExpectedPackageVersion(expected.PackageVersion); err != nil {
-		return err
-	}
 	if err := validatePlatformIdentifier(expected.Platform); err != nil {
 		return fmt.Errorf("invalid expected package platform: %w", err)
 	}
@@ -578,13 +572,6 @@ func validateExpectedPackage(expected ExpectedPackageMetadata) error {
 	}
 	if _, err := parseSHA256(expected.ArchiveHash); err != nil {
 		return fmt.Errorf("invalid expected archive hash: %w", err)
-	}
-	return nil
-}
-
-func validateExpectedPackageVersion(version int) error {
-	if version != 0 && version != 2 {
-		return fmt.Errorf("unsupported dbc package version %d", version)
 	}
 	return nil
 }

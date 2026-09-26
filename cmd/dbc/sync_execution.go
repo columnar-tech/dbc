@@ -78,7 +78,7 @@ func canReuseLockedEntry(item installItem) bool {
 	}
 	return locked.Target == selected.Target && locked.Location == selected.Location &&
 		locked.Hash == selected.Hash && sameLockSize(locked.Size, selected.Size) &&
-		locked.Format == selected.Format && locked.PackageVersion == selected.PackageVersion &&
+		locked.Format == selected.Format &&
 		reflect.DeepEqual(canonicalHostRequirements(locked.HostRequirements), canonicalHostRequirements(lockHostRequirementsFromResolution(selected.HostRequirements)))
 }
 

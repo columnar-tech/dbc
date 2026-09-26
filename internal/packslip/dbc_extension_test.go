@@ -80,7 +80,7 @@ func TestDBCArtifactExtensionIsExtensibleMembershipMarker(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, validateDBCReleaseExtensions(release))
 	require.True(t, release.predicate.Artifacts[0].dbcArtifact)
-	release.predicate.Artifacts[0].Extensions["dbc"] = json.RawMessage(`{"future_optional_metadata":"x","package_version":2}`)
+	release.predicate.Artifacts[0].Extensions["dbc"] = json.RawMessage(`{"future_optional_metadata":"x","future_annotation":2}`)
 	require.NoError(t, validateDBCReleaseExtensions(release), "all artifact dbc object keys are additive metadata")
 	require.True(t, release.predicate.Artifacts[0].dbcArtifact)
 	release.predicate.Artifacts[0].Extensions["dbc"] = json.RawMessage(`true`)

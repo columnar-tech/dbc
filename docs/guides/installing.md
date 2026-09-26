@@ -271,16 +271,15 @@ dbc can install drivers from local archives as an alternative to a [Driver Regis
 
 ### Package archive metadata
 
-dbc accepts both package formats from local paths, registries, and Packslip releases. Legacy archives with a root-level `MANIFEST` remain fully supported, including for dbc 0.3.x compatibility. `dbc-package.toml` with `package_version = 2` is an optional package format that gives the archive explicit driver identity and platform metadata and separates dbc packaging details from the installed `<driver>.toml` ADBC Driver Manifest (`manifest_version = 1`). Source metadata, including Packslip extensions, identifies the artifact but does not need to declare its package format; dbc determines that format by inspecting the downloaded archive.
+Legacy archives with a root-level `MANIFEST` are the only supported package format. They work with local paths, registries, and Packslip releases. Source metadata, including Packslip extensions, identifies the driver and artifact target independently of the archive format.
 
-For example, `dbc-package.toml` can contain:
+Packslip installations verify signed release metadata and the selected archive's hash and any recorded size. They do not require a separate legacy library signature or `--no-verify`. Registry and ordinary local installations retain their existing library-signature checks.
+
+For example, `MANIFEST` can contain:
 
 ```toml
-package_version = 2
-id = "example"
 name = "Example ADBC Driver"
 version = "1.0.0"
-platform = "linux_amd64"
 
 [Driver]
 entrypoint = "AdbcDriverExampleInit"
@@ -289,7 +288,11 @@ entrypoint = "AdbcDriverExampleInit"
 driver = "libadbc_driver_example.so"
 ```
 
-The archive must be flat: place `dbc-package.toml` and the library file at its root. `id` is the installed runtime ID, `name` is the display name, `version` is a SemVer version, `platform` is the target tuple, `Driver.entrypoint` is the exported initialization symbol, and `Files.driver` names the library file in the archive root.
+The archive must be flat: place `MANIFEST` and the library file at its root. `Files.driver` names the library file in the archive root. Existing manifest-only packages that register externally managed libraries remain supported.
+
+The root-level filename `dbc-package.toml` is reserved for a future dbc-owned package metadata format. dbc rejects archives containing it as unsupported, and rejects archives containing both metadata filenames. The reserved file is never installed as ordinary package payload. Its schema, mapping to ADBC Driver Manifest metadata, migration policy, and compatibility rules will be designed separately.
+
+The future format is intended to make packages self-describing, including their identity and target, and separate dbc-owned package metadata from the installed `<driver>.toml` ADBC Driver Manifest. Registry, Packslip, local path sources, lockfile v2, archive verification, receipts, and replay do not depend on that future format.
 
 To install from a local archive, pass the path to a local archive instead of a name and set the `--no-verify` flag to skip signature verification:
 
@@ -305,7 +308,7 @@ Installed example 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
 
 !!! note
 
-    With dbc 0.4.0, use the `id` from `dbc-package.toml` (`example` above) as the driver name when connecting through a [Driver Manager](../concepts/driver_manager.md). With dbc 0.3.0 and earlier, the runtime ID may be derived from the archive filename.
+    Direct local installation derives the runtime driver ID from the archive filename because legacy `MANIFEST` metadata does not declare it. For example, `example.tar.gz` and `example_linux_amd64_v1.2.3.tar.gz` on Linux amd64 both use `example` when connecting through a [Driver Manager](../concepts/driver_manager.md). Project path sources use the driver ID declared in `dbc.toml`; Packslip uses the signed driver identity.
 
 ## GitHub Actions
 

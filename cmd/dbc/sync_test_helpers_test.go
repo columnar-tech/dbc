@@ -51,27 +51,25 @@ func (stub *syncPackslipResolverStub) Resolve(_ context.Context, source packslip
 	return cloneResolvedReleaseForSync(stub.release), nil
 }
 
-func makeSyncPackageV2Archive(t *testing.T, path, id, version, platform string) ([]byte, string) {
+func makeSyncLegacyPackageArchive(t *testing.T, path, version string) ([]byte, string) {
 	t.Helper()
-	metadata := []byte(fmt.Sprintf(`package_version = 2
-id = %q
+	metadata := []byte(fmt.Sprintf(`manifest_version = 1
 name = "Test Driver"
 version = %q
-platform = %q
 
 [Driver]
 entrypoint = "TestDriverInit"
 
 [Files]
 driver = "driver.so"
-`, id, version, platform))
+`, version))
 	var archive bytes.Buffer
 	gzipWriter := gzip.NewWriter(&archive)
 	tarWriter := tar.NewWriter(gzipWriter)
 	for _, entry := range []struct {
 		name string
 		data []byte
-	}{{name: "dbc-package.toml", data: metadata}, {name: "driver.so", data: []byte("test library bytes")}} {
+	}{{name: "MANIFEST", data: metadata}, {name: "driver.so", data: []byte("test library bytes")}} {
 		require.NoError(t, tarWriter.WriteHeader(&tar.Header{Name: entry.name, Mode: 0o600, Size: int64(len(entry.data)), Typeflag: tar.TypeReg}))
 		_, err := tarWriter.Write(entry.data)
 		require.NoError(t, err)
@@ -99,8 +97,8 @@ func makeSyncPackslipRelease(id, version, url, hash string, size int64) resoluti
 			Hash:     "sha256:" + strings.Repeat("a", 64),
 		}},
 		Artifacts: []resolution.Artifact{
-			{Target: primary, Format: "tgz", PackageVersion: 0, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: url}, Hash: hash, Size: &size},
-			{Target: secondary, Format: "tar.gz", PackageVersion: 0, Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: &otherSize},
+			{Target: primary, Format: "tgz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: url}, Hash: hash, Size: &size},
+			{Target: secondary, Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://assets.example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: &otherSize},
 		},
 	}
 }

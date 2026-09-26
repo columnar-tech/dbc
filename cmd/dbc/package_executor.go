@@ -141,16 +141,15 @@ func expectedSyncPackageMetadata(item installItem) (config.ExpectedPackageMetada
 	}
 	hasHash := selected.Hash != ""
 	hasSize := selected.Size != nil
+	if item.Release.Source.Type == "packslip" && !hasHash {
+		return config.ExpectedPackageMetadata{}, false, errors.New("Packslip artifact requires an authenticated archive hash")
+	}
 	if !hasHash && hasSize {
 		return config.ExpectedPackageMetadata{}, false, errors.New("package metadata cannot include size without archive hash")
-	}
-	if selected.PackageVersion == 2 && !hasHash {
-		return config.ExpectedPackageMetadata{}, false, errors.New("package v2 requires archive hash metadata")
 	}
 	expected := config.ExpectedPackageMetadata{
 		ID: item.Release.DriverID, Version: item.Release.Version, Platform: item.Platform,
 		SourceType: item.Release.Source.Type, SourceIdentity: item.Release.Source.Reference,
-		PackageVersion: selected.PackageVersion,
 	}
 	if hasHash {
 		expected.ArchiveHash = selected.Hash
@@ -319,7 +318,10 @@ func (e *packageExecutor) downloadAndPrepareItem(ctx context.Context, item *inst
 	}
 	archive := item.Archive.File
 	var verify func(string, config.Manifest) error
-	if !e.noVerify {
+	// Packslip authenticates the archive digest during resolution; replay
+	// verifies the same locked digest. Columnar library signatures are a
+	// separate registry/local policy, independent of the package format.
+	if !e.noVerify && item.Release.Source.Type != "packslip" {
 		verify = func(stagingDir string, manifest config.Manifest) error {
 			return dbc.VerifyPackageSignature(stagingDir, manifest)
 		}
@@ -345,7 +347,6 @@ func (e *packageExecutor) downloadAndPrepareItem(ctx context.Context, item *inst
 	archiveHashWasMissing := selected.Hash == ""
 	if selected.Hash == "" {
 		selected.Hash = validation.ArchiveHash
-		selected.PackageVersion = validation.PackageVersion
 	}
 	expected, _, err = expectedSyncPackageMetadata(*item)
 	if err != nil {

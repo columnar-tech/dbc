@@ -64,7 +64,7 @@ func testLockEntry() lockInfo {
 		}},
 		Artifacts: []lockArtifact{
 			{
-				Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz", PackageVersion: 2,
+				Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
 				Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: int64Pointer(128),
 				HostRequirements: lockHostRequirements{
 					OSMin: "3.2.0", GLibCMin: "2.17", Libs: []string{"libssl.so.3", "libc.so.6"},
@@ -72,7 +72,7 @@ func testLockEntry() lockInfo {
 				},
 			},
 			{
-				Target: resolution.Target{OS: "macos", Arch: "arm64"}, Format: "tar.gz", PackageVersion: 2,
+				Target: resolution.Target{OS: "macos", Arch: "arm64"}, Format: "tar.gz",
 				Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/macos.tar.gz"}, Hash: "sha256:" + strings.Repeat("b", 64), Size: int64Pointer(256),
 			},
 		},
@@ -143,7 +143,6 @@ func TestLockFileV2DeterministicRoundTripPreservesArtifactMetadata(t *testing.T)
 	assert.Contains(t, locations, resolution.ArtifactLocation{Kind: resolution.ArtifactLocationPath, Value: "/var/cache/local.tar.gz"})
 	assert.NotContains(t, string(first), "platform =")
 	assert.Contains(t, string(first), "[drivers.artifacts.target]")
-	assert.Contains(t, string(first), "package_version = 2")
 	var zeroSizePreserved bool
 	for _, artifact := range loaded.lockinfo["local"].Artifacts {
 		if artifact.Target == (resolution.Target{OS: "windows", Arch: "amd64"}) {
@@ -207,36 +206,6 @@ func TestLockFileV2AllowsPartialArtifactSetAndReplayNeedsNoDiscovery(t *testing.
 	assert.ErrorIs(t, err, ErrLockedModeArtifactMissing)
 	assert.NotErrorIs(t, err, ErrLockRefreshRequired)
 	assert.Contains(t, err.Error(), "locked mode")
-}
-
-func TestPackageVersionZeroIsAllowedForAllLockSources(t *testing.T) {
-	sources := []lockSource{
-		{Type: "packslip", Project: "github.com/example/driver"},
-		{Type: "registry", URL: "https://registry.example.test"},
-		{Type: "path", Path: "./drivers/example"},
-	}
-	for _, source := range sources {
-		t.Run(source.Type, func(t *testing.T) {
-			entry := testLockEntry()
-			entry.Source = source
-			for i := range entry.Artifacts {
-				entry.Artifacts[i].PackageVersion = 0
-			}
-
-			require.NoError(t, validateLockInfo(entry))
-			path := filepath.Join(t.TempDir(), "dbc.lock")
-			require.NoError(t, writeLockFileAtomic(path, LockFile{Version: lockFileVersion, Drivers: []lockInfo{entry}}))
-			loaded, err := loadLockFile(path)
-			require.NoError(t, err)
-			for _, artifact := range loaded.lockinfo[entry.Name].Artifacts {
-				assert.Zero(t, artifact.PackageVersion)
-			}
-
-			entry.Artifacts[0].PackageVersion = 3
-			err = validateLockInfo(entry)
-			require.ErrorContains(t, err, "unsupported dbc package version 3")
-		})
-	}
 }
 
 func TestLockFileV2RejectsUnknownVersion(t *testing.T) {
@@ -319,7 +288,6 @@ func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	existing := testLockEntry()
 	refreshed := existing
 	newArtifact := testLockArtifact("windows_amd64", "c", 22)
-	newArtifact.PackageVersion = 2
 	contradictory := existing.Artifacts[0]
 	contradictory.Hash = "sha256:" + strings.Repeat("f", 64)
 	contradictory.Size = int64Pointer(999)
@@ -332,52 +300,6 @@ func TestRefreshRejectsArtifactContradictionAndAllowsNewTarget(t *testing.T) {
 	merged, err := refreshLockEntry(existing, refreshed)
 	require.NoError(t, err)
 	assert.Len(t, merged.Artifacts, 3)
-}
-
-func TestRefreshKeepsPackslipPackageVersionUnspecified(t *testing.T) {
-	existing := testLockEntry()
-	for i := range existing.Artifacts {
-		existing.Artifacts[i].PackageVersion = 0
-	}
-
-	resolved := existing.resolvedRelease()
-	for i := range resolved.Artifacts {
-		resolved.Artifacts[i].PackageVersion = 0
-	}
-	refreshed, err := lockInfoFromResolvedRelease(existing.Name, resolved)
-	require.NoError(t, err)
-
-	merged, err := refreshLockEntry(existing, refreshed)
-	require.NoError(t, err)
-	for _, artifact := range merged.Artifacts {
-		assert.Zero(t, artifact.PackageVersion)
-	}
-}
-
-func TestRefreshBackfillsMissingNonPackslipPackageVersion(t *testing.T) {
-	sources := []lockSource{
-		{Type: "registry", URL: "https://registry.example.test"},
-		{Type: "path", Path: "./drivers/example"},
-	}
-	for _, source := range sources {
-		t.Run(source.Type, func(t *testing.T) {
-			existing := testLockEntry()
-			existing.Source = source
-			for i := range existing.Artifacts {
-				existing.Artifacts[i].PackageVersion = 0
-			}
-			refreshed := cloneLockInfo(existing)
-			for i := range refreshed.Artifacts {
-				refreshed.Artifacts[i].PackageVersion = 2
-			}
-
-			merged, err := refreshLockEntry(existing, refreshed)
-			require.NoError(t, err)
-			for _, artifact := range merged.Artifacts {
-				require.Equal(t, 2, artifact.PackageVersion)
-			}
-		})
-	}
 }
 
 func TestRefreshReplacesEvidenceWithLatestCanonicalSnapshot(t *testing.T) {
@@ -584,9 +506,6 @@ func TestSyncAdapterReusesCompleteV2SnapshotWithoutRegistryHashes(t *testing.T) 
 	selected.Format = "tgz"
 	assert.False(t, canReuseLockedEntry(item), "a locked artifact with a different format is not the selected artifact proof")
 	selected.Format = entry.Artifacts[0].Format
-	selected.PackageVersion = 2
-	assert.False(t, canReuseLockedEntry(item), "a different package version declaration is not the selected artifact proof")
-	selected.PackageVersion = entry.Artifacts[0].PackageVersion
 	selected.HostRequirements.Libs = []string{"libc.so.6"}
 	assert.False(t, canReuseLockedEntry(item), "a locked artifact with different host requirements is not the selected artifact proof")
 	selected.HostRequirements.Libs = nil
@@ -1001,7 +920,7 @@ func testResolvedRelease() resolution.ResolvedRelease {
 			Hash:     "sha256:" + strings.Repeat("e", 64),
 		}},
 		Artifacts: []resolution.Artifact{{
-			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz", PackageVersion: 2,
+			Target: resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu", Variant: "v1"}, Format: "tar.gz",
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://example.test/linux.tar.gz"}, Hash: "sha256:" + strings.Repeat("a", 64), Size: &size,
 			HostRequirements: resolution.HostRequirements{
 				GLibCMin: "2.17", Libs: []string{"libc.so.6"},

@@ -40,9 +40,6 @@ func validateLockArtifacts(artifacts []lockArtifact) error {
 	seenTargets := make(map[resolution.Target]struct{}, len(artifacts))
 	seenLocations := make(map[resolution.ArtifactLocation]lockArtifact, len(artifacts))
 	for i, artifact := range artifacts {
-		if artifact.PackageVersion != 0 && artifact.PackageVersion != 2 {
-			return fmt.Errorf("artifact %d has unsupported dbc package version %d", i, artifact.PackageVersion)
-		}
 		if err := resolution.ValidateConcreteTarget(artifact.Target); err != nil {
 			return fmt.Errorf("artifact %d has invalid target: %w", i, err)
 		}
@@ -183,7 +180,6 @@ func lockArtifactFromResolved(artifact resolution.Artifact) lockArtifact {
 	result := lockArtifact{
 		Target:           resolution.CanonicalTarget(artifact.Target),
 		Format:           artifact.Format,
-		PackageVersion:   artifact.PackageVersion,
 		Location:         artifact.Location,
 		Hash:             artifact.Hash,
 		Size:             cloneInt64(artifact.Size),
@@ -254,7 +250,6 @@ func (d lockInfo) resolvedRelease() resolution.ResolvedRelease {
 		resolved := resolution.Artifact{
 			Target:           artifact.Target,
 			Format:           artifact.Format,
-			PackageVersion:   artifact.PackageVersion,
 			Location:         artifact.Location,
 			Hash:             artifact.Hash,
 			Size:             cloneInt64(artifact.Size),
@@ -386,19 +381,15 @@ func refreshLockEntry(existing, refreshed lockInfo) (lockInfo, error) {
 	for _, candidate := range refreshed.Artifacts {
 		candidateIdentity := artifactSelectorIdentity(candidate)
 		found := false
-		for index, prior := range merged.Artifacts {
+		for _, prior := range merged.Artifacts {
 			if artifactSelectorIdentity(prior) != candidateIdentity {
 				continue
 			}
 			found = true
 			if prior.Location != candidate.Location || prior.Format != candidate.Format ||
 				prior.Hash != candidate.Hash || !sameLockSize(prior.Size, candidate.Size) ||
-				(prior.PackageVersion != 0 && candidate.PackageVersion != 0 && prior.PackageVersion != candidate.PackageVersion) ||
 				!reflect.DeepEqual(canonicalHostRequirements(prior.HostRequirements), canonicalHostRequirements(candidate.HostRequirements)) {
 				return lockInfo{}, fmt.Errorf("metadata refresh contradicts locked artifact %q", candidateIdentity)
-			}
-			if merged.Artifacts[index].PackageVersion == 0 {
-				merged.Artifacts[index].PackageVersion = candidate.PackageVersion
 			}
 			break
 		}

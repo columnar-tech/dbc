@@ -442,11 +442,7 @@ func PreparePackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 	if !ok {
 		return PackageValidation{}, errors.New("could not read prepared package receipt")
 	}
-	if manifest.PackageVersion == 2 && requested.ArchiveHash == "" {
-		return PackageValidation{}, errors.New("package v2 requires archive hash metadata")
-	}
 	finalExpected := requested
-	finalExpected.PackageVersion = manifest.PackageVersion
 	finalExpected.ArchiveHash = receipt.ArchiveHash
 	finalExpected.ArchiveSize = receipt.ArchiveSize
 	finalExpected.ArchiveSizePresent = true
@@ -458,7 +454,7 @@ func PreparePackage(cfg Config, runtimeID string, downloaded *os.File, expected 
 	return PackageValidation{
 		VerifiedLibraryHash: receipt.InstalledLibraryHash,
 		ArchiveHash:         receipt.ArchiveHash, ArchiveSize: receipt.ArchiveSize,
-		PackageVersion: manifest.PackageVersion, Registration: manifest.DriverInfo,
+		Registration:                     manifest.DriverInfo,
 		RegistrationFingerprintAlgorithm: receipt.RegistrationFingerprintAlgorithm,
 		RegistrationFingerprintVersion:   receipt.RegistrationFingerprintVersion,
 		RegistrationFingerprint:          receipt.RegistrationFingerprint,
@@ -524,17 +520,14 @@ func InstallReceiptMatchesRuntimeRegistration(receipt InstallReceipt, current Dr
 }
 
 // InstallReceiptMatchesExpectedPackage checks the resolved package identity
-// recorded by a receipt. A zero expected package version preserves the
-// unspecified contract used by registry and local legacy sources; a nonzero
-// expectation requires an exact receipt match.
+// and source evidence recorded by a receipt.
 func InstallReceiptMatchesExpectedPackage(receipt InstallReceipt, expected ExpectedPackageMetadata) bool {
 	return expected.ID != "" && expected.Version != "" && expected.Platform != "" &&
 		expected.SourceType != "" && expected.SourceIdentity != "" && expected.ArchiveHash != "" &&
 		receipt.DriverID == expected.ID && receipt.DriverVersion == expected.Version &&
 		receipt.Platform == expected.Platform && receipt.SourceType == expected.SourceType &&
 		receipt.SourceIdentity == expected.SourceIdentity && receipt.ArchiveHash == expected.ArchiveHash &&
-		(!expected.hasExpectedArchiveSize() || receipt.ArchiveSize == expected.ArchiveSize) &&
-		(expected.PackageVersion == 0 || receipt.PackageVersion == expected.PackageVersion)
+		(!expected.hasExpectedArchiveSize() || receipt.ArchiveSize == expected.ArchiveSize)
 }
 
 // PackageValidationMatchesRuntimeRegistration compares a current registration
@@ -726,9 +719,6 @@ func normalizePackageInstallMetadata(runtimeID string, expected ExpectedPackageM
 				return ExpectedPackageMetadata{}, fmt.Errorf("invalid expected package platform: %w", err)
 			}
 		}
-	}
-	if err := validateExpectedPackageVersion(expected.PackageVersion); err != nil {
-		return ExpectedPackageMetadata{}, err
 	}
 	if expected.SourceType == "" {
 		expected.SourceType = "local"
