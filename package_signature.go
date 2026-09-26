@@ -24,9 +24,10 @@ import (
 	"github.com/columnar-tech/dbc/config"
 )
 
-// VerifyPackageSignature verifies a legacy package's library signature while
-// the extracted package is still in its private staging directory. Packages
-// without a library file do not use library signatures.
+// VerifyPackageSignature verifies a legacy package's library signature using
+// the embedded Columnar public key while the extracted package is still in its
+// private staging directory. Packages without a library file do not use library
+// signatures.
 func VerifyPackageSignature(stagingDir string, manifest config.Manifest) error {
 	if manifest.Files.Driver == "" {
 		return nil

@@ -321,6 +321,8 @@ func (e *packageExecutor) downloadAndPrepareItem(ctx context.Context, item *inst
 	// Packslip authenticates the archive digest during resolution; replay
 	// verifies the same locked digest. Columnar library signatures are a
 	// separate registry/local policy, independent of the package format.
+	// TODO: When another signing policy is supported, share policy selection
+	// with Client.Install and keep signer selection out of archive parsing.
 	if !e.noVerify && item.Release.Source.Type != "packslip" {
 		verify = func(stagingDir string, manifest config.Manifest) error {
 			return dbc.VerifyPackageSignature(stagingDir, manifest)
@@ -392,6 +394,8 @@ func (e *packageExecutor) itemCurrentMatches(item *installItem, current *config.
 	}
 	libraryPath := current.Driver.Shared.Get(item.Platform)
 	if managed && present {
+		// Receipts establish content integrity, not whether signature verification
+		// was performed. This also reuses installations made with --no-verify.
 		if !valid || !config.InstallReceiptMatchesExpectedPackage(receipt, item.Expected) ||
 			!config.VerifyInstallReceiptLibraryIntegrity(libraryPath, receipt) ||
 			!config.InstallReceiptMatchesRuntimeRegistration(receipt, *current, item.Platform) {

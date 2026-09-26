@@ -72,6 +72,9 @@ type InstallReceipt struct {
 // InstallOptions supplies verification that must finish before an installation
 // is made visible to the runtime driver manager.
 type InstallOptions struct {
+	// Verify is an optional additional check selected by the caller's trust
+	// policy. A nil callback does not disable expected archive hash/size checks
+	// and does not establish publisher authenticity.
 	Verify func(stagingDir string, manifest Manifest) error
 }
 
