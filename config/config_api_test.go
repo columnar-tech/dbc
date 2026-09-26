@@ -316,18 +316,22 @@ func TestUninstallDriverShared(t *testing.T) {
 	t.Run("dbc_source_removes_driver_dir", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
-		driverDir := filepath.Join(tmpDir, "test-driver-1_linux_amd64_v1.0.0")
+		driverID := "test-driver-1"
+		version := semver.MustParse("1.0.0")
+		platform := config.PlatformTuple()
+		driverDir := filepath.Join(tmpDir, driverID+"_"+platform+"_v"+version.String())
 		require.NoError(t, os.MkdirAll(driverDir, 0755))
 
 		driverPath := filepath.Join(driverDir, "driver.so")
 		require.NoError(t, os.WriteFile(driverPath, []byte("fake so"), 0644))
 
 		di := config.DriverInfo{
-			ID:       "test-driver-1",
+			ID:       driverID,
 			FilePath: tmpDir,
+			Version:  version,
 			Source:   "dbc",
 		}
-		di.Driver.Shared.Set("linux_amd64", driverPath)
+		di.Driver.Shared.Set(platform, driverPath)
 
 		err := config.UninstallDriverShared(di)
 		require.NoError(t, err)

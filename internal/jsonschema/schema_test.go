@@ -16,6 +16,7 @@ package jsonschema_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -86,6 +87,7 @@ func TestInstallStatus(t *testing.T) {
 				Message:  "post-install note",
 				Conflict: "snowflake (version: 1.0.0)",
 				Checksum: "abc123",
+				Source:   &jsonschema.InstallSource{Type: "packslip", Reference: "github.com/example/driver"},
 			},
 		},
 		{
@@ -110,7 +112,7 @@ func TestInstallStatus(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := roundTrip(t, tc.in)
-			if got != tc.in {
+			if !reflect.DeepEqual(got, tc.in) {
 				t.Errorf("round-trip mismatch:\n want %+v\n  got %+v", tc.in, got)
 			}
 		})
@@ -122,7 +124,7 @@ func TestInstallStatus_OmitemptyAbsent(t *testing.T) {
 	b, _ := json.Marshal(v)
 	var m map[string]interface{}
 	_ = json.Unmarshal(b, &m)
-	for _, key := range []string{"message", "conflict", "checksum"} {
+	for _, key := range []string{"message", "conflict", "checksum", "source"} {
 		if _, ok := m[key]; ok {
 			t.Errorf("omitempty field %q should be absent", key)
 		}
@@ -420,6 +422,7 @@ func TestSyncStatus(t *testing.T) {
 		Installed: []jsonschema.SyncedDriver{{Name: "snowflake", Version: "1.0.0"}},
 		Skipped:   []jsonschema.SyncedDriver{{Name: "duckdb", Version: "2.0.0"}},
 		Errors:    []jsonschema.SyncError{{Name: "sqlite", Error: "not found"}},
+		Migration: &jsonschema.SyncMigration{FromVersion: 1, ToVersion: 2},
 	}
 	b, _ := json.Marshal(v)
 	var got jsonschema.SyncStatus
@@ -434,6 +437,9 @@ func TestSyncStatus(t *testing.T) {
 	}
 	if len(got.Errors) != 1 || got.Errors[0] != v.Errors[0] {
 		t.Errorf("Errors mismatch")
+	}
+	if *got.Migration != *v.Migration {
+		t.Errorf("Migration mismatch: want %+v got %+v", v.Migration, got.Migration)
 	}
 }
 
@@ -450,6 +456,25 @@ func TestSyncStatus_EmptySlices(t *testing.T) {
 		if _, ok := m[key]; !ok {
 			t.Errorf("field %q should be present (not omitempty)", key)
 		}
+	}
+}
+
+func TestSyncStatus_MigrationOmitempty(t *testing.T) {
+	v := jsonschema.SyncStatus{
+		Installed: []jsonschema.SyncedDriver{},
+		Skipped:   []jsonschema.SyncedDriver{},
+		Errors:    []jsonschema.SyncError{},
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(b, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fields["migration"]; ok {
+		t.Fatal("migration should be absent when no migration occurred")
 	}
 }
 

@@ -22,8 +22,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"unsafe"
 
 	"github.com/Masterminds/semver/v3"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -108,6 +110,17 @@ func keyOptional(k registry.Key, name string) string {
 	return val
 }
 
+func keyStringsOptional(k registry.Key, name string) []string {
+	val, _, err := k.GetStringsValue(name)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return nil
+		}
+		panic(err)
+	}
+	return val
+}
+
 func setKeyMust(k registry.Key, name, value string) {
 	if err := k.SetStringValue(name, value); err != nil {
 		panic(err)
@@ -151,6 +164,14 @@ func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di D
 	di.License = keyOptional(dkey, "license")
 	di.Version = semver.MustParse(keyMust(dkey, "version"))
 	di.Source = keyOptional(dkey, "source")
+	if adbcVersion := keyOptional(dkey, "adbc_version"); adbcVersion != "" {
+		di.AdbcInfo.Version, err = semver.NewVersion(adbcVersion)
+		if err != nil {
+			return DriverInfo{}, fmt.Errorf("invalid ADBC version in registry: %w", err)
+		}
+	}
+	di.AdbcInfo.Features.Supported = keyStringsOptional(dkey, "adbc_supported_features")
+	di.AdbcInfo.Features.Unsupported = keyStringsOptional(dkey, "adbc_unsupported_features")
 	di.Driver.Shared.defaultPath = keyMust(dkey, "driver")
 	di.Driver.Entrypoint = keyOptional(dkey, "entrypoint")
 
@@ -270,85 +291,209 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 		}
 		return createDriverManifest(loc, driver)
 	}
-
-	var k registry.Key
-
-	if !cfg.Exists {
-		k, _, err = registry.CreateKey(cfg.Level.key(), "SOFTWARE\\ADBC", registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
-
-		k, _, err = registry.CreateKey(k, "Drivers", registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
-	} else {
-		k, err = registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
+	if driver.Version == nil {
+		return fmt.Errorf("driver %s has no version", driver.ID)
 	}
 
-	dkey, _, err := registry.CreateKey(k, driver.ID, registry.ALL_ACCESS)
+	k, _, err := registry.CreateKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
 	if err != nil {
 		return err
 	}
-	defer dkey.Close()
+	defer k.Close()
 
+	dkey, openedExisting, err := registry.CreateKey(k, driver.ID, registry.ALL_ACCESS)
+	if err != nil {
+		return err
+	}
+	dkeyOpen := true
 	defer func() {
-		if r := recover(); r != nil {
-			switch r := r.(type) {
-			case string:
-				err = errors.New(r)
-			case error:
-				err = r
-			default:
-				err = fmt.Errorf("unknown error type: %v", r)
-			}
+		if dkeyOpen {
+			_ = dkey.Close()
 		}
 	}()
-
-	setKeyMust(dkey, "name", driver.Name)
-	setKeyIntMust(dkey, "manifest_version", currentManifestVersion)
-	setKeyMust(dkey, "publisher", driver.Publisher)
-	setKeyMust(dkey, "license", driver.License)
-	setKeyMust(dkey, "version", driver.Version.String())
-	setKeyMust(dkey, "source", driver.Source)
-	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(PlatformTuple()))
-	if driver.Driver.Entrypoint != "" {
-		setKeyMust(dkey, "entrypoint", driver.Driver.Entrypoint)
+	created := !openedExisting
+	valueNames := []string{
+		"name", "manifest_version", "publisher", "license", "version", "source", "driver", "entrypoint",
+		"adbc_version", "adbc_supported_features", "adbc_unsupported_features",
+	}
+	snapshot, err := snapshotRegistryValues(dkey, valueNames)
+	if err != nil {
+		var rollbackErr error
+		if created {
+			dkeyOpen = false
+			rollbackErr = errors.Join(dkey.Close(), registry.DeleteKey(k, driver.ID))
+		}
+		return registrationFailure(fmt.Errorf("could not snapshot existing driver registration: %w", err), rollbackErr)
+	}
+	rollback := func() error {
+		if created {
+			dkeyOpen = false
+			return errors.Join(dkey.Close(), registry.DeleteKey(k, driver.ID))
+		}
+		return restoreRegistryValues(dkey, snapshot)
+	}
+	writeString := func(name, value string) error {
+		return dkey.SetStringValue(name, value)
+	}
+	writeInt := func(name string, value uint32) error {
+		return dkey.SetDWordValue(name, value)
+	}
+	for _, item := range []struct{ name, value string }{
+		{name: "name", value: driver.Name},
+		{name: "publisher", value: driver.Publisher},
+		{name: "license", value: driver.License},
+		{name: "version", value: driver.Version.String()},
+		{name: "source", value: driver.Source},
+		{name: "driver", value: driver.Driver.Shared.Get(PlatformTuple())},
+	} {
+		if err := writeString(item.name, item.value); err != nil {
+			return registrationFailure(err, rollback())
+		}
+	}
+	setOptionalString := func(name, value string) error {
+		if value != "" {
+			return dkey.SetStringValue(name, value)
+		}
+		if err := dkey.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	setOptionalStrings := func(name string, values []string) error {
+		if len(values) > 0 {
+			return dkey.SetStringsValue(name, values)
+		}
+		if err := dkey.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	adbcVersion := ""
+	if driver.AdbcInfo.Version != nil {
+		adbcVersion = driver.AdbcInfo.Version.String()
+	}
+	for _, write := range []struct {
+		name string
+		fn   func() error
+	}{
+		{name: "adbc_version", fn: func() error { return setOptionalString("adbc_version", adbcVersion) }},
+		{name: "adbc_supported_features", fn: func() error {
+			return setOptionalStrings("adbc_supported_features", driver.AdbcInfo.Features.Supported)
+		}},
+		{name: "adbc_unsupported_features", fn: func() error {
+			return setOptionalStrings("adbc_unsupported_features", driver.AdbcInfo.Features.Unsupported)
+		}},
+	} {
+		if err := write.fn(); err != nil {
+			return registrationFailure(fmt.Errorf("could not write registry value %s: %w", write.name, err), rollback())
+		}
+	}
+	if err := writeInt("manifest_version", currentManifestVersion); err != nil {
+		return registrationFailure(err, rollback())
+	}
+	if driver.Driver.Entrypoint == "" {
+		if err := dkey.DeleteValue("entrypoint"); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			return registrationFailure(err, rollback())
+		}
+	} else if err := writeString("entrypoint", driver.Driver.Entrypoint); err != nil {
+		return registrationFailure(err, rollback())
 	}
 	return nil
 }
 
-func UninstallDriver(cfg Config, info DriverInfo) error {
-	if err := UninstallDriverShared(info); err != nil {
-		return fmt.Errorf("failed to delete driver shared object: %w", err)
-	}
+type registryValueSnapshot struct {
+	present bool
+	typ     uint32
+	data    []byte
+}
 
-	if cfg.Level != ConfigEnv {
-		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
+func snapshotRegistryValues(key registry.Key, names []string) (map[string]registryValueSnapshot, error) {
+	snapshot := make(map[string]registryValueSnapshot, len(names))
+	for _, name := range names {
+		buffer := make([]byte, 64*1024)
+		n, typ, err := key.GetValue(name, buffer)
+		if errors.Is(err, registry.ErrNotExist) {
+			snapshot[name] = registryValueSnapshot{}
+			continue
+		}
 		if err != nil {
+			return nil, err
+		}
+		snapshot[name] = registryValueSnapshot{present: true, typ: typ, data: append([]byte(nil), buffer[:n]...)}
+	}
+	return snapshot, nil
+}
+
+func restoreRegistryValues(key registry.Key, snapshot map[string]registryValueSnapshot) error {
+	var rollbackErr error
+	for name, value := range snapshot {
+		if value.present {
+			rollbackErr = errors.Join(rollbackErr, restoreRegistryValue(key, name, value))
+			continue
+		}
+		if err := key.DeleteValue(name); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			rollbackErr = errors.Join(rollbackErr, err)
+		}
+	}
+	return rollbackErr
+}
+
+func restoreRegistryValue(key registry.Key, name string, value registryValueSnapshot) error {
+	// Restore the captured registry type and bytes exactly as they were.
+	valueName, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	var data uintptr
+	if len(value.data) > 0 {
+		data = uintptr(unsafe.Pointer(&value.data[0]))
+	}
+	proc := windows.NewLazySystemDLL("advapi32.dll").NewProc("RegSetValueExW")
+	status, _, _ := proc.Call(uintptr(key), uintptr(unsafe.Pointer(valueName)), 0, uintptr(value.typ), data, uintptr(uint32(len(value.data))))
+	if status != 0 {
+		return windows.Errno(status)
+	}
+	return nil
+}
+
+func registrationFailure(writeErr, rollbackErr error) error {
+	if rollbackErr != nil {
+		return &manifestRollbackError{writeErr: writeErr, rollbackErr: rollbackErr}
+	}
+	return writeErr
+}
+
+func UninstallDriver(cfg Config, info DriverInfo) error {
+	return uninstallDriverWithInstallLock(cfg, info, func() error {
+		if info.Source != "dbc" {
+			if err := UninstallDriverShared(info); err != nil {
+				return fmt.Errorf("failed to delete driver shared object: %w", err)
+			}
+		}
+
+		if cfg.Level != ConfigEnv {
+			k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
+			if err != nil {
+				return err
+			}
+			defer k.Close()
+
+			if err := registry.DeleteKey(k, info.ID); err != nil {
+				return fmt.Errorf("failed to delete driver registry key: %w", err)
+			}
+		} else {
+			manifest := filepath.Join(info.FilePath, info.ID+".toml")
+			if err := os.Remove(manifest); err != nil {
+				return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+			}
+
+			// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+			removeManifestSymlink(info.FilePath, info.ID)
+		}
+		if err := cleanupUninstalledDriverPackagesAfterRegistrationRemoval(cfg, info); err != nil {
 			return err
 		}
-		defer k.Close()
 
-		if err := registry.DeleteKey(k, info.ID); err != nil {
-			return fmt.Errorf("failed to delete driver registry key: %w", err)
-		}
-	} else {
-		manifest := filepath.Join(info.FilePath, info.ID+".toml")
-		if err := os.Remove(manifest); err != nil {
-			return fmt.Errorf("error removing manifest %s: %w", manifest, err)
-		}
-
-		// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-		removeManifestSymlink(info.FilePath, info.ID)
-	}
-
-	return nil
+		return nil
+	})
 }

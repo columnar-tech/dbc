@@ -16,6 +16,7 @@
 
 const path = require("path");
 const bootRuntime = require("./boot.cjs");
+const { restoreInstalledPaths, restoreManifestPath } = bootRuntime;
 
 const PLATFORM_MAP = { linux: "linux", darwin: "macos", win32: "windows", freebsd: "freebsd" };
 const ARCH_MAP = { x64: "amd64", arm64: "arm64", ia32: "x86" };
@@ -42,13 +43,29 @@ function hostPlatformTuple() {
 
 function normalizeLocation(loc) {
   // Only on Windows: backslash is a legal filename character on POSIX, so POSIX
-  // locations must pass through untouched. On Windows, convert backslashes to
-  // forward slashes (Go's js/wasm filepath uses Unix semantics; Node fs accepts
-  // forward-slash drive paths) and make a drive-relative path absolute.
+  // locations must pass through untouched. Go's js/wasm filepath uses Unix
+  // semantics, so encode Windows drive paths as /D:/... after resolving them
+  // with Node's Windows path rules. The Go filesystem adapter decodes this form
+  // back to D:/... immediately before calling Node fs.
   if (process.platform !== "win32") return String(loc);
-  let p = String(loc).replace(/\\/g, "/");
-  p = p.replace(/^([A-Za-z]:)(?![/])/, "$1/");
-  return p;
+  const input = String(loc);
+  if (input === "") return input;
+  if (/^(?:\\\\|\/\/)/.test(input)) {
+    throw new Error("UNC and Windows device namespace paths are not supported by dbc-wasm");
+  }
+  if (/^\/[A-Za-z]:(?:\/|$)/.test(input)) return input.replace(/\\/g, "/");
+
+  let windowsPath = input.replace(/\\/g, "/");
+  // Preserve the existing drive-relative behavior: C:drivers means C:/drivers.
+  windowsPath = windowsPath.replace(/^([A-Za-z]:)(?!\/)/, "$1/");
+  const absolutePath = path.win32.resolve(process.cwd(), windowsPath);
+  if (/^\\\\/.test(absolutePath)) {
+    throw new Error("UNC and Windows device namespace paths are not supported by dbc-wasm");
+  }
+  if (!/^[A-Za-z]:\\/.test(absolutePath)) {
+    throw new Error(`could not resolve Windows location to an absolute drive path: ${input}`);
+  }
+  return `/${absolutePath.replace(/\\/g, "/")}`;
 }
 
 let runtimePromise;
@@ -195,11 +212,13 @@ function buildClient({ call, handle, hasInstall, close }) {
     // dbcInstall takes the client handle (it needs the instance's registry
     // config); dbcUninstall/dbcList are pure filesystem ops and intentionally
     // do not — per-instance config does not apply to them.
-    api.install = (name, location) => parse("dbcInstall", [handle, name, normalizeLocation(location)]);
+    api.install = async (name, location) =>
+      restoreManifestPath(await parse("dbcInstall", [handle, name, normalizeLocation(location)]));
     api.uninstall = async (name, location) => {
       await call("dbcUninstall", [name, normalizeLocation(location)]);
     };
-    api.listInstalled = (location) => parse("dbcList", [normalizeLocation(location)]);
+    api.listInstalled = async (location) =>
+      restoreInstalledPaths(await parse("dbcList", [normalizeLocation(location)]));
   }
   return api;
 }

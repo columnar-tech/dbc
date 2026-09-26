@@ -1,0 +1,19 @@
+{
+  "rule": "https://packslip.dev/release/v1/#tags",
+  "description": "Which version a forge tag names, so a consumer can list a project's releases from tags alone. `expect` is the version, or null when the tag names none and the release is reachable only through a signed release list. The packslip inside the release remains the authority.",
+  "cases": [
+    { "name": "the common spelling", "tag": "v1.2.3", "project": "github.com/jdx/mise", "expect": "1.2.3" },
+    { "name": "no leading v", "tag": "1.2.3", "project": "github.com/jdx/mise", "expect": "1.2.3" },
+    { "name": "calver is semver", "tag": "v2026.9.1", "project": "github.com/jdx/mise", "expect": "2026.9.1" },
+    { "name": "a two-component tag normalizes", "tag": "v4.1", "project": "github.com/jdx/mise", "expect": "4.1.0" },
+    { "name": "leading zeros normalize", "tag": "25.07.1", "project": "github.com/jdx/mise", "expect": "25.7.1" },
+    { "name": "a prerelease part survives", "tag": "v1.2.0-rc.1", "project": "github.com/jdx/mise", "expect": "1.2.0-rc.1" },
+    { "name": "the repository name may prefix the tag", "tag": "jq-1.7.1", "project": "github.com/jqlang/jq", "expect": "1.7.1" },
+    { "name": "a monorepo subpath may prefix it", "tag": "oxlint_v1.0.0", "project": "github.com/oxc-project/oxc/oxlint", "expect": "1.0.0" },
+    { "name": "the last segment of a subpath may prefix it", "tag": "cli/v1.9.4", "project": "github.com/biomejs/biome/crates/cli", "expect": "1.9.4" },
+    { "name": "an @ separator counts", "tag": "buildifier@v6.4.0", "project": "github.com/bazelbuild/buildtools/buildifier", "expect": "6.4.0" },
+    { "name": "a tag naming no version is skipped", "tag": "nightly", "project": "github.com/jdx/mise", "expect": null },
+    { "name": "another project's prefix is not this project's", "tag": "otherthing-1.2.3", "project": "github.com/jdx/mise", "expect": null },
+    { "name": "a date is not a version tag for this project", "tag": "release-2026-09-01", "project": "github.com/jdx/mise", "expect": null }
+  ]
+}

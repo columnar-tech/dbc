@@ -17,8 +17,11 @@
 package fslock
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
+	"time"
 )
 
 // Lock represents an acquired advisory file lock.
@@ -28,3 +31,56 @@ type Lock struct {
 }
 
 var ErrLockContended = errors.New("lock is held by another process")
+
+const retryInterval = 50 * time.Millisecond
+
+// Acquire acquires an exclusive advisory lock on the file at path, retrying
+// until timeout elapses. Returns an error if the lock cannot be acquired.
+func Acquire(path string, timeout time.Duration) (Lock, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// The original timeout-based API always tried the lock once before
+	// checking whether its deadline had elapsed. Preserve that behavior for
+	// zero and negative timeouts.
+	lock, err := acquireContext(ctx, path, true)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
+			path, timeout, err, ErrLockContended)
+	}
+	return lock, err
+}
+
+// AcquireContext acquires an exclusive advisory lock on the file at path,
+// retrying until the lock is acquired or ctx is canceled. If ctx is already
+// canceled, it returns immediately without opening or creating the lock file.
+func AcquireContext(ctx context.Context, path string) (Lock, error) {
+	if err := ctx.Err(); err != nil {
+		return Lock{}, err
+	}
+	return acquireContext(ctx, path, false)
+}
+
+// retryContextError retains both the cancellation cause and the last lock
+// syscall error for callers that need to diagnose a failed wait.
+func retryContextError(path string, ctxErr, lockErr error) error {
+	if lockErr == nil {
+		return ctxErr
+	}
+	return fmt.Errorf("fslock: could not acquire lock on %s: %w (last lock attempt: %w)",
+		path, ctxErr, lockErr)
+}
+
+// waitForRetry pauses between non-blocking lock attempts while remaining
+// responsive to cancellation and deadlines.
+func waitForRetry(ctx context.Context) error {
+	timer := time.NewTimer(retryInterval)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}

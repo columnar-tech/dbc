@@ -16,11 +16,9 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -32,50 +30,123 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUnmarshalDriverList(t *testing.T) {
+func TestDriverSourceProjectConfigRoundTrip(t *testing.T) {
 	tests := []struct {
-		name     string
-		contents string
-		expected []dbc.PkgInfo
-		err      error
+		name string
+		toml string
+		want dbc.DriverSource
 	}{
-		{"basic", "[drivers]\nflightsql = {version = '1.8.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
-		}, nil},
-		{"less", "[drivers]\nflightsql = {version = '<=1.8.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
-		}, nil},
-		{"greater", "[drivers]\nflightsql = {version = '>=1.8.0, <=1.10.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.10.0")},
-		}, nil},
+		{
+			name: "explicit registry",
+			toml: "[drivers.example]\n[drivers.example.source]\ntype = 'registry'\nurl = 'https://registry.example.test/custom'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourceRegistry, URL: "https://registry.example.test/custom"},
+		},
+		{
+			name: "packslip project",
+			toml: "[drivers.example]\nversion = '1.2.3'\n[drivers.example.source]\ntype = 'packslip'\nproject = 'github.com/owner/project'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourcePackslip, Project: "github.com/owner/project"},
+		},
+		{
+			name: "relative path",
+			toml: "[drivers.example]\n[drivers.example.source]\ntype = 'path'\npath = '../packages/driver.tar.gz'\n",
+			want: dbc.DriverSource{Type: dbc.DriverSourcePath, Path: "../packages/driver.tar.gz"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tmpdir := t.TempDir()
-			driverListPath := filepath.Join(tmpdir, "dbc.toml")
-			require.NoError(t, os.WriteFile(driverListPath, []byte(tt.contents), 0644))
+			var list DriversList
+			require.NoError(t, toml.Unmarshal([]byte(tt.toml), &list))
+			require.NoError(t, list.validateSources())
+			require.NotNil(t, list.Drivers["example"].Source)
+			assert.Equal(t, tt.want, *list.Drivers["example"].Source)
 
-			pkgs, err := GetDriverList(driverListPath)
-			if tt.err != nil {
-				require.Error(t, err)
-				assert.ErrorContains(t, err, tt.err.Error())
+			encoded, err := toml.Marshal(list)
+			require.NoError(t, err)
+			var roundTrip DriversList
+			require.NoError(t, toml.Unmarshal(encoded, &roundTrip))
+			require.NoError(t, roundTrip.validateSources())
+			require.NotNil(t, roundTrip.Drivers["example"].Source)
+			assert.Equal(t, tt.want, *roundTrip.Drivers["example"].Source)
+		})
+	}
+}
+
+func TestDriverSourceProjectConfigValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+		wantErr  string
+	}{
+		{name: "legacy entry has no source", contents: "[drivers]\nexample = {version = '>=1.0.0'}"},
+		{name: "missing source type", contents: "[drivers.example.source]\nurl = 'https://registry.example.test'", wantErr: "driver source has no type"},
+		{name: "unknown source type", contents: "[drivers.example.source]\ntype = 'git'\nurl = 'https://example.test'", wantErr: `unsupported driver source type "git"`},
+		{name: "mutually exclusive fields", contents: "[drivers.example.source]\ntype = 'path'\npath = '../package.tar.gz'\nproject = 'github.com/owner/project'", wantErr: "path source contains fields for another source type"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var list DriversList
+			err := toml.Unmarshal([]byte(tt.contents), &list)
+			if err == nil {
+				err = list.validateSources()
+			}
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				assert.Nil(t, list.Drivers["example"].Source)
 				return
 			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
 
-			require.NoError(t, err)
-			assert.Len(t, pkgs, len(tt.expected))
+func TestPackslipSourceRequiresVersionInPoCConfig(t *testing.T) {
+	// Exact-only is a temporary PoC limitation. Before Packslip support is
+	// generally available, omitted versions should resolve to an exact release.
+	contents := "[drivers.example.source]\ntype = 'packslip'\nproject = 'github.com/owner/project'\n"
+	var list DriversList
+	require.NoError(t, toml.Unmarshal([]byte(contents), &list))
+	require.ErrorContains(t, list.validateSources(), "requires an exact SemVer 2.0.0 version")
+}
 
-			slices.SortFunc(pkgs, func(a, b dbc.PkgInfo) int {
-				return cmp.Compare(a.Driver.Path, b.Driver.Path)
-			})
-			slices.SortFunc(tt.expected, func(a, b dbc.PkgInfo) int {
-				return cmp.Compare(a.Driver.Path, b.Driver.Path)
-			})
-
-			for i, pkg := range pkgs {
-				assert.Equal(t, tt.expected[i].Driver.Path, pkg.Driver.Path)
-				assert.Truef(t, tt.expected[i].Version.Equal(pkg.Version), "expected %s to equal %s", tt.expected[i].Version, pkg.Version)
+func TestPathSourceRequiresOptionalExactStrictSemVer(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		flag    string
+		wantErr bool
+	}{
+		{name: "metadata-derived version"},
+		{name: "exact release", version: "1.2.3"},
+		{name: "exact prerelease", version: "1.2.3-rc.1"},
+		{name: "exact build metadata", version: "1.2.3+build.5"},
+		{name: "explicit equality", version: "=1.2.3", wantErr: true},
+		{name: "range", version: ">=1.2.3", wantErr: true},
+		{name: "v prefix", version: "v1.2.3", wantErr: true},
+		{name: "abbreviated", version: "1.2", wantErr: true},
+		{name: "leading zero", version: "01.2.3", wantErr: true},
+		{name: "prerelease policy", flag: "allow", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contents := "[drivers.example]\n"
+			if test.version != "" {
+				contents += "version = '" + test.version + "'\n"
+			}
+			if test.flag != "" {
+				contents += "prerelease = '" + test.flag + "'\n"
+			}
+			contents += "[drivers.example.source]\ntype = 'path'\npath = './example.tgz'\n"
+			var list DriversList
+			err := toml.Unmarshal([]byte(contents), &list)
+			if err == nil {
+				err = list.validateSources()
+			}
+			if test.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -101,6 +172,21 @@ func TestMarshalDriverManifestList(t *testing.T) {
 [drivers.flightsql]
 version = '>=1.6.0'
 `, string(data))
+}
+
+func TestDriverSpecConstraintTOMLRoundTrip(t *testing.T) {
+	const source = "[drivers]\n[drivers.flightsql]\nversion = '>=1.6.0, <2.0.0'\n"
+	var list DriversList
+	require.NoError(t, toml.Unmarshal([]byte(source), &list))
+	require.NotNil(t, list.Drivers["flightsql"].Version)
+	assert.Equal(t, ">=1.6.0 <2.0.0", list.Drivers["flightsql"].Version.String())
+
+	encoded, err := toml.Marshal(list)
+	require.NoError(t, err)
+	var roundTrip DriversList
+	require.NoError(t, toml.Unmarshal(encoded, &roundTrip))
+	require.NotNil(t, roundTrip.Drivers["flightsql"].Version)
+	assert.Equal(t, ">=1.6.0 <2.0.0", roundTrip.Drivers["flightsql"].Version.String())
 }
 
 func TestMarshalDriverListEmptyTableSection(t *testing.T) {
@@ -170,6 +256,16 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.True(t, registriesChanged(a, b))
 	})
 
+	t.Run("both invalid configs fail closed", func(t *testing.T) {
+		invalid := DriversList{Registries: []dbc.RegistryEntry{{URL: "ftp://registry.example.com"}}}
+		_, errA := effectiveRegistryKeys(invalid)
+		_, errB := effectiveRegistryKeys(invalid)
+		require.Error(t, errA)
+		require.Error(t, errB)
+		assert.True(t, registriesChanged(invalid, invalid),
+			"two unanalyzable registry configs must be treated as changed")
+	})
+
 	t.Run("name-only changes are ignored (display-only field)", func(t *testing.T) {
 		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com", Name: "prod"}}}
 		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com", Name: "production"}}}
@@ -216,6 +312,18 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.True(t, registriesChanged(a, b))
 	})
 
+	t.Run("escaped separator differs from literal separator", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/a%2Fb"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com/a/b"}}}
+		assert.True(t, registriesChanged(a, b))
+	})
+
+	t.Run("empty force query is significant", func(t *testing.T) {
+		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com?"}}}
+		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		assert.True(t, registriesChanged(a, b))
+	})
+
 	t.Run("replace_defaults tri-state differences compare unequal", func(t *testing.T) {
 		a := DriversList{ReplaceDefaults: bp(true), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
 		b := DriversList{ReplaceDefaults: bp(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
@@ -256,6 +364,15 @@ func TestRegistriesChanged(t *testing.T) {
 		}}
 		assert.False(t, registriesChanged(a, b))
 	})
+}
+
+func TestDriverSourceIdentityDistinguishesOmittedSource(t *testing.T) {
+	explicitRegistry := &dbc.DriverSource{
+		Type: dbc.DriverSourceRegistry,
+		URL:  "https://registry.example.test",
+	}
+	assert.True(t, sameDriverSourceIdentity(nil, nil))
+	assert.False(t, sameDriverSourceIdentity(nil, explicitRegistry))
 }
 
 func TestDriversListRegistries(t *testing.T) {

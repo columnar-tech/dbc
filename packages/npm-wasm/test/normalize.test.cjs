@@ -15,8 +15,19 @@
 "use strict";
 
 const assert = require("assert");
+const path = require("path");
 const { normalizeLocation } = require("../index.cjs");
-const { curateGoEnv } = require("../boot.cjs");
+const {
+  createGoFSAdapter,
+  curateGoEnv,
+  goPathToWindowsFS,
+  goPathToPublicWindowsPath,
+  restoreInstalledPaths,
+  restoreManifestPath,
+  windowsPathToGo,
+} = require("../boot.cjs");
+
+const HOST_PLATFORM = process.platform;
 
 function withPlatform(platform, fn) {
   const orig = Object.getOwnPropertyDescriptor(process, "platform");
@@ -36,19 +47,27 @@ withPlatform("linux", () => {
   }
 });
 
-// Windows: backslashes -> forward slashes; drive-relative -> absolute.
+// Windows: drive paths are encoded as Unix-absolute for Go js/wasm. Node-side
+// paths are resolved before encoding, and the Go fs adapter decodes them later.
 withPlatform("win32", () => {
   const cases = [
-    ["/tmp/drivers", "/tmp/drivers"],
-    ["C:\\drivers", "C:/drivers"],
-    ["C:/drivers", "C:/drivers"],
-    ["C:\\a\\b\\c", "C:/a/b/c"],
-    ["C:drivers", "C:/drivers"],
-    ["C:", "C:/"],
-    ["d:\\Lower", "d:/Lower"],
+    ["C:\\drivers", "/C:/drivers"],
+    ["C:/drivers", "/C:/drivers"],
+    ["C:\\a\\b\\c", "/C:/a/b/c"],
+    ["C:drivers", "/C:/drivers"],
+    ["C:", "/C:/"],
+    ["d:\\Lower", "/d:/Lower"],
+    ["D:/a/dbc/.dbc-wasm-smoke-abc", "/D:/a/dbc/.dbc-wasm-smoke-abc"],
   ];
   for (const [input, want] of cases) {
     assert.strictEqual(normalizeLocation(input), want, `win32 ${JSON.stringify(input)}`);
+  }
+  assert.throws(() => normalizeLocation("\\\\server\\share\\drivers"), /UNC/);
+  assert.throws(() => normalizeLocation("\\\\?\\D:\\drivers"), /UNC/);
+
+  if (HOST_PLATFORM === "win32") {
+    assert.strictEqual(normalizeLocation(".\\drivers"), `/${process.cwd().replace(/\\/g, "/")}/drivers`);
+    assert.strictEqual(normalizeLocation("/tmp/drivers"), `/${path.win32.resolve("/tmp/drivers").replace(/\\/g, "/")}`);
   }
 });
 
@@ -74,8 +93,8 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
     },
     "win32"
   );
-  assert.strictEqual(win.HOME, "C:/Users/me", "win HOME from USERPROFILE");
-  assert.strictEqual(win.TMPDIR, "C:/Users/me/AppData/Local/Temp", "win TMPDIR from TEMP");
+  assert.strictEqual(win.HOME, "/C:/Users/me", "win HOME from USERPROFILE");
+  assert.strictEqual(win.TMPDIR, "/C:/Users/me/AppData/Local/Temp", "win TMPDIR from TEMP");
   assert.deepStrictEqual(Object.keys(win).sort(), ["HOME", "TMPDIR"], "win env limited to mapped vars");
   for (const k of Object.keys(win)) assert(ALLOWED_ENV_KEYS.includes(k), `win unexpected key ${k}`);
 }
@@ -83,7 +102,18 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
 // Windows: an explicit TMPDIR wins over TEMP/TMP.
 {
   const win = curateGoEnv({ TMPDIR: "X:\\explicit", TEMP: "C:\\temp" }, "win32");
-  assert.strictEqual(win.TMPDIR, "X:/explicit", "win TMPDIR precedence");
+  assert.strictEqual(win.TMPDIR, "/X:/explicit", "win TMPDIR precedence");
+}
+
+// Empty Windows XDG values remain empty instead of becoming the process cwd.
+{
+  const win = curateGoEnv(
+    { XDG_CONFIG_HOME: "", XDG_DATA_HOME: "", XDG_CACHE_HOME: "" },
+    "win32"
+  );
+  assert.strictEqual(win.XDG_CONFIG_HOME, "", "empty XDG_CONFIG_HOME stays empty");
+  assert.strictEqual(win.XDG_DATA_HOME, "", "empty XDG_DATA_HOME stays empty");
+  assert.strictEqual(win.XDG_CACHE_HOME, "", "empty XDG_CACHE_HOME stays empty");
 }
 
 // POSIX: HOME wins over USERPROFILE; XDG_* forwarded; PATH dropped; backslashes
@@ -108,5 +138,134 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
 
 // POSIX backslash passthrough: a home path containing a backslash is not mangled.
 assert.strictEqual(curateGoEnv({ HOME: "/home/a\\b" }, "linux").HOME, "/home/a\\b", "posix backslash passthrough");
+
+// Windows path codec: drive roots and drive paths are converted between the
+// Go js/wasm Unix-absolute spelling and Node's native Windows spelling. Other
+// relative and POSIX paths are preserved.
+assert.strictEqual(goPathToWindowsFS("/C:"), "C:/", "decode C drive root");
+assert.strictEqual(goPathToWindowsFS("/D:/"), "D:/", "decode D drive root");
+assert.strictEqual(goPathToWindowsFS("/D:/a/dbc"), "D:/a/dbc", "decode D drive path");
+assert.strictEqual(goPathToWindowsFS("relative/path"), "relative/path", "preserve relative path");
+assert.strictEqual(goPathToWindowsFS("/tmp/drivers"), "/tmp/drivers", "preserve POSIX path");
+assert.strictEqual(windowsPathToGo("C:\\"), "/C:/", "encode C drive root");
+assert.strictEqual(windowsPathToGo("D:\\a\\dbc"), "/D:/a/dbc", "encode D drive path");
+assert.strictEqual(windowsPathToGo("..\\drivers"), "../drivers", "preserve relative target");
+assert.strictEqual(windowsPathToGo("/tmp/drivers"), "/tmp/drivers", "preserve POSIX target");
+assert.strictEqual(windowsPathToGo("\\\\server\\share\\driver"), "\\\\server\\share\\driver", "preserve unsupported UNC target spelling");
+
+// Public install/list responses convert only Go-encoded Windows filesystem
+// paths. Other manifest fields and relative/POSIX paths retain their values.
+{
+  const manifest = {
+    id: "test-driver-1",
+    version: "1.1.0",
+    source: "registry",
+    driverPath: "/D:/repo/.dbc-package-test-driver-1/lib/test.so",
+  };
+  assert.deepStrictEqual(restoreManifestPath(manifest, "win32"), {
+    ...manifest,
+    driverPath: "D:\\repo\\.dbc-package-test-driver-1\\lib\\test.so",
+  });
+  assert.strictEqual(restoreManifestPath(manifest, "linux"), manifest, "POSIX manifest is unchanged");
+  assert.strictEqual(
+    goPathToPublicWindowsPath("relative/path", "win32"),
+    "relative/path",
+    "relative path is unchanged"
+  );
+  assert.strictEqual(
+    goPathToPublicWindowsPath("/tmp/driver.so", "win32"),
+    "/tmp/driver.so",
+    "POSIX path is unchanged"
+  );
+
+  const installed = [
+    { id: "windows", filePath: "/C:/drivers/windows.so", version: "1.0.0" },
+    { id: "posix", filePath: "/tmp/drivers/posix.so", version: "1.0.0" },
+    { id: "relative", filePath: "drivers/relative.so", version: "1.0.0" },
+  ];
+  assert.deepStrictEqual(restoreInstalledPaths(installed, "win32"), [
+    { ...installed[0], filePath: "C:\\drivers\\windows.so" },
+    installed[1],
+    installed[2],
+  ]);
+  assert.strictEqual(restoreInstalledPaths(installed, "linux"), installed, "POSIX list is unchanged");
+}
+
+// The adapter converts only filesystem path arguments. File descriptors, data,
+// options, and ordinary callbacks keep their original values.
+{
+  const calls = [];
+  const names = [
+    "open", "mkdir", "readdir", "stat", "lstat", "unlink", "rmdir", "chmod",
+    "chown", "lchown", "utimes", "truncate", "readlink", "rename", "link", "symlink",
+  ];
+  const fakeFS = { constants: { sentinel: true } };
+  for (const name of names) {
+    fakeFS[name] = (...args) => {
+      calls.push({ name, args });
+      if (name === "readlink") args[1](null, "D:\\target\\driver", "extra");
+      return name;
+    };
+  }
+  const originalStat = fakeFS.stat;
+  const adapter = createGoFSAdapter(fakeFS, "win32");
+  assert.strictEqual(fakeFS.stat, originalStat, "adapter does not mutate original fs module");
+  const callback = () => {};
+  const path = "/D:/a/dbc";
+
+  adapter.open(path, 17, 0o600, callback);
+  adapter.mkdir(path, 0o700, callback);
+  adapter.readdir(path, callback);
+  adapter.stat(path, callback);
+  adapter.lstat(path, callback);
+  adapter.unlink(path, callback);
+  adapter.rmdir(path, callback);
+  adapter.chmod(path, 0o700, callback);
+  adapter.chown(path, 1, 2, callback);
+  adapter.lchown(path, 1, 2, callback);
+  adapter.utimes(path, 3, 4, callback);
+  adapter.truncate(path, 5, callback);
+  let readlinkTarget;
+  adapter.readlink(path, (error, target, extra) => {
+    assert.strictEqual(error, null);
+    readlinkTarget = target;
+    assert.strictEqual(extra, "extra");
+  });
+  adapter.rename("/C:/from", "/D:/to", callback);
+  adapter.link("/C:/from", "/D:/to", callback);
+  adapter.symlink("/C:/target", "/D:/link", callback);
+
+  assert.strictEqual(readlinkTarget, "/D:/target/driver", "encode absolute readlink target");
+  assert.deepStrictEqual(calls.map(({ name }) => name), names);
+  const twoPathArgs = {
+    rename: ["C:/from", "D:/to"],
+    link: ["C:/from", "D:/to"],
+    symlink: ["C:/target", "D:/link"],
+  };
+  for (const { name, args } of calls) {
+    if (name === "rename" || name === "link" || name === "symlink") {
+      assert.deepStrictEqual(args.slice(0, 2), twoPathArgs[name], `${name} path conversion`);
+      assert.strictEqual(args[2], callback, `${name} callback identity`);
+    } else {
+      assert.strictEqual(args[0], "D:/a/dbc", `${name} path conversion`);
+      if (name !== "readlink") assert.strictEqual(args[args.length - 1], callback, `${name} callback identity`);
+    }
+  }
+  assert.strictEqual(calls[0].args[1], 17, "open flags unchanged");
+  assert.strictEqual(calls[0].args[2], 0o600, "open permissions unchanged");
+  const data = new Uint8Array([1, 2, 3]);
+  const writeCallback = () => {};
+  fakeFS.write = (...args) => calls.push({ name: "write", args });
+  const originalWrite = fakeFS.write;
+  assert.strictEqual(adapter.write, originalWrite, "fd/data method is not wrapped");
+  adapter.write(17, data, 1, 2, 3, writeCallback);
+  assert.strictEqual(calls.at(-1).args[0], 17, "write fd unchanged");
+  assert.strictEqual(calls.at(-1).args[1], data, "write data unchanged");
+  assert.strictEqual(calls.at(-1).args[5], writeCallback, "write callback unchanged");
+  const posixFS = createGoFSAdapter(fakeFS, "linux");
+  assert.strictEqual(posixFS, fakeFS, "POSIX fs is not wrapped");
+}
+
+console.log("Windows Go fs path codec + adapter passed");
 
 console.log("curateGoEnv: Windows TMPDIR/HOME mapping + POSIX passthrough + env bounded passed");

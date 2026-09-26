@@ -66,6 +66,11 @@ jobs:
           go-version-file: "./go.mod"
           cache: true
           cache-dependency-path: go.sum
+      - name: Compile Packslip source resolution for WebAssembly
+        run: go build ./internal/packslip ./internal/packslipverify ./internal/sourceresolution
+        env:
+          GOOS: js
+          GOARCH: wasm
       - name: Node version
         run: node --version
       - name: Build @columnar-tech/dbc-wasm

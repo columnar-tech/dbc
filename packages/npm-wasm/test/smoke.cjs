@@ -17,14 +17,13 @@
 const assert = require("assert");
 const fs = require("fs");
 const http = require("http");
-const os = require("os");
 const path = require("path");
 
 const { loadDbc } = require("..");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const indexData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test_index.yaml"));
-const tarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-1.tar.gz"));
+const tarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-1.1.tar.gz"));
 
 const server = http.createServer((req, res) => {
   if (req.url.startsWith("/index.yaml")) {
@@ -59,11 +58,15 @@ async function main() {
   const resolved = await dbc.resolve("test-driver-1", "linux_amd64");
   assert(resolved.versions.length > 0, "resolve returned no versions");
 
-  const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-wasm-smoke-"));
-  const manifest = await dbc.install("test-driver-1", installDir);
+  // Keep the install fixture on the same drive as Node's working directory.
+  // The Go js/wasm runtime uses slash-based paths, so a Windows temp directory
+  // on another drive is interpreted as a relative path and becomes malformed.
+  const installDir = fs.mkdtempSync(path.join(process.cwd(), ".dbc-wasm-smoke-"));
+  const installLocation = path.relative(process.cwd(), installDir);
+  const manifest = await dbc.install("test-driver-1", installLocation);
   assert(manifest.driverPath && fs.existsSync(manifest.driverPath), "installed driver missing on disk");
 
-  const installed = await dbc.listInstalled(installDir);
+  const installed = await dbc.listInstalled(installLocation);
   assert(
     installed.length === 1 && installed[0].id === "test-driver-1",
     `listInstalled mismatch: got ${JSON.stringify(installed)}; installDir entries: ${JSON.stringify(fs.readdirSync(installDir, { recursive: true }))}`
@@ -74,8 +77,8 @@ async function main() {
   const ok = await dbc.verifySignature(new Uint8Array(fs.readFileSync(so)), new Uint8Array(fs.readFileSync(sig)));
   assert(ok === true, "verifySignature failed for a valid signature");
 
-  await dbc.uninstall("test-driver-1", installDir);
-  const after = await dbc.listInstalled(installDir);
+  await dbc.uninstall("test-driver-1", installLocation);
+  const after = await dbc.listInstalled(installLocation);
   assert(after.length === 0, "driver still listed after uninstall");
 
   // Regression guard (roborev 6562): in-process loadDbc() must namespace

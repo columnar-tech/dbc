@@ -16,10 +16,50 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
 
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
+
+func (suite *SubcommandTestSuite) TestRemoveSourceConfiguredDriversWithoutRegistryLookup() {
+	tests := []struct {
+		id     string
+		source string
+	}{
+		{
+			id: "packslip-driver",
+			source: "version = '1.2.3'\n" +
+				"[drivers.packslip-driver.source]\ntype = 'packslip'\n" +
+				"project = 'github.com/example/packslip-driver'\n",
+		},
+		{
+			id:     "path-driver",
+			source: "[drivers.path-driver.source]\ntype = 'path'\npath = './driver.tgz'\n",
+		},
+	}
+	registryCalls := 0
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) {
+		registryCalls++
+		return nil, errors.New("remove must not query registries")
+	}
+	for _, tt := range tests {
+		suite.Run(tt.id, func() {
+			path := filepath.Join(suite.tempdir, tt.id+".toml")
+			contents := "[drivers." + tt.id + "]\n" + tt.source
+			suite.Require().NoError(os.WriteFile(path, []byte(contents), 0o644))
+			out := suite.runCmd(RemoveCmd{Driver: tt.id, Path: path}.GetModelCustom(base))
+			suite.Contains(out, "removed '"+tt.id+"' from driver list")
+			updated, err := os.ReadFile(path)
+			suite.Require().NoError(err)
+			suite.NotContains(string(updated), tt.id)
+		})
+	}
+	suite.Equal(0, registryCalls)
+}
 
 func (suite *SubcommandTestSuite) TestRemoveOutput() {
 	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()

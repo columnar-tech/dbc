@@ -26,6 +26,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sys/windows/registry"
@@ -51,12 +52,14 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 	var err error
 	m, err = p.Run()
 	s.Require().NoError(err)
-	s.Equal(0, m.(HasStatus).Status(), "exited with a non-zero status")
 
 	var extra string
 	if fo, ok := m.(HasFinalOutput); ok {
 		extra = fo.FinalOutput()
 	}
+	status := m.(HasStatus)
+	s.Equal(0, status.Status(), "exited with a non-zero status: error=%v, final output=%q, captured output=%q",
+		status.Err(), extra, out.String())
 	return out.String() + extra
 }
 
@@ -94,8 +97,25 @@ func (s *RegistryTestSuite) TearDownTest() {
 	os.RemoveAll(s.cfgUserPath)
 }
 
+func (s *RegistryTestSuite) assertRegisteredPackagePath() {
+	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
+	s.Require().NoError(err)
+	defer k.Close()
+
+	path, _, err := k.GetStringValue("driver")
+	s.Require().NoError(err)
+	s.FileExists(path)
+
+	receipt, managed, present, valid := config.InspectInstallReceipt(s.cfgUserPath, "test-driver-1", path)
+	s.Require().True(managed, "registry driver path should point into a dbc-managed package generation: %s", path)
+	s.Require().True(present, "managed package generation should contain an install receipt: %s", path)
+	s.Require().True(valid, "managed package receipt should match the registered library path: %s", path)
+	s.Equal("test-driver-1", receipt.DriverID)
+	s.Equal("1.1.0", receipt.DriverVersion)
+}
+
 func (s *RegistryTestSuite) TestInstallDriver() {
-	m := InstallCmd{Driver: "test-driver-1"}.
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(testBaseModel())
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
@@ -109,14 +129,61 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 	s.Require().NoError(err)
 	s.Equal("1.1.0", val)
 
-	val, _, err = k.GetStringValue("driver")
+	s.assertRegisteredPackagePath()
+
+	installed, err := config.GetDriver(config.Config{Level: config.ConfigUser, Location: s.cfgUserPath}, "test-driver-1")
 	s.Require().NoError(err)
-	s.Equal(filepath.Join(s.cfgUserPath, "test-driver-1.1", "test-driver-1-not-valid.so"), val)
+	s.Require().NotNil(installed.AdbcInfo.Version)
+	s.Equal("1.1.0", installed.AdbcInfo.Version.String())
+}
+
+func (s *RegistryTestSuite) TestRegistryPersistsAndClearsADBCMetadata() {
+	cfg := config.Config{Level: config.ConfigUser, Location: s.cfgUserPath}
+	driver := config.DriverInfo{
+		ID: "test-registry-metadata", Name: "Test Registry Metadata", Publisher: "Example",
+		License: "Apache-2.0", Source: "dbc", Version: semver.MustParse("1.2.3"),
+	}
+	driver.AdbcInfo.Version = semver.MustParse("0.9.1")
+	driver.AdbcInfo.Features.Supported = []string{"feature-b", "feature-a"}
+	driver.AdbcInfo.Features.Unsupported = []string{"feature-c"}
+	driver.Driver.Entrypoint = "AdbcDriverInit"
+	driver.Driver.Shared.Set(config.PlatformTuple(), filepath.Join(s.cfgUserPath, "driver.dll"))
+	s.Require().NoError(config.CreateManifest(cfg, driver))
+
+	loaded, err := config.GetDriver(cfg, driver.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(loaded.AdbcInfo.Version)
+	s.Equal("0.9.1", loaded.AdbcInfo.Version.String())
+	s.Equal([]string{"feature-b", "feature-a"}, loaded.AdbcInfo.Features.Supported)
+	s.Equal([]string{"feature-c"}, loaded.AdbcInfo.Features.Unsupported)
+
+	// Replacing a registration without optional ADBC metadata must remove old
+	// registry values instead of leaving stale values that change its identity.
+	driver.AdbcInfo.Version = nil
+	driver.AdbcInfo.Features.Supported = nil
+	driver.AdbcInfo.Features.Unsupported = nil
+	s.Require().NoError(config.CreateManifest(cfg, driver))
+	loaded, err = config.GetDriver(cfg, driver.ID)
+	s.Require().NoError(err)
+	s.Nil(loaded.AdbcInfo.Version)
+	s.Empty(loaded.AdbcInfo.Features.Supported)
+	s.Empty(loaded.AdbcInfo.Features.Unsupported)
+
+	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\"+driver.ID, registry.ALL_ACCESS)
+	s.Require().NoError(err)
+	defer k.Close()
+	s.Require().NoError(k.SetStringValue("adbc_version", "not-a-version"))
+	_, err = config.GetDriver(cfg, driver.ID)
+	s.ErrorContains(err, "invalid ADBC version in registry")
+	s.Require().NoError(k.SetStringValue("adbc_version", "0.9.1"))
+	s.Require().NoError(k.SetStringValue("adbc_supported_features", "wrong-registry-type"))
+	_, err = config.GetDriver(cfg, driver.ID)
+	s.Error(err, "a present feature value with the wrong registry type must be rejected")
 }
 
 func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	// First install the driver normally.
-	m := InstallCmd{Driver: "test-driver-1"}.
+	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(testBaseModel())
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
@@ -124,10 +191,11 @@ func (s *RegistryTestSuite) TestPartialReinstallDriver() {
 	s.clearRegistry()
 
 	// Now reinstall the driver, which should succeed even though the registry key is missing.
-	m = InstallCmd{Driver: "test-driver-1"}.
+	m = InstallCmd{Driver: "test-driver-1", Level: config.ConfigUser}.
 		GetModelCustom(testBaseModel())
 	out = s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
+	s.assertRegisteredPackagePath()
 }
 
 func TestRegistryKeyHandling(t *testing.T) {
