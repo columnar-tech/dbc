@@ -51,6 +51,9 @@ func loadLockFile(p string) (LockFile, error) {
 	if err := toml.NewDecoder(f).Decode(&lf); err != nil {
 		return lf, fmt.Errorf("error decoding lock file %s: %w", p, err)
 	}
+	if lf.Version != lockFileVersion {
+		return lf, fmt.Errorf("unsupported lock file version %d; this version of dbc supports lock file version %d", lf.Version, lockFileVersion)
+	}
 
 	lf.lockinfo = make(map[string]lockInfo)
 	for _, d := range lf.Drivers {
