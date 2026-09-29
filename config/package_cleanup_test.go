@@ -169,7 +169,7 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 		}
 		locations := make(map[packageRegistrationScope]string)
 		for _, candidateScope := range []packageRegistrationScope{packageRegistrationFile, packageRegistrationRegistryUser, packageRegistrationRegistrySystem} {
-			generation := filepath.Join(root, ".dbc-package-driver-"+string(candidateScope))
+			generation := testPackageGenerationPath(t, root, "driver", string(candidateScope))
 			if err := os.Mkdir(generation, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -207,7 +207,7 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 				t.Errorf("scope %q candidate was removed across scope %q: %v", candidateScope, scope, err)
 			}
 		}
-		gcGeneration := filepath.Join(root, ".dbc-package-driver-gc")
+		gcGeneration := testPackageGenerationPath(t, root, "driver", "gc")
 		if err := os.Mkdir(gcGeneration, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -349,7 +349,7 @@ func TestInstallPackageConservativelyProtectsParentTraversalReference(t *testing
 
 func TestUncertainSymlinkReferenceProtectsGeneration(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-generation")
+	generation := testPackageGenerationPath(t, root, "driver", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestUncertainSymlinkReferenceProtectsGeneration(t *testing.T) {
 
 func TestRemovePackageGenerationKeepsReceiptUntilPayloadIsRemoved(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-test")
+	generation := testPackageGenerationPath(t, root, "driver", "test")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +397,7 @@ func TestRemovePackageGenerationKeepsReceiptUntilPayloadIsRemoved(t *testing.T) 
 
 func TestRemovePackageGenerationDeletesReceiptAfterPayload(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-test")
+	generation := testPackageGenerationPath(t, root, "driver", "test")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -867,7 +867,7 @@ func TestNonDBCCleanupUsesSameRelativePathForGuardAndRemoval(t *testing.T) {
 	if err := os.Mkdir(drivers, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	generation := filepath.Join(drivers, ".dbc-package-owner-generation")
+	generation := testPackageGenerationPath(t, drivers, "owner", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -907,7 +907,7 @@ func TestNonDBCCleanupRetainsDerivedParentTraversalPath(t *testing.T) {
 	if err := os.Mkdir(drivers, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	generation := filepath.Join(root, ".dbc-package-owner-generation")
+	generation := testPackageGenerationPath(t, root, "owner", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1337,7 +1337,7 @@ func TestTransactionEvidenceBlocksLegacyFallback(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(legacySidecar, "sibling.txt"), []byte("keep"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			transaction := filepath.Join(root, ".dbc-package-driver-incomplete")
+			transaction := testPackageGenerationPath(t, root, "driver", "incomplete")
 			if err := os.Mkdir(transaction, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -1556,7 +1556,7 @@ func TestInstallPackageRetainsUnprovenLegacyCandidates(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "missing transaction receipt", "corrupt transaction receipt":
-				transaction := filepath.Join(root, ".dbc-package-driver-unproven")
+				transaction := testPackageGenerationPath(t, root, "driver", "unproven")
 				if err := os.Mkdir(transaction, 0o700); err != nil {
 					t.Fatal(err)
 				}
@@ -1574,7 +1574,7 @@ func TestInstallPackageRetainsUnprovenLegacyCandidates(t *testing.T) {
 				t.Fatalf("unproven candidate %s was removed: %v", unprovenPath, err)
 			}
 			if mode == "missing transaction receipt" || mode == "corrupt transaction receipt" {
-				transaction := filepath.Join(root, ".dbc-package-driver-unproven")
+				transaction := testPackageGenerationPath(t, root, "driver", "unproven")
 				if _, err := os.Stat(transaction); err != nil {
 					t.Fatalf("unproven transaction generation was removed: %v", err)
 				}
@@ -1665,9 +1665,9 @@ func TestInstallPackageLegacyCleanupUsesPrimaryRootOnly(t *testing.T) {
 	}
 }
 
-func TestInstallPackageStageRuntimeIDIgnoresOnlyCurrentStagingEntry(t *testing.T) {
+func TestInstallPackageStageRuntimeIDUsesSeparateNamespace(t *testing.T) {
 	for _, preexistingEvidence := range []bool{false, true} {
-		name := "current staging entry only"
+		name := "staging entry uses separate namespace"
 		if preexistingEvidence {
 			name = "preexisting transaction evidence"
 		}
@@ -1676,7 +1676,11 @@ func TestInstallPackageStageRuntimeIDIgnoresOnlyCurrentStagingEntry(t *testing.T
 			cfg := Config{Level: ConfigEnv, Location: root}
 			legacyGeneration, _ := createLegacyPackageForInstall(t, cfg, "stage", "0.9.0", "legacy")
 			if preexistingEvidence {
-				if err := os.Mkdir(filepath.Join(root, ".dbc-package-stage-preexisting"), 0o700); err != nil {
+				generationPrefix, err := packageGenerationPrefix("stage")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(filepath.Join(root, generationPrefix+"preexisting"), 0o700); err != nil {
 					t.Fatal(err)
 				}
 			}

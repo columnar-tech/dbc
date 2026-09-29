@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/columnar-tech/dbc/config"
@@ -195,7 +196,7 @@ func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
 func (suite *SubcommandTestSuite) installedPackageGeneration(runtimeID string) string {
 	entries, err := os.ReadDir(suite.Dir())
 	suite.Require().NoError(err)
-	prefix := ".dbc-package-" + runtimeID + "-"
+	prefix := ".dbc-package-g-" + strconv.Itoa(len([]byte(runtimeID))) + "-" + runtimeID + "-"
 	for _, entry := range entries {
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
 			return filepath.Join(suite.Dir(), entry.Name())

@@ -122,7 +122,11 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	if manifest.Files.Driver == "" && manifest.Driver.Shared.Get(PlatformTuple()) == "" {
 		return Manifest{}, fmt.Errorf("manifest-only package has no shared library for platform %s", PlatformTuple())
 	}
-	reservation, err := os.MkdirTemp(location, ".dbc-package-"+runtimeID+"-")
+	generationPrefix, err := packageGenerationPrefix(runtimeID)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("prepare package generation name: %w", err)
+	}
+	reservation, err := os.MkdirTemp(location, generationPrefix)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("reserve package generation path: %w", err)
 	}
@@ -153,7 +157,7 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 		return Manifest{}, err
 	}
 	defer func() { err = errors.Join(err, namespaceLock.release()) }()
-	legacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID, stageDir)
+	legacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID)
 	receipt, err := makePackageInstallReceipt(cfg, stageDir, filepath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)

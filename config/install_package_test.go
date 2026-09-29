@@ -33,7 +33,7 @@ func TestInstallPackagePublishesAndRegistersGeneration(t *testing.T) {
 	manifest, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{Verifier: func(stage string, m Manifest) error {
 		stagingPath = stage
 		got := m.Driver.Shared.Get(PlatformTuple())
-		if got == filepath.Join(stage, "driver.so") || !strings.Contains(filepath.Base(filepath.Dir(got)), ".dbc-package-driver-") {
+		if got == filepath.Join(stage, "driver.so") || !packageGenerationNameMatches(filepath.Base(filepath.Dir(got)), "driver") {
 			return fmt.Errorf("verifier shared path = %q, want planned generation", got)
 		}
 		if _, err := os.Stat(got); !errors.Is(err, os.ErrNotExist) {
@@ -55,7 +55,7 @@ func TestInstallPackagePublishesAndRegistersGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	finalLibrary := registered.Driver.Shared.Get(PlatformTuple())
-	if !strings.Contains(filepath.Base(filepath.Dir(finalLibrary)), ".dbc-package-driver-") {
+	if !packageGenerationNameMatches(filepath.Base(filepath.Dir(finalLibrary)), "driver") {
 		t.Fatalf("registered library path = %q, want package generation", finalLibrary)
 	}
 	if filepath.Dir(filepath.Dir(finalLibrary)) != location {
@@ -171,7 +171,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 			return errors.Join(registrationErr, errRegistrationRollbackFailed)
 		}
 		_, err := installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations)
-		if !errors.Is(err, errRegistrationRollbackFailed) || !strings.Contains(err.Error(), ".dbc-package-driver-") {
+		if !errors.Is(err, errRegistrationRollbackFailed) || !strings.Contains(err.Error(), packageGenerationNamePrefix) {
 			t.Fatalf("InstallPackage error = %v", err)
 		}
 		assertArchiveClosed(t, archive)
@@ -187,7 +187,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 		operations.register = func(Config, string, DriverInfo) error { return registrationErr }
 		var candidatePath string
 		operations.removeAll = func(path string) error {
-			if strings.Contains(filepath.Base(path), ".dbc-package-driver-") {
+			if packageGenerationNameMatches(filepath.Base(path), "driver") {
 				candidatePath = path
 				return cleanupErr
 			}
@@ -243,13 +243,13 @@ func TestInstallPackageReportsPrecommitCleanupFailures(t *testing.T) {
 		operations := testPackageInstallOperations()
 		operations.remove = func(string) error { return releaseErr }
 		operations.removeAll = func(path string) error {
-			if strings.HasPrefix(filepath.Base(path), ".dbc-package-driver-") {
+			if packageGenerationNameMatches(filepath.Base(path), "driver") {
 				return cleanupErr
 			}
 			return os.RemoveAll(path)
 		}
 		_, err := installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations)
-		if !errors.Is(err, releaseErr) || !errors.Is(err, cleanupErr) || !strings.Contains(err.Error(), ".dbc-package-driver-") {
+		if !errors.Is(err, releaseErr) || !errors.Is(err, cleanupErr) || !strings.Contains(err.Error(), packageGenerationNamePrefix) {
 			t.Fatalf("InstallPackage error = %v", err)
 		}
 		assertArchiveClosed(t, archive)
@@ -519,7 +519,7 @@ func assertOnlyPackageGeneration(t *testing.T, location, expected string) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".dbc-package-driver-") || strings.HasPrefix(entry.Name(), ".dbc-package-stage-") {
+		if packageGenerationNameMatches(entry.Name(), "driver") || strings.HasPrefix(entry.Name(), ".dbc-package-stage-") {
 			if entry.Name() != expected {
 				t.Fatalf("unexpected package candidate remains: %s", entry.Name())
 			}
@@ -534,13 +534,26 @@ func packageGenerationNames(t *testing.T, location, runtimeID string) []string {
 		t.Fatal(err)
 	}
 	var names []string
-	prefix := ".dbc-package-" + runtimeID + "-"
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), prefix) {
+		if packageGenerationNameMatches(entry.Name(), runtimeID) {
 			names = append(names, entry.Name())
 		}
 	}
 	return names
+}
+
+func testPackageGenerationPath(t *testing.T, root, runtimeID, suffix string) string {
+	t.Helper()
+	prefix, err := packageGenerationPrefix(runtimeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, prefix+suffix)
+}
+
+func packageGenerationNameMatches(name, runtimeID string) bool {
+	generationID, valid := parsePackageGenerationName(name)
+	return valid && sameRuntimeID(generationID, runtimeID)
 }
 
 func equalStrings(a, b []string) bool {

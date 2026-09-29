@@ -55,7 +55,7 @@ func TestWindowsRegistryReceiptFingerprintMatchesRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "dbc-receipt-" + hex.EncodeToString(suffix[:])
-	generation := filepath.Join(cfg.Location, ".dbc-package-"+id+"-generation")
+	generation := testPackageGenerationPath(t, cfg.Location, id, "generation")
 	stage := t.TempDir()
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)

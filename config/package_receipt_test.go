@@ -122,7 +122,7 @@ func TestInstallPackageWritesExternalReceiptWithoutOwnedLibrary(t *testing.T) {
 
 func TestWritePackageInstallReceiptEnforcesFinalSizeLimit(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-generation")
+	generation := testPackageGenerationPath(t, root, "driver", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestRuntimeRegistrationFingerprintCanonicalization(t *testing.T) {
 
 func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-generation")
+	generation := testPackageGenerationPath(t, root, "driver", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -311,6 +311,44 @@ func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 	if _, ok := readPackageInstallReceipt(root, generation); ok {
 		t.Fatal("receipt with unknown registration scope was accepted")
 	}
+	invalid = valid
+	invalid.Generation = filepath.Base(testPackageGenerationPath(t, root, "driver-other", "generation"))
+	write(invalid)
+	if _, ok := readPackageInstallReceipt(root, generation); ok {
+		t.Fatal("receipt generation with mismatched runtime ID was accepted")
+	}
+	mismatchedGeneration := testPackageGenerationPath(t, root, "driver-other", "generation")
+	if err := os.Mkdir(mismatchedGeneration, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invalid = valid
+	invalid.Generation = filepath.Base(mismatchedGeneration)
+	data, err := json.Marshal(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mismatchedGeneration, packageInstallReceiptFilename), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readPackageInstallReceipt(root, mismatchedGeneration); ok {
+		t.Fatal("receipt runtime ID did not match parsed generation ID")
+	}
+	noncanonicalGeneration := filepath.Join(root, ".dbc-package-g-06-driver-generation")
+	if err := os.Mkdir(noncanonicalGeneration, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	invalid = valid
+	invalid.Generation = filepath.Base(noncanonicalGeneration)
+	data, err = json.Marshal(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(noncanonicalGeneration, packageInstallReceiptFilename), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := readPackageInstallReceipt(root, noncanonicalGeneration); ok {
+		t.Fatal("receipt with noncanonical generation length was accepted")
+	}
 	if _, ok := readPackageInstallReceipt(root, filepath.Join(root, "nested", filepath.Base(generation))); ok {
 		t.Fatal("receipt outside direct primary-root child was accepted")
 	}
@@ -322,9 +360,73 @@ func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 	}
 }
 
+func TestPackageGenerationNameParsingAndTransactionEvidence(t *testing.T) {
+	for _, runtimeID := range []string{"driver", "driver-other", "stage", "réader"} {
+		prefix, err := packageGenerationPrefix(runtimeID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := prefix + "random"
+		parsed, ok := parsePackageGenerationName(name)
+		if !ok || parsed != runtimeID {
+			t.Fatalf("parse generation %q = %q, %t", name, parsed, ok)
+		}
+	}
+	for _, name := range []string{
+		".dbc-package-g-06-driver-random",
+		".dbc-package-g-6-driver",
+		".dbc-package-g-6-drive-random",
+		".dbc-package-g-6-réader-random",
+		".dbc-package-stage-random",
+		".dbc-package-driver-random",
+	} {
+		if runtimeID, ok := parsePackageGenerationName(name); ok {
+			t.Errorf("malformed generation %q parsed as %q", name, runtimeID)
+		}
+	}
+
+	root := t.TempDir()
+	driverGeneration := testPackageGenerationPath(t, root, "driver", "evidence")
+	driverOtherGeneration := testPackageGenerationPath(t, root, "driver-other", "evidence")
+	for _, generation := range []string{driverGeneration, driverOtherGeneration} {
+		if err := os.Mkdir(generation, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasTransactionEvidence(entries, "driver") || !hasTransactionEvidence(entries, "driver-other") {
+		t.Fatal("transaction evidence was not matched to its runtime ID")
+	}
+	otherRoot := t.TempDir()
+	if err := os.Mkdir(testPackageGenerationPath(t, otherRoot, "driver-other", "evidence"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	otherEntries, err := os.ReadDir(otherRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasTransactionEvidence(otherEntries, "driver") {
+		t.Fatal("driver-other transaction evidence matched driver")
+	}
+	driverRoot := t.TempDir()
+	if err := os.Mkdir(testPackageGenerationPath(t, driverRoot, "driver", "evidence"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	driverEntries, err := os.ReadDir(driverRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasTransactionEvidence(driverEntries, "driver-other") {
+		t.Fatal("driver transaction evidence matched driver-other")
+	}
+}
+
 func TestReceiptReaderRejectsUnknownSchemaAndFields(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-generation")
+	generation := testPackageGenerationPath(t, root, "driver", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +475,7 @@ func TestReceiptReaderRejectsUnknownSchemaAndFields(t *testing.T) {
 		t.Fatal("receipt with trailing data was accepted")
 	}
 	badGeneration := valid
-	badGeneration.Generation = ".dbc-package-driver-other"
+	badGeneration.Generation = filepath.Base(testPackageGenerationPath(t, root, "driver", "other"))
 	data, err = json.Marshal(badGeneration)
 	if err != nil {
 		t.Fatal(err)
@@ -386,7 +488,7 @@ func TestReceiptReaderRejectsUnknownSchemaAndFields(t *testing.T) {
 
 func TestReceiptReaderRejectsOversizedTrailingData(t *testing.T) {
 	root := t.TempDir()
-	generation := filepath.Join(root, ".dbc-package-driver-generation")
+	generation := testPackageGenerationPath(t, root, "driver", "generation")
 	if err := os.Mkdir(generation, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +522,7 @@ func TestReceiptReaderRejectsOversizedTrailingData(t *testing.T) {
 
 func TestReceiptReaderRejectsSymlinkedEvidence(t *testing.T) {
 	root := t.TempDir()
-	actualGeneration := filepath.Join(t.TempDir(), ".dbc-package-driver-actual")
+	actualGeneration := testPackageGenerationPath(t, t.TempDir(), "driver", "actual")
 	if err := os.Mkdir(actualGeneration, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +545,7 @@ func TestReceiptReaderRejectsSymlinkedEvidence(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(actualGeneration, packageInstallReceiptFilename), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	receiptLinkGeneration := filepath.Join(root, ".dbc-package-driver-receipt-link")
+	receiptLinkGeneration := testPackageGenerationPath(t, root, "driver", "receipt-link")
 	if err := os.Mkdir(receiptLinkGeneration, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +563,7 @@ func TestReceiptReaderRejectsSymlinkedEvidence(t *testing.T) {
 	if _, ok := readPackageInstallReceipt(root, receiptLinkGeneration); ok {
 		t.Fatal("symlinked receipt was accepted")
 	}
-	generationLink := filepath.Join(root, ".dbc-package-driver-generation-link")
+	generationLink := testPackageGenerationPath(t, root, "driver", "generation-link")
 	if err := os.Symlink(actualGeneration, generationLink); err != nil {
 		t.Skipf("directory symlink creation is unavailable: %v", err)
 	}

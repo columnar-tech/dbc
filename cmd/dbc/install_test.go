@@ -97,7 +97,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 
 	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 	suite.NotEqual(oldGeneration, newGeneration)
-	suite.True(strings.HasPrefix(filepath.Base(newGeneration), ".dbc-package-test-driver-1-"))
+	suite.True(strings.HasPrefix(filepath.Base(newGeneration), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
 	suite.DirExists(newGeneration)
 	suite.NoDirExists(oldGeneration)
 }
@@ -118,7 +118,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 
 	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 	suite.NotEqual(oldGeneration, newGeneration)
-	suite.True(strings.HasPrefix(filepath.Base(newGeneration), ".dbc-package-test-driver-1-"))
+	suite.True(strings.HasPrefix(filepath.Base(newGeneration), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
 	suite.DirExists(newGeneration)
 	suite.NoDirExists(oldGeneration)
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)

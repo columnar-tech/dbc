@@ -26,7 +26,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Masterminds/semver/v3"
 )
@@ -95,6 +97,40 @@ type registrationSharedIdentity struct {
 }
 
 var packagePlatformPattern = regexp.MustCompile(`^[a-z0-9]+_[a-z0-9]+$`)
+
+const packageGenerationNamePrefix = ".dbc-package-g-"
+
+func packageGenerationPrefix(runtimeID string) (string, error) {
+	if err := validatePackageFilename(runtimeID); err != nil {
+		return "", err
+	}
+	return packageGenerationNamePrefix + strconv.Itoa(len([]byte(runtimeID))) + "-" + runtimeID + "-", nil
+}
+
+func parsePackageGenerationName(name string) (string, bool) {
+	if !strings.HasPrefix(name, packageGenerationNamePrefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(name, packageGenerationNamePrefix)
+	separator := strings.IndexByte(rest, '-')
+	if separator <= 0 {
+		return "", false
+	}
+	lengthText := rest[:separator]
+	length, err := strconv.Atoi(lengthText)
+	if err != nil || length <= 0 || strconv.Itoa(length) != lengthText {
+		return "", false
+	}
+	identityAndSuffix := rest[separator+1:]
+	if len(identityAndSuffix) <= length || identityAndSuffix[length] != '-' {
+		return "", false
+	}
+	runtimeID := identityAndSuffix[:length]
+	if !utf8.ValidString(runtimeID) || validatePackageFilename(runtimeID) != nil || identityAndSuffix[length+1:] == "" {
+		return "", false
+	}
+	return runtimeID, true
+}
 
 func validPackageRegistrationScope(scope packageRegistrationScope) bool {
 	switch scope {
@@ -325,8 +361,8 @@ func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, gene
 		return false
 	}
 	generationName := filepath.Base(generationDir)
-	generationPrefix := ".dbc-package-" + receipt.RuntimeID + "-"
-	if receipt.Generation != generationName || !strings.HasPrefix(generationName, generationPrefix) || len(generationName) == len(generationPrefix) {
+	generationRuntimeID, validGeneration := parsePackageGenerationName(generationName)
+	if receipt.Generation != generationName || !validGeneration || !sameRuntimeID(generationRuntimeID, receipt.RuntimeID) {
 		return false
 	}
 	if len(receipt.RegistrationFingerprintValue) != sha256.Size*2 {

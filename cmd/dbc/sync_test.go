@@ -112,7 +112,7 @@ func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSe
 	suite.Require().NoError(err)
 	suite.Equal("1.0.0", primaryDriver.Version.String())
 	primaryLibrary := primaryDriver.Driver.Shared.Get(config.PlatformTuple())
-	suite.Contains(primaryLibrary, ".dbc-package-test-driver-1-")
+	suite.True(strings.HasPrefix(filepath.Base(filepath.Dir(primaryLibrary)), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 	suite.FileExists(primaryLibrary)
 	primaryRel, err := filepath.Rel(suite.tempdir, primaryLibrary)
@@ -150,7 +150,7 @@ func (suite *SubcommandTestSuite) TestSyncPrimaryVersionReplacementUpdatesRegist
 	currentLibrary := current.Driver.Shared.Get(config.PlatformTuple())
 	suite.Equal("1.0.0", current.Version.String())
 	suite.NotEqual(oldLibrary, currentLibrary)
-	suite.Contains(currentLibrary, ".dbc-package-test-driver-1-")
+	suite.True(strings.HasPrefix(filepath.Base(filepath.Dir(currentLibrary)), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
 	suite.FileExists(currentLibrary)
 
 	lock, err := loadLockFile(filepath.Join(suite.tempdir, "dbc.lock"))
