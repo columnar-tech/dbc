@@ -95,7 +95,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 	m = InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.Dir(),
+		"\nReplaced active driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
 	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
@@ -116,7 +116,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 	m = InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
+		"\nReplaced active driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
 	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
@@ -125,6 +125,80 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 	suite.DirExists(newGeneration)
 	suite.NoDirExists(oldGeneration)
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallShadowsLowerPriorityVersion() {
+	secondary := filepath.Join(suite.tempdir, "secondary")
+	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
+	suite.T().Setenv("ADBC_DRIVER_PATH", secondary)
+
+	oldInstall := InstallCmd{Driver: "test-driver-1=1.0.0", Level: config.ConfigEnv}.
+		GetModelCustom(testBaseModel())
+	suite.runCmd(oldInstall)
+	secondaryDriver, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	secondaryLibrary := secondaryDriver.Driver.Shared.Get(config.PlatformTuple())
+	secondaryBytes, err := os.ReadFile(secondaryLibrary)
+	suite.Require().NoError(err)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
+	newInstall := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(testBaseModel())
+	out := suite.runCmd(newInstall)
+	suite.Contains(out, "Replaced active driver: test-driver-1 (version: 1.0.0)")
+	suite.NotContains(out, "Removed conflicting driver")
+
+	active, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal("1.1.0", active.Version.String())
+	activeLibrary := active.Driver.Shared.Get(config.PlatformTuple())
+	relativeActiveLibrary, err := filepath.Rel(suite.tempdir, activeLibrary)
+	suite.Require().NoError(err)
+	suite.False(filepath.IsAbs(relativeActiveLibrary) || relativeActiveLibrary == ".." ||
+		strings.HasPrefix(relativeActiveLibrary, ".."+string(os.PathSeparator)),
+		"active library should be inside the primary root: %s", activeLibrary)
+	suite.FileExists(activeLibrary)
+
+	remainingSecondary, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal("1.0.0", remainingSecondary.Version.String())
+	remainingBytes, err := os.ReadFile(secondaryLibrary)
+	suite.Require().NoError(err)
+	suite.Equal(secondaryBytes, remainingBytes)
+}
+
+func (suite *SubcommandTestSuite) TestInstallSameVersionOnSecondaryRootSkipsDownload() {
+	secondary := filepath.Join(suite.tempdir, "secondary")
+	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
+	suite.T().Setenv("ADBC_DRIVER_PATH", secondary)
+
+	oldInstall := InstallCmd{Driver: "test-driver-1=1.0.0", Level: config.ConfigEnv}.
+		GetModelCustom(testBaseModel())
+	suite.runCmd(oldInstall)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
+	downloads := 0
+	base := baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloads++
+			return downloadTestPkg(pkg)
+		},
+	}
+	m := InstallCmd{Driver: "test-driver-1=1.0.0", Level: config.ConfigEnv}.
+		GetModelCustom(base)
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "already installed")
+	suite.Zero(downloads, "same-version install on a secondary root should skip before download")
+	active, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	activeLibrary := active.Driver.Shared.Get(config.PlatformTuple())
+	relativeActiveLibrary, err := filepath.Rel(secondary, activeLibrary)
+	suite.Require().NoError(err)
+	suite.False(filepath.IsAbs(relativeActiveLibrary) || relativeActiveLibrary == ".." ||
+		strings.HasPrefix(relativeActiveLibrary, ".."+string(os.PathSeparator)),
+		"same-version install should keep using the secondary root: %s", activeLibrary)
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
