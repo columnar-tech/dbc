@@ -86,16 +86,16 @@ func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
 }
 
 func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
-	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+	m := InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir(), suite.runCmd(m))
 	oldGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 
-	m = InstallCmd{Driver: "test-driver-1"}.
+	m = InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir,
+		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
 	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))

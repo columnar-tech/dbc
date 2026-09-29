@@ -59,17 +59,17 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	listPath := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
 
-	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	m := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	old := suite.getInstalledDriver("test-driver-1")
-	oldManifest, err := os.ReadFile(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	oldManifest, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-1.toml"))
 	suite.Require().NoError(err)
 	oldLibrary := old.Driver.Shared.Get(config.PlatformTuple())
 	oldLibraryBytes, err := os.ReadFile(oldLibrary)
 	suite.Require().NoError(err)
 
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
-	model := SyncCmd{Path: listPath}.GetModelCustom(baseModel{
+	model := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
 			return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
@@ -80,7 +80,7 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	current := suite.getInstalledDriver("test-driver-1")
 	suite.Equal(old.Version, current.Version)
 	suite.Equal(old.Driver.Shared.Get(config.PlatformTuple()), current.Driver.Shared.Get(config.PlatformTuple()))
-	currentManifest, err := os.ReadFile(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	currentManifest, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-1.toml"))
 	suite.Require().NoError(err)
 	suite.Equal(oldManifest, currentManifest)
 	currentLibraryBytes, err := os.ReadFile(current.Driver.Shared.Get(config.PlatformTuple()))
@@ -95,7 +95,7 @@ func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSe
 	listPath := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
 
-	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	m := SyncCmd{Path: listPath, Level: config.ConfigEnv}.GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	secondaryDriver, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
 	suite.Require().NoError(err)
@@ -105,7 +105,7 @@ func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSe
 
 	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
-	m = SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	m = SyncCmd{Path: listPath, Level: config.ConfigEnv}.GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 	suite.NotContains(out, "removed")
 
@@ -138,13 +138,13 @@ func (suite *SubcommandTestSuite) TestSyncPrimaryVersionReplacementUpdatesRegist
 	listPath := filepath.Join(suite.tempdir, "dbc.toml")
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
 
-	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	m := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	old := suite.getInstalledDriver("test-driver-1")
 	oldLibrary := old.Driver.Shared.Get(config.PlatformTuple())
 
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
-	m = SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	m = SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 	suite.NotContains(out, "removed")
 
