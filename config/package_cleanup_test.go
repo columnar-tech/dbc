@@ -15,6 +15,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,8 +23,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/fslock"
 )
 
 func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testing.T) {
@@ -592,6 +595,362 @@ func TestInstallPackageRemovesStaleReceiptGeneration(t *testing.T) {
 	assertArchiveClosed(t, archive)
 	if _, err := os.Stat(oldGeneration); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale generation remains after successful cleanup: %v", err)
+	}
+}
+
+func makeNamespaceSiblingInfo(id, root string) DriverInfo {
+	info := DriverInfo{
+		ID:        id,
+		FilePath:  root,
+		Name:      "Sibling Driver",
+		Publisher: "Test Publisher",
+		License:   "MIT",
+		Version:   semver.MustParse("1.0.0"),
+		Source:    "external",
+	}
+	info.Driver.Shared.Set(PlatformTuple(), filepath.Join(root, id, "driver.so"))
+	return info
+}
+
+func TestInstallPackageStaleCleanupProtectsGenerationReferencedBySiblingDriver(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	old, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldGeneration := filepath.Dir(old.Driver.Shared.Get(PlatformTuple()))
+
+	sibling := makeNamespaceSiblingInfo("sibling", root)
+	sibling.Source = "external"
+	sibling.Driver.Shared.Set(PlatformTuple(), old.Driver.Shared.Get(PlatformTuple()))
+	if err := CreateManifest(cfg, sibling); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := testPackageArchive(t, "updated")
+	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	assertArchiveClosed(t, archive)
+	if _, ok := readPackageInstallReceipt(root, oldGeneration); !ok {
+		t.Fatal("stale generation referenced by sibling registration was removed")
+	}
+}
+
+func TestUninstallKeepsGenerationReferencedBySiblingDriver(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	owned, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(owned.Driver.Shared.Get(PlatformTuple()))
+
+	sibling := makeNamespaceSiblingInfo("sibling", root)
+	sibling.Source = "external"
+	sibling.Driver.Shared.Set(PlatformTuple(), owned.Driver.Shared.Get(PlatformTuple()))
+	if err := CreateManifest(cfg, sibling); err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriver(cfg, owned); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("uninstalled registration remains: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sibling.toml")); err != nil {
+		t.Fatalf("sibling registration was removed: %v", err)
+	}
+	if _, ok := readPackageInstallReceipt(root, generation); !ok {
+		t.Fatal("generation referenced by sibling registration was removed")
+	}
+}
+
+func TestUninstallDriverSharedProtectsGenerationReferencedBySiblingDriver(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	owned, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(owned.Driver.Shared.Get(PlatformTuple()))
+	sibling := makeNamespaceSiblingInfo("sibling", root)
+	sibling.Driver.Shared.Set(PlatformTuple(), owned.Driver.Shared.Get(PlatformTuple()))
+	if err := CreateManifest(cfg, sibling); err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriverShared(owned); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
+		t.Fatalf("UninstallDriverShared removed the registration: %v", err)
+	}
+	if _, ok := readPackageInstallReceipt(root, generation); !ok {
+		t.Fatal("UninstallDriverShared removed a generation referenced by a sibling")
+	}
+}
+
+func TestUninstallDriverSharedRetainsPayloadWhenSnapshotIsUncertain(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	owned, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(owned.Driver.Shared.Get(PlatformTuple()))
+	if err := os.WriteFile(filepath.Join(root, "broken.toml"), []byte("[Driver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriverShared(owned); err == nil || !strings.Contains(err.Error(), "incomplete registration snapshot") {
+		t.Fatalf("UninstallDriverShared error = %v, want incomplete snapshot error", err)
+	}
+	if _, ok := readPackageInstallReceipt(root, generation); !ok {
+		t.Fatal("UninstallDriverShared removed payload after an uncertain snapshot")
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
+		t.Fatalf("UninstallDriverShared removed the registration: %v", err)
+	}
+}
+
+func TestUninstallDriverSharedRejectsStaleRegistrationInfo(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	stale, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"2.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", "updated"))
+	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	assertArchiveClosed(t, archive)
+	current, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentGeneration := filepath.Dir(current.Driver.Shared.Get(PlatformTuple()))
+	if err := UninstallDriverShared(stale); !errors.Is(err, errDriverRegistrationChanged) {
+		t.Fatalf("UninstallDriverShared with stale info error = %v, want registration changed", err)
+	}
+	if _, err := os.Stat(currentGeneration); err != nil {
+		t.Fatalf("current generation was removed: %v", err)
+	}
+	if _, err := GetDriver(cfg, "driver"); err != nil {
+		t.Fatalf("current registration was removed or corrupted: %v", err)
+	}
+}
+
+func TestUninstallDriverSharedRejectsMalformedCurrentRegistration(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	info, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(info.Driver.Shared.Get(PlatformTuple()))
+	if err := os.WriteFile(filepath.Join(root, "driver.toml"), []byte("[Driver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriverShared(info); err == nil {
+		t.Fatal("UninstallDriverShared accepted a malformed current registration")
+	}
+	if _, err := os.Stat(generation); err != nil {
+		t.Fatalf("payload was removed despite malformed current registration: %v", err)
+	}
+}
+
+func TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	old, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldGeneration := filepath.Dir(old.Driver.Shared.Get(PlatformTuple()))
+	cleanupStarted := make(chan struct{})
+	allowCleanup := make(chan struct{})
+	archive := testPackageArchive(t, "updated")
+	operations := testPackageInstallOperations()
+	operations.remove = func(path string) error {
+		if filepath.Dir(path) == oldGeneration {
+			select {
+			case <-cleanupStarted:
+			default:
+				close(cleanupStarted)
+			}
+			<-allowCleanup
+		}
+		return os.Remove(path)
+	}
+	installDone := make(chan error, 1)
+	go func() {
+		_, err := installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations)
+		installDone <- err
+	}()
+	<-cleanupStarted
+
+	sibling := makeNamespaceSiblingInfo("sibling", root)
+	sibling.Source = "external"
+	sibling.Driver.Shared.Set(PlatformTuple(), old.Driver.Shared.Get(PlatformTuple()))
+	siblingDone := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		siblingDone <- CreateManifest(cfg, sibling)
+	}()
+	<-started
+	deadline := time.Now().Add(time.Second)
+	for {
+		probe, probeErr := acquireDriverInstallLockWith(context.Background(), root, "sibling", 5*time.Millisecond)
+		if errors.Is(probeErr, fslock.ErrLockContended) {
+			break
+		}
+		if probeErr != nil {
+			t.Fatalf("probe sibling driver lock: %v", probeErr)
+		}
+		if err := probe.release(); err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("sibling registration did not acquire its driver lock")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case err := <-siblingDone:
+		t.Fatalf("sibling registration published during stale cleanup: %v", err)
+	default:
+	}
+	close(allowCleanup)
+	if err := <-installDone; err != nil {
+		t.Fatalf("update install: %v", err)
+	}
+	if err := <-siblingDone; err != nil {
+		t.Fatalf("sibling manifest creation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sibling.toml")); err != nil {
+		t.Fatalf("sibling registration was not published after cleanup: %v", err)
+	}
+}
+
+func TestUninstallDriverSharedSerializesCreateManifestInNamespace(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	owned, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(owned.Driver.Shared.Get(PlatformTuple()))
+	cleanupStarted := make(chan struct{})
+	allowCleanup := make(chan struct{})
+	operations := packageCleanupOperations{
+		remove: func(path string) error {
+			if filepath.Dir(path) == generation {
+				select {
+				case <-cleanupStarted:
+				default:
+					close(cleanupStarted)
+				}
+				<-allowCleanup
+			}
+			return os.Remove(path)
+		},
+		removeAll: os.RemoveAll,
+	}
+	cleanupDone := make(chan error, 1)
+	go func() { cleanupDone <- uninstallDriverSharedWithOperations(cfg, owned, operations) }()
+	<-cleanupStarted
+
+	sibling := makeNamespaceSiblingInfo("sibling", root)
+	createDone := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		createDone <- CreateManifest(cfg, sibling)
+	}()
+	<-started
+	deadline := time.Now().Add(time.Second)
+	for {
+		probe, probeErr := acquireDriverInstallLockWith(context.Background(), root, "sibling", 5*time.Millisecond)
+		if errors.Is(probeErr, fslock.ErrLockContended) {
+			break
+		}
+		if probeErr != nil {
+			t.Fatalf("probe sibling driver lock: %v", probeErr)
+		}
+		if err := probe.release(); err != nil {
+			t.Fatal(err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("sibling manifest creation did not acquire its driver lock")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	select {
+	case err := <-createDone:
+		t.Fatalf("sibling manifest published during package cleanup: %v", err)
+	default:
+	}
+	close(allowCleanup)
+	if err := <-cleanupDone; err != nil {
+		t.Fatalf("managed package cleanup: %v", err)
+	}
+	if err := <-createDone; err != nil {
+		t.Fatalf("sibling manifest creation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "sibling.toml")); err != nil {
+		t.Fatalf("sibling registration was not published after cleanup: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
+		t.Fatalf("UninstallDriverShared removed the registration: %v", err)
+	}
+}
+
+func TestUncertainSiblingRegistrationSkipsPayloadCleanupButAllowsUninstall(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	old, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldGeneration := filepath.Dir(old.Driver.Shared.Get(PlatformTuple()))
+	if err := os.WriteFile(filepath.Join(root, "broken.toml"), []byte("[Driver\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	archive := testPackageArchive(t, "updated")
+	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+		t.Fatalf("install should continue when cleanup enumeration is uncertain: %v", err)
+	}
+	assertArchiveClosed(t, archive)
+	if _, ok := readPackageInstallReceipt(root, oldGeneration); !ok {
+		t.Fatal("uncertain registration enumeration did not conservatively retain stale generation")
+	}
+	current, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentGeneration := filepath.Dir(current.Driver.Shared.Get(PlatformTuple()))
+	if err := UninstallDriver(cfg, current); err != nil {
+		t.Fatalf("uninstall should remove registration despite uncertain cleanup enumeration: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("registration remains after uninstall: %v", err)
+	}
+	for _, generation := range []string{oldGeneration, currentGeneration} {
+		if _, ok := readPackageInstallReceipt(root, generation); !ok {
+			t.Errorf("unproven cleanup removed generation %s", generation)
+		}
 	}
 }
 

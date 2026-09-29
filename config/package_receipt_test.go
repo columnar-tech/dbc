@@ -120,6 +120,44 @@ func TestInstallPackageWritesExternalReceiptWithoutOwnedLibrary(t *testing.T) {
 	}
 }
 
+func TestWritePackageInstallReceiptEnforcesFinalSizeLimit(t *testing.T) {
+	root := t.TempDir()
+	generation := filepath.Join(root, ".dbc-package-driver-generation")
+	if err := os.Mkdir(generation, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	receipt := packageInstallReceipt{
+		SchemaVersion:                packageInstallReceiptVersion,
+		RegistrationScope:            packageRegistrationFile,
+		RuntimeID:                    "driver",
+		DriverVersion:                "1.0.0",
+		Platform:                     "linux_amd64",
+		Generation:                   filepath.Base(generation),
+		LibraryKind:                  packageLibraryExternal,
+		RegistrationFingerprintAlgo:  registrationFingerprintName,
+		RegistrationFingerprintVer:   registrationFingerprintVer,
+		RegistrationFingerprintValue: strings.Repeat("a", sha256.Size*2),
+	}
+	if err := writePackageInstallReceipt(generation, receipt); err != nil {
+		t.Fatalf("write receipt below size limit: %v", err)
+	}
+	if _, ok := readPackageInstallReceipt(root, generation); !ok {
+		t.Fatal("receipt written below size limit was not readable")
+	}
+	if err := os.Remove(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
+		t.Fatal(err)
+	}
+
+	receipt.DriverVersion = strings.Repeat("x", packageInstallReceiptMaxSize)
+	err := writePackageInstallReceipt(generation, receipt)
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("oversized receipt write error = %v, want clear size-limit error", err)
+	}
+	if _, err := os.Lstat(filepath.Join(generation, packageInstallReceiptFilename)); !os.IsNotExist(err) {
+		t.Fatalf("oversized receipt created a file before rejection: %v", err)
+	}
+}
+
 func TestInstallPackageReceiptFailurePreservesPreviousRegistration(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}

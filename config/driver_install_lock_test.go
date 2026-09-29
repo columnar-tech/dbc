@@ -61,6 +61,73 @@ func TestAcquireDriverInstallLockUsesRuntimeIdentity(t *testing.T) {
 	}
 }
 
+func TestFileRegistrationNamespaceUsesNormalizedDirectoryIdentity(t *testing.T) {
+	location := t.TempDir()
+	firstIdentity, firstDirectory, firstRegistration, err := registrationNamespaceLockSpec(Config{Level: ConfigEnv}, location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLocation := filepath.Join(location, "nested", "..")
+	secondIdentity, secondDirectory, secondRegistration, err := registrationNamespaceLockSpec(Config{Level: ConfigEnv}, secondLocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstIdentity != secondIdentity || firstDirectory != secondDirectory || firstRegistration != secondRegistration {
+		t.Fatalf("normalized file namespace differs: (%q, %q, %q) != (%q, %q, %q)", firstIdentity, firstDirectory, firstRegistration, secondIdentity, secondDirectory, secondRegistration)
+	}
+	otherIdentity, _, _, err := registrationNamespaceLockSpec(Config{Level: ConfigEnv}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherIdentity == firstIdentity {
+		t.Fatal("different file registration directories share a namespace")
+	}
+}
+
+func TestFileRegistrationNamespaceSymlinkAliasesShareLock(t *testing.T) {
+	real := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	cfg := Config{Level: ConfigEnv}
+	first, firstLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, real, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.release()
+	secondIdentity, _, resolvedAlias, err := registrationNamespaceLockSpec(cfg, alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstIdentity, _, resolvedReal, err := registrationNamespaceLockSpec(cfg, real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstIdentity != secondIdentity || firstLocation != resolvedReal || firstLocation != resolvedAlias {
+		t.Fatalf("symlink namespace mismatch: first=%q/%q alias=%q/%q", firstIdentity, firstLocation, secondIdentity, resolvedAlias)
+	}
+	second, _, err := acquireRegistrationNamespaceLock(context.Background(), cfg, alias, 20*time.Millisecond)
+	if !errors.Is(err, fslock.ErrLockContended) {
+		if second != nil {
+			_ = second.release()
+		}
+		t.Fatalf("real-path/alias lock error = %v, want contention", err)
+	}
+
+	realDriverLock, err := driverInstallLockPath(real, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasDriverLock, err := driverInstallLockPath(alias, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if realDriverLock == aliasDriverLock {
+		t.Fatal("expected existing driver lock path to differ through a symlink alias")
+	}
+}
+
 func TestUninstallDriverRefusesChangedRegistration(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}

@@ -15,6 +15,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -315,14 +317,53 @@ func uninstallDriverSharedForConfig(cfg Config, info DriverInfo) error {
 	return uninstallDriverSharedWithOperations(cfg, info, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
 }
 
-func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
+func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations packageCleanupOperations) (err error) {
 	cfg = packageCleanupConfig(cfg, info)
 	if info.Source == "dbc" {
-		root, err := packageCleanupRoot(cfg, info)
+		location, err := uninstallLockLocation(cfg, info)
+		if err != nil {
+			return fmt.Errorf("resolve package registration location: %w", err)
+		}
+		if err := prepareDriverUninstallLockLocation(cfg, location); err != nil {
+			return fmt.Errorf("prepare package registration lock location: %w", err)
+		}
+		driverLock, err := acquireDriverInstallLockWith(context.Background(), location, info.ID, 10*time.Second)
+		if err != nil {
+			return fmt.Errorf("acquire package driver lock: %w", err)
+		}
+		defer func() { err = errors.Join(err, driverLock.release()) }()
+		namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, location, 10*time.Second)
 		if err != nil {
 			return err
 		}
-		return cleanupInstalledPackageWithOperations(cfg, root, info, operations)
+		defer func() { err = errors.Join(err, namespaceLock.release()) }()
+		current, exists, currentErr := readDriverRegistrationForSharedCleanup(cfg, info)
+		if currentErr != nil {
+			return fmt.Errorf("cannot safely clean managed package without reading its current registration: %w", currentErr)
+		}
+		excludedID := ""
+		if exists {
+			if !sameDriverRegistration(info, current) {
+				return fmt.Errorf("cannot safely clean managed package: %w", errDriverRegistrationChanged)
+			}
+			info = current
+			excludedID = current.ID
+		}
+		registrations, certain, snapshotErr := collectRegistrationSharedMaps(cfg, registrationLocation, excludedID)
+		if !certain {
+			if snapshotErr == nil {
+				snapshotErr = errors.New("registration snapshot is incomplete")
+			}
+			return fmt.Errorf("cannot safely clean managed package with an incomplete registration snapshot: %w", snapshotErr)
+		}
+		root, err := packageCleanupRootForSharedHelper(cfg, info)
+		if err != nil {
+			return err
+		}
+		if root == "" {
+			return errors.New("cannot safely clean managed package without a known payload root")
+		}
+		return cleanupInstalledPackageWithReferences(cfg, root, info, registrations, true, operations)
 	}
 
 	// For the User and System config levels, info.FilePath is set to the

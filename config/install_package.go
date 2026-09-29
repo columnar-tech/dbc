@@ -147,6 +147,11 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 			return Manifest{}, fmt.Errorf("verify package: %w", err)
 		}
 	}
+	namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, lockLocation, 10*time.Second)
+	if err != nil {
+		return Manifest{}, err
+	}
+	defer func() { err = errors.Join(err, namespaceLock.release()) }()
 	receipt, err := makePackageInstallReceipt(cfg, stageDir, filepath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
@@ -170,7 +175,11 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	if err := operations.register(cfg, location, manifest.DriverInfo); err != nil {
 		return Manifest{}, cleanupFailedPackageRegistration(generationDir, err, operations.removeAll)
 	}
-	cleanupStalePackageGenerations(cfg, location, manifest.DriverInfo, []string{generationDir}, operations.remove, operations.removeAll)
+	registrations, certain, _ := collectRegistrationSharedMaps(cfg, registrationLocation, "")
+	if certain {
+		referenced, uncertain := referencedPathsForRegistrations(location, registrations)
+		cleanupStalePackageGenerationsWithReferences(cfg, location, manifest.DriverInfo, []string{generationDir}, referenced, uncertain, operations.remove, operations.removeAll)
+	}
 	return manifest, nil
 }
 

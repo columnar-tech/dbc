@@ -92,6 +92,11 @@ func UninstallDriver(cfg Config, info DriverInfo) (err error) {
 		return fmt.Errorf("acquire driver uninstall lock: %w", err)
 	}
 	defer func() { err = errors.Join(err, lock.release()) }()
+	namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, location, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, namespaceLock.release()) }()
 
 	current, err := readDriverRegistrationForUninstall(cfg, info)
 	if err != nil {
@@ -100,7 +105,8 @@ func UninstallDriver(cfg Config, info DriverInfo) (err error) {
 	if !sameDriverRegistration(info, current) {
 		return fmt.Errorf("driver %q changed since it was selected; refusing to uninstall: %w", info.ID, errDriverRegistrationChanged)
 	}
-	return uninstallDriverUnlocked(cfg, current)
+	registrations, certain, _ := collectRegistrationSharedMaps(cfg, registrationLocation, current.ID)
+	return uninstallDriverUnlockedWithReferences(cfg, current, registrations, certain)
 }
 
 func sameDriverRegistration(a, b DriverInfo) bool {

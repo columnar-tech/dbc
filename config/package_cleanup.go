@@ -37,7 +37,14 @@ func cleanupInstalledPackage(cfg Config, root string, info DriverInfo, remove fu
 }
 
 func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverInfo, operations packageCleanupOperations) error {
+	return cleanupInstalledPackageWithReferences(cfg, root, info, nil, true, operations)
+}
+
+func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
 	if info.Source != "dbc" || root == "" {
+		return nil
+	}
+	if !referencesCertain {
 		return nil
 	}
 	root, err := filepath.Abs(root)
@@ -54,6 +61,10 @@ func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverI
 	}
 	if err != nil {
 		return fmt.Errorf("read package installation root %s: %w", root, err)
+	}
+	referenced, uncertain := referencedPathsForRegistrations(root, otherRegistrations)
+	if uncertain {
+		return nil
 	}
 
 	matched := make([]string, 0, 1)
@@ -73,9 +84,15 @@ func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverI
 			return nil
 		}
 		if generation := legacyPackageGeneration(root, info); generation != "" {
+			if generationReferenced(generation, referenced) {
+				return nil
+			}
 			return operations.removeAll(generation)
 		}
 		if generation := legacyMetadataSidecar(root, info); generation != "" {
+			if generationReferenced(generation, referenced) {
+				return nil
+			}
 			return operations.removeAll(generation)
 		}
 		return nil
@@ -83,12 +100,15 @@ func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverI
 
 	var strictErr error
 	for _, generation := range matched {
+		if generationReferenced(generation, referenced) {
+			continue
+		}
 		strictErr = errors.Join(strictErr, removePackageGeneration(generation, operations.remove, operations.removeAll))
 	}
 	if strictErr != nil {
 		return strictErr
 	}
-	cleanupStalePackageGenerations(cfg, root, info, matched, operations.remove, operations.removeAll)
+	cleanupStalePackageGenerationsWithReferences(cfg, root, info, matched, referenced, false, operations.remove, operations.removeAll)
 	return nil
 }
 
@@ -110,6 +130,11 @@ func receiptMatchesRegistration(cfg Config, root, generation string, receipt pac
 }
 
 func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo, alreadyRemoved []string, remove func(string) error, removeAll func(string) error) {
+	referenced, uncertain := referencedPaths(root, current.Driver.Shared)
+	cleanupStalePackageGenerationsWithReferences(cfg, root, current, alreadyRemoved, referenced, uncertain, remove, removeAll)
+}
+
+func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, current DriverInfo, alreadyRemoved []string, referenced []string, uncertainReferences bool, remove func(string) error, removeAll func(string) error) {
 	root, err := filepath.Abs(root)
 	if err != nil {
 		return
@@ -122,7 +147,6 @@ func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo,
 	if err != nil {
 		return
 	}
-	referenced, uncertainReferences := referencedPaths(root, current.Driver.Shared)
 	if uncertainReferences {
 		return
 	}
@@ -137,6 +161,18 @@ func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo,
 		}
 		_ = removePackageGeneration(generation, remove, removeAll)
 	}
+}
+
+func referencedPathsForRegistrations(root string, registrations []driverMap) ([]string, bool) {
+	var paths []string
+	for _, registration := range registrations {
+		references, uncertain := referencedPaths(root, registration)
+		if uncertain {
+			return nil, true
+		}
+		paths = append(paths, references...)
+	}
+	return paths, false
 }
 
 func readDirectoryEntries(path string) (entries []fs.DirEntry, err error) {

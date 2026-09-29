@@ -17,9 +17,16 @@
 package config
 
 import (
+	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/fslock"
 )
 
 func TestDriverInstallLockPathIgnoresCaseOnWindows(t *testing.T) {
@@ -115,5 +122,148 @@ func TestWindowsUninstallLockRejectsUnknownConfigLevel(t *testing.T) {
 	_, err := uninstallLockLocation(Config{Level: ConfigLevel(255)}, DriverInfo{ID: "driver"})
 	if err == nil {
 		t.Fatal("uninstallLockLocation accepted an unknown config level")
+	}
+}
+
+func TestWindowsRegistrationNamespaceIdentityUsesRegistryScope(t *testing.T) {
+	for _, level := range []ConfigLevel{ConfigUser, ConfigSystem} {
+		first, firstDir, firstRegistration, err := registrationNamespaceLockSpec(Config{Level: level, Location: filepath.Join(t.TempDir(), "payload-a")}, filepath.Join(t.TempDir(), "payload-a"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, secondDir, secondRegistration, err := registrationNamespaceLockSpec(Config{Level: level, Location: filepath.Join(t.TempDir(), "payload-b")}, filepath.Join(t.TempDir(), "payload-b"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if first != second || firstDir != secondDir || firstRegistration != secondRegistration {
+			t.Fatalf("%s locations split a registry namespace: (%q,%q,%q) != (%q,%q,%q)", level, first, firstDir, firstRegistration, second, secondDir, secondRegistration)
+		}
+	}
+	user, _, _, err := registrationNamespaceLockSpec(Config{Level: ConfigUser}, ConfigUser.ConfigLocation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	system, _, _, err := registrationNamespaceLockSpec(Config{Level: ConfigSystem}, ConfigSystem.ConfigLocation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user == system {
+		t.Fatal("registry-user and registry-system share a namespace identity")
+	}
+	firstFileLocation := t.TempDir()
+	firstFile, _, _, err := registrationNamespaceLockSpec(Config{Level: ConfigEnv}, firstFileLocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondFile, _, _, err := registrationNamespaceLockSpec(Config{Level: ConfigEnv}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstFile == secondFile || firstFile == user || firstFile == system {
+		t.Fatal("file registration namespace collides with a separate namespace")
+	}
+}
+
+func TestWindowsFileRegistrationNamespaceSymlinkAliasesShareLock(t *testing.T) {
+	real := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	cfg := Config{Level: ConfigEnv}
+	first, firstLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, real, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.release()
+	identity, _, registrationLocation, err := registrationNamespaceLockSpec(cfg, alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstIdentity, _, firstRegistrationLocation, err := registrationNamespaceLockSpec(cfg, real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity != firstIdentity || registrationLocation != firstLocation || firstRegistrationLocation != firstLocation {
+		t.Fatalf("real path and alias resolved differently: %q/%q, %q/%q", firstIdentity, firstLocation, identity, registrationLocation)
+	}
+	second, _, err := acquireRegistrationNamespaceLock(context.Background(), cfg, alias, 20*time.Millisecond)
+	if !errors.Is(err, fslock.ErrLockContended) {
+		if second != nil {
+			_ = second.release()
+		}
+		t.Fatalf("real-path/alias namespace lock error = %v, want contention", err)
+	}
+	firstDriverLock, err := driverInstallLockPath(real, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasDriverLock, err := driverInstallLockPath(alias, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstDriverLock == aliasDriverLock {
+		t.Fatal("expected existing driver lock path to differ through a symlink alias")
+	}
+}
+
+func TestWindowsRegistryCleanupRootRequiresMatchingTransactionReceipt(t *testing.T) {
+	cfg := Config{Level: ConfigUser}
+	root := t.TempDir()
+	id := "driver-root-check"
+	generationName := ".dbc-package-" + id + "-generation"
+	generation := filepath.Join(root, generationName)
+	if err := os.Mkdir(generation, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(generation, "driver.dll"), []byte("library"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := DriverInfo{
+		ID:      id,
+		Name:    "Root check",
+		Source:  "dbc",
+		Version: semver.MustParse("1.2.3"),
+	}
+	info.Driver.Shared.Set(PlatformTuple(), filepath.Join(generation, "driver.dll"))
+	manifest := Manifest{DriverInfo: info}
+	manifest.Files.Driver = "driver.dll"
+	stage := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stage, "driver.dll"), []byte("library"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := makePackageInstallReceipt(cfg, stage, generationName, id, PlatformTuple(), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writePackageInstallReceipt(generation, receipt); err != nil {
+		t.Fatal(err)
+	}
+	got, err := packageCleanupRootForSharedHelper(cfg, info)
+	if err != nil {
+		t.Fatalf("infer root for file inside valid generation: %v", err)
+	}
+	if got != root {
+		t.Fatalf("inferred root = %q, want %q", got, root)
+	}
+
+	// A directory-valued shared reference can identify the generation itself.
+	directoryInfo := info
+	directoryInfo.Driver.Shared.Set(PlatformTuple(), generation)
+	got, err = packageCleanupRootForSharedHelper(cfg, directoryInfo)
+	if err != nil || got != root {
+		t.Fatalf("infer root for directory-valued generation: got %q, err %v", got, err)
+	}
+
+	badReceipt := receipt
+	badReceipt.RuntimeID = "another-driver"
+	if err := os.Remove(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePackageInstallReceipt(generation, badReceipt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := packageCleanupRootForSharedHelper(cfg, info); err == nil {
+		t.Fatal("root inference accepted a receipt for another runtime ID")
 	}
 }

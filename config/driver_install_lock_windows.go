@@ -102,11 +102,27 @@ func readDriverRegistrationForUninstall(cfg Config, info DriverInfo) (DriverInfo
 }
 
 func uninstallDriverUnlocked(cfg Config, info DriverInfo) error {
-	return uninstallDriverUnlockedWithCleanup(cfg, info, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
+	return uninstallDriverUnlockedWithReferences(cfg, info, nil, true)
 }
 
 func uninstallDriverUnlockedWithCleanup(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
-	if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
+	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, nil, true, operations)
+}
+
+func uninstallDriverUnlockedWithReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool) error {
+	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, otherRegistrations, referencesCertain, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
+}
+
+func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
+	if info.Source == "dbc" {
+		root, err := packageCleanupRoot(packageCleanupConfig(cfg, info), info)
+		if err != nil {
+			return err
+		}
+		if err := cleanupInstalledPackageWithReferences(cfg, root, info, otherRegistrations, referencesCertain, operations); err != nil {
+			return fmt.Errorf("failed to delete driver shared object: %w", err)
+		}
+	} else if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 	if cfg.Level != ConfigEnv {

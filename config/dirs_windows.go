@@ -265,6 +265,11 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 		return fmt.Errorf("acquire driver registration lock: %w", err)
 	}
 	defer func() { err = errors.Join(err, lock.release()) }()
+	namespaceLock, _, err := acquireRegistrationNamespaceLock(context.Background(), cfg, location, 10*time.Second)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, namespaceLock.release()) }()
 
 	if cfg.Level == ConfigEnv {
 		return createDriverManifestUnlocked(location, driver)

@@ -237,6 +237,9 @@ func writePackageInstallReceipt(stagingDir string, receipt packageInstallReceipt
 		return fmt.Errorf("encode package install receipt: %w", err)
 	}
 	data = append(data, '\n')
+	if len(data) > packageInstallReceiptMaxSize {
+		return fmt.Errorf("package install receipt exceeds maximum size of %d bytes: got %d", packageInstallReceiptMaxSize, len(data))
+	}
 	path := filepath.Join(stagingDir, packageInstallReceiptFilename)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
