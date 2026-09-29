@@ -23,23 +23,24 @@ import (
 )
 
 func uninstallLockLocation(cfg Config, info DriverInfo) (string, error) {
-	if cfg.Level != ConfigEnv {
-		location := cfg.Location
-		if location == "" {
-			location = cfg.Level.ConfigLocation()
-		}
+	switch cfg.Level {
+	case ConfigUser, ConfigSystem:
+		location := cfg.Level.ConfigLocation()
 		if location == "" {
 			return "", fmt.Errorf("driver %q has no installation location", info.ID)
 		}
 		return location, nil
+	case ConfigEnv:
+		if info.FilePath != "" {
+			return info.FilePath, nil
+		}
+		if cfg.Location != "" {
+			return cfg.Location, nil
+		}
+		return "", fmt.Errorf("driver %q has no installation location", info.ID)
+	default:
+		return "", fmt.Errorf("driver %q has unsupported config level %d", info.ID, cfg.Level)
 	}
-	if info.FilePath != "" {
-		return info.FilePath, nil
-	}
-	if cfg.Location != "" {
-		return cfg.Location, nil
-	}
-	return "", fmt.Errorf("driver %q has no installation location", info.ID)
 }
 
 func prepareDriverUninstallLockLocation(cfg Config, location string) error {

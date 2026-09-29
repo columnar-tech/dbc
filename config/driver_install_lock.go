@@ -75,7 +75,7 @@ func driverInstallLockPath(location, runtimeID string) (string, error) {
 		canonicalLocation = strings.ToLower(canonicalLocation)
 		canonicalID = strings.ToLower(canonicalID)
 	}
-	key := sha256.Sum256([]byte(canonicalLocation + "\x00" + canonicalID))
+	key := sha256.Sum256([]byte(canonicalID))
 	return filepath.Join(canonicalLocation, fmt.Sprintf(".dbc.install.%x.lock", key)), nil
 }
 

@@ -40,22 +40,44 @@ func TestDriverInstallLockPathIgnoresCaseOnWindows(t *testing.T) {
 func TestWindowsUninstallLockSupportsMissingRegistryRoot(t *testing.T) {
 	missingRoot := filepath.Join(t.TempDir(), "registry-only")
 	cfg := Config{Level: ConfigUser, Location: missingRoot}
-	location, err := uninstallLockLocation(cfg, DriverInfo{ID: "driver"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if location != missingRoot {
-		t.Fatalf("uninstall lock location = %q, want %q", location, missingRoot)
-	}
-	if err := prepareDriverUninstallLockLocation(cfg, location); err != nil {
+	if err := prepareDriverUninstallLockLocation(cfg, missingRoot); err != nil {
 		t.Fatalf("prepare missing registration root: %v", err)
 	}
-	lock, err := acquireDriverInstallLockWith(t.Context(), location, "driver", 0)
+	lock, err := acquireDriverInstallLockWith(t.Context(), missingRoot, "driver", 0)
 	if err != nil {
 		t.Fatalf("acquire uninstall lock in created root: %v", err)
 	}
 	if err := lock.release(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWindowsNonEnvUninstallLockIgnoresCustomLocation(t *testing.T) {
+	for _, level := range []ConfigLevel{ConfigUser, ConfigSystem} {
+		t.Run(level.String(), func(t *testing.T) {
+			first, err := uninstallLockLocation(Config{Level: level, Location: filepath.Join(t.TempDir(), "first")}, DriverInfo{ID: "driver"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := uninstallLockLocation(Config{Level: level, Location: filepath.Join(t.TempDir(), "second")}, DriverInfo{ID: "driver"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first != second || first != level.ConfigLocation() {
+				t.Fatalf("custom locations split registry lock: %q != %q; want %q", first, second, level.ConfigLocation())
+			}
+			firstLock, err := driverInstallLockPath(first, "driver")
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondLock, err := driverInstallLockPath(second, "driver")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if firstLock != secondLock {
+				t.Fatalf("registry lock paths differ: %q != %q", firstLock, secondLock)
+			}
+		})
 	}
 }
 
@@ -71,5 +93,12 @@ func TestWindowsUninstallLockUsesDefaultLocation(t *testing.T) {
 				t.Fatalf("uninstall lock location = %q, want default %q", location, want)
 			}
 		})
+	}
+}
+
+func TestWindowsUninstallLockRejectsUnknownConfigLevel(t *testing.T) {
+	_, err := uninstallLockLocation(Config{Level: ConfigLevel(255)}, DriverInfo{ID: "driver"})
+	if err == nil {
+		t.Fatal("uninstallLockLocation accepted an unknown config level")
 	}
 }
