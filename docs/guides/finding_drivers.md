@@ -103,7 +103,8 @@ $ dbc search --verbose
    Description: An embedded ADBC driver powered by ClickHouse
    License: Apache-2.0
    Available Versions:
-    ╰── 26.7.0
+    ├── 26.7.0
+    ╰── 26.9.0
 • clickhouse
    Title: ClickHouse Driver
    Description: An ADBC driver for ClickHouse developed by ClickHouse, Inc.
@@ -143,7 +144,8 @@ $ dbc search --verbose
     ├── 1.5.2
     ├── 1.5.3
     ├── 1.5.4
-    ╰── 1.5.5
+    ├── 1.5.5
+    ╰── 1.5.6
 • exasol
    Title: Exasol Driver
    Description: An ADBC driver for Exasol developed by Exasol Labs
