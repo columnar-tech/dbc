@@ -50,9 +50,10 @@ type packageInstallOperations struct {
 // but a rollback failure or process termination during that update can leave
 // the previous registration uncertain. If rollback fails, the candidate
 // generation is preserved. After successful registration, stale receipt-backed
-// generations are removed on a best-effort basis. An error while releasing the
-// driver lock can be returned after commit; in that case the new generation
-// remains installed. This API does not promise durability across power loss.
+// generations and a strictly proven legacy predecessor are removed on a
+// best-effort basis. An error while releasing the driver lock can be returned
+// after commit; in that case the new generation remains installed. This API
+// does not promise durability across power loss.
 func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions) (manifest Manifest, err error) {
 	return installPackageWithOperations(cfg, runtimeID, downloaded, options, packageInstallOperations{
 		rename:       os.Rename,
@@ -152,6 +153,7 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 		return Manifest{}, err
 	}
 	defer func() { err = errors.Join(err, namespaceLock.release()) }()
+	legacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID, stageDir)
 	receipt, err := makePackageInstallReceipt(cfg, stageDir, filepath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
@@ -178,6 +180,9 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	registrations, certain, _ := collectRegistrationSharedMaps(cfg, registrationLocation, "")
 	if certain {
 		referenced, uncertain := referencedPathsForRegistrations(location, registrations)
+		if !uncertain && legacyCandidate != "" && !generationReferenced(legacyCandidate, referenced) {
+			_ = operations.removeAll(legacyCandidate)
+		}
 		cleanupStalePackageGenerationsWithReferences(cfg, location, manifest.DriverInfo, []string{generationDir}, referenced, uncertain, operations.remove, operations.removeAll)
 	}
 	return manifest, nil

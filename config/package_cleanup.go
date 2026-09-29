@@ -112,6 +112,66 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 	return nil
 }
 
+func legacyPackageReplacementCandidate(cfg Config, root, registrationLocation, runtimeID, stageDir string) string {
+	entries, err := readDirectoryEntries(root)
+	if err != nil {
+		return ""
+	}
+	stagingEntry := currentStagingEntryName(entries, root, stageDir)
+	if stagingEntry != "" {
+		filtered := make([]fs.DirEntry, 0, len(entries)-1)
+		for _, entry := range entries {
+			if entry.Name() != stagingEntry {
+				filtered = append(filtered, entry)
+			}
+		}
+		entries = filtered
+	}
+	if hasTransactionEvidence(entries, runtimeID) {
+		return ""
+	}
+	previous, ok := readPrimaryRuntimeRegistration(cfg, registrationLocation, runtimeID)
+	if !ok || !sameRuntimeID(previous.ID, runtimeID) {
+		return ""
+	}
+	if generation := legacyPackageGeneration(root, previous); generation != "" {
+		return generation
+	}
+	return legacyMetadataSidecar(root, previous)
+}
+
+func currentStagingEntryName(entries []fs.DirEntry, root, stageDir string) string {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return ""
+	}
+	stageAbs, err := filepath.Abs(stageDir)
+	if err != nil {
+		return ""
+	}
+	rootAbs = filepath.Clean(rootAbs)
+	stageAbs = filepath.Clean(stageAbs)
+	name := filepath.Base(stageAbs)
+	if filepath.Dir(stageAbs) != rootAbs || !strings.HasPrefix(name, ".dbc-package-stage-") {
+		return ""
+	}
+	stageInfo, err := os.Lstat(stageAbs)
+	if err != nil || !stageInfo.IsDir() || stageInfo.Mode()&os.ModeSymlink != 0 {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.Name() != name {
+			continue
+		}
+		entryInfo, err := entry.Info()
+		if err == nil && os.SameFile(stageInfo, entryInfo) {
+			return name
+		}
+		return ""
+	}
+	return ""
+}
+
 func receiptMatchesRegistration(cfg Config, root, generation string, receipt packageInstallReceipt, info DriverInfo) bool {
 	shared := info.Driver.Shared.Get(receipt.Platform)
 	if shared == "" || hasParentTraversal(shared) {

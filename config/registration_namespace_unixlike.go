@@ -48,3 +48,7 @@ func registrationNamespaceLockSpec(_ Config, location string) (identity, lockDir
 func collectRegistrationSharedMaps(_ Config, location, excludedID string) ([]driverMap, bool, error) {
 	return collectFileRegistrationSharedMaps(location, excludedID)
 }
+
+func readPrimaryRuntimeRegistration(_ Config, registrationLocation, runtimeID string) (DriverInfo, bool) {
+	return readFileRuntimeRegistration(registrationLocation, runtimeID)
+}

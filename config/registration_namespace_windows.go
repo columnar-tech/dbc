@@ -100,3 +100,22 @@ func collectRegistrationSharedMaps(cfg Config, location, excludedID string) ([]d
 	}
 	return shared, true, nil
 }
+
+func readPrimaryRuntimeRegistration(cfg Config, registrationLocation, runtimeID string) (DriverInfo, bool) {
+	if cfg.Level == ConfigEnv {
+		return readFileRuntimeRegistration(registrationLocation, runtimeID)
+	}
+	if cfg.Level != ConfigUser && cfg.Level != ConfigSystem {
+		return DriverInfo{}, false
+	}
+	root, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.READ)
+	if err != nil {
+		return DriverInfo{}, false
+	}
+	registration, readErr := driverInfoFromKey(root, runtimeID, cfg.Level)
+	closeErr := root.Close()
+	if readErr != nil || closeErr != nil || registration.ID != runtimeID {
+		return DriverInfo{}, false
+	}
+	return registration, true
+}

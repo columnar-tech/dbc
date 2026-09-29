@@ -106,3 +106,30 @@ func collectFileRegistrationSharedMaps(location, excludedID string) ([]driverMap
 	}
 	return shared, true, nil
 }
+
+func readFileRuntimeRegistration(location, runtimeID string) (DriverInfo, bool) {
+	if validatePackageFilename(runtimeID) != nil {
+		return DriverInfo{}, false
+	}
+	path := filepath.Join(location, runtimeID+".toml")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return DriverInfo{}, false
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return DriverInfo{}, false
+	}
+	openedInfo, statErr := file.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		_ = file.Close()
+		return DriverInfo{}, false
+	}
+	manifest, decodeErr := decodeManifest(file, runtimeID, true)
+	closeErr := file.Close()
+	if decodeErr != nil || closeErr != nil || manifest.DriverInfo.ID != runtimeID {
+		return DriverInfo{}, false
+	}
+	manifest.DriverInfo.FilePath = location
+	return manifest.DriverInfo, true
+}

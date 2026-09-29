@@ -1415,3 +1415,304 @@ func TestUninstallUsesSelectedConfigEnvRootOnly(t *testing.T) {
 		t.Fatalf("secondary root was modified: %v", err)
 	}
 }
+
+func TestInstallPackageCleansStrictLegacyGenerationOnlyAfterCommit(t *testing.T) {
+	for _, failure := range []string{"", "verify", "register"} {
+		name := "success"
+		if failure != "" {
+			name = failure + " failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			legacyGeneration, legacyLibrary := createLegacyPackageForInstall(t, cfg, "driver", "0.9.0", "legacy library")
+			archive := testPackageArchive(t, "new library")
+			var installErr error
+			if failure == "register" {
+				operations := testPackageInstallOperations()
+				operations.register = func(Config, string, DriverInfo) error { return errors.New("registration failed") }
+				_, installErr = installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations)
+			} else {
+				options := InstallPackageOptions{}
+				if failure == "verify" {
+					options.Verifier = func(string, Manifest) error { return errors.New("verification failed") }
+				}
+				_, installErr = InstallPackage(cfg, "driver", archive, options)
+			}
+			if failure == "" {
+				if installErr != nil {
+					t.Fatal(installErr)
+				}
+				if _, err := os.Stat(legacyGeneration); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("committed install left legacy generation: %v", err)
+				}
+				current, err := GetDriver(cfg, "driver")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if current.Version.String() != "1.0.0" || current.Driver.Shared.Get(PlatformTuple()) == legacyLibrary {
+					t.Fatalf("current registration = %#v", current)
+				}
+				if _, err := os.Stat(current.Driver.Shared.Get(PlatformTuple())); err != nil {
+					t.Fatalf("new library is unavailable: %v", err)
+				}
+				return
+			}
+			if installErr == nil {
+				t.Fatal("expected installation failure")
+			}
+			current, err := GetDriver(cfg, "driver")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.Driver.Shared.Get(PlatformTuple()) != legacyLibrary || current.Version.String() != "0.9.0" {
+				t.Fatalf("failed replacement changed registration: %#v", current)
+			}
+			if data, err := os.ReadFile(legacyLibrary); err != nil || string(data) != "legacy library" {
+				t.Fatalf("failed replacement changed legacy payload: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestInstallPackageLegacyCleanupFailureDoesNotFailCommit(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	legacyGeneration, _ := createLegacyPackageForInstall(t, cfg, "driver", "0.9.0", "legacy")
+	cleanupErr := errors.New("legacy cleanup failed")
+	operations := testPackageInstallOperations()
+	operations.removeAll = func(path string) error {
+		if path == legacyGeneration {
+			return cleanupErr
+		}
+		return os.RemoveAll(path)
+	}
+	archive := testPackageArchive(t, "new")
+	if _, err := installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations); err != nil {
+		t.Fatalf("legacy cleanup failure changed install result: %v", err)
+	}
+	current, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Version.String() != "1.0.0" {
+		t.Fatalf("current version = %s", current.Version)
+	}
+	if _, err := os.Stat(current.Driver.Shared.Get(PlatformTuple())); err != nil {
+		t.Fatalf("committed library is unavailable: %v", err)
+	}
+	if _, err := os.Stat(legacyGeneration); err != nil {
+		t.Fatalf("failed best-effort cleanup did not retain legacy generation: %v", err)
+	}
+}
+
+func TestInstallPackageRetainsUnprovenLegacyCandidates(t *testing.T) {
+	for _, mode := range []string{"malformed registration", "symlink registration", "arbitrary basename", "corrupt legacy receipt", "missing transaction receipt", "corrupt transaction receipt"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			legacyGeneration, _ := createLegacyPackageForInstall(t, cfg, "driver", "0.9.0", "legacy")
+			unprovenPath := legacyGeneration
+			switch mode {
+			case "malformed registration":
+				if err := os.WriteFile(filepath.Join(root, "driver.toml"), []byte("not valid ["), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "symlink registration":
+				target := filepath.Join(t.TempDir(), "registration.toml")
+				registration, err := os.ReadFile(filepath.Join(root, "driver.toml"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(target, registration, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(filepath.Join(root, "driver.toml")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "driver.toml")); err != nil {
+					t.Skipf("symlink creation is unavailable: %v", err)
+				}
+			case "arbitrary basename":
+				arbitrary := filepath.Join(root, "release-bundle")
+				if err := os.MkdirAll(arbitrary, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				library := filepath.Join(arbitrary, "driver.so")
+				if err := os.WriteFile(library, []byte("legacy"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				info, err := GetDriver(cfg, "driver")
+				if err != nil {
+					t.Fatal(err)
+				}
+				info.Driver.Shared.Set(PlatformTuple(), library)
+				if err := createRuntimeRegistrationUnlocked(cfg, root, info); err != nil {
+					t.Fatal(err)
+				}
+				unprovenPath = arbitrary
+			case "corrupt legacy receipt":
+				if err := os.WriteFile(filepath.Join(legacyGeneration, packageInstallReceiptFilename), []byte("{"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "missing transaction receipt", "corrupt transaction receipt":
+				transaction := filepath.Join(root, ".dbc-package-driver-unproven")
+				if err := os.Mkdir(transaction, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "corrupt transaction receipt" {
+					if err := os.WriteFile(filepath.Join(transaction, packageInstallReceiptFilename), []byte("{"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			archive := testPackageArchive(t, "new")
+			if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(unprovenPath); err != nil {
+				t.Fatalf("unproven candidate %s was removed: %v", unprovenPath, err)
+			}
+			if mode == "missing transaction receipt" || mode == "corrupt transaction receipt" {
+				transaction := filepath.Join(root, ".dbc-package-driver-unproven")
+				if _, err := os.Stat(transaction); err != nil {
+					t.Fatalf("unproven transaction generation was removed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallPackageLegacyCleanupRespectsReferencesAndUncertainty(t *testing.T) {
+	for _, mode := range []string{"sibling reference", "new manifest-only reference", "uncertain reference snapshot"} {
+		t.Run(mode, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			legacyGeneration, legacyLibrary := createLegacyPackageForInstall(t, cfg, "driver", "0.9.0", "legacy")
+			if mode == "sibling reference" {
+				sibling := DriverInfo{ID: "sibling", Name: "Sibling", Version: semver.MustParse("1.0.0"), Source: "external"}
+				sibling.Driver.Shared.Set(PlatformTuple(), legacyLibrary)
+				if err := createRuntimeRegistrationUnlocked(cfg, root, sibling); err != nil {
+					t.Fatal(err)
+				}
+			} else if mode == "uncertain reference snapshot" {
+				if err := os.WriteFile(filepath.Join(root, "sibling.toml"), []byte("invalid = ["), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var archive *os.File
+			if mode == "new manifest-only reference" {
+				archive = writeCustomPackageArchive(t, fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", legacyLibrary))
+			} else {
+				archive = testPackageArchive(t, "new")
+			}
+			if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(legacyGeneration); err != nil {
+				t.Fatalf("referenced or uncertain legacy generation was removed: %v", err)
+			}
+		})
+	}
+}
+
+func TestInstallPackageLegacyMetadataCleanupPreservesExternalLibrary(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	external := filepath.Join(t.TempDir(), "external.so")
+	if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyGeneration := filepath.Join(root, "driver_"+PlatformTuple()+"_v0.9.0")
+	if err := os.Mkdir(legacyGeneration, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyGeneration, "NOTICE"), []byte("metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := DriverInfo{ID: "driver", Name: "Driver", Version: semver.MustParse("0.9.0"), Source: "dbc"}
+	legacy.Driver.Shared.Set(PlatformTuple(), external)
+	if err := createRuntimeRegistrationUnlocked(cfg, root, legacy); err != nil {
+		t.Fatal(err)
+	}
+	archive := testPackageArchive(t, "new")
+	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(legacyGeneration); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy metadata sidecar remains: %v", err)
+	}
+	if data, err := os.ReadFile(external); err != nil || string(data) != "external" {
+		t.Fatalf("external library was removed or changed: %q, %v", data, err)
+	}
+}
+
+func TestInstallPackageLegacyCleanupUsesPrimaryRootOnly(t *testing.T) {
+	primary, secondary := t.TempDir(), t.TempDir()
+	primaryCfg := Config{Level: ConfigEnv, Location: primary}
+	secondaryCfg := Config{Level: ConfigEnv, Location: secondary}
+	secondaryGeneration, _ := createLegacyPackageForInstall(t, secondaryCfg, "driver", "0.9.0", "secondary legacy")
+	cfg := Config{Level: ConfigEnv, Location: primary + string(filepath.ListSeparator) + secondary}
+	archive := testPackageArchive(t, "new")
+	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GetDriver(primaryCfg, "driver"); err != nil {
+		t.Fatalf("primary registration was not installed: %v", err)
+	}
+	if _, err := os.Stat(secondaryGeneration); err != nil {
+		t.Fatalf("secondary legacy generation was modified: %v", err)
+	}
+}
+
+func TestInstallPackageStageRuntimeIDIgnoresOnlyCurrentStagingEntry(t *testing.T) {
+	for _, preexistingEvidence := range []bool{false, true} {
+		name := "current staging entry only"
+		if preexistingEvidence {
+			name = "preexisting transaction evidence"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			legacyGeneration, _ := createLegacyPackageForInstall(t, cfg, "stage", "0.9.0", "legacy")
+			if preexistingEvidence {
+				if err := os.Mkdir(filepath.Join(root, ".dbc-package-stage-preexisting"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			archive := testPackageArchive(t, "new")
+			if _, err := InstallPackage(cfg, "stage", archive, InstallPackageOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			_, err := os.Stat(legacyGeneration)
+			if preexistingEvidence && err != nil {
+				t.Fatalf("preexisting transaction evidence failed to protect legacy predecessor: %v", err)
+			}
+			if !preexistingEvidence && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("current staging entry prevented legacy cleanup: %v", err)
+			}
+		})
+	}
+}
+
+func createLegacyPackageForInstall(t *testing.T, cfg Config, runtimeID, version, contents string) (string, string) {
+	t.Helper()
+	root, err := EnsureLocation(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Join(root, runtimeID+"_"+PlatformTuple()+"_v"+version)
+	if err := os.Mkdir(generation, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	library := filepath.Join(generation, runtimeID+".so")
+	if err := os.WriteFile(library, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := DriverInfo{ID: runtimeID, Name: "Driver", Version: semver.MustParse(version), Source: "dbc"}
+	info.Driver.Shared.Set(PlatformTuple(), library)
+	if err := createRuntimeRegistrationUnlocked(cfg, root, info); err != nil {
+		t.Fatal(err)
+	}
+	return generation, library
+}
