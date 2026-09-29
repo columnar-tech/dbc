@@ -243,7 +243,6 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 }
 
 type installedDrvMsg struct {
-	removed     *config.DriverInfo
 	info        config.DriverInfo
 	postInstall []string
 }
@@ -265,7 +264,6 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
 		// TODO: Factor this out into config package, remove duplication with
 		// config.InstallDriver
-		var removedDriver *config.DriverInfo
 		if cfg.Exists {
 			// is driver installed already?
 			if drv, ok := cfg.Drivers[item.Driver.Path]; ok {
@@ -285,8 +283,6 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 					}
 
 					return alreadyInstalledDrvMsg{info: drv, item: item}
-				} else {
-					removedDriver = &drv
 				}
 			}
 		}
@@ -324,7 +320,6 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 			}
 
 			prog.Send(installedDrvMsg{
-				removed:     removedDriver,
 				info:        manifest.DriverInfo,
 				postInstall: manifest.PostInstall.Messages,
 			})
@@ -495,12 +490,6 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var printCmd tea.Cmd
 		if !s.jsonOutput {
 			printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
-			if msg.removed != nil {
-				printCmd = tea.Sequence(
-					printCmd,
-					tea.Printf("%s   removed %s-%s", checkMark, msg.removed.ID, msg.removed.Version),
-				)
-			}
 
 			if len(msg.postInstall) > 0 {
 				for _, m := range msg.postInstall {

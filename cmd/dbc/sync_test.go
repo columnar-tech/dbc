@@ -106,7 +106,8 @@ func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSe
 	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
 	m = SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
-	suite.runCmd(m)
+	out := suite.runCmd(m)
+	suite.NotContains(out, "removed")
 
 	primaryDriver, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
 	suite.Require().NoError(err)
@@ -144,7 +145,8 @@ func (suite *SubcommandTestSuite) TestSyncPrimaryVersionReplacementUpdatesRegist
 
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
 	m = SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
-	suite.runCmd(m)
+	out := suite.runCmd(m)
+	suite.NotContains(out, "removed")
 
 	current := suite.getInstalledDriver("test-driver-1")
 	currentLibrary := current.Driver.Shared.Get(config.PlatformTuple())
