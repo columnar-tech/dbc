@@ -132,6 +132,8 @@ func TestWindowsConfigAwareUninstallCleansDefaultAndCustomPackageRoots(t *testin
 				cfg := Config{Level: ConfigUser}
 				if locationKind == "custom" {
 					cfg.Location = t.TempDir()
+				} else {
+					cfg.Location = cfg.Level.ConfigLocation()
 				}
 				root, err := packageCleanupRoot(cfg, DriverInfo{FilePath: "HKCU\\SOFTWARE\\ADBC\\Drivers"})
 				if err != nil {

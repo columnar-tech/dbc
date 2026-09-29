@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,19 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/fslock"
 )
+
+func assertParentTraversalReferenceResolvesOnUnix(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		// Windows path resolution does not guarantee Unix's behavior for a
+		// parent component following a symlink. These tests assert conservative
+		// retention of the ambiguous reference, not that Windows resolves it.
+		return
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("fixture parent-traversal reference does not resolve: %v", err)
+	}
+}
 
 func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testing.T) {
 	for _, externalInsideRoot := range []bool{true, false} {
@@ -333,9 +347,7 @@ func TestInstallPackageConservativelyProtectsParentTraversalReference(t *testing
 		t.Skipf("symlink creation is unavailable: %v", err)
 	}
 	reference := link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(firstLibrary)
-	if _, err := os.Stat(reference); err != nil {
-		t.Fatalf("fixture parent-traversal reference does not resolve to the library: %v", err)
-	}
+	assertParentTraversalReferenceResolvesOnUnix(t, reference)
 	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", reference)
 	archive := writeCustomPackageArchive(t, manifest)
 	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
@@ -824,7 +836,9 @@ func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 				} else {
 					shared = alias + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(library)
 				}
-				if _, err := os.Stat(shared); err != nil {
+				if referenceKind == "parent-traversal" {
+					assertParentTraversalReferenceResolvesOnUnix(t, shared)
+				} else if _, err := os.Stat(shared); err != nil {
 					t.Fatalf("fixture alias does not resolve to library: %v", err)
 				}
 			}
@@ -1298,9 +1312,7 @@ func TestLegacyManifestOnlySidecarProtectsSymlinkParentTraversalReference(t *tes
 		t.Skipf("symlink creation is unavailable: %v", err)
 	}
 	reference := link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(external)
-	if _, err := os.Stat(reference); err != nil {
-		t.Fatalf("fixture parent-traversal reference does not resolve to the library: %v", err)
-	}
+	assertParentTraversalReferenceResolvesOnUnix(t, reference)
 	info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
 	info.Driver.Shared.Set(PlatformTuple(), reference)
 	if err := CreateManifest(cfg, info); err != nil {
