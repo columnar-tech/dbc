@@ -17,8 +17,11 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -197,12 +200,41 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	suite.Empty(suite.getFilesInTempDir())
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
+	registryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			_, _ = fmt.Fprint(w, installRegistryDriverIndex("test-driver-no-sig", "v1.1.0", "test-driver-no-sig.tar.gz"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer registryServer.Close()
+	client, err := dbc.NewClient(dbc.WithBaseURL(registryServer.URL))
+	suite.Require().NoError(err)
+	downloads := 0
+	base := baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			return client.Search(context.Background(), "")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloads++
+			return downloadTestPkg(pkg)
+		},
+	}
+
 	// Note: The UI output (first parameter) serves as documentation but isn't verified
 	// by validateOutput due to tea.WithoutRenderer() mode. Manual verification needed.
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
-		GetModelCustom(testBaseModel())
+		GetModelCustom(base)
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[-] verifying signature\r\n",
-		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir, suite.runCmd(m))
+	suite.Equal(1, downloads)
+
+	downloads = 0
+	m = InstallCmd{Driver: "test-driver-no-sig"}.GetModelCustom(base)
+	out = suite.runCmd(m)
+	suite.Contains(out, "already installed")
+	suite.NotContains(out, "signature")
+	suite.Zero(downloads, "same-version install should not download or reverify the package")
 }
 
 func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
