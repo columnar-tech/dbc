@@ -81,6 +81,21 @@ func TestWindowsNonEnvUninstallLockIgnoresCustomLocation(t *testing.T) {
 	}
 }
 
+func TestWindowsPackageInstallUsesRegistrationLockLocation(t *testing.T) {
+	for _, level := range []ConfigLevel{ConfigUser, ConfigSystem} {
+		t.Run(level.String(), func(t *testing.T) {
+			cfg := Config{Level: level, Location: filepath.Join(t.TempDir(), "custom-payload-root")}
+			lockLocation, err := packageInstallLockLocation(cfg, cfg.Location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := level.ConfigLocation(); lockLocation != want {
+				t.Fatalf("package install lock location = %q, want registration location %q", lockLocation, want)
+			}
+		})
+	}
+}
+
 func TestWindowsUninstallLockUsesDefaultLocation(t *testing.T) {
 	for _, level := range []ConfigLevel{ConfigUser, ConfigSystem} {
 		t.Run(level.String(), func(t *testing.T) {
