@@ -37,7 +37,11 @@ function createHostPathAdapter(platform, filesystem = fs, pathModule = path) {
     join: (...parts) => hostPathResult(() => slash(win.join(...parts.map(String)))),
     dir: (p) => hostPathResult(() => slash(win.dirname(String(p)))),
     base: (p) => hostPathResult(() => win.basename(String(p))),
-    rel: (from, to) => hostPathResult(() => slash(win.relative(String(from), String(to)))),
+    rel: (from, to) =>
+      hostPathResult(() => {
+        const relative = win.relative(String(from), String(to));
+        return relative ? slash(relative) : ".";
+      }),
     evalSymlinks: (p) => hostPathResult(() => slash((filesystem.realpathSync.native || filesystem.realpathSync)(String(p)))),
     equal: (a, b) => ({ value: win.resolve(String(a)).toLowerCase() === win.resolve(String(b)).toLowerCase(), error: "" }),
     mkdirAll: (p) => hostPathResult(() => filesystem.mkdirSync(String(p), { recursive: true })),

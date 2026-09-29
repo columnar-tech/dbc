@@ -124,12 +124,14 @@ assert.strictEqual(hostPath.join("C:/drivers", "generation", "driver.dll").value
 assert.strictEqual(hostPath.dir("C:/drivers/generation").value, "C:/drivers", "Windows dirname semantics");
 assert.strictEqual(hostPath.base("C:/drivers/generation").value, "generation", "Windows basename semantics");
 assert.strictEqual(hostPath.rel("C:/drivers", "C:/drivers/generation/driver.dll").value, "generation/driver.dll", "Windows relative path semantics");
+assert.strictEqual(hostPath.rel("C:/drivers", "C:/drivers").value, ".", "same drive path has dot relative path");
 assert.strictEqual(hostPath.equal("C:/Drivers", "c:/drivers").value, true, "Windows path equality ignores case");
 assert.strictEqual(hostPath.abs("//server/share/drivers").value, "//server/share/drivers", "UNC absolute path remains native");
 assert.strictEqual(hostPath.isAbs("//server/share/drivers").value, true, "UNC path is absolute");
 assert.strictEqual(hostPath.join("//server/share/drivers", "generation", "driver.dll").value, "//server/share/drivers/generation/driver.dll", "UNC join keeps server share");
 assert.strictEqual(hostPath.dir("//server/share/drivers/generation").value, "//server/share/drivers", "UNC dirname keeps server share");
 assert.strictEqual(hostPath.rel("//server/share/drivers", "//server/share/drivers/generation/driver.dll").value, "generation/driver.dll", "UNC relative path semantics");
+assert.strictEqual(hostPath.rel("//server/share/drivers", "//server/share/drivers").value, ".", "same UNC path has dot relative path");
 
 const fsCalls = [];
 const fakeFS = {
