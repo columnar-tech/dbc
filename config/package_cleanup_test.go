@@ -437,7 +437,38 @@ func TestRemovePackageGenerationDeletesReceiptAfterPayload(t *testing.T) {
 	}
 }
 
-func TestUninstallPayloadFailureKeepsRegistrationAndReceipt(t *testing.T) {
+func TestUninstallRegistrationFailurePreservesPackage(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	selected, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(selected.Driver.Shared.Get(PlatformTuple()))
+	registrationErr := errors.New("injected registration removal failure")
+	operations := packageCleanupOperations{
+		remove:    func(string) error { t.Fatal("package cleanup ran before registration commit"); return nil },
+		removeAll: func(string) error { t.Fatal("package cleanup ran before registration commit"); return nil },
+		removeRegistration: func(Config, DriverInfo) error {
+			return registrationErr
+		},
+	}
+	if err := uninstallDriverUnlockedWithCleanup(cfg, selected, operations); !errors.Is(err, registrationErr) {
+		t.Fatalf("uninstall error = %v, want injected registration error", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
+		t.Fatalf("registration changed after failed removal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
+		t.Fatalf("receipt changed after failed registration removal: %v", err)
+	}
+	if _, err := os.Stat(selected.Driver.Shared.Get(PlatformTuple())); err != nil {
+		t.Fatalf("payload changed after failed registration removal: %v", err)
+	}
+}
+
+func TestUninstallPayloadFailureAfterCommitLeavesReceipt(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -456,14 +487,18 @@ func TestUninstallPayloadFailureKeepsRegistrationAndReceipt(t *testing.T) {
 		},
 		removeAll: os.RemoveAll,
 	}
-	if err := uninstallDriverUnlockedWithCleanup(cfg, selected, operations); !errors.Is(err, cleanupErr) {
+	err = uninstallDriverUnlockedWithCleanup(cfg, selected, operations)
+	if !errors.Is(err, cleanupErr) {
 		t.Fatalf("uninstall error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
-		t.Fatalf("registration was removed after payload failure: %v", err)
+	if !strings.Contains(err.Error(), "registration was removed") || !strings.Contains(err.Error(), root) {
+		t.Fatalf("post-commit cleanup error lacks commit state or residual path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("registration remains after cleanup failure: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
-		t.Fatalf("ownership receipt was removed after payload failure: %v", err)
+		t.Fatalf("ownership receipt was removed after post-commit payload failure: %v", err)
 	}
 }
 

@@ -27,8 +27,9 @@ import (
 )
 
 type packageCleanupOperations struct {
-	remove    func(string) error
-	removeAll func(string) error
+	remove             func(string) error
+	removeAll          func(string) error
+	removeRegistration func(Config, DriverInfo) error
 }
 
 func cleanupInstalledPackage(cfg Config, root string, info DriverInfo, remove func(string) error, removeAll func(string) error) error {

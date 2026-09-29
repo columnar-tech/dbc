@@ -119,20 +119,33 @@ func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo
 		if err != nil {
 			return err
 		}
-		if err := cleanupInstalledPackageWithReferences(cfg, root, info, otherRegistrations, referencesCertain, operations); err != nil {
-			return fmt.Errorf("failed to delete driver shared object: %w", err)
+		if err := removeDriverRegistration(cfg, info, operations); err != nil {
+			return err
 		}
-	} else if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
+		if err := cleanupInstalledPackageWithReferences(cfg, root, info, otherRegistrations, referencesCertain, operations); err != nil {
+			return fmt.Errorf("driver registration was removed, but package cleanup failed; package files may remain under %s: %w", root, err)
+		}
+		return nil
+	}
+	if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
+	}
+	return removeDriverRegistration(cfg, info, operations)
+}
+
+func removeDriverRegistration(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
+	if operations.removeRegistration != nil {
+		return operations.removeRegistration(cfg, info)
 	}
 	if cfg.Level != ConfigEnv {
 		k, err := registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
 		if err != nil {
-			return err
+			return fmt.Errorf("open driver registry key for removal: %w", err)
 		}
-		defer k.Close()
-		if err := registry.DeleteKey(k, info.ID); err != nil {
-			return fmt.Errorf("failed to delete driver registry key: %w", err)
+		deleteErr := registry.DeleteKey(k, info.ID)
+		closeErr := k.Close()
+		if deleteErr != nil {
+			return fmt.Errorf("failed to delete driver registry key: %w", errors.Join(deleteErr, closeErr))
 		}
 		return nil
 	}

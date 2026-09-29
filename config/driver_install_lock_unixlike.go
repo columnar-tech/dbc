@@ -63,9 +63,28 @@ func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo
 		if err != nil {
 			return err
 		}
+		if err := removeDriverRegistration(cfg, info, operations); err != nil {
+			return err
+		}
 		if err := cleanupInstalledPackageWithReferences(cfg, root, info, otherRegistrations, referencesCertain, operations); err != nil {
+			return fmt.Errorf("driver registration was removed, but package cleanup failed; package files may remain under %s: %w", root, err)
+		}
+		return nil
+	}
+	if err := removeDriverRegistration(cfg, info, operations); err != nil {
+		return err
+	}
+	if info.Source != "dbc" {
+		if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
 			return fmt.Errorf("failed to delete driver shared object: %w", err)
 		}
+	}
+	return nil
+}
+
+func removeDriverRegistration(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
+	if operations.removeRegistration != nil {
+		return operations.removeRegistration(cfg, info)
 	}
 	manifest := hostpath.Join(info.FilePath, info.ID+".toml")
 	if err := os.Remove(manifest); err != nil {
@@ -75,10 +94,5 @@ func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo
 	// manifest)
 	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
 	removeManifestSymlink(info.FilePath, info.ID)
-	if info.Source != "dbc" {
-		if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
-			return fmt.Errorf("failed to delete driver shared object: %w", err)
-		}
-	}
 	return nil
 }
