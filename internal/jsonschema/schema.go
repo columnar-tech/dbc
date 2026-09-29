@@ -173,6 +173,8 @@ type ListDriverEntry struct {
 	Level string `json:"level"`
 	// Location is the filesystem path containing the driver's manifest.
 	Location string `json:"location"`
+	// Platform lists installed platform tuples when dbc list --all-platforms is used.
+	Platform string `json:"platform,omitempty"`
 }
 
 // ListResponse is the top-level JSON payload for the list command.
