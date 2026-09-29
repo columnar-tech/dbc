@@ -13,7 +13,9 @@
 // limitations under the License.
 
 // Package fslock provides advisory file locking for coordinating exclusive
-// access to shared resources across processes.
+// access to shared resources. Native platforms use operating-system file locks
+// to coordinate across processes. JavaScript/Wasm locking is limited to one Go
+// runtime; it does not coordinate separate Wasm instances or Node workers.
 package fslock
 
 import (

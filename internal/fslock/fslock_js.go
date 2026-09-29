@@ -24,15 +24,17 @@ import (
 	"time"
 )
 
-type processLock struct {
+type runtimeLock struct {
 	token chan struct{}
 	refs  int
 }
 
-var processLocks = struct {
+// runtimeLocks coordinates callers that share this Go/Wasm runtime only.
+// Separate Wasm instances and Node workers have independent registries.
+var runtimeLocks = struct {
 	sync.Mutex
-	byPath map[string]*processLock
-}{byPath: make(map[string]*processLock)}
+	byPath map[string]*runtimeLock
+}{byPath: make(map[string]*runtimeLock)}
 
 func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
 	if err := ctx.Err(); err != nil {
@@ -43,15 +45,15 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		return Lock{}, fmt.Errorf("fslock: resolve %s: %w", path, err)
 	}
 
-	processLocks.Lock()
-	entry := processLocks.byPath[canonicalPath]
+	runtimeLocks.Lock()
+	entry := runtimeLocks.byPath[canonicalPath]
 	if entry == nil {
-		entry = &processLock{token: make(chan struct{}, 1)}
+		entry = &runtimeLock{token: make(chan struct{}, 1)}
 		entry.token <- struct{}{}
-		processLocks.byPath[canonicalPath] = entry
+		runtimeLocks.byPath[canonicalPath] = entry
 	}
 	entry.refs++
-	processLocks.Unlock()
+	runtimeLocks.Unlock()
 
 	acquired := false
 	if timeout <= 0 {
@@ -71,12 +73,12 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		}
 	}
 	if !acquired {
-		processLocks.Lock()
+		runtimeLocks.Lock()
 		entry.refs--
 		if entry.refs == 0 {
-			delete(processLocks.byPath, canonicalPath)
+			delete(runtimeLocks.byPath, canonicalPath)
 		}
-		processLocks.Unlock()
+		runtimeLocks.Unlock()
 		if err := ctx.Err(); err != nil {
 			return Lock{}, err
 		}
@@ -84,32 +86,32 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	}
 	if err := ctx.Err(); err != nil {
 		entry.token <- struct{}{}
-		processLocks.Lock()
+		runtimeLocks.Lock()
 		entry.refs--
 		if entry.refs == 0 {
-			delete(processLocks.byPath, canonicalPath)
+			delete(runtimeLocks.byPath, canonicalPath)
 		}
-		processLocks.Unlock()
+		runtimeLocks.Unlock()
 		return Lock{}, err
 	}
 
 	var once sync.Once
 	return Lock{releaseFn: func() error {
 		once.Do(func() {
-			processLocks.Lock()
+			runtimeLocks.Lock()
 			entry.token <- struct{}{}
 			entry.refs--
 			if entry.refs == 0 {
-				delete(processLocks.byPath, canonicalPath)
+				delete(runtimeLocks.byPath, canonicalPath)
 			}
-			processLocks.Unlock()
+			runtimeLocks.Unlock()
 		})
 		return nil
 	}}, nil
 }
 
-// Release releases a process-local lock. JavaScript/Wasm locks coordinate only
-// callers in this process; they do not provide cross-process file locking.
+// Release releases a lock local to this Go/Wasm runtime. It does not coordinate
+// separate Wasm instances or Node workers.
 func (l Lock) Release() error {
 	if l.releaseFn == nil {
 		return nil
