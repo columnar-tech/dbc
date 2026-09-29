@@ -327,7 +327,7 @@ func TestFindDriverConfigs(t *testing.T) {
 }
 
 func TestUninstallDriverShared(t *testing.T) {
-	t.Run("dbc_source_removes_driver_dir", func(t *testing.T) {
+	t.Run("dbc_source_requires_config_aware_uninstall", func(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		driverDir := filepath.Join(tmpDir, "test-driver-1_"+config.PlatformTuple()+"_v1.0.0")
@@ -345,9 +345,8 @@ func TestUninstallDriverShared(t *testing.T) {
 		di.Driver.Shared.Set(config.PlatformTuple(), driverPath)
 
 		err := config.UninstallDriverShared(di)
-		require.NoError(t, err)
-
-		assert.NoDirExists(t, driverDir)
+		require.ErrorContains(t, err, "use UninstallDriver(cfg, info)")
+		assert.DirExists(t, driverDir)
 	})
 
 	t.Run("non_dbc_source_removes_file_only", func(t *testing.T) {

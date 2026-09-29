@@ -244,6 +244,37 @@ func hasTransactionEvidence(entries []fs.DirEntry, runtimeID string) bool {
 	return false
 }
 
+func safeToRemoveUnmanagedSharedFile(lexicalTarget string) bool {
+	if lexicalTarget == "" || hasParentTraversal(lexicalTarget) || hasReservedTransactionAncestor(lexicalTarget) {
+		return false
+	}
+	resolved, certain := canonicalFilesystemPath(lexicalTarget)
+	return certain && !hasReservedTransactionAncestor(resolved)
+}
+
+func hasReservedTransactionAncestor(path string) bool {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return true
+	}
+	for current := filepath.Clean(absolute); ; current = filepath.Dir(current) {
+		name := filepath.Base(current)
+		prefix := ".dbc-package-"
+		reservedName := strings.HasPrefix(name, prefix)
+		if runtime.GOOS == "windows" {
+			reservedName = strings.HasPrefix(strings.ToLower(name), prefix)
+		}
+		if reservedName && len(name) > len(prefix) {
+			return true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+	}
+	return false
+}
+
 func legacyPackageGeneration(root string, info DriverInfo) string {
 	if info.Source != "dbc" || validatePackageFilename(info.ID) != nil || info.Version == nil {
 		return ""

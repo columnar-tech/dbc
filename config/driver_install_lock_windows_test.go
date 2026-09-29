@@ -19,13 +19,13 @@ package config
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/fslock"
 )
 
@@ -125,6 +125,63 @@ func TestWindowsUninstallLockRejectsUnknownConfigLevel(t *testing.T) {
 	}
 }
 
+func TestWindowsConfigAwareUninstallCleansDefaultAndCustomPackageRoots(t *testing.T) {
+	for _, locationKind := range []string{"default", "custom"} {
+		for _, packageKind := range []string{"package-owned", "manifest-only"} {
+			t.Run(locationKind+"/"+packageKind, func(t *testing.T) {
+				cfg := Config{Level: ConfigUser}
+				if locationKind == "custom" {
+					cfg.Location = t.TempDir()
+				}
+				root, err := packageCleanupRoot(cfg, DriverInfo{FilePath: "HKCU\\SOFTWARE\\ADBC\\Drivers"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				id := fmt.Sprintf("dbc-cleanup-%d", time.Now().UnixNano())
+				var archive *os.File
+				var external string
+				if packageKind == "package-owned" {
+					archive = testPackageArchive(t, "library")
+				} else {
+					external = filepath.Join(t.TempDir(), "external.dll")
+					if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external)
+					archive = writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
+				}
+				if _, err := InstallPackage(cfg, id, archive, InstallPackageOptions{}); err != nil {
+					t.Fatal(err)
+				}
+				assertArchiveClosed(t, archive)
+				selected, err := GetDriver(cfg, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				generations := packageGenerationNames(t, root, id)
+				if len(generations) != 1 {
+					t.Fatalf("installed generation count = %d, want 1", len(generations))
+				}
+				generation := filepath.Join(root, generations[0])
+				if err := UninstallDriver(cfg, selected); err != nil {
+					t.Fatalf("config-aware uninstall: %v", err)
+				}
+				if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("owned generation remains: %v", err)
+				}
+				if packageKind == "manifest-only" {
+					if _, err := os.Stat(external); err != nil {
+						t.Fatalf("external library was removed: %v", err)
+					}
+				}
+				if _, err := GetDriver(cfg, id); err == nil {
+					t.Fatal("runtime registration remains after uninstall")
+				}
+			})
+		}
+	}
+}
+
 func TestWindowsRegistrationNamespaceIdentityUsesRegistryScope(t *testing.T) {
 	for _, level := range []ConfigLevel{ConfigUser, ConfigSystem} {
 		first, firstDir, firstRegistration, err := registrationNamespaceLockSpec(Config{Level: level, Location: filepath.Join(t.TempDir(), "payload-a")}, filepath.Join(t.TempDir(), "payload-a"))
@@ -204,66 +261,5 @@ func TestWindowsFileRegistrationNamespaceSymlinkAliasesShareLock(t *testing.T) {
 	}
 	if firstDriverLock == aliasDriverLock {
 		t.Fatal("expected existing driver lock path to differ through a symlink alias")
-	}
-}
-
-func TestWindowsRegistryCleanupRootRequiresMatchingTransactionReceipt(t *testing.T) {
-	cfg := Config{Level: ConfigUser}
-	root := t.TempDir()
-	id := "driver-root-check"
-	generationName := ".dbc-package-" + id + "-generation"
-	generation := filepath.Join(root, generationName)
-	if err := os.Mkdir(generation, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(generation, "driver.dll"), []byte("library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := DriverInfo{
-		ID:      id,
-		Name:    "Root check",
-		Source:  "dbc",
-		Version: semver.MustParse("1.2.3"),
-	}
-	info.Driver.Shared.Set(PlatformTuple(), filepath.Join(generation, "driver.dll"))
-	manifest := Manifest{DriverInfo: info}
-	manifest.Files.Driver = "driver.dll"
-	stage := t.TempDir()
-	if err := os.WriteFile(filepath.Join(stage, "driver.dll"), []byte("library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := makePackageInstallReceipt(cfg, stage, generationName, id, PlatformTuple(), manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writePackageInstallReceipt(generation, receipt); err != nil {
-		t.Fatal(err)
-	}
-	got, err := packageCleanupRootForSharedHelper(cfg, info)
-	if err != nil {
-		t.Fatalf("infer root for file inside valid generation: %v", err)
-	}
-	if got != root {
-		t.Fatalf("inferred root = %q, want %q", got, root)
-	}
-
-	// A directory-valued shared reference can identify the generation itself.
-	directoryInfo := info
-	directoryInfo.Driver.Shared.Set(PlatformTuple(), generation)
-	got, err = packageCleanupRootForSharedHelper(cfg, directoryInfo)
-	if err != nil || got != root {
-		t.Fatalf("infer root for directory-valued generation: got %q, err %v", got, err)
-	}
-
-	badReceipt := receipt
-	badReceipt.RuntimeID = "another-driver"
-	if err := os.Remove(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
-		t.Fatal(err)
-	}
-	if err := writePackageInstallReceipt(generation, badReceipt); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := packageCleanupRootForSharedHelper(cfg, info); err == nil {
-		t.Fatal("root inference accepted a receipt for another runtime ID")
 	}
 }

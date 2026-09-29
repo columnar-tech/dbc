@@ -17,7 +17,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,30 +47,4 @@ func registrationNamespaceLockSpec(_ Config, location string) (identity, lockDir
 
 func collectRegistrationSharedMaps(_ Config, location, excludedID string) ([]driverMap, bool, error) {
 	return collectFileRegistrationSharedMaps(location, excludedID)
-}
-
-func packageCleanupRootForSharedHelper(cfg Config, info DriverInfo) (string, error) {
-	return packageCleanupRoot(cfg, info)
-}
-
-func readDriverRegistrationForSharedCleanup(_ Config, info DriverInfo) (current DriverInfo, exists bool, err error) {
-	if info.FilePath == "" {
-		return DriverInfo{}, false, fmt.Errorf("driver %q has no registration location", info.ID)
-	}
-	path := filepath.Join(info.FilePath, info.ID+".toml")
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return DriverInfo{}, false, nil
-	}
-	if err != nil {
-		return DriverInfo{}, false, fmt.Errorf("open current registration %s: %w", path, err)
-	}
-	manifest, decodeErr := decodeManifest(file, info.ID, true)
-	closeErr := file.Close()
-	if decodeErr != nil || closeErr != nil {
-		cause := errors.Join(decodeErr, closeErr)
-		return DriverInfo{}, false, fmt.Errorf("read current registration %s: %w", path, cause)
-	}
-	manifest.DriverInfo.FilePath = info.FilePath
-	return manifest.DriverInfo, true, nil
 }

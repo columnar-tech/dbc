@@ -15,7 +15,6 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -26,7 +25,6 @@ import (
 	"runtime"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -307,8 +305,9 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 	return result, nil
 }
 
-// Common, non-platform-specific code for uninstalling a driver. Called by
-// platform-specific UninstallDriver function.
+// UninstallDriverShared only supports non-dbc registrations. Since version
+// 0.4.0, dbc registrations must use UninstallDriver with its Config so package
+// ownership, registration scope, and sibling references can be verified.
 func UninstallDriverShared(info DriverInfo) error {
 	return uninstallDriverSharedForConfig(Config{Level: ConfigUnknown}, info)
 }
@@ -317,53 +316,10 @@ func uninstallDriverSharedForConfig(cfg Config, info DriverInfo) error {
 	return uninstallDriverSharedWithOperations(cfg, info, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
 }
 
-func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations packageCleanupOperations) (err error) {
+func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
 	cfg = packageCleanupConfig(cfg, info)
 	if info.Source == "dbc" {
-		location, err := uninstallLockLocation(cfg, info)
-		if err != nil {
-			return fmt.Errorf("resolve package registration location: %w", err)
-		}
-		if err := prepareDriverUninstallLockLocation(cfg, location); err != nil {
-			return fmt.Errorf("prepare package registration lock location: %w", err)
-		}
-		driverLock, err := acquireDriverInstallLockWith(context.Background(), location, info.ID, 10*time.Second)
-		if err != nil {
-			return fmt.Errorf("acquire package driver lock: %w", err)
-		}
-		defer func() { err = errors.Join(err, driverLock.release()) }()
-		namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, location, 10*time.Second)
-		if err != nil {
-			return err
-		}
-		defer func() { err = errors.Join(err, namespaceLock.release()) }()
-		current, exists, currentErr := readDriverRegistrationForSharedCleanup(cfg, info)
-		if currentErr != nil {
-			return fmt.Errorf("cannot safely clean managed package without reading its current registration: %w", currentErr)
-		}
-		excludedID := ""
-		if exists {
-			if !sameDriverRegistration(info, current) {
-				return fmt.Errorf("cannot safely clean managed package: %w", errDriverRegistrationChanged)
-			}
-			info = current
-			excludedID = current.ID
-		}
-		registrations, certain, snapshotErr := collectRegistrationSharedMaps(cfg, registrationLocation, excludedID)
-		if !certain {
-			if snapshotErr == nil {
-				snapshotErr = errors.New("registration snapshot is incomplete")
-			}
-			return fmt.Errorf("cannot safely clean managed package with an incomplete registration snapshot: %w", snapshotErr)
-		}
-		root, err := packageCleanupRootForSharedHelper(cfg, info)
-		if err != nil {
-			return err
-		}
-		if root == "" {
-			return errors.New("cannot safely clean managed package without a known payload root")
-		}
-		return cleanupInstalledPackageWithReferences(cfg, root, info, registrations, true, operations)
+		return errors.New("UninstallDriverShared does not remove dbc package payloads; use UninstallDriver(cfg, info)")
 	}
 
 	// For the User and System config levels, info.FilePath is set to the
@@ -383,64 +339,29 @@ func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations
 	defer root.Close()
 
 	for sharedPath := range info.Driver.Shared.Paths() {
-		// Make sharedPath relative to info.FilePath and use it within root
-		// to ensure that nothing can escape the intended directory.
-		// (i.e. avoid malicious driver manifests)
-		sharedPath, err = filepath.Rel(filesystemLocation, sharedPath)
-		if err != nil {
-			// If we can't make it relative, something is wrong, skip
+		if hasParentTraversal(sharedPath) {
 			continue
 		}
 
-		// dbc installs drivers in a folder, other tools may not so we handle each
-		// differently.
-		if info.Source == "dbc" {
-			sharedDir := filepath.Dir(sharedPath)
-			// Edge case when manifest is ill-formed: if sharedPath is set to the
-			// folder containing the shared library instead of the shared library
-			// itself, sharedDir is info.FilePath and we definitely don't want to
-			// remove that
-			if sharedDir == "." {
+		relativePath, err := filepath.Rel(filesystemLocation, sharedPath)
+		if err != nil || filepath.IsAbs(relativePath) || relativePath == "." || hasParentTraversal(relativePath) {
+			// If the reference is outside the registration root or uncertain,
+			// retain it rather than allowing cleanup to escape the root.
+			continue
+		}
+		lexicalTarget := filepath.Join(filesystemLocation, relativePath)
+		if !safeToRemoveUnmanagedSharedFile(lexicalTarget) {
+			continue
+		}
+		if err := root.Remove(relativePath); err != nil {
+			// Ignore only when not found. This supports manifest-only drivers.
+			// TODO: Come up with a better mechanism to handle manifest-only drivers
+			// and remove this continue when we do
+			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-
-			if err := root.RemoveAll(sharedDir); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		} else {
-			if err := root.Remove(sharedPath); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
+			return fmt.Errorf("error removing driver %s: %w", info.ID, err)
 		}
-	}
-
-	// Special handling to clean up manifest-only drivers
-	//
-	// Manifest only drivers can come with extra files such as a LICENSE and we
-	// create a folder next to the driver manifest to store them, same as we'd
-	// store the actual driver shared library. Above, we find the path of this
-	// folder by looking at the Driver.shared path. For manifest-only drivers,
-	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
-	// work. We do want to clean this folder up so here we guess what it is and
-	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
-	extraFolder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
-	extraFolder = filepath.Clean(extraFolder)
-	finfo, err := root.Stat(extraFolder)
-	if err == nil && finfo.IsDir() && extraFolder != "." {
-		_ = root.RemoveAll(extraFolder)
-		// ignore errors
 	}
 
 	return nil
