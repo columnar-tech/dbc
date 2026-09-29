@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -487,7 +488,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	}
 
 	return m, func() tea.Msg {
-		manifest, err := config.InstallPackage(m.cfg, m.Driver, downloaded, config.InstallPackageOptions{
+		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, config.InstallPackageOptions{
 			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
 				m = m.addEvent("extract.complete")
 				m = m.addEvent("verify.start")

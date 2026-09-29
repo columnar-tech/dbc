@@ -54,9 +54,13 @@ type packageInstallOperations struct {
 // generations and a strictly proven legacy predecessor are removed on a
 // best-effort basis. An error while releasing the driver lock can be returned
 // after commit; in that case the new generation remains installed. This API
-// does not promise durability across power loss.
-func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions) (manifest Manifest, err error) {
-	return installPackageWithOperations(cfg, runtimeID, downloaded, options, packageInstallOperations{
+// does not promise durability across power loss. Context cancellation is
+// checked at transaction boundaries but does not interrupt archive extraction
+// or verification. Once registration starts, it completes; a successful
+// registration is reported as success even if the context is canceled during
+// that update.
+func InstallPackage(ctx context.Context, cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions) (manifest Manifest, err error) {
+	return installPackageWithContextAndOperations(ctx, cfg, runtimeID, downloaded, options, packageInstallOperations{
 		rename:       os.Rename,
 		remove:       os.Remove,
 		removeAll:    os.RemoveAll,
@@ -66,6 +70,13 @@ func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, options I
 }
 
 func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions, operations packageInstallOperations) (manifest Manifest, err error) {
+	return installPackageWithContextAndOperations(context.Background(), cfg, runtimeID, downloaded, options, operations)
+}
+
+func installPackageWithContextAndOperations(ctx context.Context, cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions, operations packageInstallOperations) (manifest Manifest, err error) {
+	if ctx == nil {
+		return Manifest{}, errors.New("install context is nil")
+	}
 	if downloaded == nil {
 		return Manifest{}, errors.New("downloaded package file is nil")
 	}
@@ -95,11 +106,14 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	if err := preparePackageInstallLockLocation(cfg, lockLocation); err != nil {
 		return Manifest{}, fmt.Errorf("prepare driver install lock location: %w", err)
 	}
-	lock, err := acquireDriverInstallLockWith(context.Background(), lockLocation, runtimeID, 10*time.Second)
+	lock, err := acquireDriverInstallLockWith(ctx, lockLocation, runtimeID, 10*time.Second)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("acquire driver install lock: %w", err)
 	}
 	defer func() { err = errors.Join(err, lock.release()) }()
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, fmt.Errorf("install canceled before staging: %w", err)
+	}
 
 	stageDir, manifest, _, err := extractPackageArchive(downloaded, location)
 	if err != nil {
@@ -149,11 +163,17 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 		manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
 	}
 	if options.Verifier != nil {
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, fmt.Errorf("install canceled before package verification: %w", err)
+		}
 		if err := options.Verifier(stageDir, manifest); err != nil {
 			return Manifest{}, fmt.Errorf("verify package: %w", err)
 		}
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, fmt.Errorf("install canceled after package verification: %w", err)
+		}
 	}
-	namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(context.Background(), cfg, lockLocation, 10*time.Second)
+	namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(ctx, cfg, lockLocation, 10*time.Second)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -167,6 +187,9 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 		return Manifest{}, fmt.Errorf("write package install receipt: %w", err)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, fmt.Errorf("install canceled before publishing package generation: %w", err)
+	}
 	if err := os.Chmod(stageDir, 0o755); err != nil {
 		return Manifest{}, fmt.Errorf("prepare package generation: %w", err)
 	}
@@ -179,6 +202,9 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 		manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
 	}
 
+	if err := ctx.Err(); err != nil {
+		return Manifest{}, cleanupFailedPackageRegistration(generationDir, fmt.Errorf("install canceled before registration: %w", err), operations.removeAll)
+	}
 	if err := operations.register(cfg, location, manifest.DriverInfo); err != nil {
 		return Manifest{}, cleanupFailedPackageRegistration(generationDir, err, operations.removeAll)
 	}

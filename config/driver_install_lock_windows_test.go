@@ -152,7 +152,7 @@ func TestWindowsConfigAwareUninstallCleansDefaultAndCustomPackageRoots(t *testin
 					manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external)
 					archive = writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
 				}
-				if _, err := InstallPackage(cfg, id, archive, InstallPackageOptions{}); err != nil {
+				if _, err := InstallPackage(context.Background(), cfg, id, archive, InstallPackageOptions{}); err != nil {
 					t.Fatal(err)
 				}
 				assertArchiveClosed(t, archive)

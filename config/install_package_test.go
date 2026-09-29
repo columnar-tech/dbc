@@ -15,6 +15,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -30,7 +31,7 @@ func TestInstallPackagePublishesAndRegistersGeneration(t *testing.T) {
 	cfg := Config{Level: ConfigEnv, Location: location}
 	archive := writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"/external/default.so\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", "library"))
 	var stagingPath string
-	manifest, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{Verifier: func(stage string, m Manifest) error {
+	manifest, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{Verifier: func(stage string, m Manifest) error {
 		stagingPath = stage
 		got := m.Driver.Shared.Get(PlatformTuple())
 		if got == filepath.Join(stage, "driver.so") || !packageGenerationNameMatches(filepath.Base(filepath.Dir(got)), "driver") {
@@ -83,7 +84,7 @@ func TestInstallPackageFailurePreservesPreviousGeneration(t *testing.T) {
 	cfg := Config{Level: ConfigEnv, Location: location}
 	install := func(contents string, verifier PackageVerifier) error {
 		archive := writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", contents))
-		_, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{Verifier: verifier})
+		_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{Verifier: verifier})
 		if _, statErr := archive.Stat(); statErr == nil {
 			t.Error("archive remains open")
 		}
@@ -107,7 +108,7 @@ func TestInstallPackageFailurePreservesPreviousGeneration(t *testing.T) {
 	})
 	t.Run("invalid archive", func(t *testing.T) {
 		archive := writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"missing.so\"\n")
-		_, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{})
+		_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{})
 		if err == nil {
 			t.Fatal("expected invalid archive error")
 		}
@@ -205,6 +206,118 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 	})
 }
 
+func TestInstallPackageContextCancellation(t *testing.T) {
+	t.Run("driver lock wait", func(t *testing.T) {
+		location := t.TempDir()
+		cfg := Config{Level: ConfigEnv, Location: location}
+		lock, err := acquireDriverInstallLockWith(context.Background(), location, "driver", time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lock.release()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		archive := testPackageArchive(t, "new")
+		result := make(chan error, 1)
+		go func() {
+			_, installErr := InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{})
+			result <- installErr
+		}()
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+		if err := <-result; !errors.Is(err, context.Canceled) {
+			t.Fatalf("InstallPackage error = %v, want context.Canceled", err)
+		}
+		assertArchiveClosed(t, archive)
+	})
+
+	t.Run("registration namespace lock wait", func(t *testing.T) {
+		location := t.TempDir()
+		cfg := Config{Level: ConfigEnv, Location: location}
+		if _, err := EnsureLocation(cfg); err != nil {
+			t.Fatal(err)
+		}
+		lock, _, err := acquireRegistrationNamespaceLock(context.Background(), cfg, location, time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lock.release()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		archive := testPackageArchive(t, "new")
+		verifierStarted := make(chan struct{})
+		result := make(chan error, 1)
+		go func() {
+			_, installErr := InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{
+				Verifier: func(string, Manifest) error {
+					close(verifierStarted)
+					return nil
+				},
+			})
+			result <- installErr
+		}()
+		<-verifierStarted
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+		if err := <-result; !errors.Is(err, context.Canceled) {
+			t.Fatalf("InstallPackage error = %v, want context.Canceled", err)
+		}
+		assertArchiveClosed(t, archive)
+		if _, err := GetDriver(cfg, "driver"); err == nil {
+			t.Fatal("registration was created after namespace lock cancellation")
+		}
+	})
+
+	t.Run("cancellation during verifier preserves registration", func(t *testing.T) {
+		location := t.TempDir()
+		cfg := Config{Level: ConfigEnv, Location: location}
+		installInitialPackage(t, cfg)
+		previous, err := GetDriver(cfg, "driver")
+		if err != nil {
+			t.Fatal(err)
+		}
+		previousPath := previous.Driver.Shared.Get(PlatformTuple())
+		ctx, cancel := context.WithCancel(context.Background())
+		archive := testPackageArchive(t, "new")
+		_, err = InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{
+			Verifier: func(string, Manifest) error {
+				cancel()
+				return nil
+			},
+		})
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("InstallPackage error = %v, want context.Canceled", err)
+		}
+		assertArchiveClosed(t, archive)
+		assertPreviousPackage(t, cfg, previousPath)
+	})
+
+	t.Run("cancellation after registration begins keeps committed install successful", func(t *testing.T) {
+		location := t.TempDir()
+		cfg := Config{Level: ConfigEnv, Location: location}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		archive := testPackageArchive(t, "new")
+		operations := testPackageInstallOperations()
+		operations.register = func(cfg Config, location string, driver DriverInfo) error {
+			cancel()
+			return createRuntimeRegistrationUnlocked(cfg, location, driver)
+		}
+		manifest, err := installPackageWithContextAndOperations(ctx, cfg, "driver", archive, InstallPackageOptions{}, operations)
+		if err != nil {
+			t.Fatalf("InstallPackage error after commit = %v", err)
+		}
+		assertArchiveClosed(t, archive)
+		registered, err := GetDriver(cfg, "driver")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if registered.Driver.Shared.Get(PlatformTuple()) != manifest.Driver.Shared.Get(PlatformTuple()) {
+			t.Fatalf("registration = %q, returned manifest = %q", registered.Driver.Shared.Get(PlatformTuple()), manifest.Driver.Shared.Get(PlatformTuple()))
+		}
+	})
+}
+
 func TestInstallPackageReportsPrecommitCleanupFailures(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}
@@ -264,7 +377,7 @@ func TestInstallPackageManifestOnlyAndMalformedRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	archive := writeCustomPackageArchive(t, "name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"/external/lib.so\"\n")
-	if _, err := InstallPackage(cfg, "external", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	registered, err := GetDriver(cfg, "external")
@@ -286,7 +399,7 @@ func TestInstallPackageRejectsManifestOnlyWithoutCurrentPlatformLibrary(t *testi
 	quotedPath := strings.ReplaceAll(externalLibrary, `\`, `\\`)
 	validManifest := fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"%s\"\n", quotedPath)
 	archive := writeCustomPackageArchive(t, validManifest)
-	if _, err := InstallPackage(cfg, "external", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -309,7 +422,7 @@ func TestInstallPackageRejectsManifestOnlyWithoutCurrentPlatformLibrary(t *testi
 	for _, test := range invalidManifests {
 		t.Run(test.name, func(t *testing.T) {
 			invalidArchive := writeCustomPackageArchive(t, test.manifest)
-			_, installErr := InstallPackage(cfg, "external", invalidArchive, InstallPackageOptions{})
+			_, installErr := InstallPackage(context.Background(), cfg, "external", invalidArchive, InstallPackageOptions{})
 			if installErr == nil || !strings.Contains(installErr.Error(), "no shared library for platform") {
 				t.Fatalf("InstallPackage error = %v", installErr)
 			}
@@ -344,7 +457,7 @@ func TestInstallPackageNormalizesRelativePayloadRoot(t *testing.T) {
 	}
 	cfg := Config{Level: ConfigEnv, Location: relativeLocation}
 	archive := testPackageArchive(t, "library")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -366,7 +479,7 @@ func TestInstallPackageEnvOnlyTouchesPrimaryRoot(t *testing.T) {
 	}
 	cfg := Config{Level: ConfigEnv, Location: primary + string(filepath.ListSeparator) + secondary}
 	archive := writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", "library"))
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(secondary)
@@ -384,7 +497,7 @@ func TestInstallPackageSerializesSameDriver(t *testing.T) {
 	release := make(chan struct{})
 	firstDone := make(chan error, 1)
 	go func() {
-		_, err := InstallPackage(cfg, "driver", firstArchive, InstallPackageOptions{Verifier: func(string, Manifest) error {
+		_, err := InstallPackage(context.Background(), cfg, "driver", firstArchive, InstallPackageOptions{Verifier: func(string, Manifest) error {
 			close(entered)
 			<-release
 			return nil
@@ -399,7 +512,7 @@ func TestInstallPackageSerializesSameDriver(t *testing.T) {
 	secondEntered := make(chan struct{})
 	secondDone := make(chan error, 1)
 	go func() {
-		_, err := InstallPackage(cfg, "driver", secondArchive, InstallPackageOptions{Verifier: func(string, Manifest) error {
+		_, err := InstallPackage(context.Background(), cfg, "driver", secondArchive, InstallPackageOptions{Verifier: func(string, Manifest) error {
 			close(secondEntered)
 			return nil
 		}})
@@ -437,7 +550,7 @@ func TestInstallPackageSharesLockWithUninstall(t *testing.T) {
 	release := make(chan struct{})
 	installDone := make(chan error, 1)
 	go func() {
-		_, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{Verifier: func(string, Manifest) error {
+		_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{Verifier: func(string, Manifest) error {
 			close(entered)
 			<-release
 			return nil
@@ -499,7 +612,7 @@ func testPackageInstallOperations() packageInstallOperations {
 func installInitialPackage(t *testing.T, cfg Config) {
 	t.Helper()
 	archive := testPackageArchive(t, "old")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)

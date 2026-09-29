@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -301,7 +302,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				return
 			}
 
-			manifest, err := config.InstallPackage(cfg, item.Driver.Path, output, config.InstallPackageOptions{
+			manifest, err := config.InstallPackage(context.Background(), cfg, item.Driver.Path, output, config.InstallPackageOptions{
 				Verifier: func(stagingDir string, manifest config.Manifest) error {
 					if err := verifySignatureInStaging(stagingDir, manifest, s.NoVerify); err != nil {
 						return syncSignatureVerificationError{err: err}

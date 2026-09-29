@@ -69,7 +69,7 @@ func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testin
 			}
 			manifest := fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external)
 			archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "package metadata"))
-			if _, err := InstallPackage(cfg, "external", archive, InstallPackageOptions{}); err != nil {
+			if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			selected, err := GetDriver(cfg, "external")
@@ -262,7 +262,7 @@ func TestInstallPackageProtectsGenerationReferencedByNewRegistration(t *testing.
 	firstLibrary := first.Driver.Shared.Get(PlatformTuple())
 	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", firstLibrary)
 	archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -294,7 +294,7 @@ func TestInstallPackageProtectsGenerationReferencedThroughSymlink(t *testing.T) 
 	}
 	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", filepath.Join(link, filepath.Base(firstLibrary)))
 	archive := writeCustomPackageArchive(t, manifest)
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -319,7 +319,7 @@ func TestInstallPackageProtectsGenerationAcrossPayloadRootSymlink(t *testing.T) 
 	aliasCfg := Config{Level: ConfigEnv, Location: rootAlias}
 	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", firstLibrary)
 	archive := writeCustomPackageArchive(t, manifest)
-	if _, err := InstallPackage(aliasCfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), aliasCfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -350,7 +350,7 @@ func TestInstallPackageConservativelyProtectsParentTraversalReference(t *testing
 	assertParentTraversalReferenceResolvesOnUnix(t, reference)
 	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", reference)
 	archive := writeCustomPackageArchive(t, manifest)
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -601,7 +601,7 @@ func TestInstallPackageRemovesStaleReceiptGeneration(t *testing.T) {
 	}
 	oldGeneration := filepath.Dir(old.Driver.Shared.Get(PlatformTuple()))
 	archive := testPackageArchive(t, "updated")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -642,7 +642,7 @@ func TestInstallPackageStaleCleanupProtectsGenerationReferencedBySiblingDriver(t
 	}
 
 	archive := testPackageArchive(t, "updated")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -719,7 +719,7 @@ func TestUninstallDriverSharedRejectsDBCRegistrationsWithoutMutation(t *testing.
 					t.Fatal(err)
 				}
 				archive := writeCustomPackageArchive(t, fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external), packageFile("NOTICE", "metadata"))
-				if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+				if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 					t.Fatal(err)
 				}
 				assertArchiveClosed(t, archive)
@@ -1054,7 +1054,7 @@ func TestUncertainSiblingRegistrationSkipsPayloadCleanupButAllowsUninstall(t *te
 	}
 
 	archive := testPackageArchive(t, "updated")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatalf("install should continue when cleanup enumeration is uncertain: %v", err)
 	}
 	assertArchiveClosed(t, archive)
@@ -1096,7 +1096,7 @@ func TestInstallPackageCleansRollbackCandidateOnLaterSuccess(t *testing.T) {
 		t.Fatal("rollback candidate receipt is invalid")
 	}
 	archive = testPackageArchive(t, "success")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	assertArchiveClosed(t, archive)
@@ -1402,7 +1402,7 @@ func TestUninstallUsesSelectedConfigEnvRootOnly(t *testing.T) {
 	}
 	cfg := Config{Level: ConfigEnv, Location: strings.Join([]string{primary, secondary}, string(filepath.ListSeparator))}
 	archive := testPackageArchive(t, "library")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	selected, err := GetDriver(cfg, "driver")
@@ -1449,7 +1449,7 @@ func TestInstallPackageCleansStrictLegacyGenerationOnlyAfterCommit(t *testing.T)
 				if failure == "verify" {
 					options.Verifier = func(string, Manifest) error { return errors.New("verification failed") }
 				}
-				_, installErr = InstallPackage(cfg, "driver", archive, options)
+				_, installErr = InstallPackage(context.Background(), cfg, "driver", archive, options)
 			}
 			if failure == "" {
 				if installErr != nil {
@@ -1579,7 +1579,7 @@ func TestInstallPackageRetainsUnprovenLegacyCandidates(t *testing.T) {
 				}
 			}
 			archive := testPackageArchive(t, "new")
-			if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+			if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(unprovenPath); err != nil {
@@ -1618,7 +1618,7 @@ func TestInstallPackageLegacyCleanupRespectsReferencesAndUncertainty(t *testing.
 			} else {
 				archive = testPackageArchive(t, "new")
 			}
-			if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+			if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(legacyGeneration); err != nil {
@@ -1648,7 +1648,7 @@ func TestInstallPackageLegacyMetadataCleanupPreservesExternalLibrary(t *testing.
 		t.Fatal(err)
 	}
 	archive := testPackageArchive(t, "new")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(legacyGeneration); !errors.Is(err, os.ErrNotExist) {
@@ -1666,7 +1666,7 @@ func TestInstallPackageLegacyCleanupUsesPrimaryRootOnly(t *testing.T) {
 	secondaryGeneration, _ := createLegacyPackageForInstall(t, secondaryCfg, "driver", "0.9.0", "secondary legacy")
 	cfg := Config{Level: ConfigEnv, Location: primary + string(filepath.ListSeparator) + secondary}
 	archive := testPackageArchive(t, "new")
-	if _, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := GetDriver(primaryCfg, "driver"); err != nil {
@@ -1697,7 +1697,7 @@ func TestInstallPackageStageRuntimeIDUsesSeparateNamespace(t *testing.T) {
 				}
 			}
 			archive := testPackageArchive(t, "new")
-			if _, err := InstallPackage(cfg, "stage", archive, InstallPackageOptions{}); err != nil {
+			if _, err := InstallPackage(context.Background(), cfg, "stage", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			_, err := os.Stat(legacyGeneration)

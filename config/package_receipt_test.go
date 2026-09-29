@@ -16,6 +16,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -32,7 +33,7 @@ func TestInstallPackageWritesOwnedLibraryReceipt(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	archive := testPackageArchive(t, "verified-bytes")
-	_, err := InstallPackage(cfg, "driver", archive, InstallPackageOptions{Verifier: func(stage string, _ Manifest) error {
+	_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{Verifier: func(stage string, _ Manifest) error {
 		return os.WriteFile(filepath.Join(stage, "driver.so"), []byte("post verifier bytes"), 0o600)
 	}})
 	if err != nil {
@@ -92,7 +93,7 @@ func TestInstallPackageWritesExternalReceiptWithoutOwnedLibrary(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	archive := writeCustomPackageArchive(t, "name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"/external/lib.so\"\n")
-	_, err := InstallPackage(cfg, "external", archive, InstallPackageOptions{})
+	_, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
