@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
+//go:build !windows && !js
 
 package fslock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,17 +25,18 @@ import (
 	"time"
 )
 
-// Acquire acquires an exclusive advisory lock on the file at path, retrying
-// until timeout elapses. Returns an error if the lock cannot be acquired.
-func Acquire(path string, timeout time.Duration) (Lock, error) {
+func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			return Lock{}, err
+		}
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
 		}
 
-		lock, err := lockFile(f, path, deadline)
+		lock, err := lockFile(ctx, f, path, deadline)
 		if err == nil {
 			return lock, nil
 		}
@@ -57,8 +59,11 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 // unlinked (or replaced) since we opened it — we need to reopen and retry.
 var errStaleInode = errors.New("fslock: stale inode")
 
-func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
+func lockFile(ctx context.Context, f *os.File, path string, deadline time.Time) (Lock, error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return Lock{}, err
+		}
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
 			// Confirm the path still points at our inode. If the previous
@@ -73,12 +78,25 @@ func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
 			}
 			return Lock{f: f, path: path}, nil
 		}
-		if time.Now().After(deadline) {
+		if !isLockContention(err) {
+			return Lock{}, fmt.Errorf("fslock: lock %s: %w", path, err)
+		}
+		if !time.Now().Before(deadline) {
 			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s (%v): %w",
 				path, err, ErrLockContended)
 		}
-		time.Sleep(50 * time.Millisecond)
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return Lock{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
+}
+
+func isLockContention(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
 
 func inodeIsStale(f *os.File, path string) (bool, error) {

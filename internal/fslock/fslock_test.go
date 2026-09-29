@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !js
+
 package fslock_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -120,6 +123,32 @@ func TestAcquireTimeout(t *testing.T) {
 	// Verify the error type is ErrLockContended
 	if !errors.Is(err, fslock.ErrLockContended) {
 		t.Fatalf("timeout error must wrap ErrLockContended, got: %v", err)
+	}
+}
+
+func TestAcquireContextCancellationWhileWaiting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	held, err := fslock.Acquire(path, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := fslock.AcquireContext(ctx, path, 5*time.Second)
+		done <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("AcquireContext error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AcquireContext did not return after cancellation")
 	}
 }
 
