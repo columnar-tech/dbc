@@ -16,7 +16,7 @@
 
 const assert = require("assert");
 const { normalizeLocation } = require("../index.cjs");
-const { curateGoEnv } = require("../boot.cjs");
+const { curateGoEnv, installHostPathAdapter, createHostPathAdapter } = require("../boot.cjs");
 
 function withPlatform(platform, fn) {
   const orig = Object.getOwnPropertyDescriptor(process, "platform");
@@ -46,6 +46,7 @@ withPlatform("win32", () => {
     ["C:drivers", "C:/drivers"],
     ["C:", "C:/"],
     ["d:\\Lower", "d:/Lower"],
+    ["\\\\server\\share\\drivers", "//server/share/drivers"],
   ];
   for (const [input, want] of cases) {
     assert.strictEqual(normalizeLocation(input), want, `win32 ${JSON.stringify(input)}`);
@@ -110,3 +111,42 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
 assert.strictEqual(curateGoEnv({ HOME: "/home/a\\b" }, "linux").HOME, "/home/a\\b", "posix backslash passthrough");
 
 console.log("curateGoEnv: Windows TMPDIR/HOME mapping + POSIX passthrough + env bounded passed");
+
+// The js/wasm target uses slash-based filepath semantics even when Node runs
+// on Windows. Its immutable host adapter must retain drive and UNC paths.
+installHostPathAdapter("win32");
+const hostPath = globalThis.dbcHostPath;
+assert(Object.isFrozen(hostPath), "host path adapter is immutable");
+assert.strictEqual(hostPath.abs("C:/drivers").value, "C:/drivers", "absolute drive path remains native");
+assert.strictEqual(hostPath.isAbs("C:/drivers").value, true, "drive path is absolute");
+assert.strictEqual(hostPath.clean("C:/drivers/../shared").value, "C:/shared", "Windows clean semantics");
+assert.strictEqual(hostPath.join("C:/drivers", "generation", "driver.dll").value, "C:/drivers/generation/driver.dll", "Windows join semantics");
+assert.strictEqual(hostPath.dir("C:/drivers/generation").value, "C:/drivers", "Windows dirname semantics");
+assert.strictEqual(hostPath.base("C:/drivers/generation").value, "generation", "Windows basename semantics");
+assert.strictEqual(hostPath.rel("C:/drivers", "C:/drivers/generation/driver.dll").value, "generation/driver.dll", "Windows relative path semantics");
+assert.strictEqual(hostPath.equal("C:/Drivers", "c:/drivers").value, true, "Windows path equality ignores case");
+assert.strictEqual(hostPath.abs("//server/share/drivers").value, "//server/share/drivers", "UNC absolute path remains native");
+assert.strictEqual(hostPath.isAbs("//server/share/drivers").value, true, "UNC path is absolute");
+assert.strictEqual(hostPath.join("//server/share/drivers", "generation", "driver.dll").value, "//server/share/drivers/generation/driver.dll", "UNC join keeps server share");
+assert.strictEqual(hostPath.dir("//server/share/drivers/generation").value, "//server/share/drivers", "UNC dirname keeps server share");
+assert.strictEqual(hostPath.rel("//server/share/drivers", "//server/share/drivers/generation/driver.dll").value, "generation/driver.dll", "UNC relative path semantics");
+
+const fsCalls = [];
+const fakeFS = {
+  realpathSync: Object.assign((p) => p, { native: (p) => { fsCalls.push(["realpath", p]); return "C:\\real\\drivers"; } }),
+  mkdirSync: (p, options) => fsCalls.push(["mkdir", p, options]),
+};
+const bridge = createHostPathAdapter("win32", fakeFS, require("path"));
+assert.strictEqual(bridge.evalSymlinks("C:/drivers").value, "C:/real/drivers", "filesystem canonical path normalized for Go");
+assert.strictEqual(bridge.mkdirAll("C:/drivers").error, "", "native Windows recursive mkdir succeeds");
+assert.deepStrictEqual(fsCalls, [
+  ["realpath", "C:/drivers"],
+  ["mkdir", "C:/drivers", { recursive: true }],
+], "filesystem bridge receives native drive paths");
+assert.strictEqual(bridge.evalSymlinks("//server/share/drivers").value, "C:/real/drivers", "UNC canonicalization uses the host filesystem");
+assert.strictEqual(bridge.mkdirAll("//server/share/drivers").error, "", "UNC recursive mkdir succeeds");
+assert.deepStrictEqual(fsCalls.slice(-2), [
+  ["realpath", "//server/share/drivers"],
+  ["mkdir", "//server/share/drivers", { recursive: true }],
+], "filesystem bridge preserves UNC paths");
+console.log("host path adapter: Windows and UNC paths preserved through the filesystem bridge");

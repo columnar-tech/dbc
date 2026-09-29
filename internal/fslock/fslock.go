@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -33,6 +34,13 @@ type Lock struct {
 }
 
 var ErrLockContended = errors.New("lock is held by another process")
+
+func canonicalRuntimePath(path string, windows bool) string {
+	if windows {
+		return strings.ToLower(path)
+	}
+	return path
+}
 
 // AcquireContext waits for the lock until it is acquired, timeout elapses, or ctx is
 // canceled. A non-positive timeout makes a single acquisition attempt.

@@ -19,18 +19,19 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 func registrationNamespaceLockSpec(_ Config, location string) (identity, lockDirectory, registrationLocation string, err error) {
 	if location == "" {
 		return "", "", "", fmt.Errorf("registration namespace location is empty")
 	}
-	absolute, err := filepath.Abs(location)
+	absolute, err := hostpath.Abs(location)
 	if err != nil {
 		return "", "", "", fmt.Errorf("resolve registration namespace location: %w", err)
 	}
-	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
+	resolved, err := hostpath.EvalSymlinks(hostpath.Clean(absolute))
 	if err != nil {
 		return "", "", "", fmt.Errorf("resolve registration namespace symlinks: %w", err)
 	}
@@ -41,8 +42,8 @@ func registrationNamespaceLockSpec(_ Config, location string) (identity, lockDir
 	if !info.IsDir() {
 		return "", "", "", fmt.Errorf("registration namespace %s is not a directory", resolved)
 	}
-	resolved = filepath.Clean(resolved)
-	return "file:" + resolved, resolved, resolved, nil
+	resolved = hostpath.Clean(resolved)
+	return fileRegistrationNamespaceIdentity(resolved, hostpath.IsWindows()), resolved, resolved, nil
 }
 
 func collectRegistrationSharedMaps(_ Config, location, excludedID string) ([]driverMap, bool, error) {

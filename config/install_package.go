@@ -19,8 +19,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 // PackageVerifier validates a fully extracted package before it is published.
@@ -82,11 +83,11 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	if err != nil {
 		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
 	}
-	location, err = filepath.Abs(location)
+	location, err = hostpath.Abs(location)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("resolve config location: %w", err)
 	}
-	location = filepath.Clean(location)
+	location = hostpath.Clean(location)
 	lockLocation, err := packageInstallLockLocation(cfg, location)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("resolve driver install lock location: %w", err)
@@ -145,7 +146,7 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	reservationExists = false
 	if manifest.Files.Driver != "" {
 		manifest.Driver.Shared = driverMap{}
-		manifest.Driver.Shared.Set(PlatformTuple(), filepath.Join(generationDir, manifest.Files.Driver))
+		manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
 	}
 	if options.Verifier != nil {
 		if err := options.Verifier(stageDir, manifest); err != nil {
@@ -158,7 +159,7 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	}
 	defer func() { err = errors.Join(err, namespaceLock.release()) }()
 	legacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID)
-	receipt, err := makePackageInstallReceipt(cfg, stageDir, filepath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
+	receipt, err := makePackageInstallReceipt(cfg, stageDir, hostpath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
 	}
@@ -175,7 +176,7 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	stageDir = ""
 	if manifest.Files.Driver != "" {
 		manifest.Driver.Shared = driverMap{}
-		manifest.Driver.Shared.Set(PlatformTuple(), filepath.Join(generationDir, manifest.Files.Driver))
+		manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
 	}
 
 	if err := operations.register(cfg, location, manifest.DriverInfo); err != nil {

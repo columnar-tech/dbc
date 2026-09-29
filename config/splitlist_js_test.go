@@ -16,11 +16,23 @@
 
 package config
 
-// splitConfigList preserves the Wasm API's single-location contract. Splitting
-// on either ':' or ';' would corrupt valid Windows drive paths or POSIX names.
-func splitConfigList(s string) []string {
-	if s == "" {
-		return nil
+import (
+	"reflect"
+	"testing"
+)
+
+func TestSplitConfigListKeepsWasmLocationAsOnePath(t *testing.T) {
+	for _, path := range []string{
+		"C:/drivers",
+		"C:/drivers:alternate",
+		"//server/share/drivers",
+		"drivers;alternate",
+	} {
+		if got := splitConfigList(path); !reflect.DeepEqual(got, []string{path}) {
+			t.Errorf("splitConfigList(%q) = %#v, want one unchanged path", path, got)
+		}
 	}
-	return []string{s}
+	if got := splitConfigList(""); got != nil {
+		t.Errorf("splitConfigList(empty) = %#v, want nil", got)
+	}
 }

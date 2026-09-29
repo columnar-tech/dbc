@@ -19,9 +19,10 @@ package fslock
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 type runtimeLock struct {
@@ -40,10 +41,11 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	if err := ctx.Err(); err != nil {
 		return Lock{}, err
 	}
-	canonicalPath, err := filepath.Abs(filepath.Clean(path))
+	canonicalPath, err := hostpath.Abs(hostpath.Clean(path))
 	if err != nil {
 		return Lock{}, fmt.Errorf("fslock: resolve %s: %w", path, err)
 	}
+	canonicalPath = canonicalRuntimePath(canonicalPath, hostpath.IsWindows())
 
 	runtimeLocks.Lock()
 	entry := runtimeLocks.byPath[canonicalPath]

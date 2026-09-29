@@ -62,6 +62,8 @@ async function main() {
   const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-wasm-smoke-"));
   const manifest = await dbc.install("test-driver-1", installDir);
   assert(manifest.driverPath && fs.existsSync(manifest.driverPath), "installed driver missing on disk");
+  const generationDir = path.dirname(manifest.driverPath);
+  assert(fs.existsSync(generationDir), "installed package generation missing on disk");
 
   const installed = await dbc.listInstalled(installDir);
   assert(
@@ -77,6 +79,7 @@ async function main() {
   await dbc.uninstall("test-driver-1", installDir);
   const after = await dbc.listInstalled(installDir);
   assert(after.length === 0, "driver still listed after uninstall");
+  assert(!fs.existsSync(generationDir), "owned package generation remains after uninstall");
 
   // Regression guard (roborev 6562): in-process loadDbc() must namespace
   // load-time client-construction failures with `dbc-wasm:`, matching the worker

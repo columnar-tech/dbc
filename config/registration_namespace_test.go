@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build js
-
 package config
 
-// splitConfigList preserves the Wasm API's single-location contract. Splitting
-// on either ':' or ';' would corrupt valid Windows drive paths or POSIX names.
-func splitConfigList(s string) []string {
-	if s == "" {
-		return nil
+import "testing"
+
+func TestFileRegistrationNamespaceIdentityCaseFolding(t *testing.T) {
+	path := `C:/Program Files/ADBC/Drivers`
+	if got, want := fileRegistrationNamespaceIdentity(path, true), "file:c:/program files/adbc/drivers"; got != want {
+		t.Fatalf("Windows namespace identity = %q, want %q", got, want)
 	}
-	return []string{s}
+	if got, want := fileRegistrationNamespaceIdentity(path, false), "file:"+path; got != want {
+		t.Fatalf("case-sensitive namespace identity = %q, want %q", got, want)
+	}
 }

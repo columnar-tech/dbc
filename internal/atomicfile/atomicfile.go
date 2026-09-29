@@ -22,8 +22,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 // WriteFile writes data to a temporary file beside path, then atomically
@@ -106,8 +107,8 @@ func writeFile(path string, perm os.FileMode, write func(io.Writer) error, repla
 }
 
 func writeFileWithTemp(path string, perm os.FileMode, chmod bool, createTemp func(string, string) (*os.File, error), write func(io.Writer) error, replaceFile func(string, string) error, syncDir func(string) error) (err error) {
-	dir := filepath.Dir(path)
-	f, err := createTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	dir := hostpath.Dir(path)
+	f, err := createTemp(dir, "."+hostpath.Base(path)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("atomicfile: create temporary file for %s: %w", path, err)
 	}
@@ -150,7 +151,7 @@ func createUniqueTemp(dir, prefix string, perm os.FileMode) (*os.File, error) {
 		if _, err := rand.Read(random[:]); err != nil {
 			return nil, fmt.Errorf("atomicfile: generate temporary filename: %w", err)
 		}
-		path := filepath.Join(dir, prefix+hex.EncodeToString(random[:]))
+		path := hostpath.Join(dir, prefix+hex.EncodeToString(random[:]))
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 		if errors.Is(err, os.ErrExist) {
 			continue

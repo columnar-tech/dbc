@@ -17,6 +17,44 @@
 const fs = require("fs");
 const path = require("path");
 
+function hostPathResult(fn) {
+  try {
+    return { value: fn(), error: "" };
+  } catch (e) {
+    return { value: "", error: e && e.message ? e.message : String(e) };
+  }
+}
+
+function createHostPathAdapter(platform, filesystem = fs, pathModule = path) {
+  if (platform !== "win32") return null;
+  const win = pathModule.win32;
+  const slash = (value) => String(value).replace(/\\/g, "/");
+  return Object.freeze({
+    isWindows: () => ({ value: true, error: "" }),
+    abs: (p) => hostPathResult(() => slash(win.resolve(String(p)))),
+    isAbs: (p) => ({ value: win.isAbsolute(String(p)), error: "" }),
+    clean: (p) => hostPathResult(() => slash(win.normalize(String(p)))),
+    join: (...parts) => hostPathResult(() => slash(win.join(...parts.map(String)))),
+    dir: (p) => hostPathResult(() => slash(win.dirname(String(p)))),
+    base: (p) => hostPathResult(() => win.basename(String(p))),
+    rel: (from, to) => hostPathResult(() => slash(win.relative(String(from), String(to)))),
+    evalSymlinks: (p) => hostPathResult(() => slash((filesystem.realpathSync.native || filesystem.realpathSync)(String(p)))),
+    equal: (a, b) => ({ value: win.resolve(String(a)).toLowerCase() === win.resolve(String(b)).toLowerCase(), error: "" }),
+    mkdirAll: (p) => hostPathResult(() => filesystem.mkdirSync(String(p), { recursive: true })),
+  });
+}
+
+function installHostPathAdapter(platform) {
+  const adapter = createHostPathAdapter(platform);
+  if (!adapter) return;
+  Object.defineProperty(globalThis, "dbcHostPath", {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: adapter,
+  });
+}
+
 // curateGoEnv builds the minimal environment handed to the Go js/wasm runtime.
 // wasm_exec.js caps the combined argv+env size; forwarding a full process.env
 // (notably on Windows CI runners, whose environment is large) overflows that cap
@@ -56,6 +94,8 @@ async function bootRuntime() {
   if (!globalThis.fs) globalThis.fs = fs;
   if (!globalThis.process) globalThis.process = process;
 
+  installHostPathAdapter(process.platform);
+
   require("./wasm_exec.js"); // defines globalThis.Go
 
   const go = new globalThis.Go();
@@ -73,3 +113,5 @@ async function bootRuntime() {
 
 module.exports = bootRuntime;
 module.exports.curateGoEnv = curateGoEnv;
+module.exports.installHostPathAdapter = installHostPathAdapter;
+module.exports.createHostPathAdapter = createHostPathAdapter;

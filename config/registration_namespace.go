@@ -24,7 +24,16 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
+
+func fileRegistrationNamespaceIdentity(path string, windows bool) string {
+	if windows {
+		path = strings.ToLower(path)
+	}
+	return "file:" + path
+}
 
 // acquireRegistrationNamespaceLock is always called after the driver lock.
 // The lock directory and identity are platform-specific because Windows
@@ -34,16 +43,16 @@ func acquireRegistrationNamespaceLock(ctx context.Context, cfg Config, location 
 	if err != nil {
 		return nil, "", err
 	}
-	canonicalDirectory, err := filepath.Abs(lockDirectory)
+	canonicalDirectory, err := hostpath.Abs(lockDirectory)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve registration namespace lock directory: %w", err)
 	}
-	canonicalDirectory = filepath.Clean(canonicalDirectory)
+	canonicalDirectory = hostpath.Clean(canonicalDirectory)
 	if identity == "" {
 		return nil, "", errors.New("registration namespace identity is empty")
 	}
 	key := sha256.Sum256([]byte(identity))
-	lockPath := filepath.Join(canonicalDirectory, ".dbc.namespace."+hex.EncodeToString(key[:])+".lock")
+	lockPath := hostpath.Join(canonicalDirectory, ".dbc.namespace."+hex.EncodeToString(key[:])+".lock")
 	lock, err := acquireDriverInstallLock(ctx, lockPath, timeout)
 	if err != nil {
 		return nil, "", fmt.Errorf("acquire registration namespace lock: %w", err)
@@ -73,7 +82,7 @@ func collectFileRegistrationSharedMaps(location, excludedID string) ([]driverMap
 		if sameRuntimeID(id, excludedID) {
 			continue
 		}
-		path := filepath.Join(location, name)
+		path := hostpath.Join(location, name)
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() {
 			if err == nil {
@@ -111,7 +120,7 @@ func readFileRuntimeRegistration(location, runtimeID string) (DriverInfo, bool) 
 	if validatePackageFilename(runtimeID) != nil {
 		return DriverInfo{}, false
 	}
-	path := filepath.Join(location, runtimeID+".toml")
+	path := hostpath.Join(location, runtimeID+".toml")
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return DriverInfo{}, false

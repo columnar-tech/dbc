@@ -21,11 +21,11 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -127,7 +127,7 @@ func EnsureLocation(cfg Config) (string, error) {
 
 	if _, err := os.Stat(loc); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			if err := os.MkdirAll(loc, 0o755); err != nil {
+			if err := hostpath.MkdirAll(loc, 0o755); err != nil {
 				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
 			}
 			// Create a .gitignore with "*" in it.
@@ -135,7 +135,7 @@ func EnsureLocation(cfg Config) (string, error) {
 			// This depends on the if block it's in: We only want to create this file
 			// if we also had to create `loc` in the same call.
 			if cfg.Level == ConfigEnv {
-				gitignorePath := filepath.Join(loc, ".gitignore")
+				gitignorePath := hostpath.Join(loc, ".gitignore")
 				_ = os.WriteFile(gitignorePath, []byte("*\n"), 0o644)
 			}
 		} else {
@@ -153,7 +153,7 @@ func loadConfig(lvl ConfigLevel) Config {
 	}
 
 	if lvl == ConfigEnv {
-		pathList := filepath.SplitList(cfg.Location)
+		pathList := splitConfigList(cfg.Location)
 		slices.Reverse(pathList)
 		finalDrivers := make(map[string]DriverInfo)
 		for _, p := range pathList {
@@ -205,20 +205,20 @@ func FindDriverConfigsIn(location string) []DriverInfo {
 }
 
 func getEnvConfigDir() string {
-	envConfigLoc := filepath.SplitList(os.Getenv(adbcEnvVar))
+	envConfigLoc := splitConfigList(os.Getenv(adbcEnvVar))
 	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
-		envConfigLoc = append(envConfigLoc, filepath.Join(venv, "etc", "adbc", "drivers"))
+		envConfigLoc = append(envConfigLoc, hostpath.Join(venv, "etc", "adbc", "drivers"))
 	}
 
 	if conda := os.Getenv("CONDA_PREFIX"); conda != "" {
-		envConfigLoc = append(envConfigLoc, filepath.Join(conda, "etc", "adbc", "drivers"))
+		envConfigLoc = append(envConfigLoc, hostpath.Join(conda, "etc", "adbc", "drivers"))
 	}
 
 	envConfigLoc = slices.DeleteFunc(envConfigLoc, func(s string) bool {
 		return s == ""
 	})
 
-	return strings.Join(envConfigLoc, string(filepath.ListSeparator))
+	return strings.Join(envConfigLoc, string(hostpath.ListSeparator()))
 }
 
 // InstallDriver extracts a package into the legacy archive-derived directory and returns its Manifest.
@@ -234,10 +234,10 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 	if loc, err = EnsureLocation(cfg); err != nil {
 		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
 	}
-	base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(downloaded.Name()), ".tar.gz"), ".tgz")
-	finalDir := filepath.Join(loc, base)
+	base := strings.TrimSuffix(strings.TrimSuffix(hostpath.Base(downloaded.Name()), ".tar.gz"), ".tgz")
+	finalDir := hostpath.Join(loc, base)
 
-	if err := os.MkdirAll(finalDir, 0o755); err != nil {
+	if err := hostpath.MkdirAll(finalDir, 0o755); err != nil {
 		return Manifest{}, fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
 	}
 
@@ -246,7 +246,7 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 		return Manifest{}, fmt.Errorf("failed to extract tarball: %w", err)
 	}
 
-	driverPath := filepath.Join(finalDir, manifest.Files.Driver)
+	driverPath := hostpath.Join(finalDir, manifest.Files.Driver)
 
 	manifest.DriverInfo.ID = shortName
 	manifest.DriverInfo.Source = "dbc"
@@ -348,13 +348,13 @@ func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations
 			continue
 		}
 
-		relativePath, err := filepath.Rel(filesystemLocation, sharedPath)
-		if err != nil || filepath.IsAbs(relativePath) || relativePath == "." || hasParentTraversal(relativePath) {
+		relativePath, err := hostpath.Rel(filesystemLocation, sharedPath)
+		if err != nil || hostpath.IsAbs(relativePath) || relativePath == "." || hasParentTraversal(relativePath) {
 			// If the reference is outside the registration root or uncertain,
 			// retain it rather than allowing cleanup to escape the root.
 			continue
 		}
-		lexicalTarget := filepath.Join(filesystemLocation, relativePath)
+		lexicalTarget := hostpath.Join(filesystemLocation, relativePath)
 		if !safeToRemoveUnmanagedSharedFile(lexicalTarget) {
 			continue
 		}

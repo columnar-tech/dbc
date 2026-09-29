@@ -59,6 +59,8 @@ async function main() {
   const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-wasm-worker-"));
   const manifest = await dbc.install("test-driver-1", installDir);
   assert(manifest.driverPath && fs.existsSync(manifest.driverPath), "installed driver missing on disk");
+  const generationDir = path.dirname(manifest.driverPath);
+  assert(fs.existsSync(generationDir), "installed package generation missing on disk");
 
   const installed = await dbc.listInstalled(installDir);
   assert(installed.length === 1 && installed[0].id === "test-driver-1", "listInstalled mismatch");
@@ -70,6 +72,7 @@ async function main() {
 
   await dbc.uninstall("test-driver-1", installDir);
   assert((await dbc.listInstalled(installDir)).length === 0, "driver still listed after uninstall");
+  assert(!fs.existsSync(generationDir), "owned package generation remains after uninstall");
 
   await dbc.close();
 

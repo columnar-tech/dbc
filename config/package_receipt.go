@@ -23,12 +23,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 
 	"github.com/Masterminds/semver/v3"
 )
@@ -169,7 +170,7 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 			return packageInstallReceipt{}, fmt.Errorf("invalid owned library filename: %w", err)
 		}
 		sharedIdentity = filename
-		file, err := os.Open(filepath.Join(stagingDir, filename))
+		file, err := os.Open(hostpath.Join(stagingDir, filename))
 		if err != nil {
 			return packageInstallReceipt{}, fmt.Errorf("open package library for receipt: %w", err)
 		}
@@ -276,7 +277,7 @@ func writePackageInstallReceipt(stagingDir string, receipt packageInstallReceipt
 	if len(data) > packageInstallReceiptMaxSize {
 		return fmt.Errorf("package install receipt exceeds maximum size of %d bytes: got %d", packageInstallReceiptMaxSize, len(data))
 	}
-	path := filepath.Join(stagingDir, packageInstallReceiptFilename)
+	path := hostpath.Join(stagingDir, packageInstallReceiptFilename)
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create package install receipt: %w", err)
@@ -297,28 +298,28 @@ func writePackageInstallReceipt(stagingDir string, receipt packageInstallReceipt
 // root. Invalid or absent evidence is treated as no ownership proof.
 func readPackageInstallReceipt(primaryRoot, generationDir string) (packageInstallReceipt, bool) {
 	var empty packageInstallReceipt
-	root, err := filepath.Abs(primaryRoot)
+	root, err := hostpath.Abs(primaryRoot)
 	if err != nil {
 		return empty, false
 	}
-	generation, err := filepath.Abs(generationDir)
+	generation, err := hostpath.Abs(generationDir)
 	if err != nil {
 		return empty, false
 	}
-	root = filepath.Clean(root)
-	generation = filepath.Clean(generation)
-	if filepath.Dir(generation) != root {
+	root = hostpath.Clean(root)
+	generation = hostpath.Clean(generation)
+	if hostpath.Dir(generation) != root {
 		return empty, false
 	}
 	generationInfo, err := os.Lstat(generation)
 	if err != nil || !generationInfo.IsDir() {
 		return empty, false
 	}
-	info, err := os.Lstat(filepath.Join(generation, packageInstallReceiptFilename))
+	info, err := os.Lstat(hostpath.Join(generation, packageInstallReceiptFilename))
 	if err != nil || !info.Mode().IsRegular() {
 		return empty, false
 	}
-	file, err := os.Open(filepath.Join(generation, packageInstallReceiptFilename))
+	file, err := os.Open(hostpath.Join(generation, packageInstallReceiptFilename))
 	if err != nil {
 		return empty, false
 	}
@@ -360,7 +361,7 @@ func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, gene
 	if err != nil || version.String() != receipt.DriverVersion {
 		return false
 	}
-	generationName := filepath.Base(generationDir)
+	generationName := hostpath.Base(generationDir)
 	generationRuntimeID, validGeneration := parsePackageGenerationName(generationName)
 	if receipt.Generation != generationName || !validGeneration || !sameRuntimeID(generationRuntimeID, receipt.RuntimeID) {
 		return false
@@ -386,7 +387,7 @@ func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, gene
 	default:
 		return false
 	}
-	return filepath.Dir(generationDir) == primaryRoot
+	return hostpath.Dir(generationDir) == primaryRoot
 }
 
 func validateOwnedPackageFilename(name string) error {

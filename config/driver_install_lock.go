@@ -19,14 +19,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 var errDriverRegistrationChanged = errors.New("driver registration changed")
@@ -65,18 +64,18 @@ func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID strin
 }
 
 func driverInstallLockPath(location, runtimeID string) (string, error) {
-	canonicalLocation, err := filepath.Abs(location)
+	canonicalLocation, err := hostpath.Abs(location)
 	if err != nil {
 		return "", fmt.Errorf("resolve driver lock location: %w", err)
 	}
-	canonicalLocation = filepath.Clean(canonicalLocation)
+	canonicalLocation = hostpath.Clean(canonicalLocation)
 	canonicalID := runtimeID
-	if runtime.GOOS == "windows" {
+	if hostpath.IsWindows() {
 		canonicalLocation = strings.ToLower(canonicalLocation)
 		canonicalID = strings.ToLower(canonicalID)
 	}
 	key := sha256.Sum256([]byte(canonicalID))
-	return filepath.Join(canonicalLocation, fmt.Sprintf(".dbc.install.%x.lock", key)), nil
+	return hostpath.Join(canonicalLocation, fmt.Sprintf(".dbc.install.%x.lock", key)), nil
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) (err error) {
@@ -129,11 +128,11 @@ func canonicalRegistrationPath(path string) string {
 	if path == "" {
 		return ""
 	}
-	clean, err := filepath.Abs(filepath.Clean(path))
+	clean, err := hostpath.Abs(hostpath.Clean(path))
 	if err != nil {
-		clean = filepath.Clean(path)
+		clean = hostpath.Clean(path)
 	}
-	if runtime.GOOS == "windows" {
+	if hostpath.IsWindows() {
 		clean = strings.ToLower(clean)
 	}
 	return clean

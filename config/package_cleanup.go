@@ -19,12 +19,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 type packageCleanupOperations struct {
@@ -47,7 +46,7 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 	if !referencesCertain {
 		return nil
 	}
-	root, err := filepath.Abs(root)
+	root, err := hostpath.Abs(root)
 	if err != nil {
 		return nil
 	}
@@ -69,7 +68,7 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 
 	matched := make([]string, 0, 1)
 	for _, entry := range entries {
-		generation := filepath.Join(root, entry.Name())
+		generation := hostpath.Join(root, entry.Name())
 		receipt, ok := readPackageInstallReceipt(root, generation)
 		if !ok || !sameRuntimeID(receipt.RuntimeID, info.ID) || receipt.Platform != PlatformTuple() || receipt.RegistrationScope != scope {
 			continue
@@ -135,7 +134,7 @@ func receiptMatchesRegistration(cfg Config, root, generation string, receipt pac
 	identity := shared
 	if receipt.LibraryKind == packageLibraryFile {
 		identity = receipt.OwnedLibraryFilename
-		expected := filepath.Join(generation, receipt.OwnedLibraryFilename)
+		expected := hostpath.Join(generation, receipt.OwnedLibraryFilename)
 		if !sameResolvedFilesystemPath(resolvePackagePath(root, shared), expected) {
 			return false
 		}
@@ -150,7 +149,7 @@ func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo,
 }
 
 func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, current DriverInfo, alreadyRemoved []string, referenced []string, uncertainReferences bool, remove func(string) error, removeAll func(string) error) {
-	root, err := filepath.Abs(root)
+	root, err := hostpath.Abs(root)
 	if err != nil {
 		return
 	}
@@ -166,7 +165,7 @@ func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, curre
 		return
 	}
 	for _, entry := range entries {
-		generation := filepath.Join(root, entry.Name())
+		generation := hostpath.Join(root, entry.Name())
 		if containsFilesystemPathOrUncertain(alreadyRemoved, generation) || generationReferenced(generation, referenced) {
 			continue
 		}
@@ -220,7 +219,7 @@ func removePackageGeneration(generation string, remove func(string) error, remov
 		if entry.Name() == packageInstallReceiptFilename {
 			continue
 		}
-		path := filepath.Join(generation, entry.Name())
+		path := hostpath.Join(generation, entry.Name())
 		info, statErr := os.Lstat(path)
 		if statErr != nil {
 			payloadErr = errors.Join(payloadErr, fmt.Errorf("inspect package generation entry %s: %w", path, statErr))
@@ -235,7 +234,7 @@ func removePackageGeneration(generation string, remove func(string) error, remov
 	if payloadErr != nil {
 		return fmt.Errorf("remove package generation payload %s: %w", generation, payloadErr)
 	}
-	if err := remove(filepath.Join(generation, packageInstallReceiptFilename)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := remove(hostpath.Join(generation, packageInstallReceiptFilename)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("remove package generation receipt %s: %w", generation, err)
 	}
 	if err := os.Remove(generation); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -263,21 +262,21 @@ func safeToRemoveUnmanagedSharedFile(lexicalTarget string) bool {
 }
 
 func hasReservedTransactionAncestor(path string) bool {
-	absolute, err := filepath.Abs(path)
+	absolute, err := hostpath.Abs(path)
 	if err != nil {
 		return true
 	}
-	for current := filepath.Clean(absolute); ; current = filepath.Dir(current) {
-		name := filepath.Base(current)
+	for current := hostpath.Clean(absolute); ; current = hostpath.Dir(current) {
+		name := hostpath.Base(current)
 		prefix := ".dbc-package-"
 		reservedName := strings.HasPrefix(name, prefix)
-		if runtime.GOOS == "windows" {
+		if hostpath.IsWindows() {
 			reservedName = strings.HasPrefix(strings.ToLower(name), prefix)
 		}
 		if reservedName && len(name) > len(prefix) {
 			return true
 		}
-		parent := filepath.Dir(current)
+		parent := hostpath.Dir(current)
 		if parent == current {
 			break
 		}
@@ -293,23 +292,23 @@ func legacyPackageGeneration(root string, info DriverInfo) string {
 	if shared == "" || hasParentTraversal(shared) {
 		return ""
 	}
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, err := hostpath.Abs(root)
 	if err != nil {
 		return ""
 	}
 	sharedAbs := resolvePackagePath(rootAbs, shared)
-	generation := filepath.Dir(sharedAbs)
-	if filepath.Dir(generation) != filepath.Clean(rootAbs) || filepath.Dir(sharedAbs) != generation {
+	generation := hostpath.Dir(sharedAbs)
+	if hostpath.Dir(generation) != hostpath.Clean(rootAbs) || hostpath.Dir(sharedAbs) != generation {
 		return ""
 	}
-	if !legacyGenerationNameMatches(filepath.Base(generation), info.ID, PlatformTuple(), info.Version) {
+	if !legacyGenerationNameMatches(hostpath.Base(generation), info.ID, PlatformTuple(), info.Version) {
 		return ""
 	}
 	generationInfo, err := os.Lstat(generation)
 	if err != nil || !generationInfo.IsDir() || generationInfo.Mode()&os.ModeSymlink != 0 {
 		return ""
 	}
-	if _, err := os.Lstat(filepath.Join(generation, packageInstallReceiptFilename)); err == nil {
+	if _, err := os.Lstat(hostpath.Join(generation, packageInstallReceiptFilename)); err == nil {
 		return ""
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return ""
@@ -330,19 +329,19 @@ func legacyMetadataSidecar(root string, info DriverInfo) string {
 	if err != nil || parsedVersion.String() != versionString {
 		return ""
 	}
-	rootAbs, err := filepath.Abs(root)
+	rootAbs, err := hostpath.Abs(root)
 	if err != nil {
 		return ""
 	}
-	generation := filepath.Join(rootAbs, info.ID+"_"+PlatformTuple()+"_v"+info.Version.String())
-	if filepath.Dir(generation) != rootAbs {
+	generation := hostpath.Join(rootAbs, info.ID+"_"+PlatformTuple()+"_v"+info.Version.String())
+	if hostpath.Dir(generation) != rootAbs {
 		return ""
 	}
 	generationInfo, err := os.Lstat(generation)
 	if err != nil || !generationInfo.IsDir() || generationInfo.Mode()&os.ModeSymlink != 0 {
 		return ""
 	}
-	if _, err := os.Lstat(filepath.Join(generation, packageInstallReceiptFilename)); err == nil {
+	if _, err := os.Lstat(hostpath.Join(generation, packageInstallReceiptFilename)); err == nil {
 		return ""
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return ""
@@ -395,12 +394,12 @@ func hasParentTraversal(path string) bool {
 }
 
 func resolvePackagePath(root, path string) string {
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(root, path)
+	if !hostpath.IsAbs(path) {
+		path = hostpath.Join(root, path)
 	}
-	resolved, err := filepath.Abs(filepath.Clean(path))
+	resolved, err := hostpath.Abs(hostpath.Clean(path))
 	if err != nil {
-		return filepath.Clean(path)
+		return hostpath.Clean(path)
 	}
 	return resolved
 }
@@ -420,15 +419,15 @@ func pathWithin(parent, child string) bool {
 	if !parentCertain || !childCertain {
 		return true
 	}
-	if runtime.GOOS == "windows" {
+	if hostpath.IsWindows() {
 		parent = strings.ToLower(parent)
 		child = strings.ToLower(child)
 	}
 	if sameFilesystemPathOrUncertain(parent, child) {
 		return true
 	}
-	rel, err := filepath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+	rel, err := hostpath.Rel(parent, child)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+hostpath.Separator()) && !hostpath.IsAbs(rel)
 }
 
 func containsFilesystemPathOrUncertain(paths []string, target string) bool {
@@ -441,7 +440,7 @@ func containsFilesystemPathOrUncertain(paths []string, target string) bool {
 }
 
 func sameRuntimeID(a, b string) bool {
-	if runtime.GOOS == "windows" {
+	if hostpath.IsWindows() {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
@@ -463,14 +462,11 @@ func sameResolvedFilesystemPathWithCertainty(a, b string) (bool, bool) {
 	if !certainA || !certainB {
 		return false, false
 	}
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(resolvedA, resolvedB), true
-	}
-	return resolvedA == resolvedB, true
+	return hostpath.Equal(resolvedA, resolvedB), true
 }
 
 func canonicalFilesystemPath(path string) (string, bool) {
-	absolute, err := filepath.Abs(filepath.Clean(path))
+	absolute, err := hostpath.Abs(hostpath.Clean(path))
 	if err != nil {
 		return "", false
 	}
@@ -482,7 +478,7 @@ func canonicalFilesystemPath(path string) (string, bool) {
 			if len(suffix) > 0 && !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
 				return "", false
 			}
-			resolved, resolveErr := filepath.EvalSymlinks(current)
+			resolved, resolveErr := hostpath.EvalSymlinks(current)
 			if resolveErr != nil {
 				return "", false
 			}
@@ -493,18 +489,18 @@ func canonicalFilesystemPath(path string) (string, bool) {
 				}
 			}
 			for i := len(suffix) - 1; i >= 0; i-- {
-				resolved = filepath.Join(resolved, suffix[i])
+				resolved = hostpath.Join(resolved, suffix[i])
 			}
-			return filepath.Clean(resolved), true
+			return hostpath.Clean(resolved), true
 		}
 		if !errors.Is(statErr, fs.ErrNotExist) {
 			return "", false
 		}
-		parent := filepath.Dir(current)
+		parent := hostpath.Dir(current)
 		if parent == current {
 			return "", false
 		}
-		suffix = append(suffix, filepath.Base(current))
+		suffix = append(suffix, hostpath.Base(current))
 		current = parent
 	}
 }

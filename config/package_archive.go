@@ -26,6 +26,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 var errPackageArchiveByteLimit = errors.New("package archive exceeds its decompressed byte limit")
@@ -100,14 +102,14 @@ func inflateTarballWithLimits(f *os.File, outDir string, limits packageArchiveLi
 		return Manifest{}, fmt.Errorf("could not seek to start: %w", err)
 	}
 
-	stageParent := filepath.Dir(filepath.Clean(outDir))
+	stageParent := hostpath.Dir(hostpath.Clean(outDir))
 	stageDir, manifest, payloadNames, err := extractPackageArchiveWithLimits(f, stageParent, limits)
 	if err != nil {
 		return Manifest{}, err
 	}
 	defer os.RemoveAll(stageDir)
 
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := hostpath.MkdirAll(outDir, 0o755); err != nil {
 		return Manifest{}, fmt.Errorf("could not create output directory %s: %w", outDir, err)
 	}
 	root, err := os.OpenRoot(outDir)
@@ -116,7 +118,7 @@ func inflateTarballWithLimits(f *os.File, outDir string, limits packageArchiveLi
 	}
 	defer root.Close()
 	for _, name := range payloadNames {
-		src := filepath.Join(stageDir, name)
+		src := hostpath.Join(stageDir, name)
 		if err := copyPackageFile(src, root, name); err != nil {
 			return Manifest{}, fmt.Errorf("could not publish package file %s: %w", name, err)
 		}
@@ -135,7 +137,7 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return "", manifest, nil, fmt.Errorf("could not seek to start: %w", err)
 	}
-	if err := os.MkdirAll(stageParent, 0o755); err != nil {
+	if err := hostpath.MkdirAll(stageParent, 0o755); err != nil {
 		return "", manifest, nil, fmt.Errorf("could not create staging parent: %w", err)
 	}
 	stageDir, err := os.MkdirTemp(stageParent, ".dbc-package-stage-")
@@ -238,7 +240,7 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 			continue
 		}
 
-		file, err := os.OpenFile(filepath.Join(stageDir, hdr.Name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o666)
+		file, err := os.OpenFile(hostpath.Join(stageDir, hdr.Name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o666)
 		if err != nil {
 			return "", manifest, nil, fmt.Errorf("could not create staged file %s: %w", hdr.Name, err)
 		}

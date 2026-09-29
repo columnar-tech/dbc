@@ -19,7 +19,8 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 func uninstallLockLocation(_ Config, info DriverInfo) (string, error) {
@@ -66,7 +67,7 @@ func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo
 			return fmt.Errorf("failed to delete driver shared object: %w", err)
 		}
 	}
-	manifest := filepath.Join(info.FilePath, info.ID+".toml")
+	manifest := hostpath.Join(info.FilePath, info.ID+".toml")
 	if err := os.Remove(manifest); err != nil {
 		return fmt.Errorf("error removing manifest %s: %w", manifest, err)
 	}
