@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/atomicfile"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -186,7 +187,7 @@ func removeManifestSymlink(filePath, driverID string) {
 	}
 }
 
-func createDriverManifest(location string, driver DriverInfo) error {
+func createDriverManifestUnlocked(location string, driver DriverInfo) error {
 	if _, err := os.Stat(location); errors.Is(err, fs.ErrNotExist) {
 		if err := os.MkdirAll(location, 0755); err != nil {
 			return fmt.Errorf("error creating driver location %s: %w", location, err)
@@ -194,22 +195,6 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	}
 
 	manifestPath := filepath.Join(location, driver.ID+".toml")
-	f, err := os.Create(manifestPath)
-	if err != nil {
-		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
-	}
-	defer f.Close()
-
-	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
-	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
-	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
-	//
-	// To work around this, we create a symlink on level up to the manifest we're
-	// installing.
-	//
-	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	createManifestSymlink(location, driver.ID, manifestPath)
-
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,
 		Name:            driver.Name,
@@ -227,11 +212,24 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		toEncode.Driver.Shared = driver.Driver.Shared.platformMap
 	}
 
-	enc := toml.NewEncoder(f).SetIndentTables(false)
-
+	var data strings.Builder
+	enc := toml.NewEncoder(&data).SetIndentTables(false)
 	if err := enc.Encode(toEncode); err != nil {
 		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
 	}
+	if err := atomicfile.WriteFilePreservingMode(manifestPath, []byte(data.String()), 0666); err != nil {
+		return fmt.Errorf("error writing manifest %s: %w", driver.ID, err)
+	}
+
+	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
+	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
+	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
+	//
+	// To work around this, we create a symlink on level up to the manifest we're
+	// installing.
+	//
+	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+	createManifestSymlink(location, driver.ID, manifestPath)
 
 	return nil
 }

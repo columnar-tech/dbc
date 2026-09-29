@@ -267,6 +267,20 @@ func TestCreateManifest(t *testing.T) {
 
 		assert.FileExists(t, filepath.Join(newDir, "newdriver.toml"))
 	})
+
+	t.Run("overwrites_malformed_existing_registration", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		manifestPath := filepath.Join(tmpDir, "mydriver.toml")
+		require.NoError(t, os.WriteFile(manifestPath, []byte("[[[ invalid"), 0o644))
+
+		cfg := config.Config{Level: config.ConfigEnv, Location: tmpDir}
+		driver := makeTestDriverInfo("mydriver", tmpDir)
+		require.NoError(t, config.CreateManifest(cfg, driver))
+
+		loaded, err := config.GetDriver(cfg, "mydriver")
+		require.NoError(t, err)
+		assert.Equal(t, driver.Name, loaded.Name)
+	})
 }
 
 func TestFindDriverConfigs(t *testing.T) {

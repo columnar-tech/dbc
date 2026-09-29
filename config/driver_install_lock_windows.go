@@ -15,6 +15,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,11 +26,7 @@ import (
 func uninstallLockLocation(cfg Config, info DriverInfo) (string, error) {
 	switch cfg.Level {
 	case ConfigUser, ConfigSystem:
-		location := cfg.Level.ConfigLocation()
-		if location == "" {
-			return "", fmt.Errorf("driver %q has no installation location", info.ID)
-		}
-		return location, nil
+		return registrationLockLocation(cfg)
 	case ConfigEnv:
 		if info.FilePath != "" {
 			return info.FilePath, nil
@@ -44,6 +41,27 @@ func uninstallLockLocation(cfg Config, info DriverInfo) (string, error) {
 }
 
 func prepareDriverUninstallLockLocation(cfg Config, location string) error {
+	return prepareRegistrationLockLocation(cfg, location)
+}
+
+func registrationLockLocation(cfg Config) (string, error) {
+	if cfg.Level == ConfigEnv {
+		if cfg.Location == "" {
+			return "", fmt.Errorf("cannot write manifest to env config without %s set", adbcEnvVar)
+		}
+		return EnsureLocation(cfg)
+	}
+	if cfg.Level != ConfigUser && cfg.Level != ConfigSystem {
+		return "", fmt.Errorf("unsupported config level %d", cfg.Level)
+	}
+	location := cfg.Level.ConfigLocation()
+	if location == "" {
+		return "", errors.New("driver registration location is empty")
+	}
+	return location, nil
+}
+
+func prepareRegistrationLockLocation(cfg Config, location string) error {
 	if cfg.Level == ConfigEnv {
 		return nil
 	}

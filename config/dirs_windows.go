@@ -15,6 +15,8 @@
 package config
 
 import (
+	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -22,8 +24,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
+	"unsafe"
 
 	"github.com/Masterminds/semver/v3"
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -106,18 +111,6 @@ func keyOptional(k registry.Key, name string) string {
 		panic(err)
 	}
 	return val
-}
-
-func setKeyMust(k registry.Key, name, value string) {
-	if err := k.SetStringValue(name, value); err != nil {
-		panic(err)
-	}
-}
-
-func setKeyIntMust(k registry.Key, name string, value uint32) {
-	if err := k.SetDWordValue(name, value); err != nil {
-		panic(err)
-	}
 }
 
 func driverInfoFromKey(k registry.Key, driverName string, lvl ConfigLevel) (di DriverInfo, err error) {
@@ -260,67 +253,238 @@ func GetDriver(cfg Config, driverName string) (DriverInfo, error) {
 }
 
 func CreateManifest(cfg Config, driver DriverInfo) (err error) {
-	if cfg.Level == ConfigEnv {
-		if cfg.Location == "" {
-			return fmt.Errorf("cannot write manifest to env config without %s set", adbcEnvVar)
-		}
-		loc, err := EnsureLocation(cfg)
-		if err != nil {
-			return err
-		}
-		return createDriverManifest(loc, driver)
-	}
-
-	var k registry.Key
-
-	if !cfg.Exists {
-		k, _, err = registry.CreateKey(cfg.Level.key(), "SOFTWARE\\ADBC", registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
-
-		k, _, err = registry.CreateKey(k, "Drivers", registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
-	} else {
-		k, err = registry.OpenKey(cfg.Level.key(), regKeyADBC, registry.ALL_ACCESS)
-		if err != nil {
-			return err
-		}
-		defer k.Close()
-	}
-
-	dkey, _, err := registry.CreateKey(k, driver.ID, registry.ALL_ACCESS)
+	location, err := registrationLockLocation(cfg)
 	if err != nil {
 		return err
 	}
-	defer dkey.Close()
+	if err := prepareRegistrationLockLocation(cfg, location); err != nil {
+		return fmt.Errorf("prepare driver registration lock location: %w", err)
+	}
+	lock, err := acquireDriverInstallLockWith(context.Background(), location, driver.ID, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("acquire driver registration lock: %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.release()) }()
 
-	defer func() {
-		if r := recover(); r != nil {
-			switch r := r.(type) {
-			case string:
-				err = errors.New(r)
-			case error:
-				err = r
-			default:
-				err = fmt.Errorf("unknown error type: %v", r)
-			}
+	if cfg.Level == ConfigEnv {
+		return createDriverManifestUnlocked(location, driver)
+	}
+	return createRegistryManifestUnlocked(cfg, driver)
+}
+
+func createRegistryManifestUnlocked(cfg Config, driver DriverInfo) error {
+	changes, err := registryRegistrationChanges(driver)
+	if err != nil {
+		return err
+	}
+	root := cfg.Level.key()
+	driversKey, err := registry.OpenKey(root, regKeyADBC, registry.ALL_ACCESS)
+	var adbcHandle *registryKeyHandle
+	var driversHandle *registryKeyHandle
+	var adbcCreated, driversCreated bool
+	if err == nil {
+		driversHandle = &registryKeyHandle{key: driversKey}
+	} else if errors.Is(err, registry.ErrNotExist) {
+		adbcKey, adbcOpenedExisting, createErr := registry.CreateKey(root, "SOFTWARE\\ADBC", registry.ALL_ACCESS)
+		if createErr != nil {
+			return createErr
 		}
-	}()
+		adbcCreated = registryKeyWasCreated(adbcOpenedExisting)
+		adbcHandle = &registryKeyHandle{key: adbcKey}
+		defer adbcHandle.close()
 
-	setKeyMust(dkey, "name", driver.Name)
-	setKeyIntMust(dkey, "manifest_version", currentManifestVersion)
-	setKeyMust(dkey, "publisher", driver.Publisher)
-	setKeyMust(dkey, "license", driver.License)
-	setKeyMust(dkey, "version", driver.Version.String())
-	setKeyMust(dkey, "source", driver.Source)
-	setKeyMust(dkey, "driver", driver.Driver.Shared.Get(PlatformTuple()))
+		var driversOpenedExisting bool
+		driversKey, driversOpenedExisting, createErr = registry.CreateKey(adbcKey, "Drivers", registry.ALL_ACCESS)
+		if createErr != nil {
+			return rollbackCreatedRegistryKeys(createErr, func() error {
+				return deleteCreatedRegistryKey(root, "SOFTWARE\\ADBC", adbcHandle, adbcCreated)
+			})
+		}
+		driversCreated = registryKeyWasCreated(driversOpenedExisting)
+		driversHandle = &registryKeyHandle{key: driversKey}
+	} else {
+		return err
+	}
+	defer driversHandle.close()
+
+	driverKey, driverOpenedExisting, err := registry.CreateKey(driversHandle.key, driver.ID, registry.ALL_ACCESS)
+	if err != nil {
+		var cleanup []func() error
+		if adbcHandle != nil {
+			cleanup = append(cleanup, func() error {
+				return deleteCreatedRegistryKey(adbcHandle.key, "Drivers", driversHandle, driversCreated)
+			})
+		}
+		if adbcCreated {
+			cleanup = append(cleanup, func() error {
+				return deleteCreatedRegistryKey(root, "SOFTWARE\\ADBC", adbcHandle, true)
+			})
+		}
+		return rollbackCreatedRegistryKeys(err, cleanup...)
+	}
+	driverCreated := registryKeyWasCreated(driverOpenedExisting)
+	driverHandle := &registryKeyHandle{key: driverKey}
+	defer driverHandle.close()
+
+	rollbackKey := func() error {
+		if !driverCreated {
+			return nil
+		}
+		cleanup := []func() error{
+			func() error { return deleteCreatedRegistryKey(driversHandle.key, driver.ID, driverHandle, true) },
+		}
+		if adbcHandle != nil && driversCreated {
+			cleanup = append(cleanup, func() error {
+				return deleteCreatedRegistryKey(adbcHandle.key, "Drivers", driversHandle, true)
+			})
+		}
+		if adbcCreated {
+			cleanup = append(cleanup, func() error {
+				return deleteCreatedRegistryKey(root, "SOFTWARE\\ADBC", adbcHandle, true)
+			})
+		}
+		return cleanupRegistryKeys(cleanup...)
+	}
+	store := windowsRegistrationValueStore{key: driverHandle.key}
+	if driverCreated {
+		return updateRegistrationValuesWithRollback(store, changes, rollbackKey)
+	}
+	return updateRegistrationValues(store, changes)
+}
+
+type windowsRegistrationValueStore struct {
+	key registry.Key
+}
+
+type registryKeyHandle struct {
+	key     registry.Key
+	closed  bool
+	closeFn func() error
+}
+
+func (h *registryKeyHandle) close() error {
+	if h == nil || h.closed {
+		return nil
+	}
+	h.closed = true
+	if h.closeFn != nil {
+		return h.closeFn()
+	}
+	return h.key.Close()
+}
+
+func registryRegistrationChanges(driver DriverInfo) ([]registrationValueChange, error) {
+	if driver.Version == nil {
+		return nil, errors.New("driver version is required for registry registration")
+	}
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "name", value: driver.Name},
+		{name: "publisher", value: driver.Publisher},
+		{name: "license", value: driver.License},
+		{name: "version", value: driver.Version.String()},
+		{name: "source", value: driver.Source},
+		{name: "driver", value: driver.Driver.Shared.Get(PlatformTuple())},
+	}
+	changes := make([]registrationValueChange, 0, len(values)+2)
+	for _, value := range values {
+		encoded, err := registryStringValue(value.value)
+		if err != nil {
+			return nil, fmt.Errorf("encode registry value %q: %w", value.name, err)
+		}
+		changes = append(changes, registrationValueChange{name: value.name, value: encoded})
+	}
+	changes = append(changes, registrationValueChange{
+		name: "manifest_version", value: registryDWordValue(currentManifestVersion),
+	})
+	entrypoint := registrationValue{}
 	if driver.Driver.Entrypoint != "" {
-		setKeyMust(dkey, "entrypoint", driver.Driver.Entrypoint)
+		var err error
+		entrypoint, err = registryStringValue(driver.Driver.Entrypoint)
+		if err != nil {
+			return nil, fmt.Errorf("encode registry value %q: %w", "entrypoint", err)
+		}
+	}
+	changes = append(changes, registrationValueChange{name: "entrypoint", value: entrypoint})
+	return changes, nil
+}
+
+func (s windowsRegistrationValueStore) read(name string) (registrationValue, error) {
+	size, kind, err := s.key.GetValue(name, nil)
+	if errors.Is(err, registry.ErrNotExist) {
+		return registrationValue{}, nil
+	}
+	if err != nil && !errors.Is(err, windows.ERROR_MORE_DATA) {
+		return registrationValue{}, err
+	}
+	data := make([]byte, size)
+	actualKind := kind
+	if size > 0 {
+		n, readKind, err := s.key.GetValue(name, data)
+		if err != nil {
+			return registrationValue{}, err
+		}
+		if n < 0 || n > len(data) {
+			return registrationValue{}, fmt.Errorf("registry value %q changed size while being read", name)
+		}
+		data = data[:n]
+		actualKind = readKind
+	}
+	return registrationValue{exists: true, kind: actualKind, data: data}, nil
+}
+
+func (s windowsRegistrationValueStore) write(name string, value registrationValue) error {
+	namePointer, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	var dataPointer *byte
+	if len(value.data) > 0 {
+		dataPointer = &value.data[0]
+	}
+	result, _, _ := windows.NewLazySystemDLL("advapi32.dll").NewProc("RegSetValueExW").Call(
+		uintptr(s.key), uintptr(unsafe.Pointer(namePointer)), 0, uintptr(value.kind),
+		uintptr(unsafe.Pointer(dataPointer)), uintptr(len(value.data)),
+	)
+	if result != 0 {
+		return windows.Errno(result)
 	}
 	return nil
+}
+
+func (s windowsRegistrationValueStore) delete(name string) error {
+	err := s.key.DeleteValue(name)
+	if errors.Is(err, registry.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+func registryStringValue(value string) (registrationValue, error) {
+	encoded, err := windows.UTF16FromString(value)
+	if err != nil {
+		return registrationValue{}, fmt.Errorf("invalid registry string value: %w", err)
+	}
+	data := make([]byte, len(encoded)*2)
+	for i, unit := range encoded {
+		binary.LittleEndian.PutUint16(data[i*2:], unit)
+	}
+	return registrationValue{exists: true, kind: registry.SZ, data: data}, nil
+}
+
+func registryDWordValue(value uint32) registrationValue {
+	data := make([]byte, 4)
+	binary.LittleEndian.PutUint32(data, value)
+	return registrationValue{exists: true, kind: registry.DWORD, data: data}
+}
+
+func deleteCreatedRegistryKey(parent registry.Key, name string, key *registryKeyHandle, created bool) error {
+	if !created {
+		return nil
+	}
+	closeErr := key.close()
+	deleteErr := registry.DeleteKey(parent, name)
+	return errors.Join(closeErr, deleteErr)
 }

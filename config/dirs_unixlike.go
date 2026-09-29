@@ -17,12 +17,15 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"time"
 )
 
 const (
@@ -109,5 +112,10 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	if err != nil {
 		return err
 	}
-	return createDriverManifest(loc, driver)
+	lock, err := acquireDriverInstallLockWith(context.Background(), loc, driver.ID, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("acquire driver registration lock: %w", err)
+	}
+	defer func() { err = errors.Join(err, lock.release()) }()
+	return createDriverManifestUnlocked(loc, driver)
 }
