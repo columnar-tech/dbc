@@ -158,6 +158,8 @@ type packageInstallResultMsg struct {
 	DriverInfo config.DriverInfo
 }
 
+type installVerificationStartedMsg struct{}
+
 type localInstallMsg struct{}
 
 // alreadyInstalledChecksumMsg carries the checksum computed for an already-installed driver.
@@ -250,6 +252,8 @@ type progressiveInstallModel struct {
 	alreadyInstalledChecksum string
 	jsonOut                  io.Writer
 	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
+	verificationStarted      bool
+	verifyStagedPackage      func(string, config.Manifest, bool) error
 }
 
 type driversWithRegistryError struct {
@@ -487,12 +491,18 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 		}
 	}
 
+	program := prog
+	verifier := m.verifyStagedPackage
+	if verifier == nil {
+		verifier = verifySignatureInStaging
+	}
 	return m, func() tea.Msg {
 		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, config.InstallPackageOptions{
 			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
-				m = m.addEvent("extract.complete")
-				m = m.addEvent("verify.start")
-				return verifySignatureInStaging(stagingDir, stagedManifest, m.NoVerify)
+				if program != nil {
+					program.Send(installVerificationStartedMsg{})
+				}
+				return verifier(stagingDir, stagedManifest, m.NoVerify)
 			},
 		})
 		if err != nil {
@@ -556,11 +566,21 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.addEvent("download.complete")
 		m = m.addEvent("extract.start")
 		return m.startInstalling(msg)
+	case installVerificationStartedMsg:
+		if m.state >= stDone || m.status != 0 || m.verificationStarted {
+			return m, nil
+		}
+		m.verificationStarted = true
+		m = m.addEvent("extract.complete")
+		m = m.addEvent("verify.start")
+		if !m.NoVerify {
+			m.state = stVerifying
+		}
+		return m, nil
 	case packageInstallResultMsg:
 		if m.DriverPackage.Version == nil {
 			m.DriverPackage = manifestToPackageInfo(msg.Manifest)
 		}
-		m.state = stVerifying
 		m.postInstallMessage = strings.Join(msg.Manifest.PostInstall.Messages, "\n")
 		m.installedDriverInfo = msg.DriverInfo
 		m = m.addEvent("verify.complete")

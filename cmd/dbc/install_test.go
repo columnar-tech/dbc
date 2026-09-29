@@ -16,6 +16,7 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -26,7 +27,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -693,6 +696,121 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	suite.True(hasDownloadStart, "expected download.start event")
 }
 
+func (suite *SubcommandTestSuite) TestInstall_NoVerifyJSONProgressKeepsVerificationEventsOrdered() {
+	m := InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel, NoVerify: true, JsonStreamProgress: true}.
+		GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+
+	startIndex := strings.Index(out, `"event":"verify.start"`)
+	completeIndex := strings.Index(out, `"event":"verify.complete"`)
+	suite.Require().GreaterOrEqual(startIndex, 0, "expected verify.start progress event")
+	suite.Require().GreaterOrEqual(completeIndex, 0, "expected verify.complete progress event")
+	suite.Less(startIndex, completeIndex, "verification progress events should stay ordered")
+	suite.Contains(out, `"kind":"install.status"`)
+}
+
+func (suite *SubcommandTestSuite) TestInstallVerificationPhaseIsReportedBeforeVerifierCompletes() {
+	model := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, JsonStreamProgress: true}.
+		GetModelCustom(testBaseModel()).(progressiveInstallModel)
+	verifyEntered := make(chan struct{})
+	verifyRelease := make(chan struct{})
+	verifyCompleted := make(chan struct{})
+	verifierReleased := false
+	defer func() {
+		if !verifierReleased {
+			close(verifyRelease)
+		}
+	}()
+	model.verifyStagedPackage = func(string, config.Manifest, bool) error {
+		close(verifyEntered)
+		<-verifyRelease
+		close(verifyCompleted)
+		return nil
+	}
+	var progress bytes.Buffer
+	model = model.WithJSONWriter(&progress).(progressiveInstallModel)
+
+	states := make(chan installState, 8)
+	observed := &installStateObservedModel{model: model, states: states}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output := &bytes.Buffer{}
+	savedProg := prog
+	defer func() { prog = savedProg }()
+	program := tea.NewProgram(observed, tea.WithInput(nil), tea.WithOutput(output),
+		tea.WithoutRenderer(), tea.WithContext(ctx))
+	prog = program
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := program.Run()
+		program.Wait()
+		runDone <- err
+	}()
+
+	select {
+	case <-verifyEntered:
+	case <-ctx.Done():
+		suite.FailNow("verifier was not entered before timeout")
+	}
+
+	stateReached := false
+	for !stateReached {
+		select {
+		case state := <-states:
+			stateReached = state == stVerifying
+		case <-ctx.Done():
+			suite.FailNow("install model did not enter the verifying state before timeout")
+		}
+	}
+	select {
+	case <-verifyCompleted:
+		suite.FailNow("verifier completed before the test released it")
+	default:
+	}
+
+	close(verifyRelease)
+	verifierReleased = true
+	select {
+	case err := <-runDone:
+		suite.Require().NoError(err)
+	case <-ctx.Done():
+		suite.FailNow("install did not finish before timeout")
+	}
+
+	var events []string
+	progressOutput := strings.TrimSpace(progress.String())
+	suite.Require().NotEmpty(progressOutput, "expected progress events")
+	for _, line := range strings.Split(progressOutput, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var envelope jsonschema.Envelope
+		suite.Require().NoError(
+			json.Unmarshal([]byte(line), &envelope),
+			"invalid progress line: %q in %q", line, progressOutput,
+		)
+		if envelope.Kind != "install.progress" {
+			continue
+		}
+		var event jsonschema.InstallProgressEvent
+		suite.Require().NoError(json.Unmarshal(envelope.Payload, &event))
+		events = append(events, event.Event)
+	}
+	startIndex := -1
+	completeIndex := -1
+	for i, event := range events {
+		if event == "verify.start" {
+			startIndex = i
+		}
+		if event == "verify.complete" {
+			completeIndex = i
+		}
+	}
+	suite.Require().GreaterOrEqual(startIndex, 0, "expected verify.start progress event")
+	suite.Require().GreaterOrEqual(completeIndex, 0, "expected verify.complete progress event")
+	suite.Less(startIndex, completeIndex, "verification progress events should stay ordered")
+}
+
 // TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the
 // fix that gates FinalOutput() on m.status. When the driver binary is missing
 // the checksum computation fails, the model exits with status 1, and
@@ -740,4 +858,27 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	var errPayload jsonschema.ErrorResponse
 	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
 	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
+}
+
+type installStateObservedModel struct {
+	model  progressiveInstallModel
+	states chan installState
+}
+
+func (m *installStateObservedModel) Init() tea.Cmd {
+	return m.model.Init()
+}
+
+func (m *installStateObservedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	previousState := m.model.state
+	updated, cmd := m.model.Update(msg)
+	m.model = updated.(progressiveInstallModel)
+	if m.model.state != previousState {
+		m.states <- m.model.state
+	}
+	return m, cmd
+}
+
+func (m *installStateObservedModel) View() tea.View {
+	return m.model.View()
 }
