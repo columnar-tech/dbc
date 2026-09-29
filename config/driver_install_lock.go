@@ -31,8 +31,8 @@ import (
 
 var errDriverRegistrationChanged = errors.New("driver registration changed")
 
-// driverInstallLock serializes install and uninstall work for one driver in a
-// specific installation location.
+// driverInstallLock serializes driver mutations that acquire it for a specific
+// installation location.
 type driverInstallLock struct {
 	releaseFn   func() error
 	releaseOnce sync.Once
@@ -76,7 +76,7 @@ func driverInstallLockPath(location, runtimeID string) (string, error) {
 		canonicalID = strings.ToLower(canonicalID)
 	}
 	key := sha256.Sum256([]byte(canonicalLocation + "\x00" + canonicalID))
-	return filepath.Join(location, fmt.Sprintf(".dbc.install.%x.lock", key)), nil
+	return filepath.Join(canonicalLocation, fmt.Sprintf(".dbc.install.%x.lock", key)), nil
 }
 
 func UninstallDriver(cfg Config, info DriverInfo) (err error) {
