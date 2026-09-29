@@ -15,8 +15,6 @@
 package config
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -250,61 +248,6 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 	manifest.DriverInfo.Driver.Shared.Set(PlatformTuple(), driverPath)
 
 	return manifest, nil
-}
-
-// TODO: Unexport once we refactor sync.go. sync.go has it's own separate
-// installation routine which it probably shouldn't.
-func InflateTarball(f *os.File, outDir string) (Manifest, error) {
-	defer f.Close()
-	var m Manifest
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return m, fmt.Errorf("could not seek to start: %w", err)
-	}
-	rdr, err := gzip.NewReader(f)
-	if err != nil {
-		return m, fmt.Errorf("could not create gzip reader: %w", err)
-	}
-	defer rdr.Close()
-
-	t := tar.NewReader(rdr)
-	for {
-		hdr, err := t.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			return m, fmt.Errorf("error reading tarball: %w", err)
-		}
-
-		// Return a helpful error if an entry is a directory. dbc doesn't support
-		// installing driver tarballs that contain directories.
-		if hdr.Typeflag == tar.TypeDir {
-			return m, fmt.Errorf("found a directory entry when trying to extract %s which isn't supported. driver archives shouldn't contain subdirectories", f.Name())
-		}
-
-		if hdr.Name != "MANIFEST" {
-			next, err := os.Create(filepath.Join(outDir, hdr.Name))
-			if err != nil {
-				return m, fmt.Errorf("could not create file %s: %w", hdr.Name, err)
-			}
-
-			if _, err = io.Copy(next, t); err != nil {
-				next.Close()
-				return m, fmt.Errorf("could not write file from tarball %s: %w", hdr.Name, err)
-			}
-			next.Close()
-		} else {
-			m, err = decodeManifest(t, "", false)
-			if err != nil {
-				return m, fmt.Errorf("could not decode manifest: %w", err)
-			}
-
-		}
-	}
-
-	return m, nil
 }
 
 func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifest, error) {
