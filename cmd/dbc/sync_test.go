@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -39,11 +40,126 @@ func (suite *SubcommandTestSuite) TestSync() {
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
+	downloads := 0
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		testBaseModel())
+		baseModel{
+			getDriverRegistry: getTestDriverRegistry,
+			downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+				downloads++
+				return downloadTestPkg(pkg)
+			},
+		})
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.Zero(downloads, "same-version sync should not download the package")
+}
+
+func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesInstalledDriver() {
+	listPath := filepath.Join(suite.tempdir, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+
+	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	suite.runCmd(m)
+	old := suite.getInstalledDriver("test-driver-1")
+	oldManifest, err := os.ReadFile(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	suite.Require().NoError(err)
+	oldLibrary := old.Driver.Shared.Get(config.PlatformTuple())
+	oldLibraryBytes, err := os.ReadFile(oldLibrary)
+	suite.Require().NoError(err)
+
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
+	model := SyncCmd{Path: listPath}.GetModelCustom(baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
+			return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
+		},
+	})
+	suite.Contains(suite.runCmdErr(model), "failed to verify signature: verify package: signature file '")
+
+	current := suite.getInstalledDriver("test-driver-1")
+	suite.Equal(old.Version, current.Version)
+	suite.Equal(old.Driver.Shared.Get(config.PlatformTuple()), current.Driver.Shared.Get(config.PlatformTuple()))
+	currentManifest, err := os.ReadFile(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	suite.Require().NoError(err)
+	suite.Equal(oldManifest, currentManifest)
+	currentLibraryBytes, err := os.ReadFile(current.Driver.Shared.Get(config.PlatformTuple()))
+	suite.Require().NoError(err)
+	suite.Equal(oldLibraryBytes, currentLibraryBytes)
+}
+
+func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSecondaryRoot() {
+	secondary := filepath.Join(suite.tempdir, "secondary")
+	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
+	suite.T().Setenv("ADBC_DRIVER_PATH", secondary)
+	listPath := filepath.Join(suite.tempdir, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+
+	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	suite.runCmd(m)
+	secondaryDriver, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	secondaryLibrary := secondaryDriver.Driver.Shared.Get(config.PlatformTuple())
+	secondaryBytes, err := os.ReadFile(secondaryLibrary)
+	suite.Require().NoError(err)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
+	m = SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	suite.runCmd(m)
+
+	primaryDriver, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal("1.0.0", primaryDriver.Version.String())
+	primaryLibrary := primaryDriver.Driver.Shared.Get(config.PlatformTuple())
+	suite.Contains(primaryLibrary, ".dbc-package-test-driver-1-")
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	suite.FileExists(primaryLibrary)
+	primaryRel, err := filepath.Rel(suite.tempdir, primaryLibrary)
+	suite.Require().NoError(err)
+	suite.False(filepath.IsAbs(primaryRel) || primaryRel == ".." || strings.HasPrefix(primaryRel, ".."+string(os.PathSeparator)),
+		"primary library should be inside the primary root: %s", primaryLibrary)
+	remainingSecondaryBytes, err := os.ReadFile(secondaryLibrary)
+	suite.Require().NoError(err)
+	suite.Equal(secondaryBytes, remainingSecondaryBytes, "secondary-root library should remain intact when shadowed")
+	suite.FileExists(filepath.Join(secondary, "test-driver-1.toml"))
+
+	lock, err := loadLockFile(filepath.Join(suite.tempdir, "dbc.lock"))
+	suite.Require().NoError(err)
+	lockInfo := lock.lockinfo["test-driver-1"]
+	suite.Equal("1.0.0", lockInfo.Version.String())
+	primaryChecksum, err := checksum(primaryLibrary)
+	suite.Require().NoError(err)
+	suite.Equal(primaryChecksum, lockInfo.Checksum)
+}
+
+func (suite *SubcommandTestSuite) TestSyncPrimaryVersionReplacementUpdatesRegistrationAndLockChecksum() {
+	listPath := filepath.Join(suite.tempdir, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+
+	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	suite.runCmd(m)
+	old := suite.getInstalledDriver("test-driver-1")
+	oldLibrary := old.Driver.Shared.Get(config.PlatformTuple())
+
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
+	m = SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
+	suite.runCmd(m)
+
+	current := suite.getInstalledDriver("test-driver-1")
+	currentLibrary := current.Driver.Shared.Get(config.PlatformTuple())
+	suite.Equal("1.0.0", current.Version.String())
+	suite.NotEqual(oldLibrary, currentLibrary)
+	suite.Contains(currentLibrary, ".dbc-package-test-driver-1-")
+	suite.FileExists(currentLibrary)
+
+	lock, err := loadLockFile(filepath.Join(suite.tempdir, "dbc.lock"))
+	suite.Require().NoError(err)
+	lockInfo := lock.lockinfo["test-driver-1"]
+	suite.Equal("1.0.0", lockInfo.Version.String())
+	currentChecksum, err := checksum(currentLibrary)
+	suite.Require().NoError(err)
+	suite.Equal(currentChecksum, lockInfo.Checksum)
 }
 
 func (suite *SubcommandTestSuite) TestSyncRejectsUnsupportedLockFileWithoutRewriting() {
@@ -163,7 +279,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 	}.GetModelCustom(
 		testBaseModel())
 	suite.validateOutput("\r ",
-		"\nError: failed to verify signature: signature file 'test-driver-1-not-valid.so.sig' for driver is missing",
+		"\nError: failed to verify signature: verify package: signature file 'test-driver-1-not-valid.so.sig' for driver is missing",
 		suite.runCmdErr(m))
 	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
 }
