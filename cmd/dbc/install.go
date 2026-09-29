@@ -112,11 +112,18 @@ func (c InstallCmd) GetModel() tea.Model {
 }
 
 func verifySignature(m config.Manifest, noVerify bool) error {
+	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
+	return verifySignatureInDirectory(path, m, noVerify)
+}
+
+func verifySignatureInStaging(stagingDir string, m config.Manifest, noVerify bool) error {
+	return verifySignatureInDirectory(stagingDir, m, noVerify)
+}
+
+func verifySignatureInDirectory(path string, m config.Manifest, noVerify bool) error {
 	if m.Files.Driver == "" || noVerify {
 		return nil
 	}
-
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
 
 	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
 	if err != nil {
@@ -145,7 +152,8 @@ func verifySignature(m config.Manifest, noVerify bool) error {
 	return nil
 }
 
-type writeDriverManifestMsg struct {
+type packageInstallResultMsg struct {
+	Manifest   config.Manifest
 	DriverInfo config.DriverInfo
 }
 
@@ -479,17 +487,17 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	}
 
 	return m, func() tea.Msg {
-		if m.conflictingInfo.ID != "" {
-			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
-				return err
-			}
-		}
-
-		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded)
+		manifest, err := config.InstallPackage(m.cfg, m.Driver, downloaded, config.InstallPackageOptions{
+			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
+				m = m.addEvent("extract.complete")
+				m = m.addEvent("verify.start")
+				return verifySignatureInStaging(stagingDir, stagedManifest, m.NoVerify)
+			},
+		})
 		if err != nil {
 			return err
 		}
-		return manifest
+		return packageInstallResultMsg{Manifest: manifest, DriverInfo: manifest.DriverInfo}
 	}
 }
 
@@ -547,31 +555,17 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.addEvent("download.complete")
 		m = m.addEvent("extract.start")
 		return m.startInstalling(msg)
-	case config.Manifest:
+	case packageInstallResultMsg:
 		if m.DriverPackage.Version == nil {
-			m.DriverPackage = manifestToPackageInfo(msg)
+			m.DriverPackage = manifestToPackageInfo(msg.Manifest)
 		}
-
 		m.state = stVerifying
-		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
-		m = m.addEvent("extract.complete")
-		m = m.addEvent("verify.start")
-		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.NoVerify); err != nil {
-				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
-				_ = os.RemoveAll(path)
-				return err
-			}
-			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
-		}
-	case writeDriverManifestMsg:
-		m.state = stDone
+		m.postInstallMessage = strings.Join(msg.Manifest.PostInstall.Messages, "\n")
 		m.installedDriverInfo = msg.DriverInfo
 		m = m.addEvent("verify.complete")
 		m = m.addEvent("manifest.create")
-		return m, tea.Sequence(func() tea.Msg {
-			return config.CreateManifest(m.cfg, msg.DriverInfo)
-		}, tea.Quit)
+		m.state = stDone
+		return m, tea.Sequence(tea.Quit)
 	case error:
 		m.status = 1
 		m.err = msg

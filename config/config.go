@@ -308,6 +308,23 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 // Common, non-platform-specific code for uninstalling a driver. Called by
 // platform-specific UninstallDriver function.
 func UninstallDriverShared(info DriverInfo) error {
+	return uninstallDriverSharedForConfig(Config{Level: ConfigUnknown}, info)
+}
+
+func uninstallDriverSharedForConfig(cfg Config, info DriverInfo) error {
+	return uninstallDriverSharedWithOperations(cfg, info, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
+}
+
+func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
+	cfg = packageCleanupConfig(cfg, info)
+	if info.Source == "dbc" {
+		root, err := packageCleanupRoot(cfg, info)
+		if err != nil {
+			return err
+		}
+		return cleanupInstalledPackageWithOperations(cfg, root, info, operations)
+	}
+
 	// For the User and System config levels, info.FilePath is set to the
 	// appropriate registry key instead of the filesystem on windows so we
 	// handle that here first.

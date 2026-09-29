@@ -41,25 +41,32 @@ const (
 
 type packageLibraryKind string
 
+type packageRegistrationScope string
+
 const (
 	packageLibraryFile     packageLibraryKind = "package_file"
 	packageLibraryExternal packageLibraryKind = "external"
+
+	packageRegistrationFile           packageRegistrationScope = "file"
+	packageRegistrationRegistryUser   packageRegistrationScope = "registry-user"
+	packageRegistrationRegistrySystem packageRegistrationScope = "registry-system"
 )
 
 // packageInstallReceipt records local ownership and integrity evidence. It
 // deliberately contains no source identity or archive provenance.
 type packageInstallReceipt struct {
-	SchemaVersion                int                `json:"schema_version"`
-	RuntimeID                    string             `json:"runtime_id"`
-	DriverVersion                string             `json:"driver_version"`
-	Platform                     string             `json:"platform"`
-	Generation                   string             `json:"generation"`
-	LibraryKind                  packageLibraryKind `json:"library_kind"`
-	OwnedLibraryFilename         string             `json:"owned_library_filename,omitempty"`
-	OwnedLibrarySHA256           string             `json:"owned_library_sha256,omitempty"`
-	RegistrationFingerprintAlgo  string             `json:"registration_fingerprint_algorithm"`
-	RegistrationFingerprintVer   int                `json:"registration_fingerprint_version"`
-	RegistrationFingerprintValue string             `json:"registration_fingerprint"`
+	SchemaVersion                int                      `json:"schema_version"`
+	RegistrationScope            packageRegistrationScope `json:"registration_scope"`
+	RuntimeID                    string                   `json:"runtime_id"`
+	DriverVersion                string                   `json:"driver_version"`
+	Platform                     string                   `json:"platform"`
+	Generation                   string                   `json:"generation"`
+	LibraryKind                  packageLibraryKind       `json:"library_kind"`
+	OwnedLibraryFilename         string                   `json:"owned_library_filename,omitempty"`
+	OwnedLibrarySHA256           string                   `json:"owned_library_sha256,omitempty"`
+	RegistrationFingerprintAlgo  string                   `json:"registration_fingerprint_algorithm"`
+	RegistrationFingerprintVer   int                      `json:"registration_fingerprint_version"`
+	RegistrationFingerprintValue string                   `json:"registration_fingerprint"`
 }
 
 type registrationFingerprintDTO struct {
@@ -89,7 +96,20 @@ type registrationSharedIdentity struct {
 
 var packagePlatformPattern = regexp.MustCompile(`^[a-z0-9]+_[a-z0-9]+$`)
 
+func validPackageRegistrationScope(scope packageRegistrationScope) bool {
+	switch scope {
+	case packageRegistrationFile, packageRegistrationRegistryUser, packageRegistrationRegistrySystem:
+		return true
+	default:
+		return false
+	}
+}
+
 func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, platform string, manifest Manifest) (packageInstallReceipt, error) {
+	scope, err := packageRegistrationScopeForConfig(cfg)
+	if err != nil {
+		return packageInstallReceipt{}, fmt.Errorf("resolve package registration scope: %w", err)
+	}
 	if err := validatePackageFilename(runtimeID); err != nil {
 		return packageInstallReceipt{}, fmt.Errorf("invalid runtime ID: %w", err)
 	}
@@ -136,6 +156,7 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 	}
 	return packageInstallReceipt{
 		SchemaVersion:                packageInstallReceiptVersion,
+		RegistrationScope:            scope,
 		RuntimeID:                    runtimeID,
 		DriverVersion:                version,
 		Platform:                     platform,
@@ -291,6 +312,9 @@ func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, gene
 		return false
 	}
 	if validatePackageFilename(receipt.RuntimeID) != nil || !packagePlatformPattern.MatchString(receipt.Platform) {
+		return false
+	}
+	if !validPackageRegistrationScope(receipt.RegistrationScope) {
 		return false
 	}
 	version, err := semver.NewVersion(receipt.DriverVersion)

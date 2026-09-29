@@ -278,13 +278,9 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	manifest, err := config.InstallDriver(cfg, driverName, f)
+	manifest, err := config.InstallPackage(cfg, driverName, f, config.InstallPackageOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
-	}
-
-	if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
-		return nil, fmt.Errorf("failed to create manifest for driver %s: %w", driverName, err)
 	}
 
 	return &manifest, nil

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -42,6 +43,31 @@ func uninstallLockLocation(cfg Config, info DriverInfo) (string, error) {
 
 func prepareDriverUninstallLockLocation(cfg Config, location string) error {
 	return prepareRegistrationLockLocation(cfg, location)
+}
+
+func packageCleanupRoot(cfg Config, info DriverInfo) (string, error) {
+	if cfg.Level == ConfigEnv {
+		if info.FilePath == "" {
+			return "", nil
+		}
+		return info.FilePath, nil
+	}
+	if cfg.Level == ConfigUser || cfg.Level == ConfigSystem {
+		if cfg.Location != "" {
+			return cfg.Location, nil
+		}
+		return cfg.Level.ConfigLocation(), nil
+	}
+	if strings.Contains(info.FilePath, "HKCU\\") {
+		return ConfigUser.ConfigLocation(), nil
+	}
+	if strings.Contains(info.FilePath, "HKLM\\") {
+		return ConfigSystem.ConfigLocation(), nil
+	}
+	if info.FilePath == "" {
+		return "", nil
+	}
+	return info.FilePath, nil
 }
 
 func registrationLockLocation(cfg Config) (string, error) {
@@ -76,7 +102,11 @@ func readDriverRegistrationForUninstall(cfg Config, info DriverInfo) (DriverInfo
 }
 
 func uninstallDriverUnlocked(cfg Config, info DriverInfo) error {
-	if err := UninstallDriverShared(info); err != nil {
+	return uninstallDriverUnlockedWithCleanup(cfg, info, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
+}
+
+func uninstallDriverUnlockedWithCleanup(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
+	if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 	if cfg.Level != ConfigEnv {

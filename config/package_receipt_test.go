@@ -51,6 +51,10 @@ func TestInstallPackageWritesOwnedLibraryReceipt(t *testing.T) {
 	if receipt.SchemaVersion != packageInstallReceiptVersion || receipt.RuntimeID != "driver" || receipt.DriverVersion != "1.0.0" || receipt.Platform != PlatformTuple() || receipt.Generation != filepath.Base(generation) {
 		t.Fatalf("receipt identity = %+v", receipt)
 	}
+	wantScope, err := packageRegistrationScopeForConfig(cfg)
+	if err != nil || receipt.RegistrationScope != wantScope {
+		t.Fatalf("receipt registration scope = %q, want %q: %v", receipt.RegistrationScope, wantScope, err)
+	}
 	if receipt.LibraryKind != packageLibraryFile || receipt.OwnedLibraryFilename != "driver.so" {
 		t.Fatalf("receipt ownership = %+v", receipt)
 	}
@@ -70,6 +74,17 @@ func TestInstallPackageWritesOwnedLibraryReceipt(t *testing.T) {
 		if _, exists := keys[key]; exists {
 			t.Fatalf("source-specific key %q in receipt", key)
 		}
+	}
+}
+
+func TestPackageRegistrationScopesAreValidatedAndDistinct(t *testing.T) {
+	for _, scope := range []packageRegistrationScope{packageRegistrationFile, packageRegistrationRegistryUser, packageRegistrationRegistrySystem} {
+		if !validPackageRegistrationScope(scope) {
+			t.Errorf("known registration scope %q was rejected", scope)
+		}
+	}
+	if validPackageRegistrationScope("other") {
+		t.Fatal("unknown registration scope was accepted")
 	}
 }
 
@@ -222,6 +237,7 @@ func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 	}
 	valid := packageInstallReceipt{
 		SchemaVersion:                packageInstallReceiptVersion,
+		RegistrationScope:            packageRegistrationFile,
 		RuntimeID:                    "driver",
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
@@ -251,6 +267,12 @@ func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 	if _, ok := readPackageInstallReceipt(root, generation); ok {
 		t.Fatal("external receipt with owned filename was accepted")
 	}
+	invalid = valid
+	invalid.RegistrationScope = "unknown"
+	write(invalid)
+	if _, ok := readPackageInstallReceipt(root, generation); ok {
+		t.Fatal("receipt with unknown registration scope was accepted")
+	}
 	if _, ok := readPackageInstallReceipt(root, filepath.Join(root, "nested", filepath.Base(generation))); ok {
 		t.Fatal("receipt outside direct primary-root child was accepted")
 	}
@@ -270,6 +292,7 @@ func TestReceiptReaderRejectsUnknownSchemaAndFields(t *testing.T) {
 	}
 	valid := packageInstallReceipt{
 		SchemaVersion:                packageInstallReceiptVersion,
+		RegistrationScope:            packageRegistrationFile,
 		RuntimeID:                    "driver",
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
@@ -331,6 +354,7 @@ func TestReceiptReaderRejectsOversizedTrailingData(t *testing.T) {
 	}
 	valid := packageInstallReceipt{
 		SchemaVersion:                packageInstallReceiptVersion,
+		RegistrationScope:            packageRegistrationFile,
 		RuntimeID:                    "driver",
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
@@ -364,6 +388,7 @@ func TestReceiptReaderRejectsSymlinkedEvidence(t *testing.T) {
 	}
 	receipt := packageInstallReceipt{
 		SchemaVersion:                packageInstallReceiptVersion,
+		RegistrationScope:            packageRegistrationFile,
 		RuntimeID:                    "driver",
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",

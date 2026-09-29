@@ -87,6 +87,7 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+	oldGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 
 	m = InstallCmd{Driver: "test-driver-1"}.
 		GetModelCustom(testBaseModel())
@@ -94,8 +95,11 @@ func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir,
 		suite.runCmd(m))
 
-	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
-		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
+	suite.NotEqual(oldGeneration, newGeneration)
+	suite.True(strings.HasPrefix(filepath.Base(newGeneration), ".dbc-package-test-driver-1-"))
+	suite.DirExists(newGeneration)
+	suite.NoDirExists(oldGeneration)
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
@@ -104,6 +108,7 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), suite.runCmd(m))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
+	oldGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 
 	m = InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
@@ -111,10 +116,11 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
-	files := suite.getFilesInDir(suite.Dir())
-	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so")
-	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so.sig")
-	suite.NotContains(files, "test-driver-1.1/test-driver-1-not-valid.so")
+	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
+	suite.NotEqual(oldGeneration, newGeneration)
+	suite.True(strings.HasPrefix(filepath.Base(newGeneration), ".dbc-package-test-driver-1-"))
+	suite.DirExists(newGeneration)
+	suite.NoDirExists(oldGeneration)
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
 }
 

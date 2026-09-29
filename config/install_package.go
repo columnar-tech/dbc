@@ -49,10 +49,10 @@ type packageInstallOperations struct {
 // Windows, registry values are updated with rollback after a partial failure,
 // but a rollback failure or process termination during that update can leave
 // the previous registration uncertain. If rollback fails, the candidate
-// generation is preserved. Old generations are retained after successful
-// registration. An error while releasing the driver lock can be returned after
-// commit; in that case the new generation remains installed. This API does not
-// promise durability across power loss.
+// generation is preserved. After successful registration, stale receipt-backed
+// generations are removed on a best-effort basis. An error while releasing the
+// driver lock can be returned after commit; in that case the new generation
+// remains installed. This API does not promise durability across power loss.
 func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions) (manifest Manifest, err error) {
 	return installPackageWithOperations(cfg, runtimeID, downloaded, options, packageInstallOperations{
 		rename:       os.Rename,
@@ -170,6 +170,7 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 	if err := operations.register(cfg, location, manifest.DriverInfo); err != nil {
 		return Manifest{}, cleanupFailedPackageRegistration(generationDir, err, operations.removeAll)
 	}
+	cleanupStalePackageGenerations(cfg, location, manifest.DriverInfo, []string{generationDir}, operations.remove, operations.removeAll)
 	return manifest, nil
 }
 
