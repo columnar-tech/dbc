@@ -221,6 +221,11 @@ func getEnvConfigDir() string {
 	return strings.Join(envConfigLoc, string(filepath.ListSeparator))
 }
 
+// InstallDriver extracts a package into the legacy archive-derived directory and returns its Manifest.
+// It does not update runtime registration, create an install receipt, or participate in
+// InstallPackage's transaction lock. Pairing it with CreateManifest is not one transaction.
+//
+// Deprecated: use InstallPackage for transactional package installation.
 func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {
 	var (
 		loc string

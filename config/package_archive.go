@@ -90,8 +90,6 @@ var defaultPackageArchiveLimits = packageArchiveLimits{
 	metadataSize: 16 << 20,
 }
 
-// TODO: Unexport once we refactor sync.go. sync.go has it's own separate
-// installation routine which it probably shouldn't.
 func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 	return inflateTarballWithLimits(f, outDir, defaultPackageArchiveLimits)
 }
