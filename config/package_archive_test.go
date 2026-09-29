@@ -143,6 +143,7 @@ func TestPackageArchiveRejectsUnsafeEntries(t *testing.T) {
 		{name: "device", entries: []*tar.Header{packageFile("MANIFEST", ""), {Name: "device", Typeflag: tar.TypeChar}}},
 		{name: "duplicate", entries: []*tar.Header{packageFile("MANIFEST", ""), packageFile("same", "a"), packageFile("same", "b")}},
 		{name: "case collision", entries: []*tar.Header{packageFile("MANIFEST", ""), packageFile("Foo", "a"), packageFile("foo", "b")}},
+		{name: "reserved receipt filename", entries: []*tar.Header{packageFile("MANIFEST", ""), packageFile(strings.ToUpper(packageInstallReceiptFilename), "x")}},
 		{name: "sparse", entries: []*tar.Header{packageFile("MANIFEST", ""), {Name: "sparse", Typeflag: tar.TypeGNUSparse}}},
 	}
 	for _, tt := range tests {

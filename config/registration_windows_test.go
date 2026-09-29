@@ -21,7 +21,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -42,6 +45,71 @@ func TestWindowsRegistrationStorePreservesRawValueTypeAndBytes(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("raw value = %#v, want %#v", got, want)
+	}
+}
+
+func TestWindowsRegistryReceiptFingerprintMatchesRoundTrip(t *testing.T) {
+	cfg := Config{Level: ConfigUser, Location: t.TempDir()}
+	var suffix [12]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		t.Fatal(err)
+	}
+	id := "dbc-receipt-" + hex.EncodeToString(suffix[:])
+	generation := filepath.Join(cfg.Location, ".dbc-package-"+id+"-generation")
+	stage := t.TempDir()
+	if err := os.Mkdir(generation, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stage, "driver.dll"), []byte("library"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	driver := windowsRegistrationTestDriver()
+	driver.ID = id
+	driver.Version = semver.MustParse("1.2.3")
+	driver.AdbcInfo.Version = semver.MustParse("1.0.0")
+	driver.AdbcInfo.Features.Supported = []string{"transactions", "bulk_ingest"}
+	driver.AdbcInfo.Features.Unsupported = []string{"substrait"}
+	driver.Driver.Shared.Set(PlatformTuple(), filepath.Join(generation, "driver.dll"))
+	manifest := Manifest{DriverInfo: driver}
+	manifest.Files.Driver = "driver.dll"
+	receipt, err := makePackageInstallReceipt(cfg, stage, filepath.Base(generation), id, PlatformTuple(), manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.RegistrationFingerprintValue == "" {
+		t.Fatal("receipt has no registration fingerprint")
+	}
+	if registrationFingerprintIncludesADBC(cfg) {
+		t.Fatal("registry fingerprint projection includes unpersisted ADBC metadata")
+	}
+	if err := createRuntimeRegistrationUnlocked(cfg, generation, driver); err != nil {
+		t.Fatal(err)
+	}
+	driversKey, err := registry.OpenKey(registry.CURRENT_USER, regKeyADBC, registry.ALL_ACCESS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := registry.DeleteKey(driversKey, id); err != nil && !errors.Is(err, registry.ErrNotExist) {
+			t.Errorf("delete test registration: %v", err)
+		}
+		if err := driversKey.Close(); err != nil {
+			t.Errorf("close driver registry key: %v", err)
+		}
+	}()
+	loaded, err := GetDriver(cfg, strings.ToUpper(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.AdbcInfo.Version != nil || len(loaded.AdbcInfo.Features.Supported) != 0 || len(loaded.AdbcInfo.Features.Unsupported) != 0 {
+		t.Fatalf("registry unexpectedly persisted ADBC metadata: %+v", loaded.AdbcInfo)
+	}
+	fingerprint, err := runtimeRegistrationFingerprint(cfg, receipt.RuntimeID, receipt.Platform, loaded, receipt.LibraryKind, receipt.OwnedLibraryFilename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fingerprint != receipt.RegistrationFingerprintValue {
+		t.Fatalf("round-trip fingerprint = %s, receipt = %s", fingerprint, receipt.RegistrationFingerprintValue)
 	}
 }
 

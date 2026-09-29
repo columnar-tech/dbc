@@ -488,10 +488,11 @@ func testPackageArchive(t *testing.T, contents string) *os.File {
 
 func testPackageInstallOperations() packageInstallOperations {
 	return packageInstallOperations{
-		rename:    os.Rename,
-		remove:    os.Remove,
-		removeAll: os.RemoveAll,
-		register:  createRuntimeRegistrationUnlocked,
+		rename:       os.Rename,
+		remove:       os.Remove,
+		removeAll:    os.RemoveAll,
+		register:     createRuntimeRegistrationUnlocked,
+		writeReceipt: writePackageInstallReceipt,
 	}
 }
 

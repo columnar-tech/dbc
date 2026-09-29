@@ -36,10 +36,11 @@ type InstallPackageOptions struct {
 }
 
 type packageInstallOperations struct {
-	rename    func(string, string) error
-	remove    func(string) error
-	removeAll func(string) error
-	register  func(Config, string, DriverInfo) error
+	rename       func(string, string) error
+	remove       func(string) error
+	removeAll    func(string) error
+	register     func(Config, string, DriverInfo) error
+	writeReceipt func(string, packageInstallReceipt) error
 }
 
 // InstallPackage installs a package generation and then updates the runtime
@@ -54,10 +55,11 @@ type packageInstallOperations struct {
 // promise durability across power loss.
 func InstallPackage(cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions) (manifest Manifest, err error) {
 	return installPackageWithOperations(cfg, runtimeID, downloaded, options, packageInstallOperations{
-		rename:    os.Rename,
-		remove:    os.Remove,
-		removeAll: os.RemoveAll,
-		register:  createRuntimeRegistrationUnlocked,
+		rename:       os.Rename,
+		remove:       os.Remove,
+		removeAll:    os.RemoveAll,
+		register:     createRuntimeRegistrationUnlocked,
+		writeReceipt: writePackageInstallReceipt,
 	})
 }
 
@@ -144,6 +146,13 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 		if err := options.Verifier(stageDir, manifest); err != nil {
 			return Manifest{}, fmt.Errorf("verify package: %w", err)
 		}
+	}
+	receipt, err := makePackageInstallReceipt(cfg, stageDir, filepath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
+	}
+	if err := operations.writeReceipt(stageDir, receipt); err != nil {
+		return Manifest{}, fmt.Errorf("write package install receipt: %w", err)
 	}
 
 	if err := os.Chmod(stageDir, 0o755); err != nil {

@@ -198,6 +198,9 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 		if err := validatePackageFilename(hdr.Name); err != nil {
 			return "", manifest, nil, err
 		}
+		if strings.EqualFold(hdr.Name, packageInstallReceiptFilename) {
+			return "", manifest, nil, fmt.Errorf("archive entry %q uses a reserved package receipt filename", hdr.Name)
+		}
 		for _, previous := range seen {
 			if strings.EqualFold(previous, hdr.Name) {
 				return "", manifest, nil, fmt.Errorf("duplicate or case-fold-colliding archive entry %q", hdr.Name)
