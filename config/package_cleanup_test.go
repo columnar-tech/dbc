@@ -252,110 +252,63 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 }
 
 func TestInstallPackageProtectsGenerationReferencedByNewRegistration(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialPackage(t, cfg)
-	first, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstLibrary := first.Driver.Shared.Get(PlatformTuple())
-	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", firstLibrary)
-	archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
-	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	current, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Driver.Shared.Get(PlatformTuple()) != firstLibrary {
-		t.Fatalf("manifest-only registration points to %q, want %q", current.Driver.Shared.Get(PlatformTuple()), firstLibrary)
-	}
-	if data, err := os.ReadFile(firstLibrary); err != nil || string(data) != "xxx" {
-		t.Fatalf("referenced previous generation was not preserved: %q, %v", data, err)
-	}
-}
+	// Post-commit GC must include the new registration when collecting references.
+	// The reference symlink and payload-root alias put symlinks on opposite sides
+	// of the lookup; raw parent traversal is uncertain before path resolution.
+	for _, referenceKind := range []string{"direct", "reference symlink", "payload root alias", "parent traversal"} {
+		t.Run(referenceKind, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			installInitialPackage(t, cfg)
+			first, err := GetDriver(cfg, "driver")
+			if err != nil {
+				t.Fatal(err)
+			}
+			firstLibrary := first.Driver.Shared.Get(PlatformTuple())
+			reference := firstLibrary
+			switch referenceKind {
+			case "reference symlink":
+				link := filepath.Join(root, "generation-link")
+				if err := os.Symlink(filepath.Dir(firstLibrary), link); err != nil {
+					t.Skipf("symlink creation is unavailable: %v", err)
+				}
+				reference = filepath.Join(link, filepath.Base(firstLibrary))
+			case "payload root alias":
+				rootAlias := filepath.Join(t.TempDir(), "root-alias")
+				if err := os.Symlink(root, rootAlias); err != nil {
+					t.Skipf("symlink creation is unavailable: %v", err)
+				}
+				cfg.Location = rootAlias
+			case "parent traversal":
+				subdirectory := filepath.Join(filepath.Dir(firstLibrary), "subdir")
+				if err := os.Mkdir(subdirectory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				link := filepath.Join(root, "generation-subdir")
+				if err := os.Symlink(subdirectory, link); err != nil {
+					t.Skipf("symlink creation is unavailable: %v", err)
+				}
+				reference = link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(firstLibrary)
+				assertParentTraversalReferenceResolvesOnUnix(t, reference)
+			}
 
-func TestInstallPackageProtectsGenerationReferencedThroughSymlink(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialPackage(t, cfg)
-	first, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstLibrary := first.Driver.Shared.Get(PlatformTuple())
-	firstGeneration := filepath.Dir(firstLibrary)
-	link := filepath.Join(root, "generation-link")
-	if err := os.Symlink(firstGeneration, link); err != nil {
-		t.Skipf("symlink creation is unavailable: %v", err)
-	}
-	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", filepath.Join(link, filepath.Base(firstLibrary)))
-	archive := writeCustomPackageArchive(t, manifest)
-	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	if _, err := os.Stat(firstLibrary); err != nil {
-		t.Fatalf("symlink-referenced generation was removed: %v", err)
-	}
-}
-
-func TestInstallPackageProtectsGenerationAcrossPayloadRootSymlink(t *testing.T) {
-	actualRoot := t.TempDir()
-	actualCfg := Config{Level: ConfigEnv, Location: actualRoot}
-	installInitialPackage(t, actualCfg)
-	first, err := GetDriver(actualCfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstLibrary := first.Driver.Shared.Get(PlatformTuple())
-	rootAlias := filepath.Join(t.TempDir(), "root-alias")
-	if err := os.Symlink(actualRoot, rootAlias); err != nil {
-		t.Skipf("symlink creation is unavailable: %v", err)
-	}
-	aliasCfg := Config{Level: ConfigEnv, Location: rootAlias}
-	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", firstLibrary)
-	archive := writeCustomPackageArchive(t, manifest)
-	if _, err := InstallPackage(context.Background(), aliasCfg, "driver", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	if _, err := os.Stat(firstLibrary); err != nil {
-		t.Fatalf("payload-root-alias referenced generation was removed: %v", err)
-	}
-}
-
-func TestInstallPackageConservativelyProtectsParentTraversalReference(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialPackage(t, cfg)
-	first, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	firstLibrary := first.Driver.Shared.Get(PlatformTuple())
-	firstGeneration := filepath.Dir(firstLibrary)
-	subdirectory := filepath.Join(firstGeneration, "subdir")
-	if err := os.Mkdir(subdirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(root, "generation-subdir")
-	if err := os.Symlink(subdirectory, link); err != nil {
-		t.Skipf("symlink creation is unavailable: %v", err)
-	}
-	reference := link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(firstLibrary)
-	assertParentTraversalReferenceResolvesOnUnix(t, reference)
-	manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", reference)
-	archive := writeCustomPackageArchive(t, manifest)
-	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	if _, err := os.Stat(firstLibrary); err != nil {
-		t.Fatalf("generation referenced through symlink and parent component was removed: %v", err)
+			manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", reference)
+			archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
+			if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			assertArchiveClosed(t, archive)
+			current, err := GetDriver(cfg, "driver")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if current.Driver.Shared.Get(PlatformTuple()) != reference {
+				t.Fatalf("manifest-only registration points to %q, want %q", current.Driver.Shared.Get(PlatformTuple()), reference)
+			}
+			if data, err := os.ReadFile(firstLibrary); err != nil || string(data) != "xxx" {
+				t.Fatalf("referenced previous generation was not preserved: %q, %v", data, err)
+			}
+		})
 	}
 }
 
@@ -789,45 +742,6 @@ func TestUninstallDriverSharedRejectsDBCRegistrationsWithoutMutation(t *testing.
 	}
 }
 
-func TestBorrowerUninstallRetainsAnotherDriversTransactionGeneration(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialPackage(t, cfg)
-	owned, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	generation := filepath.Dir(owned.Driver.Shared.Get(PlatformTuple()))
-	borrower := makeNamespaceSiblingInfo("borrower", root)
-	borrower.Source = "external"
-	borrower.Driver.Shared.Set(PlatformTuple(), owned.Driver.Shared.Get(PlatformTuple()))
-	if err := CreateManifest(cfg, borrower); err != nil {
-		t.Fatal(err)
-	}
-	selected, err := GetDriver(cfg, borrower.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := UninstallDriverShared(selected); err != nil {
-		t.Fatalf("public borrower cleanup: %v", err)
-	}
-	if _, ok := readPackageInstallReceipt(root, generation); !ok {
-		t.Fatal("public borrower cleanup removed the owner's generation")
-	}
-	if _, err := os.Stat(filepath.Join(root, "borrower.toml")); err != nil {
-		t.Fatalf("public shared cleanup removed the borrower registration: %v", err)
-	}
-	if err := UninstallDriver(cfg, selected); err != nil {
-		t.Fatalf("config-aware borrower uninstall: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "borrower.toml")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("borrower registration remains after uninstall: %v", err)
-	}
-	if _, ok := readPackageInstallReceipt(root, generation); !ok {
-		t.Fatal("borrower uninstall removed the owner's generation")
-	}
-}
-
 func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 	for _, referenceKind := range []string{"direct", "missing-receipt", "corrupt-receipt", "symlink-alias", "parent-traversal"} {
 		t.Run(referenceKind, func(t *testing.T) {
@@ -905,6 +819,11 @@ func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 			}
 			if _, err := os.Stat(generation); err != nil {
 				t.Fatalf("borrower cleanup removed owner generation: %v", err)
+			}
+			if referenceKind == "direct" {
+				if _, ok := readPackageInstallReceipt(root, generation); !ok {
+					t.Fatal("borrower cleanup removed the owner's receipt")
+				}
 			}
 		})
 	}
@@ -1252,118 +1171,85 @@ func TestLegacyPackageCleanupPreservesGenerationReferencedBySibling(t *testing.T
 	}
 }
 
-func TestLegacyManifestOnlySidecarCleanupIsExactAndPreservesExternalLibrary(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	version := semver.MustParse("1.2.3+build.4")
-	sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
-	if err := os.Mkdir(sidecar, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sidecar, "NOTICE"), []byte("metadata"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	external := filepath.Join(root, "external", "library.so")
-	if err := os.MkdirAll(filepath.Dir(external), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(external, []byte("external library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := DriverInfo{ID: "driver", Name: "Driver", Version: version, Source: "dbc"}
-	info.Driver.Shared.Set(PlatformTuple(), external)
-	if err := CreateManifest(cfg, info); err != nil {
-		t.Fatal(err)
-	}
-	selected, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := UninstallDriver(cfg, selected); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(sidecar); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("exact legacy metadata sidecar remains: %v", err)
-	}
-	if _, err := os.Stat(external); err != nil {
-		t.Fatalf("external library was removed: %v", err)
-	}
-}
+func TestLegacyManifestOnlySidecarCleanupHonorsReferences(t *testing.T) {
+	// Legacy cleanup examines every Shared path, including other platforms, and
+	// retains sidecars when raw parent traversal makes reference resolution uncertain.
+	for _, referenceKind := range []string{"unreferenced sidecar", "other platform reference", "parent traversal"} {
+		t.Run(referenceKind, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			version := semver.MustParse("1.2.3+build.4")
+			sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
+			if err := os.MkdirAll(sidecar, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(sidecar, "NOTICE"), []byte("metadata"), 0o600); err != nil {
+				t.Fatal(err)
+			}
 
-func TestLegacyManifestOnlySidecarChecksAllPlatformReferences(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	version := semver.MustParse("1.2.3")
-	sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
-	if err := os.Mkdir(sidecar, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sidecar, "NOTICE"), []byte("metadata"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	external := filepath.Join(root, "external", "library.so")
-	if err := os.MkdirAll(filepath.Dir(external), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(external, []byte("external library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
-	info.Driver.Shared.Set(PlatformTuple(), external)
-	info.Driver.Shared.Set("other_platform", filepath.Join(sidecar, "library.so"))
-	if err := CreateManifest(cfg, info); err != nil {
-		t.Fatal(err)
-	}
-	selected, err := GetDriver(cfg, info.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := UninstallDriver(cfg, selected); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(sidecar); err != nil {
-		t.Fatalf("sidecar referenced by another platform was removed: %v", err)
-	}
-}
+			external := filepath.Join(root, "external", "library.so")
+			reference := external
+			if referenceKind == "parent traversal" {
+				subdirectory := filepath.Join(sidecar, "subdir")
+				if err := os.MkdirAll(subdirectory, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				external = filepath.Join(sidecar, "library.so")
+				if err := os.WriteFile(filepath.Join(sidecar, "sibling.txt"), []byte("keep"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				link := filepath.Join(root, "sidecar-subdir")
+				if err := os.Symlink(subdirectory, link); err != nil {
+					t.Skipf("symlink creation is unavailable: %v", err)
+				}
+				reference = link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(external)
+			}
+			if err := os.MkdirAll(filepath.Dir(external), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(external, []byte("external library"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if referenceKind == "parent traversal" {
+				assertParentTraversalReferenceResolvesOnUnix(t, reference)
+			}
 
-func TestLegacyManifestOnlySidecarProtectsSymlinkParentTraversalReference(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	version := semver.MustParse("1.2.3")
-	sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
-	subdirectory := filepath.Join(sidecar, "subdir")
-	if err := os.MkdirAll(subdirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	external := filepath.Join(sidecar, "library.so")
-	if err := os.WriteFile(external, []byte("external library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sidecar, "sibling.txt"), []byte("keep"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	link := filepath.Join(root, "sidecar-subdir")
-	if err := os.Symlink(subdirectory, link); err != nil {
-		t.Skipf("symlink creation is unavailable: %v", err)
-	}
-	reference := link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(external)
-	assertParentTraversalReferenceResolvesOnUnix(t, reference)
-	info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
-	info.Driver.Shared.Set(PlatformTuple(), reference)
-	if err := CreateManifest(cfg, info); err != nil {
-		t.Fatal(err)
-	}
-	selected, err := GetDriver(cfg, info.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := UninstallDriver(cfg, selected); err != nil {
-		t.Fatal(err)
-	}
-	for _, path := range []string{sidecar, external, filepath.Join(sidecar, "sibling.txt")} {
-		if _, err := os.Stat(path); err != nil {
-			t.Errorf("sidecar data %s was removed through parent traversal: %v", path, err)
-		}
+			info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
+			info.Driver.Shared.Set(PlatformTuple(), reference)
+			if referenceKind == "other platform reference" {
+				info.Driver.Shared.Set("other_platform", filepath.Join(sidecar, "library.so"))
+			}
+			if err := CreateManifest(cfg, info); err != nil {
+				t.Fatal(err)
+			}
+			selected, err := GetDriver(cfg, info.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := UninstallDriver(cfg, selected); err != nil {
+				t.Fatal(err)
+			}
+
+			_, sidecarErr := os.Stat(sidecar)
+			if referenceKind == "unreferenced sidecar" {
+				if !errors.Is(sidecarErr, os.ErrNotExist) {
+					t.Fatalf("exact legacy metadata sidecar remains: %v", sidecarErr)
+				}
+			} else if sidecarErr != nil {
+				t.Fatalf("referenced sidecar was removed: %v", sidecarErr)
+			}
+			if referenceKind != "parent traversal" {
+				if _, err := os.Stat(external); err != nil {
+					t.Fatalf("external library was removed: %v", err)
+				}
+			} else {
+				for _, path := range []string{external, filepath.Join(sidecar, "sibling.txt")} {
+					if _, err := os.Stat(path); err != nil {
+						t.Errorf("sidecar data %s was removed through parent traversal: %v", path, err)
+					}
+				}
+			}
+		})
 	}
 }
 
