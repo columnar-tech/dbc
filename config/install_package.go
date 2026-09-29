@@ -74,9 +74,6 @@ func installPackageWithOperations(cfg Config, runtimeID string, downloaded *os.F
 }
 
 func installPackageWithContextAndOperations(ctx context.Context, cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions, operations packageInstallOperations) (manifest Manifest, err error) {
-	if ctx == nil {
-		return Manifest{}, errors.New("install context is nil")
-	}
 	if downloaded == nil {
 		return Manifest{}, errors.New("downloaded package file is nil")
 	}
@@ -86,6 +83,9 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 			err = errors.Join(err, downloaded.Close())
 		}
 	}()
+	if ctx == nil {
+		return Manifest{}, errors.New("install context is nil")
+	}
 	if err := validatePackageFilename(runtimeID); err != nil {
 		return Manifest{}, fmt.Errorf("invalid runtime ID: %w", err)
 	}

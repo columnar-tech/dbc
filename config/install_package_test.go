@@ -207,6 +207,16 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 }
 
 func TestInstallPackageContextCancellation(t *testing.T) {
+	t.Run("nil context closes archive", func(t *testing.T) {
+		cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+		archive := testPackageArchive(t, "new")
+		_, err := InstallPackage(nil, cfg, "driver", archive, InstallPackageOptions{})
+		if err == nil || !strings.Contains(err.Error(), "install context is nil") {
+			t.Fatalf("InstallPackage error = %v, want nil-context error", err)
+		}
+		assertArchiveClosed(t, archive)
+	})
+
 	t.Run("driver lock wait", func(t *testing.T) {
 		location := t.TempDir()
 		cfg := Config{Level: ConfigEnv, Location: location}
