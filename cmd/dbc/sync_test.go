@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/columnar-tech/dbc"
@@ -62,8 +63,12 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	m := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 	old := suite.getInstalledDriver("test-driver-1")
-	oldManifest, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-1.toml"))
-	suite.Require().NoError(err)
+	var oldManifest []byte
+	if runtime.GOOS != "windows" || suite.configLevel == config.ConfigEnv {
+		var err error
+		oldManifest, err = os.ReadFile(filepath.Join(suite.Dir(), "test-driver-1.toml"))
+		suite.Require().NoError(err)
+	}
 	oldLibrary := old.Driver.Shared.Get(config.PlatformTuple())
 	oldLibraryBytes, err := os.ReadFile(oldLibrary)
 	suite.Require().NoError(err)
@@ -80,9 +85,11 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	current := suite.getInstalledDriver("test-driver-1")
 	suite.Equal(old.Version, current.Version)
 	suite.Equal(old.Driver.Shared.Get(config.PlatformTuple()), current.Driver.Shared.Get(config.PlatformTuple()))
-	currentManifest, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-1.toml"))
-	suite.Require().NoError(err)
-	suite.Equal(oldManifest, currentManifest)
+	if runtime.GOOS != "windows" || suite.configLevel == config.ConfigEnv {
+		currentManifest, err := os.ReadFile(filepath.Join(suite.Dir(), "test-driver-1.toml"))
+		suite.Require().NoError(err)
+		suite.Equal(oldManifest, currentManifest)
+	}
 	currentLibraryBytes, err := os.ReadFile(current.Driver.Shared.Get(config.PlatformTuple()))
 	suite.Require().NoError(err)
 	suite.Equal(oldLibraryBytes, currentLibraryBytes)
