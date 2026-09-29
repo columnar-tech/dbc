@@ -28,18 +28,82 @@ import (
 	"unicode/utf8"
 )
 
+var errPackageArchiveByteLimit = errors.New("package archive exceeds its decompressed byte limit")
+
 const maxPackageManifestSize = 1 << 20
+
+type packageArchiveLimits struct {
+	manifestSize int64
+	entrySize    int64
+	totalSize    int64
+	entryCount   int
+	metadataSize int64
+}
+
+// packageArchiveByteBudget allows limit bytes through and probes one extra byte
+// to distinguish exact EOF from an over-limit stream.
+type packageArchiveByteBudget struct {
+	reader   io.Reader
+	limit    int64
+	read     int64
+	exceeded bool
+}
+
+func (b *packageArchiveByteBudget) extend(n int64) error {
+	if n < 0 || n > int64(^uint64(0)>>1)-b.limit {
+		return errors.New("package archive byte budget overflow")
+	}
+	b.limit += n
+	return nil
+}
+
+func (b *packageArchiveByteBudget) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if b.exceeded {
+		return 0, errPackageArchiveByteLimit
+	}
+	remaining := b.limit - b.read
+	if remaining <= 0 {
+		var probe [1]byte
+		n, err := b.reader.Read(probe[:])
+		if n > 0 {
+			b.exceeded = true
+			return 0, errPackageArchiveByteLimit
+		}
+		return 0, err
+	}
+	if int64(len(p)) > remaining {
+		p = p[:int(remaining)]
+	}
+	n, err := b.reader.Read(p)
+	b.read += int64(n)
+	return n, err
+}
+
+var defaultPackageArchiveLimits = packageArchiveLimits{
+	manifestSize: maxPackageManifestSize,
+	entrySize:    2 << 30,
+	totalSize:    4 << 30,
+	entryCount:   4096,
+	metadataSize: 16 << 20,
+}
 
 // TODO: Unexport once we refactor sync.go. sync.go has it's own separate
 // installation routine which it probably shouldn't.
 func InflateTarball(f *os.File, outDir string) (Manifest, error) {
+	return inflateTarballWithLimits(f, outDir, defaultPackageArchiveLimits)
+}
+
+func inflateTarballWithLimits(f *os.File, outDir string, limits packageArchiveLimits) (Manifest, error) {
 	defer f.Close()
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return Manifest{}, fmt.Errorf("could not seek to start: %w", err)
 	}
 
 	stageParent := filepath.Dir(filepath.Clean(outDir))
-	stageDir, manifest, err := extractPackageArchive(f, stageParent)
+	stageDir, manifest, err := extractPackageArchiveWithLimits(f, stageParent, limits)
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -69,6 +133,10 @@ func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 // extractPackageArchive validates the complete archive before returning a
 // private staging directory. The caller owns the returned directory.
 func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, error) {
+	return extractPackageArchiveWithLimits(f, stageParent, defaultPackageArchiveLimits)
+}
+
+func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits packageArchiveLimits) (string, Manifest, error) {
 	var manifest Manifest
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return "", manifest, fmt.Errorf("could not seek to start: %w", err)
@@ -93,10 +161,13 @@ func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, er
 	}
 	defer gz.Close()
 
-	tr := tar.NewReader(gz)
+	budget := &packageArchiveByteBudget{reader: gz, limit: limits.metadataSize}
+	tr := tar.NewReader(budget)
 	seen := make([]string, 0)
 	payloads := make(map[string]struct{})
 	manifestSeen := false
+	declaredRemaining := limits.totalSize
+	entryCount := 0
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
@@ -104,6 +175,10 @@ func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, er
 		}
 		if err != nil {
 			return "", manifest, fmt.Errorf("error reading tarball: %w", err)
+		}
+		entryCount++
+		if entryCount > limits.entryCount {
+			return "", manifest, fmt.Errorf("archive exceeds the limit of %d entries", limits.entryCount)
 		}
 		if hdr.Typeflag == tar.TypeXGlobalHeader {
 			continue
@@ -116,6 +191,12 @@ func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, er
 		}
 		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
 			return "", manifest, fmt.Errorf("archive entry %q has unsupported type %d", hdr.Name, hdr.Typeflag)
+		}
+		if hdr.Size > limits.entrySize {
+			return "", manifest, fmt.Errorf("archive entry %q exceeds the limit of %d bytes", hdr.Name, limits.entrySize)
+		}
+		if hdr.Size > declaredRemaining {
+			return "", manifest, fmt.Errorf("archive exceeds the limit of %d regular file bytes", limits.totalSize)
 		}
 		if err := validatePackageFilename(hdr.Name); err != nil {
 			return "", manifest, err
@@ -134,11 +215,18 @@ func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, er
 			if manifestSeen {
 				return "", manifest, errors.New("archive contains duplicate MANIFEST entries")
 			}
-			manifestSeen = true
-			if hdr.Size > maxPackageManifestSize {
-				return "", manifest, fmt.Errorf("MANIFEST exceeds %d bytes", maxPackageManifestSize)
+			if hdr.Size > limits.manifestSize {
+				return "", manifest, fmt.Errorf("MANIFEST exceeds %d bytes", limits.manifestSize)
 			}
-			data, err := io.ReadAll(io.LimitReader(tr, maxPackageManifestSize+1))
+		}
+		declaredRemaining -= hdr.Size
+		if err := budget.extend(hdr.Size); err != nil {
+			return "", manifest, err
+		}
+
+		if hdr.Name == "MANIFEST" {
+			manifestSeen = true
+			data, err := io.ReadAll(io.LimitReader(tr, limits.manifestSize+1))
 			if err != nil {
 				return "", manifest, fmt.Errorf("could not read MANIFEST: %w", err)
 			}
@@ -170,7 +258,7 @@ func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, er
 		payloads[hdr.Name] = struct{}{}
 	}
 
-	if _, err := io.Copy(io.Discard, gz); err != nil {
+	if _, err := io.Copy(io.Discard, budget); err != nil {
 		return "", manifest, fmt.Errorf("error validating gzip stream: %w", err)
 	}
 	if !manifestSeen {

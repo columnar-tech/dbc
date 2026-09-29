@@ -239,6 +239,170 @@ func TestPackageArchiveRejectsLargeManifestAndBadGzipFooter(t *testing.T) {
 	})
 }
 
+func TestPackageArchiveLimits(t *testing.T) {
+	t.Run("single declared size over production limit is rejected from header", func(t *testing.T) {
+		f := writeHeaderOnlyPackageArchive(t, &tar.Header{Name: "large", Typeflag: tar.TypeReg, Size: defaultPackageArchiveLimits.entrySize + 1})
+		assertArchiveLimitFailure(t, f, defaultPackageArchiveLimits)
+	})
+
+	t.Run("regular total at limit succeeds and one over fails", func(t *testing.T) {
+		manifest := "name = \"Test Driver\"\nversion = \"1.0.0\"\n"
+		payloadSize := int64(8)
+		limits := testPackageArchiveLimits()
+		limits.totalSize = int64(len(manifest)) + payloadSize
+		f := writeCustomPackageArchive(t, manifest, packageFile("data", strings.Repeat("x", int(payloadSize))))
+		stage, _, err := extractPackageArchiveWithLimits(f, t.TempDir(), limits)
+		require.NoError(t, err)
+		assert.NoError(t, os.RemoveAll(stage))
+		assert.NoError(t, f.Close())
+
+		limits.totalSize--
+		f = writeCustomPackageArchive(t, manifest, packageFile("data", strings.Repeat("x", int(payloadSize))))
+		assertArchiveLimitFailure(t, f, limits)
+	})
+
+	t.Run("zero byte entries count", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.entryCount = 2
+		f := writePackageArchive(t, packageFile("MANIFEST", ""), packageFile("zero-one", ""), packageFile("zero-two", ""))
+		assertArchiveLimitFailure(t, f, limits)
+	})
+
+	t.Run("global PAX entries count before they are skipped", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.entryCount = 1
+		f := writePackageArchive(t,
+			&tar.Header{Name: "global", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "metadata"}},
+			packageFile("MANIFEST", ""),
+		)
+		assertArchiveLimitFailure(t, f, limits)
+	})
+
+	t.Run("local PAX metadata uses metadata budget", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.metadataSize = 2048
+		f := writePackageArchive(t,
+			packageFile("MANIFEST", ""),
+			&tar.Header{Name: "payload", Typeflag: tar.TypeReg, Size: 1, Format: tar.FormatPAX, PAXRecords: map[string]string{"comment": strings.Repeat("x", 8192)}},
+		)
+		err := assertArchiveLimitFailure(t, f, limits)
+		assert.ErrorIs(t, err, errPackageArchiveByteLimit)
+	})
+
+	t.Run("GNU long name metadata uses metadata budget", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.metadataSize = 2048
+		f := writePackageArchive(t,
+			packageFile("MANIFEST", ""),
+			&tar.Header{Name: strings.Repeat("n", 2048), Typeflag: tar.TypeReg, Format: tar.FormatGNU},
+		)
+		err := assertArchiveLimitFailure(t, f, limits)
+		assert.ErrorIs(t, err, errPackageArchiveByteLimit)
+	})
+
+	t.Run("trailing zero data is bounded after tar EOF", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.metadataSize = 2048
+		f := writePackageArchiveWithTrailingData(t, 8192, false)
+		err := assertArchiveLimitFailure(t, f, limits)
+		assert.ErrorIs(t, err, errPackageArchiveByteLimit)
+	})
+
+	t.Run("later gzip member is bounded after tar EOF", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.metadataSize = 2048
+		f := writePackageArchiveWithTrailingData(t, 8192, true)
+		err := assertArchiveLimitFailure(t, f, limits)
+		assert.ErrorIs(t, err, errPackageArchiveByteLimit)
+	})
+
+	t.Run("high compression ratio is allowed below absolute limits", func(t *testing.T) {
+		limits := testPackageArchiveLimits()
+		limits.entrySize = 32768
+		limits.totalSize = 32768 + maxPackageManifestSize
+		limits.metadataSize = 4096
+		f := writePackageArchive(t, packageFile("MANIFEST", ""), packageFile("compressed", strings.Repeat("x", 32768)))
+		stage, _, err := extractPackageArchiveWithLimits(f, t.TempDir(), limits)
+		require.NoError(t, err)
+		assert.NoError(t, os.RemoveAll(stage))
+		assert.NoError(t, f.Close())
+	})
+}
+
+func testPackageArchiveLimits() packageArchiveLimits {
+	return packageArchiveLimits{
+		manifestSize: maxPackageManifestSize,
+		entrySize:    1 << 20,
+		totalSize:    1 << 20,
+		entryCount:   32,
+		metadataSize: 16 << 10,
+	}
+}
+
+func assertArchiveLimitFailure(t *testing.T, f *os.File, limits packageArchiveLimits) error {
+	t.Helper()
+	parent := t.TempDir()
+	out := filepath.Join(parent, "destination")
+	require.NoError(t, os.Mkdir(out, 0o755))
+	marker := filepath.Join(out, "marker")
+	require.NoError(t, os.WriteFile(marker, []byte("unchanged"), 0o600))
+	_, err := inflateTarballWithLimits(f, out, limits)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, "limit")
+	_, closeErr := f.Stat()
+	assert.ErrorIs(t, closeErr, os.ErrClosed)
+	data, readErr := os.ReadFile(marker)
+	assert.NoError(t, readErr)
+	assert.Equal(t, "unchanged", string(data))
+	entries, readDirErr := os.ReadDir(parent)
+	assert.NoError(t, readDirErr)
+	assert.Len(t, entries, 1)
+	assert.Equal(t, "destination", entries[0].Name())
+	return err
+}
+
+func writeHeaderOnlyPackageArchive(t *testing.T, header *tar.Header) *os.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "header-only.tar.gz")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	require.NoError(t, tw.WriteHeader(header))
+	require.NoError(t, gz.Close())
+	_, err = f.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+	return f
+}
+
+func writePackageArchiveWithTrailingData(t *testing.T, trailingBytes int, secondMember bool) *os.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "trailing.tar.gz")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	manifest := "name = \"Test Driver\"\nversion = \"1.0.0\"\n"
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "MANIFEST", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(manifest))}))
+	_, err = tw.Write([]byte(manifest))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	if !secondMember {
+		_, err = gz.Write(make([]byte, trailingBytes))
+		require.NoError(t, err)
+	}
+	require.NoError(t, gz.Close())
+	if secondMember {
+		gz = gzip.NewWriter(f)
+		_, err = gz.Write(make([]byte, trailingBytes))
+		require.NoError(t, err)
+		require.NoError(t, gz.Close())
+	}
+	_, err = f.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+	return f
+}
+
 func writeCustomPackageArchive(t *testing.T, manifest string, payloads ...*tar.Header) *os.File {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "package.tar.gz")
