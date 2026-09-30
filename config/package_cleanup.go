@@ -30,6 +30,7 @@ type packageCleanupOperations struct {
 	beforeRemoveAll          func(string) error
 	removeRegistration       func(Config, DriverInfo) error
 	hashOwnedLibrary         ownedLibraryHashFunc
+	statGeneration           func(*os.Root) (os.FileInfo, error)
 	beforeGenerationOpen     func(string) error
 	afterGenerationLstat     func(string)
 	afterGenerationVerified  func(string)
@@ -114,8 +115,10 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 				if integrityErr != nil {
 					strictErr = errors.Join(strictErr, fmt.Errorf("verify owned package library in %s: %w", generationPath, integrityErr))
 				} else {
-					generationInfo, statErr := generationRoot.Stat(".")
-					if statErr == nil {
+					generationInfo, statErr := statPackageGenerationRoot(generationRoot, operations)
+					if statErr != nil {
+						strictErr = errors.Join(strictErr, fmt.Errorf("inspect package generation %s: %w", generationPath, statErr))
+					} else {
 						strictErr = errors.Join(strictErr, removePackageGenerationAtRoot(rootHandle, verifiedPackageGeneration{name: generation, root: generationRoot, fileInfo: generationInfo}, root, operations))
 					}
 				}
@@ -135,6 +138,13 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 	}
 	cleanupStalePackageGenerationsWithRoot(cfg, rootHandle, root, info, matchedPaths, referenced, false, operations)
 	return nil
+}
+
+func statPackageGenerationRoot(generationRoot *os.Root, operations packageCleanupOperations) (os.FileInfo, error) {
+	if operations.statGeneration != nil {
+		return operations.statGeneration(generationRoot)
+	}
+	return generationRoot.Stat(".")
 }
 
 func legacyPackageReplacementCandidate(cfg Config, root, registrationLocation, runtimeID string) (DriverInfo, bool) {
@@ -423,11 +433,8 @@ func hasReservedTransactionAncestor(path string) bool {
 	for current := hostpath.Clean(absolute); ; current = hostpath.Dir(current) {
 		name := hostpath.Base(current)
 		prefix := ".dbc-package-"
-		reservedName := strings.HasPrefix(name, prefix)
-		if hostpath.IsWindows() {
-			reservedName = strings.HasPrefix(strings.ToLower(name), prefix)
-		}
-		if reservedName && len(name) > len(prefix) {
+		reservedName := len(name) > len(prefix) && strings.EqualFold(name[:len(prefix)], prefix)
+		if reservedName {
 			return true
 		}
 		parent := hostpath.Dir(current)
@@ -482,20 +489,29 @@ func generationReferenced(generation string, references []string) bool {
 }
 
 func pathWithin(parent, child string) bool {
-	parent, parentCertain := canonicalFilesystemPath(parent)
-	child, childCertain := canonicalFilesystemPath(child)
+	resolvedParent, parentCertain := canonicalFilesystemPath(parent)
+	resolvedChild, childCertain := canonicalFilesystemPath(child)
 	if !parentCertain || !childCertain {
 		return true
 	}
-	if hostpath.IsWindows() {
-		parent = strings.ToLower(parent)
-		child = strings.ToLower(child)
-	}
-	if sameFilesystemPathOrUncertain(parent, child) {
+	parentInfo, err := os.Stat(resolvedParent)
+	if err != nil || !parentInfo.IsDir() {
 		return true
 	}
-	rel, err := hostpath.Rel(parent, child)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+hostpath.Separator()) && !hostpath.IsAbs(rel)
+	for current := resolvedChild; ; current = hostpath.Dir(current) {
+		info, err := os.Stat(current)
+		if err == nil {
+			if info.IsDir() && os.SameFile(parentInfo, info) {
+				return true
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
+		parentPath := hostpath.Dir(current)
+		if parentPath == current {
+			return false
+		}
+	}
 }
 
 func containsFilesystemPathOrUncertain(paths []string, target string) bool {
@@ -530,7 +546,25 @@ func sameResolvedFilesystemPathWithCertainty(a, b string) (bool, bool) {
 	if !certainA || !certainB {
 		return false, false
 	}
-	return hostpath.Equal(resolvedA, resolvedB), true
+	infoA, errA := os.Stat(resolvedA)
+	infoB, errB := os.Stat(resolvedB)
+	if errA == nil && errB == nil {
+		return os.SameFile(infoA, infoB), true
+	}
+	missingA := errors.Is(errA, fs.ErrNotExist)
+	missingB := errors.Is(errB, fs.ErrNotExist)
+	if errA != nil && !missingA || errB != nil && !missingB {
+		return false, false
+	}
+	if missingA && missingB {
+		if hostpath.Equal(resolvedA, resolvedB) {
+			return true, true
+		}
+		return false, false
+	}
+	// An existing path and a missing path cannot identify the same current
+	// filesystem object, even when their spellings differ only by case.
+	return false, true
 }
 
 func canonicalFilesystemPath(path string) (string, bool) {

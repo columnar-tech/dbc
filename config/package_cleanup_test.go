@@ -115,6 +115,43 @@ func TestUninstallDriverCleansOwnedPackageGeneration(t *testing.T) {
 	}
 }
 
+func TestUninstallReportsGenerationStatFailureAndRetainsPayload(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	installInitialPackage(t, cfg)
+	selected, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation := filepath.Dir(selected.Driver.Shared.Get(PlatformTuple()))
+	shared := selected.Driver.Shared.Get(PlatformTuple())
+	statFailure := errors.New("injected generation stat failure")
+
+	err = uninstallDriverUnlockedWithCleanupAndReferences(cfg, selected, nil, true, packageCleanupOperations{
+		statGeneration: func(*os.Root) (os.FileInfo, error) {
+			return nil, statFailure
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "package files may remain") {
+		t.Fatalf("uninstall error does not expose the retained package cleanup failure: %v", err)
+	}
+	if !strings.Contains(err.Error(), generation) {
+		t.Fatalf("uninstall error does not identify exact retained generation %s: %v", generation, err)
+	}
+	if !errors.Is(err, statFailure) {
+		t.Fatalf("uninstall error does not preserve generation stat cause: %v", err)
+	}
+	if _, err := os.Stat(shared); err != nil {
+		t.Fatalf("payload was removed despite generation identity stat failure: %v", err)
+	}
+	if _, ok := readPackageInstallReceipt(root, generation); !ok {
+		t.Fatal("receipt was removed despite generation identity stat failure")
+	}
+	if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("driver registration remains after post-removal cleanup failure: %v", err)
+	}
+}
+
 func TestCleanupGenerationHandleSurvivesSymlinkSwaps(t *testing.T) {
 	for _, stage := range []string{"before open", "after lstat", "after generation open", "after receipt", "after enumerate", "during payload", "before final remove"} {
 		t.Run(stage, func(t *testing.T) {

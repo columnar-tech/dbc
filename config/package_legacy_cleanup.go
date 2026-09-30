@@ -59,7 +59,7 @@ func cleanupLegacyPackageRegistrationAtRoot(parent *os.Root, root string, info D
 	}
 	sharedAbs := resolvePackagePath(rootAbs, shared)
 	generationPath := hostpath.Dir(sharedAbs)
-	if hostpath.Dir(generationPath) != hostpath.Clean(rootAbs) || hostpath.Dir(sharedAbs) != generationPath {
+	if !sameResolvedFilesystemPath(hostpath.Dir(generationPath), hostpath.Clean(rootAbs)) || hostpath.Dir(sharedAbs) != generationPath {
 		return nil
 	}
 	generationName := hostpath.Base(generationPath)
