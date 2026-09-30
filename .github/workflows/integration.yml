@@ -18,12 +18,14 @@ on:
   push:
     branches:
       - "main"
+      - 'maint-*'
     paths:
       - '**.go'
       - 'go.mod'
       - 'go.sum'
       - 'cmd/dbc/**'
       - 'ci/scripts/run_integration.sh'
+      - '.github/workflows/integration.yml'
   pull_request:
     paths:
       - '**.go'
@@ -31,6 +33,7 @@ on:
       - 'go.sum'
       - 'cmd/dbc/**'
       - 'ci/scripts/run_integration.sh'
+      - '.github/workflows/integration.yml'
 
 concurrency:
   group: ${{ github.repository }}-${{ github.head_ref || github.sha }}-${{ github.workflow }}
