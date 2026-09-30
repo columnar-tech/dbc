@@ -18,6 +18,7 @@ on:
   push:
     branches:
       - "main"
+      - 'maint-*'
     paths:
       - '**.go'
       - 'go.mod'
