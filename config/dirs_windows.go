@@ -25,6 +25,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/systempath"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -40,9 +41,9 @@ func init() {
 func (c ConfigLevel) key() registry.Key {
 	switch c {
 	case ConfigSystem:
-		return registry.LOCAL_MACHINE
+		return winregroot.SystemRoot()
 	case ConfigUser:
-		return registry.CURRENT_USER
+		return winregroot.UserRoot()
 	default:
 		return 0
 	}

@@ -19,13 +19,18 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"github.com/columnar-tech/dbc/internal/wintest"
 	"golang.org/x/sys/windows/registry"
 )
@@ -82,15 +87,15 @@ func TestWindowsTestIsolationAcrossProcesses(t *testing.T) {
 	parentSystemBytes := []byte("parent system registry and payload sentinel")
 	writeIsolationPayload(t, parentUserPath, parentUserBytes)
 	writeIsolationPayload(t, parentSystemPath, parentSystemBytes)
-	writeIsolationRegistration(t, registry.CURRENT_USER, parentUserPath)
-	writeIsolationRegistration(t, registry.LOCAL_MACHINE, parentSystemPath)
+	writeIsolationRegistration(t, winregroot.UserRoot(), parentUserPath)
+	writeIsolationRegistration(t, winregroot.SystemRoot(), parentSystemPath)
 	t.Setenv("ADBC_DRIVER_PATH", parentUserRoot)
 	t.Setenv("VIRTUAL_ENV", parentSystemRoot)
 	t.Setenv("CONDA_PREFIX", parentSystemRoot)
 	t.Cleanup(func() {
 		var cleanupErr error
-		cleanupErr = errors.Join(cleanupErr, deleteRegistryKeyRecursive(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\"+windowsTestIsolationDriverID))
-		cleanupErr = errors.Join(cleanupErr, deleteRegistryKeyRecursive(registry.LOCAL_MACHINE, "SOFTWARE\\ADBC\\Drivers\\"+windowsTestIsolationDriverID))
+		cleanupErr = errors.Join(cleanupErr, deleteRegistryKeyRecursive(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers\\"+windowsTestIsolationDriverID))
+		cleanupErr = errors.Join(cleanupErr, deleteRegistryKeyRecursive(winregroot.SystemRoot(), "SOFTWARE\\ADBC\\Drivers\\"+windowsTestIsolationDriverID))
 		cleanupErr = errors.Join(cleanupErr, os.RemoveAll(filepath.Dir(parentUserPath)))
 		cleanupErr = errors.Join(cleanupErr, os.RemoveAll(filepath.Dir(parentSystemPath)))
 		if cleanupErr != nil {
@@ -111,8 +116,8 @@ func TestWindowsTestIsolationAcrossProcesses(t *testing.T) {
 
 	assertIsolationPayload(t, parentUserPath, parentUserBytes)
 	assertIsolationPayload(t, parentSystemPath, parentSystemBytes)
-	assertIsolationRegistration(t, registry.CURRENT_USER, parentUserPath)
-	assertIsolationRegistration(t, registry.LOCAL_MACHINE, parentSystemPath)
+	assertIsolationRegistration(t, winregroot.UserRoot(), parentUserPath)
+	assertIsolationRegistration(t, winregroot.SystemRoot(), parentSystemPath)
 }
 
 func runWindowsTestIsolationChild(t *testing.T) {
@@ -121,6 +126,7 @@ func runWindowsTestIsolationChild(t *testing.T) {
 			t.Fatalf("child inherited unsafe %s value %q", name, value)
 		}
 	}
+	assertLocalHTTPRoundTrip(t)
 
 	parentUserRoot := os.Getenv(windowsTestIsolationUserEnv)
 	parentSystemRoot := os.Getenv(windowsTestIsolationSysEnv)
@@ -134,28 +140,51 @@ func runWindowsTestIsolationChild(t *testing.T) {
 	childSystemPath := windowsIsolationPayload(childSystemRoot)
 	writeIsolationPayload(t, childUserPath, []byte("child user payload"))
 	writeIsolationPayload(t, childSystemPath, []byte("child system payload"))
-	writeIsolationRegistration(t, registry.CURRENT_USER, childUserPath)
-	writeIsolationRegistration(t, registry.LOCAL_MACHINE, childSystemPath)
+	writeIsolationRegistration(t, winregroot.UserRoot(), childUserPath)
+	writeIsolationRegistration(t, winregroot.SystemRoot(), childSystemPath)
 
-	if err := deleteRegistryKeyRecursive(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers"); err != nil {
+	if err := deleteRegistryKeyRecursive(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(childUserRoot); err != nil {
 		t.Fatalf("remove child User driver root: %v", err)
 	}
-	assertIsolationRegistrationRemoved(t, registry.CURRENT_USER)
+	assertIsolationRegistrationRemoved(t, winregroot.UserRoot())
 	assertIsolationPathRemoved(t, childUserRoot)
 	assertIsolationPayload(t, childSystemPath, []byte("child system payload"))
-	assertIsolationRegistration(t, registry.LOCAL_MACHINE, childSystemPath)
+	assertIsolationRegistration(t, winregroot.SystemRoot(), childSystemPath)
 
-	if err := deleteRegistryKeyRecursive(registry.LOCAL_MACHINE, "SOFTWARE\\ADBC\\Drivers"); err != nil {
+	if err := deleteRegistryKeyRecursive(winregroot.SystemRoot(), "SOFTWARE\\ADBC\\Drivers"); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.RemoveAll(childSystemRoot); err != nil {
 		t.Fatalf("remove child System driver root: %v", err)
 	}
-	assertIsolationRegistrationRemoved(t, registry.LOCAL_MACHINE)
+	assertIsolationRegistrationRemoved(t, winregroot.SystemRoot())
 	assertIsolationPathRemoved(t, childSystemRoot)
+}
+
+func assertLocalHTTPRoundTrip(t *testing.T) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "local loopback works")
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	client.Timeout = 5 * time.Second
+	response, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatalf("GET local httptest server: %v", err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		t.Fatalf("read local httptest response: %v", err)
+	}
+	if response.StatusCode != http.StatusOK || string(body) != "local loopback works" {
+		t.Fatalf("local HTTP response = %d %q", response.StatusCode, body)
+	}
 }
 
 func windowsIsolationPayload(root string) string {

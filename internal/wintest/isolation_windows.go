@@ -15,8 +15,8 @@
 //go:build windows
 
 // Package wintest contains Windows-only test fixture support. The fixture
-// redirects registry and filesystem state to process-private temporary roots;
-// it does not exercise real Program Files permissions or HKLM ACLs.
+// supplies private roots to dbc's own registry and filesystem code without
+// changing the registry view used by Windows system APIs.
 package wintest
 
 import (
@@ -28,6 +28,7 @@ import (
 	"unsafe"
 
 	"github.com/columnar-tech/dbc/internal/systempath"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
@@ -37,26 +38,25 @@ const regProcessAppKey = 0x00000001
 var clearForTestsEnvironment = []string{"ADBC_DRIVER_PATH", "VIRTUAL_ENV", "CONDA_PREFIX"}
 
 var (
-	advapi32DLL              = windows.NewLazySystemDLL("advapi32.dll")
-	regLoadAppKeyWProc       = advapi32DLL.NewProc("RegLoadAppKeyW")
-	regOverridePredefKeyProc = advapi32DLL.NewProc("RegOverridePredefKey")
+	advapi32DLL        = windows.NewLazySystemDLL("advapi32.dll")
+	regLoadAppKeyWProc = advapi32DLL.NewProc("RegLoadAppKeyW")
 )
 
-// Isolation redirects HKCU and HKLM to separate subkeys in a private registry
-// hive and places User/System driver files under separate temporary roots.
+// Isolation supplies separate private registry handles and filesystem roots to
+// dbc's own User/System registration code. It does not change Windows system
+// APIs' registry view or exercise real Program Files/HKLM ACLs.
 type Isolation struct {
-	tempDir      string
-	appData      string
-	systemRoot   string
-	priorAppData string
-	hadAppData   bool
-	priorEnv     []environmentValue
-	appHive      registry.Key
-	userHive     registry.Key
-	systemHive   registry.Key
-	userMapped   bool
-	systemMapped bool
-	restoreRoot  func()
+	tempDir             string
+	appData             string
+	systemRoot          string
+	priorAppData        string
+	hadAppData          bool
+	priorEnv            []environmentValue
+	appHive             registry.Key
+	userHive            registry.Key
+	systemHive          registry.Key
+	restoreRoot         func()
+	restoreRegistryRoot func()
 }
 
 type environmentValue struct {
@@ -137,18 +137,11 @@ func (isolation *Isolation) setup() error {
 	if err != nil {
 		return fmt.Errorf("create private HKLM hive root: %w", err)
 	}
-	if err := overridePredefinedKey(registry.CURRENT_USER, isolation.userHive, "HKCU"); err != nil {
+	isolation.restoreRegistryRoot = winregroot.SetRootsForTests(isolation.userHive, isolation.systemHive)
+	if err := verifyRegistryRoot(winregroot.UserRoot(), isolation.userHive, "user"); err != nil {
 		return err
 	}
-	isolation.userMapped = true
-	if err := overridePredefinedKey(registry.LOCAL_MACHINE, isolation.systemHive, "HKLM"); err != nil {
-		return err
-	}
-	isolation.systemMapped = true
-	if err := verifyRegistryOverride(registry.CURRENT_USER, isolation.userHive, "user"); err != nil {
-		return err
-	}
-	if err := verifyRegistryOverride(registry.LOCAL_MACHINE, isolation.systemHive, "system"); err != nil {
+	if err := verifyRegistryRoot(winregroot.SystemRoot(), isolation.systemHive, "system"); err != nil {
 		return err
 	}
 	return nil
@@ -164,17 +157,13 @@ func (isolation *Isolation) SystemRoot() string {
 	return filepath.Join(isolation.systemRoot, "ADBC", "Drivers")
 }
 
-// Cleanup restores predefined registry mappings and APPDATA, closes all hive
-// handles, restores the production system root, and removes the fixture.
+// Cleanup restores dbc's registry roots and APPDATA, closes all hive handles,
+// restores the production system root, and removes the fixture.
 func (isolation *Isolation) Cleanup() error {
 	var cleanupErr error
-	if isolation.systemMapped {
-		cleanupErr = errors.Join(cleanupErr, resetPredefinedKey(registry.LOCAL_MACHINE, "HKLM"))
-		isolation.systemMapped = false
-	}
-	if isolation.userMapped {
-		cleanupErr = errors.Join(cleanupErr, resetPredefinedKey(registry.CURRENT_USER, "HKCU"))
-		isolation.userMapped = false
+	if isolation.restoreRegistryRoot != nil {
+		isolation.restoreRegistryRoot()
+		isolation.restoreRegistryRoot = nil
 	}
 	if isolation.systemHive != 0 {
 		cleanupErr = errors.Join(cleanupErr, isolation.systemHive.Close())
@@ -230,30 +219,7 @@ func loadPrivateRegistryHive(path string) (registry.Key, error) {
 	return registry.Key(hive), nil
 }
 
-func overridePredefinedKey(predefined, replacement registry.Key, name string) error {
-	status, _, _ := regOverridePredefKeyProc.Call(predefinedRegistryKeyArgument(predefined), uintptr(replacement))
-	if status != 0 {
-		return fmt.Errorf("RegOverridePredefKey(%s): %w", name, windows.Errno(status))
-	}
-	return nil
-}
-
-func resetPredefinedKey(predefined registry.Key, name string) error {
-	status, _, _ := regOverridePredefKeyProc.Call(predefinedRegistryKeyArgument(predefined), 0)
-	if status != 0 {
-		return fmt.Errorf("RegOverridePredefKey(%s, nil): %w", name, windows.Errno(status))
-	}
-	return nil
-}
-
-func predefinedRegistryKeyArgument(predefined registry.Key) uintptr {
-	// The Windows SDK defines predefined HKEYs by sign-extending a LONG before
-	// converting it to ULONG_PTR; Go's registry constants are zero-extended.
-	// See https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/winreg.h.
-	return uintptr(int64(int32(predefined)))
-}
-
-func verifyRegistryOverride(predefined, privateRoot registry.Key, name string) error {
+func verifyRegistryRoot(root, privateRoot registry.Key, name string) error {
 	probePath := "Software\\dbc-test-isolation-probe"
 	want := "private-" + name
 	privateKey, _, err := registry.CreateKey(privateRoot, probePath, registry.ALL_ACCESS)
@@ -265,14 +231,14 @@ func verifyRegistryOverride(predefined, privateRoot registry.Key, name string) e
 	if err := errors.Join(writeErr, closeErr); err != nil {
 		return fmt.Errorf("write private %s probe: %w", name, err)
 	}
-	viewKey, err := registry.OpenKey(predefined, probePath, registry.READ)
+	viewKey, err := registry.OpenKey(root, probePath, registry.READ)
 	if err != nil {
-		return fmt.Errorf("read private %s probe through predefined key: %w", name, err)
+		return fmt.Errorf("read private %s probe through dbc registry root: %w", name, err)
 	}
 	got, _, readErr := viewKey.GetStringValue("probe")
 	closeErr = viewKey.Close()
 	if err := errors.Join(readErr, closeErr); err != nil {
-		return fmt.Errorf("read private %s probe through predefined key: %w", name, err)
+		return fmt.Errorf("read private %s probe through dbc registry root: %w", name, err)
 	}
 	if got != want {
 		return fmt.Errorf("%s isolation probe = %q, want %q", name, got, want)

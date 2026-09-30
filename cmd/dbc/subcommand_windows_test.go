@@ -22,6 +22,7 @@ import (
 	"os"
 
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -31,11 +32,11 @@ func (suite *SubcommandTestSuite) TearDownTest() {
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
 
 	if user {
-		suite.Require().NoError(deleteRegistryKeyRecursive(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers"))
+		suite.Require().NoError(deleteRegistryKeyRecursive(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers"))
 		suite.Require().NoError(os.RemoveAll(config.Get()[config.ConfigUser].Location))
 	}
 	if system {
-		suite.Require().NoError(deleteRegistryKeyRecursive(registry.LOCAL_MACHINE, "SOFTWARE\\ADBC\\Drivers"))
+		suite.Require().NoError(deleteRegistryKeyRecursive(winregroot.SystemRoot(), "SOFTWARE\\ADBC\\Drivers"))
 		suite.Require().NoError(os.RemoveAll(config.Get()[config.ConfigSystem].Location))
 	}
 }
