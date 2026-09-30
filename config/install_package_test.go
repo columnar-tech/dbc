@@ -15,6 +15,8 @@
 package config
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -83,7 +85,7 @@ func TestInstallPackageFailurePreservesPreviousGeneration(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}
 	install := func(contents string, verifier PackageVerifier) error {
-		archive := writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", contents))
+		archive := writeTransactionPackageArchive(t, contents)
 		_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{Verifier: verifier})
 		if _, statErr := archive.Stat(); statErr == nil {
 			t.Error("archive remains open")
@@ -125,6 +127,23 @@ func TestInstallPackageFailurePreservesPreviousGeneration(t *testing.T) {
 			t.Fatal("expected generation preparation failure")
 		}
 		assertPreviousPackage(t, cfg, previousPath)
+	})
+	t.Run("successful update publishes exact candidate bytes", func(t *testing.T) {
+		if err := install("new", nil); err != nil {
+			t.Fatal(err)
+		}
+		registered, err := GetDriver(cfg, "driver")
+		if err != nil {
+			t.Fatal(err)
+		}
+		newPath := registered.Driver.Shared.Get(PlatformTuple())
+		if newPath == previousPath {
+			t.Fatalf("registration path remained %q after update", previousPath)
+		}
+		data, err := os.ReadFile(newPath)
+		if err != nil || string(data) != "new" {
+			t.Fatalf("updated library = %q, %v; want exact candidate bytes %q", data, err, "new")
+		}
 	})
 }
 
@@ -599,14 +618,49 @@ func assertPreviousPackage(t *testing.T, cfg Config, path string) {
 		t.Fatalf("registration path = %q, want %q", got, path)
 	}
 	data, err := os.ReadFile(path)
-	if err != nil || string(data) != "xxx" {
-		t.Fatalf("previous library = %q, %v", data, err)
+	if err != nil || string(data) != "old" {
+		t.Fatalf("previous library = %q, %v; want exact original bytes %q", data, err, "old")
 	}
 }
 
 func testPackageArchive(t *testing.T, contents string) *os.File {
 	t.Helper()
-	return writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", contents))
+	return writeTransactionPackageArchive(t, contents)
+}
+
+func writeTransactionPackageArchive(t *testing.T, contents string) *os.File {
+	t.Helper()
+	const manifest = "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
+	path := filepath.Join(t.TempDir(), "package.tar.gz")
+	archive, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = archive.Close() })
+
+	gz := gzip.NewWriter(archive)
+	tarWriter := tar.NewWriter(gz)
+	writeFile := func(name, body string, mode int64) {
+		header := &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: mode, Size: int64(len(body))}
+		if err := tarWriter.WriteHeader(header); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write([]byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("MANIFEST", manifest, 0o644)
+	writeFile("driver.so", contents, 0o4755)
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := archive.Seek(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	return archive
 }
 
 func testPackageInstallOperations() packageInstallOperations {
