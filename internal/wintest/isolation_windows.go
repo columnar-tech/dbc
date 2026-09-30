@@ -231,7 +231,7 @@ func loadPrivateRegistryHive(path string) (registry.Key, error) {
 }
 
 func overridePredefinedKey(predefined, replacement registry.Key, name string) error {
-	status, _, _ := regOverridePredefKeyProc.Call(uintptr(predefined), uintptr(replacement))
+	status, _, _ := regOverridePredefKeyProc.Call(predefinedRegistryKeyArgument(predefined), uintptr(replacement))
 	if status != 0 {
 		return fmt.Errorf("RegOverridePredefKey(%s): %w", name, windows.Errno(status))
 	}
@@ -239,11 +239,18 @@ func overridePredefinedKey(predefined, replacement registry.Key, name string) er
 }
 
 func resetPredefinedKey(predefined registry.Key, name string) error {
-	status, _, _ := regOverridePredefKeyProc.Call(uintptr(predefined), 0)
+	status, _, _ := regOverridePredefKeyProc.Call(predefinedRegistryKeyArgument(predefined), 0)
 	if status != 0 {
 		return fmt.Errorf("RegOverridePredefKey(%s, nil): %w", name, windows.Errno(status))
 	}
 	return nil
+}
+
+func predefinedRegistryKeyArgument(predefined registry.Key) uintptr {
+	// The Windows SDK defines predefined HKEYs by sign-extending a LONG before
+	// converting it to ULONG_PTR; Go's registry constants are zero-extended.
+	// See https://github.com/microsoft/win32metadata/blob/main/generation/WinSDK/RecompiledIdlHeaders/um/winreg.h.
+	return uintptr(int64(int32(predefined)))
 }
 
 func verifyRegistryOverride(predefined, privateRoot registry.Key, name string) error {
