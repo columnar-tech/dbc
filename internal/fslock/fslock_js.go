@@ -45,6 +45,15 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	if err != nil {
 		return Lock{}, fmt.Errorf("fslock: resolve %s: %w", path, err)
 	}
+	// The lock file often does not exist yet, so resolve its existing parent
+	// and append the basename. This makes symlink aliases of the same directory
+	// share one key in this runtime's lock registry.
+	parent := hostpath.Dir(canonicalPath)
+	resolvedParent, err := hostpath.EvalSymlinks(parent)
+	if err != nil {
+		return Lock{}, fmt.Errorf("fslock: resolve lock directory %s: %w", parent, err)
+	}
+	canonicalPath = hostpath.Join(resolvedParent, hostpath.Base(canonicalPath))
 	canonicalPath = canonicalRuntimePath(canonicalPath, hostpath.IsWindows())
 
 	runtimeLocks.Lock()

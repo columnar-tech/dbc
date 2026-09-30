@@ -19,6 +19,8 @@ package fslock_test
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -62,6 +64,61 @@ func TestAcquireContextSerializesSamePath(t *testing.T) {
 		t.Fatalf("second AcquireContext: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("second lock did not acquire after release")
+	}
+}
+
+func TestAcquireContextSerializesSymlinkedParentAlias(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	if err := os.Mkdir(realDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+
+	lockPath := filepath.Join(realDir, "test.lock")
+	if _, err := os.Lstat(lockPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("lock file before acquisition: error = %v, want fs.ErrNotExist", err)
+	}
+	first, err := fslock.AcquireContext(context.Background(), lockPath, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(lockPath); !errors.Is(err, fs.ErrNotExist) {
+		first.Release()
+		t.Fatalf("lock file after runtime-local acquisition: error = %v, want fs.ErrNotExist", err)
+	}
+	_, err = fslock.AcquireContext(context.Background(), filepath.Join(aliasDir, "test.lock"), 20*time.Millisecond)
+	if !errors.Is(err, fslock.ErrLockContended) {
+		first.Release()
+		t.Fatalf("symlink alias AcquireContext error = %v, want ErrLockContended", err)
+	}
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := fslock.AcquireContext(context.Background(), filepath.Join(aliasDir, "test.lock"), time.Second)
+	if err != nil {
+		t.Fatalf("AcquireContext through symlink alias after release: %v", err)
+	}
+	if err := second.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAcquireContextMissingParentIsResolutionError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "test.lock")
+	_, err := fslock.AcquireContext(context.Background(), path, time.Second)
+	if err == nil {
+		t.Fatal("AcquireContext succeeded with a missing parent directory")
+	}
+	if errors.Is(err, fslock.ErrLockContended) {
+		t.Fatalf("AcquireContext error = %v, want a path resolution error", err)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("AcquireContext error = %v, want fs.ErrNotExist", err)
 	}
 }
 
