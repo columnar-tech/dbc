@@ -263,8 +263,6 @@ func (e syncSignatureVerificationError) Unwrap() error { return e.err }
 
 func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Factor this out into config package, remove duplication with
-		// config.InstallDriver
 		if cfg.Exists {
 			// is driver installed already?
 			if drv, ok := cfg.Drivers[item.Driver.Path]; ok {

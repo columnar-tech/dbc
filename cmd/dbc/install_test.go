@@ -27,11 +27,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -131,24 +133,35 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallShadowsLowerPriorityVersion() {
-	secondary := filepath.Join(suite.tempdir, "secondary")
+	secondary := filepath.Join(suite.T().TempDir(), "secondary")
 	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
 	suite.T().Setenv("ADBC_DRIVER_PATH", secondary)
 
-	oldInstall := InstallCmd{Driver: "test-driver-1=1.0.0", Level: config.ConfigEnv}.
-		GetModelCustom(testBaseModel())
-	suite.runCmd(oldInstall)
-	secondaryDriver, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	archive, err := os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	_, err = config.InstallPackage(context.Background(), config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1", archive,
+		config.InstallPackageOptions{Verifier: func(stagingDir string, manifest config.Manifest) error {
+			return verifySignatureInStaging(stagingDir, manifest, false)
+		}})
+	suite.Require().NoError(err)
+	secondaryDriver, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1")
 	suite.Require().NoError(err)
 	secondaryLibrary := secondaryDriver.Driver.Shared.Get(config.PlatformTuple())
 	secondaryBytes, err := os.ReadFile(secondaryLibrary)
 	suite.Require().NoError(err)
 
 	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
+	primaryConfig := config.Config{Level: config.ConfigEnv, Location: suite.tempdir + string(os.PathListSeparator) + secondary}
+	selectedConflict, err := config.GetDriver(primaryConfig, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal(secondary, selectedConflict.FilePath)
+	suite.False(conflictIsInInstallRoot(selectedConflict, filepath.SplitList(primaryConfig.Location)[0], config.ConfigEnv))
 	newInstall := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
 		GetModelCustom(testBaseModel())
-	out := suite.runCmd(newInstall)
-	suite.Contains(out, "Replaced active driver: test-driver-1 (version: 1.0.0)")
+	newInstallModel := newInstall.(progressiveInstallModel)
+	newInstallModel.cfg = primaryConfig
+	out := suite.runCmd(newInstallModel)
+	suite.Contains(out, "Shadowed active driver: test-driver-1 (version: 1.0.0)")
 	suite.NotContains(out, "Removed conflicting driver")
 
 	active, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
@@ -168,6 +181,58 @@ func (suite *SubcommandTestSuite) TestInstallShadowsLowerPriorityVersion() {
 	remainingBytes, err := os.ReadFile(secondaryLibrary)
 	suite.Require().NoError(err)
 	suite.Equal(secondaryBytes, remainingBytes)
+}
+
+func TestConflictIsInInstallRoot(t *testing.T) {
+	root := t.TempDir()
+	conflict := config.DriverInfo{FilePath: root}
+	if !conflictIsInInstallRoot(conflict, root, config.ConfigEnv) {
+		t.Fatal("same install root should be reported as replaced")
+	}
+
+	otherRoot := filepath.Join(t.TempDir(), "secondary")
+	if conflictIsInInstallRoot(conflict, otherRoot, config.ConfigEnv) {
+		t.Fatal("a different install root should be reported as shadowed")
+	}
+
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(root, alias); err == nil {
+		if !conflictIsInInstallRoot(conflict, alias, config.ConfigEnv) {
+			t.Fatal("symlink aliases of the same install root should be reported as replaced")
+		}
+		if !sameInstallRoot(root, alias) {
+			t.Fatal("symlink aliases of the same install root should have the same filesystem identity")
+		}
+	} else if !hostpath.IsWindows() {
+		t.Fatalf("create install root symlink: %v", err)
+	}
+
+	caseRoot := filepath.Join(t.TempDir(), "CaseRoot")
+	if err := os.Mkdir(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	caseVariant := filepath.Join(filepath.Dir(caseRoot), "caseroot")
+	caseInfo, caseErr := os.Stat(caseVariant)
+	if originalInfo, err := os.Stat(caseRoot); err == nil && caseErr == nil && os.SameFile(originalInfo, caseInfo) {
+		if !sameInstallRoot(caseRoot, caseVariant) {
+			t.Fatal("case variants identifying the same directory should have the same filesystem identity")
+		}
+	}
+
+	if got := primaryInstallRoot("", config.ConfigEnv); got != "" {
+		t.Fatalf("empty env location primary root = %q, want empty", got)
+	}
+	location := "first" + string(hostpath.ListSeparator()) + "second"
+	if got := primaryInstallRoot(location, config.ConfigEnv); got != "first" {
+		t.Fatalf("primary root = %q, want first path-list entry", got)
+	}
+
+	if conflictIsInInstallRoot(config.DriverInfo{FilePath: `HKCU\SOFTWARE\ADBC\Drivers`}, root, config.ConfigSystem) {
+		t.Fatal("a user registry registration should not be reported as replaced by a system install")
+	}
+	if !conflictIsInInstallRoot(config.DriverInfo{FilePath: `HKCU\SOFTWARE\ADBC\Drivers`}, root, config.ConfigUser) {
+		t.Fatal("a user registry registration should be reported as replaced by a user install")
+	}
 }
 
 func (suite *SubcommandTestSuite) TestInstallSameVersionOnSecondaryRootSkipsDownload() {

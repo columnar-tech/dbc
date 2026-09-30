@@ -33,6 +33,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -110,11 +111,6 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
-}
-
-func verifySignature(m config.Manifest, noVerify bool) error {
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
-	return verifySignatureInDirectory(path, m, noVerify)
 }
 
 func verifySignatureInStaging(stagingDir string, m config.Manifest, noVerify bool) error {
@@ -270,8 +266,8 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		installDir := "."
-		if locs := filepath.SplitList(m.cfg.Location); len(locs) > 0 && locs[0] != "" {
-			installDir = locs[0]
+		if root := primaryInstallRoot(m.cfg.Location, m.cfg.Level); root != "" {
+			installDir = root
 		}
 		lockDir := installDir
 		for {
@@ -326,7 +322,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 				Status:   "already installed",
 				Driver:   m.conflictingInfo.ID,
 				Version:  m.conflictingInfo.Version.String(),
-				Location: filepath.SplitList(m.cfg.Location)[0],
+				Location: primaryInstallRoot(m.cfg.Location, m.cfg.Level),
 			}
 			if m.alreadyInstalledChecksum != "" {
 				payload.Checksum = m.alreadyInstalledChecksum
@@ -347,7 +343,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 			return string(jsonOutput)
 		}
 		return fmt.Sprintf("\nDriver %s %s already installed at %s",
-			m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			m.conflictingInfo.ID, m.conflictingInfo.Version, primaryInstallRoot(m.cfg.Location, m.cfg.Level))
 	}
 
 	var b strings.Builder
@@ -356,7 +352,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 			Status:   "installed",
 			Driver:   m.Driver,
 			Version:  m.DriverPackage.Version.String(),
-			Location: filepath.SplitList(m.cfg.Location)[0],
+			Location: primaryInstallRoot(m.cfg.Location, m.cfg.Level),
 		}
 		if m.hasConflict() {
 			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
@@ -396,7 +392,11 @@ func (m progressiveInstallModel) FinalOutput() string {
 		}
 
 		if installStatus.Conflict != "" {
-			fmt.Fprintf(&b, "\nReplaced active driver: %s", installStatus.Conflict)
+			label := "Shadowed active driver"
+			if conflictIsInInstallRoot(m.conflictingInfo, primaryInstallRoot(m.cfg.Location, m.cfg.Level), m.cfg.Level) {
+				label = "Replaced active driver"
+			}
+			fmt.Fprintf(&b, "\n%s: %s", label, installStatus.Conflict)
 		}
 
 		fmt.Fprintf(&b, "\nInstalled %s %s to %s",
@@ -407,6 +407,55 @@ func (m progressiveInstallModel) FinalOutput() string {
 		}
 	}
 	return b.String()
+}
+
+func conflictIsInInstallRoot(conflict config.DriverInfo, installRoot string, level config.ConfigLevel) bool {
+	if conflict.FilePath == "" || installRoot == "" {
+		return false
+	}
+
+	// Registry registrations identify their hive rather than a filesystem root.
+	// They are replaced when this install targets the same registry level.
+	switch strings.ToUpper(conflict.FilePath) {
+	case `HKCU\SOFTWARE\ADBC\DRIVERS`:
+		return level == config.ConfigUser
+	case `HKLM\SOFTWARE\ADBC\DRIVERS`:
+		return level == config.ConfigSystem
+	}
+
+	return sameInstallRoot(conflict.FilePath, installRoot)
+}
+
+func sameInstallRoot(a, b string) bool {
+	if aInfo, err := os.Stat(a); err == nil {
+		if bInfo, err := os.Stat(b); err == nil && os.SameFile(aInfo, bInfo) {
+			return true
+		}
+	}
+	canonicalize := func(path string) string {
+		absolute, err := hostpath.Abs(path)
+		if err != nil {
+			absolute = hostpath.Clean(path)
+		}
+		if resolved, err := hostpath.EvalSymlinks(absolute); err == nil {
+			absolute = resolved
+		}
+		return hostpath.Clean(absolute)
+	}
+
+	return hostpath.Equal(canonicalize(a), canonicalize(b))
+}
+
+func primaryInstallRoot(location string, level config.ConfigLevel) string {
+	if level != config.ConfigEnv {
+		return location
+	}
+	for _, root := range strings.Split(location, string(hostpath.ListSeparator())) {
+		if root != "" {
+			return root
+		}
+	}
+	return ""
 }
 
 func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, tea.Cmd) {

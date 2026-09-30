@@ -16,12 +16,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"testing"
 
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -287,4 +289,21 @@ func (suite *SubcommandTestSuite) TestUninstall_JSON() {
 	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
 	suite.Equal("success", status.Status)
 	suite.Equal("test-driver-1", status.Driver)
+}
+
+func TestUninstallCleanupErrorShowsRetainedGenerationPath(t *testing.T) {
+	generation := filepath.Join(t.TempDir(), ".dbc-package-g-6-driver-abc123")
+	cleanupErr := fmt.Errorf("driver registration was removed, but package cleanup failed; package files may remain under %s: remove package generation payload %s: permission denied",
+		filepath.Dir(generation), generation)
+	model := uninstallModel{}
+	updated, _ := model.Update(fmt.Errorf("failed to uninstall driver: %v", cleanupErr))
+
+	status, ok := updated.(HasStatus)
+	if !ok || status.Status() != 1 {
+		t.Fatalf("uninstall model status = %v, want failure", updated)
+	}
+	visibleError := formatErr(status.Err())
+	if !strings.Contains(visibleError, generation) {
+		t.Fatalf("user-visible uninstall error %q does not include retained generation path %q", visibleError, generation)
+	}
 }

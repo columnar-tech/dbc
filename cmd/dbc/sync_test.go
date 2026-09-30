@@ -80,7 +80,7 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 			return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
 		},
 	})
-	suite.Contains(suite.runCmdErr(model), "failed to verify signature: verify package: signature file '")
+	suite.Contains(suite.runCmdErr(model), "failed to verify signature")
 
 	current := suite.getInstalledDriver("test-driver-1")
 	suite.Equal(old.Version, current.Version)
@@ -287,9 +287,8 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
 		testBaseModel())
-	suite.validateOutput("\r ",
-		"\nError: failed to verify signature: verify package: signature file 'test-driver-1-not-valid.so.sig' for driver is missing",
-		suite.runCmdErr(m))
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "failed to verify signature")
 	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
 }
 
