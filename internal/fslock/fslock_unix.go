@@ -31,6 +31,12 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		if err := ctx.Err(); err != nil {
 			return Lock{}, err
 		}
+		// Lock files are created with mode 0600, so cross-user coordination is
+		// not a supported contract by default. Flock coordinates cooperating
+		// processes that can open the same file. The kernel releases the advisory
+		// lock when a process exits; the persistent inode is reused.
+		// TODO: Define cross-user permissions and interrupted-writer recovery
+		// expectations before extending this same-user locking contract.
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
@@ -43,8 +49,9 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		f.Close()
 		if errors.Is(err, errStaleInode) {
 			if time.Now().Before(deadline) {
-				// Previous holder unlinked the file between our open and
-				// our flock; the path now refers to a different inode.
+				// The path was replaced between our open and flock; the
+				// acquired lock would protect a different inode from callers
+				// that open the current path, so retry against that inode.
 				// Reopen and try again within the remaining budget.
 				continue
 			}
@@ -66,9 +73,8 @@ func lockFile(ctx context.Context, f *os.File, path string, deadline time.Time) 
 		}
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			// Confirm the path still points at our inode. If the previous
-			// holder unlinked it (or it was replaced), the lock we just took
-			// is on a dead inode and a new caller could lock the new file.
+			// Confirm the path still points at our inode. If it was replaced,
+			// the lock we just took would not protect callers opening the path.
 			if stale, serr := inodeIsStale(f, path); serr != nil {
 				syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 				return Lock{}, fmt.Errorf("fslock: stat %s: %w", path, serr)
@@ -114,22 +120,12 @@ func inodeIsStale(f *os.File, path string) (bool, error) {
 	return fdStat.Ino != pathStat.Ino || fdStat.Dev != pathStat.Dev, nil
 }
 
-// Release unlinks the lock file and releases the lock. Unlinking before
-// closing ensures no new caller can open the same inode and take the lock
-// while we still hold it; combined with the inode recheck in Acquire, this
-// guarantees that a fresh file at the same path is never raced against a
-// soon-to-be-deleted one.
+// Release closes the lock file descriptor, releasing the advisory lock.
+// Lock files are persistent: unlinking them would let a new caller create a
+// different inode while another process still holds the old inode open.
 func (l Lock) Release() error {
 	if l.f == nil {
 		return nil
 	}
-	rmErr := os.Remove(l.path)
-	closeErr := l.f.Close()
-	if closeErr != nil {
-		return closeErr
-	}
-	if rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-		return rmErr
-	}
-	return nil
+	return l.f.Close()
 }

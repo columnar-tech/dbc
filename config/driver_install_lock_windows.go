@@ -74,6 +74,8 @@ func packageCleanupRoot(cfg Config, info DriverInfo) (string, error) {
 // This coordinates cooperating processes only when they resolve the same lock
 // directory. In particular, HKCU is shared even if processes have different
 // APPDATA values, so this assumes a stable per-user ConfigLocation.
+// TODO: Derive a stable lock identity from the HKCU user/hive so differing
+// APPDATA values cannot split cooperating processes across lock directories.
 func registrationLockLocation(cfg Config) (string, error) {
 	if cfg.Level == ConfigEnv {
 		if cfg.Location == "" {

@@ -57,6 +57,9 @@ const (
 
 // packageInstallReceipt records local ownership and integrity evidence. It
 // deliberately contains no source identity or archive provenance.
+// TODO: Define and record source/archive evidence before strict locked-artifact
+// reuse; OwnedLibrarySHA256 verifies local installed bytes only and does not
+// establish upstream artifact identity.
 type packageInstallReceipt struct {
 	SchemaVersion                int                      `json:"schema_version"`
 	RegistrationScope            packageRegistrationScope `json:"registration_scope"`

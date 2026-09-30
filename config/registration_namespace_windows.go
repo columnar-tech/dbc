@@ -34,6 +34,7 @@ func registrationNamespaceLockSpec(cfg Config, location string) (identity, lockD
 		// The namespace identity is the HKCU hive, but the lock file lives under
 		// ConfigUser.ConfigLocation(). Processes with different APPDATA values
 		// therefore do not share this lock despite mutating the same registry.
+		// TODO: Derive a stable HKCU lock identity independent of APPDATA.
 		return "registry-user:HKCU\\SOFTWARE\\ADBC\\Drivers", ConfigUser.ConfigLocation(), "HKCU\\SOFTWARE\\ADBC\\Drivers", nil
 	case ConfigSystem:
 		return "registry-system:HKLM\\SOFTWARE\\ADBC\\Drivers", ConfigSystem.ConfigLocation(), "HKLM\\SOFTWARE\\ADBC\\Drivers", nil

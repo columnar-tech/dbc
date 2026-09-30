@@ -49,6 +49,9 @@ func cleanupInstalledPackage(cfg Config, root string, info DriverInfo) error {
 	return cleanupInstalledPackageWithOperations(cfg, root, info, packageCleanupOperations{})
 }
 
+// Cleanup runs after driver registration has been removed. If cleanup fails,
+// package files may remain without a registration that can be uninstalled
+// again. TODO: Define a safe recovery path for these retained generations.
 func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverInfo, operations packageCleanupOperations) error {
 	return cleanupInstalledPackageWithReferences(cfg, root, info, nil, true, operations)
 }

@@ -44,14 +44,25 @@ func TestNativeDriverInstallLockUsesRuntimeIDFilename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lockInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("native lock file missing while held: %v", err)
+	}
 	if err := lock.release(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, ".dbc.install-locks")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("private lock directory unexpectedly exists: %v", err)
 	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("released lock file remains: %v", err)
+	releasedInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("persistent native lock file missing after release: %v", err)
+	}
+	if !os.SameFile(lockInfo, releasedInfo) {
+		t.Fatal("native lock file was replaced or unlinked during release")
+	}
+	if !releasedInfo.Mode().IsRegular() || releasedInfo.Size() != 0 {
+		t.Fatalf("persistent native lock file changed: mode=%v size=%d", releasedInfo.Mode(), releasedInfo.Size())
 	}
 }
 

@@ -289,7 +289,8 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {
 		testBaseModel())
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "failed to verify signature")
-	suite.Equal([]string{"dbc.toml"}, suite.getFilesInTempDir())
+	suite.Equal(expectedFilesWithPersistentDriverLock("test-driver-no-sig", "dbc.toml"), suite.getFilesInTempDir())
+	suite.assertPersistentDriverLockFile("test-driver-no-sig")
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {

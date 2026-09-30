@@ -355,7 +355,8 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Equal(expectedFilesWithPersistentDriverLock("test-driver-no-sig"), suite.getFilesInTempDir())
+	suite.assertPersistentDriverLockFile("test-driver-no-sig")
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	registryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -522,7 +523,8 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Equal(expectedFilesWithPersistentDriverLock("test-driver-no-sig"), suite.getFilesInTempDir())
+	suite.assertPersistentDriverLockFile("test-driver-no-sig")
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: packagePath, NoVerify: true}.

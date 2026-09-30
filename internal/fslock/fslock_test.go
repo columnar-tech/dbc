@@ -21,6 +21,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -54,20 +55,34 @@ func TestAcquireTwiceSequential(t *testing.T) {
 	lock2.Release()
 }
 
-func TestReleaseRemovesFile(t *testing.T) {
+func TestReleaseLockFileLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.lock")
 	lock, err := fslock.Acquire(path, 5*time.Second)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
+	before, err := os.Stat(path)
+	if err != nil {
 		t.Fatalf("lock file missing while held: %v", err)
 	}
 	if err := lock.Release(); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("lock file still on disk after Release: stat err=%v", err)
+	after, err := os.Stat(path)
+	if runtime.GOOS == "windows" {
+		if !os.IsNotExist(err) {
+			t.Fatalf("Windows lock file still exists after Release: stat err=%v", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("persistent Unix lock file missing after Release: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("Unix Release replaced or unlinked the persistent lock file")
+	}
+	if after.Size() != 0 {
+		t.Fatalf("persistent lock file size = %d, want 0", after.Size())
 	}
 }
 
