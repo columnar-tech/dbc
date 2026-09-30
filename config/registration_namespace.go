@@ -152,6 +152,16 @@ func collectRegistrationSharedMapsExcluding(cfg Config, registrationLocation, ex
 	roots := configuredRegistrationRoots(cfg.Location, registrationLocation)
 	var shared []driverMap
 	for _, root := range roots {
+		info, err := os.Stat(root)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, false, fmt.Errorf("inspect registration root %s: %w", root, err)
+		}
+		if !info.IsDir() {
+			return nil, false, fmt.Errorf("inspect registration root %s: not a directory", root)
+		}
 		maps, certain, err := collectFileRegistrationSharedMapsExcluding(root, excludedRoot, excludedID)
 		if err != nil || !certain {
 			return nil, false, err

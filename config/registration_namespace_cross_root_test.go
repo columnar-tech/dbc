@@ -55,28 +55,57 @@ func TestCollectRegistrationSharedMapsAcrossConfigEnvRoots(t *testing.T) {
 func TestCollectRegistrationSharedMapsTreatsMissingAndUnreadableRootsConservatively(t *testing.T) {
 	primary := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "not-created")
-	cfg := Config{Level: ConfigEnv, Location: primary + string(filepath.ListSeparator) + missing}
+	// Use one configured root per case. JS treats ConfigEnv.Location as a single
+	// path; the separate registrationLocation still adds the primary root scan.
+	cfg := Config{Level: ConfigEnv, Location: missing}
 	if _, certain, err := collectRegistrationSharedMaps(cfg, primary, ""); err != nil || !certain {
 		t.Fatalf("missing root should have no references: certain=%t, err=%v", certain, err)
 	}
 
-	unreadable := filepath.Join(t.TempDir(), "not-a-directory")
-	if err := os.WriteFile(unreadable, []byte("file"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Location = primary + string(filepath.ListSeparator) + unreadable
-	if _, certain, err := collectRegistrationSharedMaps(cfg, primary, ""); err == nil || certain {
-		t.Fatalf("unreadable root should make references uncertain: certain=%t, err=%v", certain, err)
-	}
+	t.Run("non-directory root", func(t *testing.T) {
+		nonDirectory := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(nonDirectory, []byte("file"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Location = nonDirectory
+		if _, certain, err := collectRegistrationSharedMaps(cfg, primary, ""); err == nil || certain {
+			t.Fatalf("non-directory root should make references uncertain: certain=%t, err=%v", certain, err)
+		}
+	})
 
-	malformed := t.TempDir()
-	if err := os.WriteFile(filepath.Join(malformed, "broken.toml"), []byte("invalid = ["), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg.Location = primary + string(filepath.ListSeparator) + malformed
-	if _, certain, err := collectRegistrationSharedMaps(cfg, primary, ""); err == nil || certain {
-		t.Fatalf("malformed registration should make references uncertain: certain=%t, err=%v", certain, err)
-	}
+	t.Run("unreadable root", func(t *testing.T) {
+		unreadable := t.TempDir()
+		if err := os.WriteFile(filepath.Join(unreadable, "borrower.toml"), []byte("name = \"Borrower\"\nversion = \"1.0.0\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(unreadable)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(unreadable, info.Mode().Perm()&^0o777); err != nil {
+			t.Skipf("cannot remove directory permissions: %v", err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(unreadable, info.Mode().Perm()) })
+		if _, err := os.ReadDir(unreadable); err == nil {
+			t.Skip("filesystem permissions do not prevent this process from reading the directory")
+		}
+
+		cfg.Location = unreadable
+		if _, certain, err := collectRegistrationSharedMaps(cfg, primary, ""); err == nil || certain {
+			t.Fatalf("unreadable root should make references uncertain: certain=%t, err=%v", certain, err)
+		}
+	})
+
+	t.Run("malformed registration", func(t *testing.T) {
+		malformed := t.TempDir()
+		if err := os.WriteFile(filepath.Join(malformed, "broken.toml"), []byte("invalid = ["), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		cfg.Location = malformed
+		if _, certain, err := collectRegistrationSharedMaps(cfg, primary, ""); err == nil || certain {
+			t.Fatalf("malformed registration should make references uncertain: certain=%t, err=%v", certain, err)
+		}
+	})
 }
 
 func TestCollectRegistrationSharedMapsExcludesSymlinkAliasOfTargetRoot(t *testing.T) {

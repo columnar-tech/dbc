@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -253,10 +254,22 @@ func TestCleanupGenerationHandleSurvivesRootPathSwap(t *testing.T) {
 	if err := os.WriteFile(sentinel, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	rootSentinel := filepath.Join(root, "unrelated-root.txt")
+	if err := os.WriteFile(rootSentinel, []byte("keep root"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	movedRoot := filepath.Join(parent, "original-root")
+	rootRenameBlocked := false
 	operations := packageCleanupOperations{afterReceiptVerified: func(string) {
 		if err := os.Rename(root, movedRoot); err != nil {
-			t.Fatalf("move package root: %v", err)
+			if runtime.GOOS != "windows" || !errors.Is(err, syscall.Errno(32)) {
+				t.Fatalf("move package root: unexpected error: %v", err)
+			}
+			// On Windows, the pinned os.Root intentionally prevents renaming
+			// the path while the handle is open. That refusal itself blocks the
+			// root-path swap; cleanup must still leave unrelated data intact.
+			rootRenameBlocked = true
+			return
 		}
 		if err := os.Symlink(outside, root); err != nil {
 			t.Skipf("directory symlinks are unavailable: %v", err)
@@ -265,8 +278,20 @@ func TestCleanupGenerationHandleSurvivesRootPathSwap(t *testing.T) {
 	if err := cleanupInstalledPackageWithOperations(cfg, root, selected, operations); err != nil {
 		t.Fatalf("cleanup through pinned root handle: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(movedRoot, filepath.Base(generation))); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("owned generation remains in pinned root: %v", err)
+	if rootRenameBlocked {
+		if data, err := os.ReadFile(rootSentinel); err != nil || string(data) != "keep root" {
+			t.Fatalf("unrelated file in the pinned root changed: %q, %v", data, err)
+		}
+		if _, err := os.Lstat(generation); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owned generation remains in pinned root: %v", err)
+		}
+	} else {
+		if _, err := os.Lstat(filepath.Join(movedRoot, filepath.Base(generation))); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("owned generation remains in pinned root: %v", err)
+		}
+		if _, err := os.Lstat(root); err != nil {
+			t.Fatalf("replacement root path was not preserved: %v", err)
+		}
 	}
 	if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
 		t.Fatalf("unrelated target was changed through root symlink: %q, %v", data, err)

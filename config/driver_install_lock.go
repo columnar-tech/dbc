@@ -50,8 +50,9 @@ func (l *driverInstallLock) release() error {
 }
 
 // acquireDriverInstallLockWith acquires the lock identified by location and
-// runtimeID. Native non-Windows builds keep lock files in a persistent
-// .dbc.install-locks subdirectory; Windows and JavaScript/Wasm use location.
+// runtimeID. Native non-Windows builds use the reserved auxiliary filename
+// .<runtimeID>.dbc directly under location; Windows and JavaScript/Wasm use a
+// hashed filename directly under location.
 func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID string, timeout time.Duration) (*driverInstallLock, error) {
 	if location == "" {
 		return nil, errors.New("driver lock location is empty")
@@ -64,8 +65,8 @@ func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID strin
 		return nil, err
 	}
 	if nativeRuntimeFileLock() {
-		if err := os.MkdirAll(hostpath.Dir(lockPath), 0o700); err != nil {
-			return nil, fmt.Errorf("create driver lock directory: %w", err)
+		if err := inspectNativeDriverInstallLockPath(lockPath); err != nil {
+			return nil, err
 		}
 	}
 	return acquireDriverInstallLock(ctx, lockPath, timeout)
@@ -73,6 +74,24 @@ func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID strin
 
 func nativeRuntimeFileLock() bool {
 	return !hostpath.IsWindows() && runtime.GOOS != "js"
+}
+
+// Native per-driver locks reserve root-local .<runtimeID>.dbc auxiliary files.
+// They do not collide with the registration scanner's .toml files. This is a
+// cooperative-lock protocol and does not defend against a noncooperating actor
+// replacing a checked path between inspection and open.
+func inspectNativeDriverInstallLockPath(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect driver lock path %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() != 0 {
+		return fmt.Errorf("driver lock path %s collides with existing nonempty or nonregular data", path)
+	}
+	return nil
 }
 
 func driverInstallLockPath(location, runtimeID string) (string, error) {
@@ -85,7 +104,7 @@ func driverInstallLockPath(location, runtimeID string) (string, error) {
 		if err := validatePackageFilename(runtimeID); err != nil {
 			return "", fmt.Errorf("invalid driver lock runtime ID: %w", err)
 		}
-		return hostpath.Join(canonicalLocation, ".dbc.install-locks", runtimeID+".lock"), nil
+		return hostpath.Join(canonicalLocation, "."+runtimeID+".dbc"), nil
 	}
 	canonicalID := runtimeID
 	if hostpath.IsWindows() {
