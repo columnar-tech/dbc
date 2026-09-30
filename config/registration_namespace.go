@@ -35,6 +35,14 @@ func fileRegistrationNamespaceIdentity(path string, windows bool) string {
 	return "file:" + path
 }
 
+func registrationNamespaceLockFilename(identity string) string {
+	if strings.HasPrefix(identity, "registry-") {
+		key := sha256.Sum256([]byte(identity))
+		return ".dbc.namespace." + hex.EncodeToString(key[:]) + ".lock"
+	}
+	return ".dbc.namespace.lock"
+}
+
 // acquireRegistrationNamespaceLock is always called after the driver lock.
 // The lock directory and identity are platform-specific because Windows
 // registry scopes share registrations independently of package payload roots.
@@ -51,8 +59,10 @@ func acquireRegistrationNamespaceLock(ctx context.Context, cfg Config, location 
 	if identity == "" {
 		return nil, "", errors.New("registration namespace identity is empty")
 	}
-	key := sha256.Sum256([]byte(identity))
-	lockPath := hostpath.Join(canonicalDirectory, ".dbc.namespace."+hex.EncodeToString(key[:])+".lock")
+	// The root-local fixed name lets the filesystem resolve case and Unicode
+	// aliases according to its own identity rules. Older pre-merge PR snapshots
+	// used a root-hashed name and do not share this lock protocol.
+	lockPath := hostpath.Join(canonicalDirectory, registrationNamespaceLockFilename(identity))
 	lock, err := acquireDriverInstallLock(ctx, lockPath, timeout)
 	if err != nil {
 		return nil, "", fmt.Errorf("acquire registration namespace lock: %w", err)

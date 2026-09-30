@@ -15,6 +15,7 @@
 "use strict";
 
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
@@ -40,13 +41,6 @@ const server = http.createServer((req, res) => {
   }
 });
 
-function findFile(dir, suffix) {
-  for (const entry of fs.readdirSync(dir, { recursive: true })) {
-    if (entry.toString().endsWith(suffix)) return path.join(dir, entry.toString());
-  }
-  return null;
-}
-
 async function main() {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -60,26 +54,54 @@ async function main() {
   assert(resolved.versions.length > 0, "resolve returned no versions");
 
   const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-wasm-smoke-"));
+  const externalLibrary = path.join(installDir, "external-driver.so");
+  const externalBytes = Buffer.from("externally managed driver library");
+  fs.writeFileSync(externalLibrary, externalBytes);
   const manifest = await dbc.install("test-driver-1", installDir);
   assert(manifest.driverPath && fs.existsSync(manifest.driverPath), "installed driver missing on disk");
   const generationDir = path.dirname(manifest.driverPath);
   assert(fs.existsSync(generationDir), "installed package generation missing on disk");
+  const installedBytes = fs.readFileSync(manifest.driverPath);
+  const receiptPath = path.join(generationDir, "dbc-install-receipt.json");
+  const receiptBytes = fs.readFileSync(receiptPath);
+  const receipt = JSON.parse(receiptBytes);
+  assert.strictEqual(receipt.generation, path.basename(generationDir), "receipt does not identify the installed generation");
+  assert.strictEqual(
+    receipt.owned_library_sha256,
+    crypto.createHash("sha256").update(installedBytes).digest("hex"),
+    "receipt hash does not match the installed library"
+  );
+
+  // Keep a separate registration backed by an external library so uninstall
+  // continues to cover the existing rule that external files are not owned.
+  fs.writeFileSync(
+    path.join(installDir, "external-borrower.toml"),
+    `name = "External Borrower"\nversion = "1.0.0"\nsource = "external"\n\n[Driver.shared]\nlinux_amd64 = ${JSON.stringify(externalLibrary)}\n`
+  );
 
   const installed = await dbc.listInstalled(installDir);
   assert(
-    installed.length === 1 && installed[0].id === "test-driver-1",
+    installed.length === 2 && installed.some((driver) => driver.id === "test-driver-1") && installed.some((driver) => driver.id === "external-borrower"),
     `listInstalled mismatch: got ${JSON.stringify(installed)}; installDir entries: ${JSON.stringify(fs.readdirSync(installDir, { recursive: true }))}`
   );
 
-  const so = findFile(installDir, ".so");
-  const sig = findFile(installDir, ".sig");
+  const so = manifest.driverPath;
+  const sig = `${manifest.driverPath}.sig`;
   const ok = await dbc.verifySignature(new Uint8Array(fs.readFileSync(so)), new Uint8Array(fs.readFileSync(sig)));
   assert(ok === true, "verifySignature failed for a valid signature");
 
   await dbc.uninstall("test-driver-1", installDir);
   const after = await dbc.listInstalled(installDir);
-  assert(after.length === 0, "driver still listed after uninstall");
-  assert(!fs.existsSync(generationDir), "owned package generation remains after uninstall");
+  assert(
+    after.length === 1 && after[0].id === "external-borrower",
+    `registration state after uninstall mismatch: ${JSON.stringify(after)}`
+  );
+  assert(!fs.existsSync(path.join(installDir, "test-driver-1.toml")), "package registration remains after uninstall");
+  assert(fs.existsSync(generationDir), "un-pinned package generation was not retained after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(manifest.driverPath), installedBytes, "retained package library bytes changed after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(receiptPath), receiptBytes, "retained package receipt changed after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(externalLibrary), externalBytes, "external library changed after uninstall");
+  assert(fs.existsSync(path.join(installDir, "external-borrower.toml")), "external library registration was removed");
 
   // Regression guard (roborev 6562): in-process loadDbc() must namespace
   // load-time client-construction failures with `dbc-wasm:`, matching the worker

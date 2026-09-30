@@ -25,3 +25,17 @@ func TestFileRegistrationNamespaceIdentityCaseFolding(t *testing.T) {
 		t.Fatalf("case-sensitive namespace identity = %q, want %q", got, want)
 	}
 }
+
+func TestRegistrationNamespaceLockFilename(t *testing.T) {
+	if got := registrationNamespaceLockFilename("file:/drivers/one"); got != ".dbc.namespace.lock" {
+		t.Fatalf("file namespace lock filename = %q", got)
+	}
+	if got := registrationNamespaceLockFilename("file:/drivers/two"); got != ".dbc.namespace.lock" {
+		t.Fatalf("second file namespace lock filename = %q", got)
+	}
+	user := registrationNamespaceLockFilename("registry-user:HKCU\\SOFTWARE\\ADBC\\Drivers")
+	system := registrationNamespaceLockFilename("registry-system:HKLM\\SOFTWARE\\ADBC\\Drivers")
+	if user == ".dbc.namespace.lock" || system == ".dbc.namespace.lock" || user == system {
+		t.Fatalf("registry namespace lock filenames should remain distinct hashes: %q, %q", user, system)
+	}
+}

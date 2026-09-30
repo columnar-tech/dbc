@@ -19,7 +19,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -48,7 +50,8 @@ func (l *driverInstallLock) release() error {
 }
 
 // acquireDriverInstallLockWith acquires the lock identified by location and
-// runtimeID. The lock file is stored directly under location.
+// runtimeID. Native non-Windows builds keep lock files in a persistent
+// .dbc.install-locks subdirectory; Windows and JavaScript/Wasm use location.
 func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID string, timeout time.Duration) (*driverInstallLock, error) {
 	if location == "" {
 		return nil, errors.New("driver lock location is empty")
@@ -60,7 +63,16 @@ func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID strin
 	if err != nil {
 		return nil, err
 	}
+	if nativeRuntimeFileLock() {
+		if err := os.MkdirAll(hostpath.Dir(lockPath), 0o700); err != nil {
+			return nil, fmt.Errorf("create driver lock directory: %w", err)
+		}
+	}
 	return acquireDriverInstallLock(ctx, lockPath, timeout)
+}
+
+func nativeRuntimeFileLock() bool {
+	return !hostpath.IsWindows() && runtime.GOOS != "js"
 }
 
 func driverInstallLockPath(location, runtimeID string) (string, error) {
@@ -69,6 +81,12 @@ func driverInstallLockPath(location, runtimeID string) (string, error) {
 		return "", fmt.Errorf("resolve driver lock location: %w", err)
 	}
 	canonicalLocation = hostpath.Clean(canonicalLocation)
+	if nativeRuntimeFileLock() {
+		if err := validatePackageFilename(runtimeID); err != nil {
+			return "", fmt.Errorf("invalid driver lock runtime ID: %w", err)
+		}
+		return hostpath.Join(canonicalLocation, ".dbc.install-locks", runtimeID+".lock"), nil
+	}
 	canonicalID := runtimeID
 	if hostpath.IsWindows() {
 		canonicalLocation = strings.ToLower(canonicalLocation)
