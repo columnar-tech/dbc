@@ -142,7 +142,8 @@ func (suite *SubcommandTestSuite) getFilesInDir(dir string) []string {
 }
 
 func expectedFilesWithPersistentDriverLock(runtimeID string, files ...string) []string {
-	want := append([]string{}, files...)
+	var want []string
+	want = append(want, files...)
 	if runtime.GOOS != "windows" && runtime.GOOS != "js" {
 		want = append(want, "."+runtimeID+".dbc")
 	}
