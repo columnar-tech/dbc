@@ -447,15 +447,7 @@ func sameInstallRoot(a, b string) bool {
 }
 
 func primaryInstallRoot(location string, level config.ConfigLevel) string {
-	if level != config.ConfigEnv {
-		return location
-	}
-	for _, root := range strings.Split(location, string(hostpath.ListSeparator())) {
-		if root != "" {
-			return root
-		}
-	}
-	return ""
+	return (config.Config{Level: level, Location: location}).PrimaryLocation()
 }
 
 func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, tea.Cmd) {

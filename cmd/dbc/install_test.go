@@ -235,6 +235,22 @@ func TestConflictIsInInstallRoot(t *testing.T) {
 	}
 }
 
+func TestPrimaryInstallRootUsesConfigLevelPathContract(t *testing.T) {
+	location := "first" + string(hostpath.ListSeparator()) + "second"
+	want := "first"
+	if runtime.GOOS == "js" {
+		want = location
+	}
+	if got := primaryInstallRoot(location, config.ConfigEnv); got != want {
+		t.Errorf("primary install root = %q, want %q", got, want)
+	}
+	for _, level := range []config.ConfigLevel{config.ConfigUser, config.ConfigSystem} {
+		if got := primaryInstallRoot(location, level); got != location {
+			t.Errorf("config level %s primary install root = %q, want unchanged location %q", level, got, location)
+		}
+	}
+}
+
 func (suite *SubcommandTestSuite) TestInstallSameVersionOnSecondaryRootSkipsDownload() {
 	secondary := filepath.Join(suite.tempdir, "secondary")
 	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
