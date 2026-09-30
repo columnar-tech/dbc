@@ -64,6 +64,7 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 
 func (s *RegistryTestSuite) clearRegistry() {
 	// Clear out any existing ADBC registry keys to ensure a clean slate.
+	// TODO: Isolate registry state before deleting real user driver registrations.
 	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
 	if errors.Is(err, registry.ErrNotExist) {
 		return
@@ -80,6 +81,7 @@ func (s *RegistryTestSuite) clearRegistry() {
 
 func (s *RegistryTestSuite) SetupSuite() {
 	s.cfgUserPath = config.Get()[config.ConfigUser].Location
+	// TODO: Isolate this cleanup before deleting real user driver data.
 	os.RemoveAll(s.cfgUserPath)
 }
 
