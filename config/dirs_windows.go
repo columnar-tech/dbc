@@ -24,6 +24,7 @@ import (
 	"slices"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/systempath"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -62,7 +63,7 @@ func (c ConfigLevel) ConfigLocation() string {
 	var prefix string
 	switch c {
 	case ConfigSystem:
-		prefix = "C:\\Program Files"
+		prefix = systempath.ProgramFilesRoot()
 	case ConfigUser:
 		prefix, _ = os.UserConfigDir()
 	case ConfigEnv:
