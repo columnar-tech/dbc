@@ -46,7 +46,7 @@ func registrationNamespaceLockSpec(_ Config, location string) (identity, lockDir
 	return fileRegistrationNamespaceIdentity(resolved, hostpath.IsWindows()), resolved, resolved, nil
 }
 
-func collectRegistrationSharedMaps(_ Config, location, excludedID string) ([]driverMap, bool, error) {
+func collectScopedRegistrationSharedMaps(_ Config, location, excludedID string) ([]driverMap, bool, error) {
 	return collectFileRegistrationSharedMaps(location, excludedID)
 }
 

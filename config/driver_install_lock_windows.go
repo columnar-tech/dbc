@@ -70,6 +70,10 @@ func packageCleanupRoot(cfg Config, info DriverInfo) (string, error) {
 	return info.FilePath, nil
 }
 
+// Registry mutations are serialized with file locks under ConfigLocation.
+// This coordinates cooperating processes only when they resolve the same lock
+// directory. In particular, HKCU is shared even if processes have different
+// APPDATA values, so this assumes a stable per-user ConfigLocation.
 func registrationLockLocation(cfg Config) (string, error) {
 	if cfg.Level == ConfigEnv {
 		if cfg.Location == "" {
@@ -102,15 +106,17 @@ func readDriverRegistrationForUninstall(cfg Config, info DriverInfo) (DriverInfo
 }
 
 func uninstallDriverUnlocked(cfg Config, info DriverInfo) error {
-	return uninstallDriverUnlockedWithReferences(cfg, info, nil, true)
+	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
+	return uninstallDriverUnlockedWithReferences(cfg, info, registrations, certain)
 }
 
 func uninstallDriverUnlockedWithCleanup(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
-	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, nil, true, operations)
+	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
+	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, registrations, certain, operations)
 }
 
 func uninstallDriverUnlockedWithReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool) error {
-	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, otherRegistrations, referencesCertain, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
+	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, otherRegistrations, referencesCertain, packageCleanupOperations{})
 }
 
 func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
@@ -127,7 +133,7 @@ func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo
 		}
 		return nil
 	}
-	if err := uninstallDriverSharedWithOperations(cfg, info, operations); err != nil {
+	if err := uninstallDriverSharedWithReferences(cfg, info, operations, otherRegistrations, referencesCertain); err != nil {
 		return fmt.Errorf("failed to delete driver shared object: %w", err)
 	}
 	return removeDriverRegistration(cfg, info, operations)

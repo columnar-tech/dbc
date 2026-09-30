@@ -116,13 +116,9 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 }
 
 func EnsureLocation(cfg Config) (string, error) {
-	loc := cfg.Location
-	if cfg.Level == ConfigEnv {
-		list := splitConfigList(loc)
-		if len(list) == 0 {
-			return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
-		}
-		loc = list[0]
+	loc := cfg.PrimaryLocation()
+	if cfg.Level == ConfigEnv && loc == "" {
+		return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
 	}
 
 	if _, err := os.Stat(loc); err != nil {
@@ -318,13 +314,26 @@ func UninstallDriverShared(info DriverInfo) error {
 }
 
 func uninstallDriverSharedForConfig(cfg Config, info DriverInfo) error {
-	return uninstallDriverSharedWithOperations(cfg, info, packageCleanupOperations{remove: os.Remove, removeAll: os.RemoveAll})
+	if cfg.Level == ConfigUnknown {
+		cfg.Location = ConfigEnv.ConfigLocation()
+	}
+	return uninstallDriverSharedWithOperations(cfg, info, packageCleanupOperations{})
 }
 
 func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
 	cfg = packageCleanupConfig(cfg, info)
 	if info.Source == "dbc" {
 		return errors.New("UninstallDriverShared does not remove dbc package payloads; use UninstallDriver(cfg, info)")
+	}
+	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
+	return uninstallDriverSharedWithReferences(cfg, info, operations, registrations, certain)
+}
+
+func uninstallDriverSharedWithReferences(cfg Config, info DriverInfo, operations packageCleanupOperations, registrations []driverMap, referencesCertain bool) error {
+	if !referencesCertain || !supportsPinnedCleanup() {
+		// Keep unmanaged files when references cannot be ruled out or this host
+		// cannot provide the pinned-root confinement used by safe cleanup.
+		return nil
 	}
 
 	// For the User and System config levels, info.FilePath is set to the
@@ -343,8 +352,15 @@ func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations
 	}
 	defer root.Close()
 
-	for sharedPath := range info.Driver.Shared.Paths() {
-		if hasParentTraversal(sharedPath) {
+	for registeredPath := range info.Driver.Shared.Paths() {
+		if hasParentTraversal(registeredPath) {
+			continue
+		}
+		sharedPath, err := resolveRegistrationSharedPath(filesystemLocation, registeredPath)
+		if err != nil {
+			continue
+		}
+		if sharedPathReferencedByRegistrations(sharedPath, registrations) {
 			continue
 		}
 
@@ -358,6 +374,11 @@ func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations
 		if !safeToRemoveUnmanagedSharedFile(lexicalTarget) {
 			continue
 		}
+		if operations.beforeRemove != nil {
+			if err := operations.beforeRemove(lexicalTarget); err != nil {
+				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
+			}
+		}
 		if err := root.Remove(relativePath); err != nil {
 			// Ignore only when not found. This supports manifest-only drivers.
 			// TODO: Come up with a better mechanism to handle manifest-only drivers
@@ -370,4 +391,22 @@ func uninstallDriverSharedWithOperations(cfg Config, info DriverInfo, operations
 	}
 
 	return nil
+}
+
+func sharedPathReferencedByRegistrations(sharedPath string, registrations []driverMap) bool {
+	target, targetCertain := canonicalFilesystemPath(sharedPath)
+	if !targetCertain {
+		return true
+	}
+	for _, registration := range registrations {
+		for path := range registration.Paths() {
+			if path == "" {
+				continue
+			}
+			if sameFilesystemPathOrUncertain(target, path) {
+				return true
+			}
+		}
+	}
+	return false
 }

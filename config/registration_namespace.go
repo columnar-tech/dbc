@@ -64,6 +64,10 @@ func acquireRegistrationNamespaceLock(ctx context.Context, cfg Config, location 
 // cannot be read with confidence. Callers must skip package cleanup in that
 // case while continuing the requested registration mutation.
 func collectFileRegistrationSharedMaps(location, excludedID string) ([]driverMap, bool, error) {
+	return collectFileRegistrationSharedMapsExcluding(location, "", excludedID)
+}
+
+func collectFileRegistrationSharedMapsExcluding(location, excludedRoot, excludedID string) ([]driverMap, bool, error) {
 	entries, err := readDirectoryEntries(location)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, true, nil
@@ -79,7 +83,7 @@ func collectFileRegistrationSharedMaps(location, excludedID string) ([]driverMap
 			continue
 		}
 		id := strings.TrimSuffix(name, extension)
-		if sameRuntimeID(id, excludedID) {
+		if sameRuntimeID(id, excludedID) && (excludedRoot == "" || sameResolvedFilesystemPath(location, excludedRoot)) {
 			continue
 		}
 		path := hostpath.Join(location, name)
@@ -111,9 +115,105 @@ func collectFileRegistrationSharedMaps(location, excludedID string) ([]driverMap
 			}
 			return nil, false, fmt.Errorf("decode registration %s: %w", path, cause)
 		}
-		shared = append(shared, manifest.DriverInfo.Driver.Shared)
+		resolvedShared, err := sharedPathsFromRegistrationRoot(location, manifest.DriverInfo.Driver.Shared)
+		if err != nil {
+			return nil, false, fmt.Errorf("resolve shared paths in registration %s: %w", path, err)
+		}
+		shared = append(shared, resolvedShared)
 	}
 	return shared, true, nil
+}
+
+func collectRegistrationSharedMaps(cfg Config, registrationLocation, excludedID string) ([]driverMap, bool, error) {
+	return collectRegistrationSharedMapsExcluding(cfg, registrationLocation, "", excludedID)
+}
+
+func collectRegistrationSharedMapsExcluding(cfg Config, registrationLocation, excludedRoot, excludedID string) ([]driverMap, bool, error) {
+	if cfg.Level != ConfigEnv {
+		return collectScopedRegistrationSharedMaps(cfg, registrationLocation, excludedID)
+	}
+
+	// ConfigEnv can select a registration from any path in ADBC_DRIVER_PATH.
+	// Scan every configured root without taking secondary locks or writing to
+	// those roots. A missing root is empty; any other incomplete scan makes the
+	// full reference set uncertain so cleanup can retain the payload.
+	// This is a read-only scan, not a consistent multi-root snapshot; a
+	// concurrent reference created in an unlocked secondary root can race cleanup.
+	roots := configuredRegistrationRoots(cfg.Location, registrationLocation)
+	var shared []driverMap
+	for _, root := range roots {
+		maps, certain, err := collectFileRegistrationSharedMapsExcluding(root, excludedRoot, excludedID)
+		if err != nil || !certain {
+			return nil, false, err
+		}
+		shared = append(shared, maps...)
+	}
+	return shared, true, nil
+}
+
+func configuredRegistrationRoots(configured, registrationLocation string) []string {
+	var roots []string
+	seen := make(map[string]struct{})
+	for _, candidate := range append(splitConfigList(configured), registrationLocation) {
+		if candidate == "" {
+			continue
+		}
+		canonical, err := hostpath.Abs(hostpath.Clean(candidate))
+		if err != nil {
+			canonical = hostpath.Clean(candidate)
+		}
+		if resolved, err := hostpath.EvalSymlinks(canonical); err == nil {
+			canonical = hostpath.Clean(resolved)
+		}
+		if hostpath.IsWindows() {
+			canonical = strings.ToLower(canonical)
+		}
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		roots = append(roots, candidate)
+	}
+	return roots
+}
+
+func sharedPathsFromRegistrationRoot(root string, shared driverMap) (driverMap, error) {
+	resolved := driverMap{defaultPath: shared.defaultPath}
+	if resolved.defaultPath != "" {
+		path, err := resolveRegistrationSharedPath(root, resolved.defaultPath)
+		if err != nil {
+			return driverMap{}, err
+		}
+		resolved.defaultPath = path
+	}
+	if len(shared.platformMap) > 0 {
+		resolved.platformMap = make(map[string]string, len(shared.platformMap))
+		for platform, sharedPath := range shared.platformMap {
+			path, err := resolveRegistrationSharedPath(root, sharedPath)
+			if err != nil {
+				return driverMap{}, err
+			}
+			resolved.platformMap[platform] = path
+		}
+	}
+	return resolved, nil
+}
+
+func resolveRegistrationSharedPath(root, sharedPath string) (string, error) {
+	if sharedPath == "" {
+		return "", nil
+	}
+	if hasParentTraversal(sharedPath) {
+		return "", errors.New("shared path contains parent traversal")
+	}
+	if !hostpath.IsAbs(sharedPath) {
+		sharedPath = hostpath.Join(root, sharedPath)
+	}
+	resolved, err := hostpath.Abs(hostpath.Clean(sharedPath))
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
 func readFileRuntimeRegistration(location, runtimeID string) (DriverInfo, bool) {

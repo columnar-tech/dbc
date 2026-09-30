@@ -22,18 +22,30 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 type packageCleanupOperations struct {
-	remove             func(string) error
-	removeAll          func(string) error
-	removeRegistration func(Config, DriverInfo) error
+	beforeRemove             func(string) error
+	beforeRemoveAll          func(string) error
+	removeRegistration       func(Config, DriverInfo) error
+	hashOwnedLibrary         ownedLibraryHashFunc
+	beforeGenerationOpen     func(string) error
+	afterGenerationLstat     func(string)
+	afterGenerationVerified  func(string)
+	afterReceiptVerified     func(string)
+	afterGenerationEnumerate func(string)
+	beforeGenerationRemove   func(string)
 }
 
-func cleanupInstalledPackage(cfg Config, root string, info DriverInfo, remove func(string) error, removeAll func(string) error) error {
-	return cleanupInstalledPackageWithOperations(cfg, root, info, packageCleanupOperations{remove: remove, removeAll: removeAll})
+type verifiedPackageGeneration struct {
+	name     string
+	root     *os.Root
+	fileInfo os.FileInfo
+}
+
+func cleanupInstalledPackage(cfg Config, root string, info DriverInfo) error {
+	return cleanupInstalledPackageWithOperations(cfg, root, info, packageCleanupOperations{})
 }
 
 func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverInfo, operations packageCleanupOperations) error {
@@ -47,6 +59,9 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 	if !referencesCertain {
 		return nil
 	}
+	if !supportsPinnedCleanup() {
+		return nil
+	}
 	root, err := hostpath.Abs(root)
 	if err != nil {
 		return nil
@@ -55,76 +70,83 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 	if err != nil {
 		return nil
 	}
-	entries, err := readDirectoryEntries(root)
+	rootHandle, err := os.OpenRoot(root)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
+		return fmt.Errorf("open package installation root %s: %w", root, err)
+	}
+	defer rootHandle.Close()
+	entries, err := readRootDirectoryEntries(rootHandle)
+	if err != nil {
 		return fmt.Errorf("read package installation root %s: %w", root, err)
 	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	referenced, uncertain := referencedPathsForRegistrations(root, otherRegistrations)
 	if uncertain {
 		return nil
 	}
 
-	matched := make([]string, 0, 1)
+	matchedPaths := make([]string, 0, 1)
+	matchedCount := 0
+	var strictErr error
 	for _, entry := range entries {
-		generation := hostpath.Join(root, entry.Name())
-		receipt, ok := readPackageInstallReceipt(root, generation)
-		if !ok || !sameRuntimeID(receipt.RuntimeID, info.ID) || receipt.Platform != PlatformTuple() || receipt.RegistrationScope != scope {
+		generation := entry.Name()
+		generationRoot, ok := openVerifiedGeneration(rootHandle, generation, root, operations)
+		if !ok {
 			continue
 		}
-		if receiptMatchesRegistration(cfg, root, generation, receipt, info) {
-			matched = append(matched, generation)
+		receipt, ok := readPackageInstallReceiptAtRoot(generationRoot, generation)
+		if !ok || !sameRuntimeID(receipt.RuntimeID, info.ID) || receipt.Platform != PlatformTuple() || receipt.RegistrationScope != scope {
+			_ = generationRoot.Close()
+			continue
 		}
+		if operations.afterReceiptVerified != nil {
+			operations.afterReceiptVerified(hostpath.Join(root, generation))
+		}
+		generationPath := hostpath.Join(root, generation)
+		if receiptMatchesRegistration(cfg, root, generationPath, receipt, info) {
+			matchedCount++
+			matchedPaths = append(matchedPaths, generationPath)
+			if !generationReferenced(generationPath, referenced) {
+				_, integrityErr := verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, operations.hashOwnedLibrary)
+				if integrityErr != nil {
+					strictErr = errors.Join(strictErr, fmt.Errorf("verify owned package library in %s: %w", generationPath, integrityErr))
+				} else {
+					generationInfo, statErr := generationRoot.Stat(".")
+					if statErr == nil {
+						strictErr = errors.Join(strictErr, removePackageGenerationAtRoot(rootHandle, verifiedPackageGeneration{name: generation, root: generationRoot, fileInfo: generationInfo}, root, operations))
+					}
+				}
+			}
+		}
+		_ = generationRoot.Close()
 	}
 
-	if len(matched) == 0 {
+	if matchedCount == 0 {
 		if hasTransactionEvidence(entries, info.ID) {
 			return nil
 		}
-		if generation := legacyPackageGeneration(root, info); generation != "" {
-			if generationReferenced(generation, referenced) {
-				return nil
-			}
-			return operations.removeAll(generation)
-		}
-		if generation := legacyMetadataSidecar(root, info); generation != "" {
-			if generationReferenced(generation, referenced) {
-				return nil
-			}
-			return operations.removeAll(generation)
-		}
-		return nil
-	}
-
-	var strictErr error
-	for _, generation := range matched {
-		if generationReferenced(generation, referenced) {
-			continue
-		}
-		strictErr = errors.Join(strictErr, removePackageGeneration(generation, operations.remove, operations.removeAll))
+		return cleanupLegacyPackageRegistrationAtRoot(rootHandle, root, info, referenced, true, operations)
 	}
 	if strictErr != nil {
 		return strictErr
 	}
-	cleanupStalePackageGenerationsWithReferences(cfg, root, info, matched, referenced, false, operations.remove, operations.removeAll)
+	cleanupStalePackageGenerationsWithRoot(cfg, rootHandle, root, info, matchedPaths, referenced, false, operations)
 	return nil
 }
 
-func legacyPackageReplacementCandidate(cfg Config, root, registrationLocation, runtimeID string) string {
+func legacyPackageReplacementCandidate(cfg Config, root, registrationLocation, runtimeID string) (DriverInfo, bool) {
 	entries, err := readDirectoryEntries(root)
 	if err != nil || hasTransactionEvidence(entries, runtimeID) {
-		return ""
+		return DriverInfo{}, false
 	}
 	previous, ok := readPrimaryRuntimeRegistration(cfg, registrationLocation, runtimeID)
-	if !ok || !sameRuntimeID(previous.ID, runtimeID) {
-		return ""
+	if !ok || !sameRuntimeID(previous.ID, runtimeID) || previous.Source != "dbc" {
+		return DriverInfo{}, false
 	}
-	if generation := legacyPackageGeneration(root, previous); generation != "" {
-		return generation
-	}
-	return legacyMetadataSidecar(root, previous)
+	return previous, true
 }
 
 func receiptMatchesRegistration(cfg Config, root, generation string, receipt packageInstallReceipt, info DriverInfo) bool {
@@ -144,12 +166,28 @@ func receiptMatchesRegistration(cfg Config, root, generation string, receipt pac
 	return err == nil && fingerprint == receipt.RegistrationFingerprintValue
 }
 
-func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo, alreadyRemoved []string, remove func(string) error, removeAll func(string) error) {
+func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo, alreadyRemoved []string) {
 	referenced, uncertain := referencedPaths(root, current.Driver.Shared)
-	cleanupStalePackageGenerationsWithReferences(cfg, root, current, alreadyRemoved, referenced, uncertain, remove, removeAll)
+	cleanupStalePackageGenerationsWithReferences(cfg, root, current, alreadyRemoved, referenced, uncertain, packageCleanupOperations{})
 }
 
-func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, current DriverInfo, alreadyRemoved []string, referenced []string, uncertainReferences bool, remove func(string) error, removeAll func(string) error) {
+func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, current DriverInfo, alreadyRemoved []string, referenced []string, uncertainReferences bool, operations packageCleanupOperations) {
+	root, err := hostpath.Abs(root)
+	if err != nil {
+		return
+	}
+	if !supportsPinnedCleanup() {
+		return
+	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return
+	}
+	defer rootHandle.Close()
+	cleanupStalePackageGenerationsWithRoot(cfg, rootHandle, root, current, alreadyRemoved, referenced, uncertainReferences, operations)
+}
+
+func cleanupStalePackageGenerationsWithRoot(cfg Config, rootHandle *os.Root, root string, current DriverInfo, alreadyRemoved []string, referenced []string, uncertainReferences bool, operations packageCleanupOperations) {
 	root, err := hostpath.Abs(root)
 	if err != nil {
 		return
@@ -158,10 +196,11 @@ func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, curre
 	if err != nil {
 		return
 	}
-	entries, err := readDirectoryEntries(root)
+	entries, err := readRootDirectoryEntries(rootHandle)
 	if err != nil {
 		return
 	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	if uncertainReferences {
 		return
 	}
@@ -170,11 +209,30 @@ func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, curre
 		if containsFilesystemPathOrUncertain(alreadyRemoved, generation) || generationReferenced(generation, referenced) {
 			continue
 		}
-		receipt, ok := readPackageInstallReceipt(root, generation)
-		if !ok || !sameRuntimeID(receipt.RuntimeID, current.ID) || receipt.RegistrationScope != scope {
+		generationRoot, ok := openVerifiedGeneration(rootHandle, entry.Name(), root, operations)
+		if !ok {
 			continue
 		}
-		_ = removePackageGeneration(generation, remove, removeAll)
+		receipt, ok := readPackageInstallReceiptAtRoot(generationRoot, entry.Name())
+		if !ok || !sameRuntimeID(receipt.RuntimeID, current.ID) || receipt.RegistrationScope != scope {
+			_ = generationRoot.Close()
+			continue
+		}
+		if operations.afterReceiptVerified != nil {
+			operations.afterReceiptVerified(generation)
+		}
+		_, integrityErr := verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, operations.hashOwnedLibrary)
+		if integrityErr != nil {
+			_ = generationRoot.Close()
+			continue
+		}
+		generationInfo, statErr := generationRoot.Stat(".")
+		if statErr != nil {
+			_ = generationRoot.Close()
+			continue
+		}
+		_ = removePackageGenerationAtRoot(rootHandle, verifiedPackageGeneration{name: entry.Name(), root: generationRoot, fileInfo: generationInfo}, root, operations)
+		_ = generationRoot.Close()
 	}
 }
 
@@ -207,39 +265,134 @@ func readDirectoryEntries(path string) (entries []fs.DirEntry, err error) {
 	return entries, errors.Join(readErr, closeErr)
 }
 
-func removePackageGeneration(generation string, remove func(string) error, removeAll func(string) error) error {
-	entries, err := readDirectoryEntries(generation)
+func readRootDirectoryEntries(root *os.Root) ([]fs.DirEntry, error) {
+	directory, err := root.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	entries, readErr := directory.ReadDir(-1)
+	closeErr := directory.Close()
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return entries, errors.Join(readErr, closeErr)
+}
+
+func openVerifiedGeneration(parent *os.Root, name, rootPath string, operations packageCleanupOperations) (*os.Root, bool) {
+	if name == "" || name == "." || name == ".." || hostpath.Base(name) != name {
+		return nil, false
+	}
+	path := hostpath.Join(rootPath, name)
+	if operations.beforeGenerationOpen != nil {
+		if err := operations.beforeGenerationOpen(path); err != nil {
+			return nil, false
+		}
+	}
+	before, err := parent.Lstat(name)
+	if err != nil || !before.IsDir() || before.Mode()&os.ModeSymlink != 0 {
+		return nil, false
+	}
+	if operations.afterGenerationLstat != nil {
+		operations.afterGenerationLstat(path)
+	}
+	generation, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, false
+	}
+	opened, err := generation.Stat(".")
+	if err != nil || !os.SameFile(before, opened) {
+		_ = generation.Close()
+		return nil, false
+	}
+	if operations.afterGenerationVerified != nil {
+		operations.afterGenerationVerified(path)
+	}
+	return generation, true
+}
+
+func removePackageGenerationAtRoot(parent *os.Root, generation verifiedPackageGeneration, rootPath string, operations packageCleanupOperations) error {
+	path := hostpath.Join(rootPath, generation.name)
+	if generation.root == nil || generation.fileInfo == nil {
+		return fmt.Errorf("package generation %s has no verified directory handle", path)
+	}
+	entries, err := readRootDirectoryEntries(generation.root)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("read package generation %s: %w", generation, err)
+		return fmt.Errorf("read package generation %s: %w", path, err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	if operations.afterGenerationEnumerate != nil {
+		operations.afterGenerationEnumerate(path)
 	}
 	var payloadErr error
 	for _, entry := range entries {
-		if entry.Name() == packageInstallReceiptFilename {
+		name := entry.Name()
+		if name == packageInstallReceiptFilename {
 			continue
 		}
-		path := hostpath.Join(generation, entry.Name())
-		info, statErr := os.Lstat(path)
+		childPath := hostpath.Join(path, name)
+		info, statErr := generation.root.Lstat(name)
 		if statErr != nil {
-			payloadErr = errors.Join(payloadErr, fmt.Errorf("inspect package generation entry %s: %w", path, statErr))
+			payloadErr = errors.Join(payloadErr, fmt.Errorf("inspect package generation entry %s: %w", childPath, statErr))
 			continue
 		}
-		if info.IsDir() {
-			payloadErr = errors.Join(payloadErr, removeAll(path))
+		if info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			if operations.beforeRemoveAll != nil {
+				if err := operations.beforeRemoveAll(childPath); err != nil {
+					payloadErr = errors.Join(payloadErr, err)
+					continue
+				}
+			}
+			payloadErr = errors.Join(payloadErr, generation.root.RemoveAll(name))
 		} else {
-			payloadErr = errors.Join(payloadErr, remove(path))
+			if operations.beforeRemove != nil {
+				if err := operations.beforeRemove(childPath); err != nil {
+					payloadErr = errors.Join(payloadErr, err)
+					continue
+				}
+			}
+			payloadErr = errors.Join(payloadErr, generation.root.Remove(name))
 		}
 	}
 	if payloadErr != nil {
-		return fmt.Errorf("remove package generation payload %s: %w", generation, payloadErr)
+		return fmt.Errorf("remove package generation payload %s: %w", path, payloadErr)
 	}
-	if err := remove(hostpath.Join(generation, packageInstallReceiptFilename)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove package generation receipt %s: %w", generation, err)
+	remaining, err := readRootDirectoryEntries(generation.root)
+	if err != nil {
+		return fmt.Errorf("verify package generation payload removal %s: %w", path, err)
 	}
-	if err := os.Remove(generation); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("remove package generation directory %s: %w", generation, err)
+	for _, entry := range remaining {
+		if entry.Name() != packageInstallReceiptFilename {
+			return fmt.Errorf("package generation %s gained an unowned entry during cleanup: %s", path, entry.Name())
+		}
+	}
+	if operations.beforeRemove != nil {
+		if err := operations.beforeRemove(hostpath.Join(path, packageInstallReceiptFilename)); err != nil {
+			return fmt.Errorf("remove package generation receipt %s: %w", path, err)
+		}
+	}
+	if err := generation.root.Remove(packageInstallReceiptFilename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove package generation receipt %s: %w", path, err)
+	}
+	if operations.beforeGenerationRemove != nil {
+		operations.beforeGenerationRemove(path)
+	}
+	if err := generation.root.Close(); err != nil {
+		return fmt.Errorf("close package generation %s before final removal: %w", path, err)
+	}
+	generation.root = nil
+	current, err := parent.Lstat(generation.name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("verify package generation directory %s before removal: %w", path, err)
+	}
+	if !current.IsDir() || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(current, generation.fileInfo) {
+		return fmt.Errorf("package generation directory %s changed before final removal", path)
+	}
+	if err := parent.Remove(generation.name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("remove package generation directory %s: %w", path, err)
 	}
 	return nil
 }
@@ -283,92 +436,6 @@ func hasReservedTransactionAncestor(path string) bool {
 		}
 	}
 	return false
-}
-
-func legacyPackageGeneration(root string, info DriverInfo) string {
-	if info.Source != "dbc" || validatePackageFilename(info.ID) != nil || info.Version == nil {
-		return ""
-	}
-	shared := info.Driver.Shared.Get(PlatformTuple())
-	if shared == "" || hasParentTraversal(shared) {
-		return ""
-	}
-	rootAbs, err := hostpath.Abs(root)
-	if err != nil {
-		return ""
-	}
-	sharedAbs := resolvePackagePath(rootAbs, shared)
-	generation := hostpath.Dir(sharedAbs)
-	if hostpath.Dir(generation) != hostpath.Clean(rootAbs) || hostpath.Dir(sharedAbs) != generation {
-		return ""
-	}
-	if !legacyGenerationNameMatches(hostpath.Base(generation), info.ID, PlatformTuple(), info.Version) {
-		return ""
-	}
-	generationInfo, err := os.Lstat(generation)
-	if err != nil || !generationInfo.IsDir() || generationInfo.Mode()&os.ModeSymlink != 0 {
-		return ""
-	}
-	if _, err := os.Lstat(hostpath.Join(generation, packageInstallReceiptFilename)); err == nil {
-		return ""
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return ""
-	}
-	sharedInfo, err := os.Lstat(sharedAbs)
-	if err != nil || !sharedInfo.Mode().IsRegular() {
-		return ""
-	}
-	return generation
-}
-
-func legacyMetadataSidecar(root string, info DriverInfo) string {
-	if info.Source != "dbc" || validatePackageFilename(info.ID) != nil || info.Version == nil {
-		return ""
-	}
-	versionString := info.Version.String()
-	parsedVersion, err := semver.NewVersion(versionString)
-	if err != nil || parsedVersion.String() != versionString {
-		return ""
-	}
-	rootAbs, err := hostpath.Abs(root)
-	if err != nil {
-		return ""
-	}
-	generation := hostpath.Join(rootAbs, info.ID+"_"+PlatformTuple()+"_v"+info.Version.String())
-	if hostpath.Dir(generation) != rootAbs {
-		return ""
-	}
-	generationInfo, err := os.Lstat(generation)
-	if err != nil || !generationInfo.IsDir() || generationInfo.Mode()&os.ModeSymlink != 0 {
-		return ""
-	}
-	if _, err := os.Lstat(hostpath.Join(generation, packageInstallReceiptFilename)); err == nil {
-		return ""
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return ""
-	}
-	references, uncertain := referencedPaths(rootAbs, info.Driver.Shared)
-	if uncertain {
-		return ""
-	}
-	for _, reference := range references {
-		if pathWithin(generation, reference) {
-			return ""
-		}
-	}
-	return generation
-}
-
-func legacyGenerationNameMatches(name, runtimeID, platform string, registeredVersion *semver.Version) bool {
-	if registeredVersion == nil {
-		return false
-	}
-	prefix := runtimeID + "_" + platform + "_v"
-	if !strings.HasPrefix(name, prefix) || len(name) == len(prefix) {
-		return false
-	}
-	version, err := semver.NewVersion(strings.TrimPrefix(name, prefix))
-	return err == nil && version.String() == registeredVersion.String()
 }
 
 func referencedPaths(root string, shared driverMap) ([]string, bool) {

@@ -311,15 +311,38 @@ func readPackageInstallReceipt(primaryRoot, generationDir string) (packageInstal
 	if hostpath.Dir(generation) != root {
 		return empty, false
 	}
-	generationInfo, err := os.Lstat(generation)
-	if err != nil || !generationInfo.IsDir() {
+	parent, err := os.OpenRoot(root)
+	if err != nil {
 		return empty, false
 	}
-	info, err := os.Lstat(hostpath.Join(generation, packageInstallReceiptFilename))
+	defer parent.Close()
+	generationName := hostpath.Base(generation)
+	generationInfo, err := parent.Lstat(generationName)
+	if err != nil || !generationInfo.IsDir() || generationInfo.Mode()&os.ModeSymlink != 0 {
+		return empty, false
+	}
+	generationRoot, err := parent.OpenRoot(generationName)
+	if err != nil {
+		return empty, false
+	}
+	defer generationRoot.Close()
+	openedGenerationInfo, err := generationRoot.Stat(".")
+	if err != nil || !os.SameFile(generationInfo, openedGenerationInfo) {
+		return empty, false
+	}
+	return readPackageInstallReceiptAtRoot(generationRoot, generationName)
+}
+
+// readPackageInstallReceiptAtRoot reads ownership evidence relative to an
+// already verified generation handle. Cleanup keeps this handle open through
+// the subsequent payload deletion so it never reopens a checked pathname.
+func readPackageInstallReceiptAtRoot(generationRoot *os.Root, generationName string) (packageInstallReceipt, bool) {
+	var empty packageInstallReceipt
+	info, err := generationRoot.Lstat(packageInstallReceiptFilename)
 	if err != nil || !info.Mode().IsRegular() {
 		return empty, false
 	}
-	file, err := os.Open(hostpath.Join(generation, packageInstallReceiptFilename))
+	file, err := generationRoot.Open(packageInstallReceiptFilename)
 	if err != nil {
 		return empty, false
 	}
@@ -328,11 +351,11 @@ func readPackageInstallReceipt(primaryRoot, generationDir string) (packageInstal
 	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
 		return empty, false
 	}
-	var receipt packageInstallReceipt
 	data, err := io.ReadAll(io.LimitReader(file, packageInstallReceiptMaxSize+1))
 	if err != nil || len(data) > packageInstallReceiptMaxSize {
 		return empty, false
 	}
+	var receipt packageInstallReceipt
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&receipt) != nil {
@@ -341,7 +364,7 @@ func readPackageInstallReceipt(primaryRoot, generationDir string) (packageInstal
 	if decoder.Decode(new(any)) != io.EOF {
 		return empty, false
 	}
-	if !validPackageInstallReceipt(receipt, root, generation) {
+	if !validPackageInstallReceiptForGeneration(receipt, generationName) {
 		return empty, false
 	}
 	return receipt, true
@@ -361,7 +384,23 @@ func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, gene
 	if err != nil || version.String() != receipt.DriverVersion {
 		return false
 	}
-	generationName := hostpath.Base(generationDir)
+	if hostpath.Dir(generationDir) != primaryRoot {
+		return false
+	}
+	return validPackageInstallReceiptForGeneration(receipt, hostpath.Base(generationDir))
+}
+
+func validPackageInstallReceiptForGeneration(receipt packageInstallReceipt, generationName string) bool {
+	if receipt.SchemaVersion != packageInstallReceiptVersion || receipt.RegistrationFingerprintAlgo != registrationFingerprintName || receipt.RegistrationFingerprintVer != registrationFingerprintVer {
+		return false
+	}
+	if validatePackageFilename(receipt.RuntimeID) != nil || !packagePlatformPattern.MatchString(receipt.Platform) || !validPackageRegistrationScope(receipt.RegistrationScope) {
+		return false
+	}
+	version, err := semver.NewVersion(receipt.DriverVersion)
+	if err != nil || version.String() != receipt.DriverVersion {
+		return false
+	}
 	generationRuntimeID, validGeneration := parsePackageGenerationName(generationName)
 	if receipt.Generation != generationName || !validGeneration || !sameRuntimeID(generationRuntimeID, receipt.RuntimeID) {
 		return false
@@ -387,7 +426,7 @@ func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, gene
 	default:
 		return false
 	}
-	return hostpath.Dir(generationDir) == primaryRoot
+	return true
 }
 
 func validateOwnedPackageFilename(name string) error {

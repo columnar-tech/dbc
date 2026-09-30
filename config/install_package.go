@@ -37,11 +37,13 @@ type InstallPackageOptions struct {
 }
 
 type packageInstallOperations struct {
-	rename       func(string, string) error
-	remove       func(string) error
-	removeAll    func(string) error
-	register     func(Config, string, DriverInfo) error
-	writeReceipt func(string, packageInstallReceipt) error
+	rename                 func(string, string) error
+	remove                 func(string) error
+	removeAll              func(string) error
+	cleanupBeforeRemove    func(string) error
+	cleanupBeforeRemoveAll func(string) error
+	register               func(Config, string, DriverInfo) error
+	writeReceipt           func(string, packageInstallReceipt) error
 }
 
 // InstallPackage installs a package generation and then updates the runtime
@@ -178,7 +180,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		return Manifest{}, err
 	}
 	defer func() { err = errors.Join(err, namespaceLock.release()) }()
-	legacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID)
+	legacyCandidate, hasLegacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID)
 	receipt, err := makePackageInstallReceipt(cfg, stageDir, hostpath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
@@ -211,10 +213,17 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	registrations, certain, _ := collectRegistrationSharedMaps(cfg, registrationLocation, "")
 	if certain {
 		referenced, uncertain := referencedPathsForRegistrations(location, registrations)
-		if !uncertain && legacyCandidate != "" && !generationReferenced(legacyCandidate, referenced) {
-			_ = operations.removeAll(legacyCandidate)
+		if hasLegacyCandidate {
+			// Best-effort compatibility cleanup uses the registration captured
+			// before commit and removes only its exact regular library file.
+			_ = cleanupLegacyPackageRegistration(location, legacyCandidate, referenced, !uncertain, packageCleanupOperations{
+				beforeRemove: operations.cleanupBeforeRemove,
+			})
 		}
-		cleanupStalePackageGenerationsWithReferences(cfg, location, manifest.DriverInfo, []string{generationDir}, referenced, uncertain, operations.remove, operations.removeAll)
+		cleanupStalePackageGenerationsWithReferences(cfg, location, manifest.DriverInfo, []string{generationDir}, referenced, uncertain, packageCleanupOperations{
+			beforeRemove:    operations.cleanupBeforeRemove,
+			beforeRemoveAll: operations.cleanupBeforeRemoveAll,
+		})
 	}
 	return manifest, nil
 }

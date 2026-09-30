@@ -104,7 +104,7 @@ func UninstallDriver(cfg Config, info DriverInfo) (err error) {
 	if !sameDriverRegistration(info, current) {
 		return fmt.Errorf("driver %q changed since it was selected; refusing to uninstall: %w", info.ID, errDriverRegistrationChanged)
 	}
-	registrations, certain, _ := collectRegistrationSharedMaps(cfg, registrationLocation, current.ID)
+	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, registrationLocation, current.FilePath, current.ID)
 	return uninstallDriverUnlockedWithReferences(cfg, current, registrations, certain)
 }
 

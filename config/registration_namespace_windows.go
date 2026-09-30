@@ -31,6 +31,9 @@ func registrationNamespaceLockSpec(cfg Config, location string) (identity, lockD
 	case ConfigEnv:
 		return fileRegistrationNamespaceLockSpec(location)
 	case ConfigUser:
+		// The namespace identity is the HKCU hive, but the lock file lives under
+		// ConfigUser.ConfigLocation(). Processes with different APPDATA values
+		// therefore do not share this lock despite mutating the same registry.
 		return "registry-user:HKCU\\SOFTWARE\\ADBC\\Drivers", ConfigUser.ConfigLocation(), "HKCU\\SOFTWARE\\ADBC\\Drivers", nil
 	case ConfigSystem:
 		return "registry-system:HKLM\\SOFTWARE\\ADBC\\Drivers", ConfigSystem.ConfigLocation(), "HKLM\\SOFTWARE\\ADBC\\Drivers", nil
@@ -62,7 +65,7 @@ func fileRegistrationNamespaceLockSpec(location string) (identity, lockDirectory
 	return "file:" + strings.ToLower(resolved), resolved, resolved, nil
 }
 
-func collectRegistrationSharedMaps(cfg Config, location, excludedID string) ([]driverMap, bool, error) {
+func collectScopedRegistrationSharedMaps(cfg Config, location, excludedID string) ([]driverMap, bool, error) {
 	if cfg.Level == ConfigEnv {
 		return collectFileRegistrationSharedMaps(location, excludedID)
 	}
@@ -75,6 +78,13 @@ func collectRegistrationSharedMaps(cfg Config, location, excludedID string) ([]d
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("open registration registry namespace: %w", err)
+	}
+	// Registry registrations do not carry a manifest directory. Resolve
+	// relative shared paths against the config level's filesystem root, which
+	// is the root used by external-library cleanup for that registry scope.
+	filesystemRoot := cfg.Level.ConfigLocation()
+	if filesystemRoot == "" {
+		return nil, false, errors.Join(errors.New("registration filesystem root is empty"), root.Close())
 	}
 	info, err := root.Stat()
 	if err != nil {
@@ -93,7 +103,11 @@ func collectRegistrationSharedMaps(cfg Config, location, excludedID string) ([]d
 		if err != nil {
 			return nil, false, errors.Join(fmt.Errorf("read registration %q: %w", name, err), root.Close())
 		}
-		shared = append(shared, registration.Driver.Shared)
+		resolvedShared, err := sharedPathsFromRegistrationRoot(filesystemRoot, registration.Driver.Shared)
+		if err != nil {
+			return nil, false, errors.Join(fmt.Errorf("resolve shared paths in registration %q: %w", name, err), root.Close())
+		}
+		shared = append(shared, resolvedShared)
 	}
 	if err := root.Close(); err != nil {
 		return nil, false, fmt.Errorf("close registration registry namespace: %w", err)
