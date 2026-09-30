@@ -1,0 +1,281 @@
+{
+  "rule": "https://packslip.dev/release/v1/#selecting-an-artifact",
+  "description": "Choosing one artifact for a host. `formats` is what the consumer can unpack, best first. `variant` is what the user asked for; null means none. `expect` is the chosen artifact's name, or an error: `no-match` when nothing fits, `ambiguous` when two artifacts fit and nothing tells them apart.",
+  "cases": [
+    {
+      "name": "a build for the host beats a portable one",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": "gnu"
+      },
+      "variant": null,
+      "formats": [
+        "tar.xz",
+        "tar.gz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-any.tar.gz",
+          "size": 1,
+          "format": "tar.gz"
+        },
+        {
+          "name": "tool-linux-x64-gnu.tar.gz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "libc": "gnu",
+          "format": "tar.gz"
+        }
+      ],
+      "expect": {
+        "artifact": "tool-linux-x64-gnu.tar.gz"
+      }
+    },
+    {
+      "name": "among equally specific artifacts the consumer's format preference decides",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": null
+      },
+      "variant": null,
+      "formats": [
+        "tar.xz",
+        "tar.gz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-linux-x64.tar.gz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.gz"
+        },
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.xz"
+        }
+      ],
+      "expect": {
+        "artifact": "tool-linux-x64.tar.xz"
+      }
+    },
+    {
+      "name": "the consumer's order decides, not the document's",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": null
+      },
+      "variant": null,
+      "formats": [
+        "tar.gz",
+        "tar.xz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.xz"
+        },
+        {
+          "name": "tool-linux-x64.tar.gz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.gz"
+        }
+      ],
+      "expect": {
+        "artifact": "tool-linux-x64.tar.gz"
+      }
+    },
+    {
+      "name": "two artifacts that still tie are a vendor error, not a guess",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": "gnu"
+      },
+      "variant": null,
+      "formats": [
+        "tar.xz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.xz"
+        },
+        {
+          "name": "tool-linux-gnu.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "libc": "gnu",
+          "format": "tar.xz"
+        }
+      ],
+      "expect": {
+        "error": "ambiguous"
+      },
+      "comment": "Both name two of os, arch and libc, so neither is more specific, and they share a format so the consumer's preference cannot separate them. Their scopes differ, so this document is valid: the tie is the consumer's to refuse."
+    },
+    {
+      "name": "a variant is never selected unless it was asked for",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": "gnu"
+      },
+      "variant": null,
+      "formats": [
+        "tar.xz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-fips-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "libc": "gnu",
+          "variant": "fips",
+          "format": "tar.xz"
+        },
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "libc": "gnu",
+          "format": "tar.xz"
+        }
+      ],
+      "expect": {
+        "artifact": "tool-linux-x64.tar.xz"
+      }
+    },
+    {
+      "name": "asking for a variant selects only that variant",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": "gnu"
+      },
+      "variant": "fips",
+      "formats": [
+        "tar.xz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-fips-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "libc": "gnu",
+          "variant": "fips",
+          "format": "tar.xz"
+        },
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "libc": "gnu",
+          "format": "tar.xz"
+        }
+      ],
+      "expect": {
+        "artifact": "tool-fips-linux-x64.tar.xz"
+      }
+    },
+    {
+      "name": "a consumer that does not know its libc cannot take a libc-specific build",
+      "host": {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": null
+      },
+      "variant": null,
+      "formats": [
+        "tar.xz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-linux-x64-gnu.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "libc": "gnu",
+          "format": "tar.xz"
+        },
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.xz"
+        }
+      ],
+      "expect": {
+        "artifact": "tool-linux-x64.tar.xz"
+      }
+    },
+    {
+      "name": "an artifact in a format the consumer cannot unpack does not fit",
+      "host": {
+        "os": "windows",
+        "arch": "x86_64",
+        "libc": null
+      },
+      "variant": null,
+      "formats": [
+        "zip"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-windows-x64.7z",
+          "size": 1,
+          "os": "windows",
+          "arch": "x86_64",
+          "format": "7z"
+        }
+      ],
+      "expect": {
+        "error": "no-match"
+      }
+    },
+    {
+      "name": "nothing for this host",
+      "host": {
+        "os": "freebsd",
+        "arch": "riscv64",
+        "libc": null
+      },
+      "variant": null,
+      "formats": [
+        "tar.xz"
+      ],
+      "artifacts": [
+        {
+          "name": "tool-linux-x64.tar.xz",
+          "size": 1,
+          "os": "linux",
+          "arch": "x86_64",
+          "format": "tar.xz"
+        }
+      ],
+      "expect": {
+        "error": "no-match"
+      }
+    }
+  ]
+}

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -59,8 +60,13 @@ func wrapWithRegistryContext(err, registryErr error) error {
 
 func defaultBaseModel() baseModel {
 	return baseModel{
-		getDriverRegistry: getDriverRegistry,
-		downloadPkg:       downloadPkg,
+		getDriverRegistry:     getDriverRegistry,
+		downloadPkg:           downloadPkg,
+		downloadArtifact:      downloadPackage,
+		fetchPackslipArtifact: fetchPackslipArtifact,
+		newPackslipResolver: func() (packslip.Resolver, error) {
+			return packslip.NewResolver(packslip.Config{})
+		},
 	}
 }
 
@@ -81,6 +87,9 @@ func openAndDecodeDriverList(path string) (DriversList, error) {
 
 	var list DriversList
 	if err := toml.NewDecoder(f).Decode(&list); err != nil {
+		return DriversList{}, err
+	}
+	if err := list.validateSources(); err != nil {
 		return DriversList{}, err
 	}
 	return list, nil

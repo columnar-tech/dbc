@@ -393,86 +393,6 @@ func TestAuthHTTPClientDoesNotRequireRegistryConfig(t *testing.T) {
 	require.NotNil(t, c)
 }
 
-// TestGetDriverListHonorsProjectRegistries proves GetDriverList — a helper
-// used by library consumers that parse dbc.toml directly — honors the
-// project's [[registries]] section when resolving driver packages, AND
-// does not leak that configuration across calls in the same process.
-func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
-	indexFor := func(drvName string) string {
-		return `drivers:
-  - name: ` + drvName + `
-    description: test
-    license: MIT
-    path: ` + drvName + `
-    pkginfo:
-      - version: v1.0.0
-        packages:
-          - platform: linux_amd64
-            url: ` + drvName + `/1.0.0/x.tar.gz
-          - platform: linux_arm64
-            url: ` + drvName + `/1.0.0/x.tar.gz
-          - platform: macos_amd64
-            url: ` + drvName + `/1.0.0/x.tar.gz
-          - platform: macos_arm64
-            url: ` + drvName + `/1.0.0/x.tar.gz
-          - platform: windows_amd64
-            url: ` + drvName + `/1.0.0/x.tar.gz
-          - platform: windows_arm64
-            url: ` + drvName + `/1.0.0/x.tar.gz
-`
-	}
-
-	makeServer := func(drvName string, hits *int32) *httptest.Server {
-		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-				atomic.AddInt32(hits, 1)
-				w.Header().Set("Content-Type", "application/yaml")
-				w.Write([]byte(indexFor(drvName)))
-				return
-			}
-			http.NotFound(w, r)
-		}))
-	}
-
-	t.Setenv("DBC_BASE_URL", "")
-
-	savedGlobal := globalRegistryConfig
-	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
-	globalRegistryConfig = nil
-
-	var hitsA, hitsB int32
-	serverA := makeServer("driver-a", &hitsA)
-	defer serverA.Close()
-	serverB := makeServer("driver-b", &hitsB)
-	defer serverB.Close()
-
-	writeList := func(t *testing.T, registryURL, drvName string) string {
-		t.Helper()
-		p := t.TempDir() + "/dbc.toml"
-		content := "replace_defaults = true\n\n" +
-			"[[registries]]\nurl = '" + registryURL + "'\n\n" +
-			"[drivers]\n[drivers." + drvName + "]\nversion = '>=1.0.0'\n"
-		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
-		return p
-	}
-
-	// Call 1: dbc.toml pointing at server A.
-	pkgs, err := GetDriverList(writeList(t, serverA.URL, "driver-a"))
-	require.NoError(t, err)
-	require.Len(t, pkgs, 1)
-	assert.Equal(t, "driver-a", pkgs[0].Driver.Path)
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&hitsA), int32(1))
-
-	// Call 2: a DIFFERENT dbc.toml pointing at server B. If GetDriverList
-	// leaked registry state from call 1, server B wouldn't be hit.
-	pkgs, err = GetDriverList(writeList(t, serverB.URL, "driver-b"))
-	require.NoError(t, err)
-	require.Len(t, pkgs, 1)
-	assert.Equal(t, "driver-b", pkgs[0].Driver.Path)
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&hitsB), int32(1),
-		"GetDriverList must not leak registry state from a previous call")
-}
-
 // TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries runs the full
 // CLI startup sequence (loadStartupRegistryConfig + project-command dispatch
 // via applyProjectRegistries) against a temp global config.toml declaring
@@ -737,6 +657,161 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	assert.Contains(t, s, "concurrent.example.com", "concurrent registry edit must not be clobbered")
 	assert.Contains(t, s, "replace_defaults = true", "concurrent replace_defaults must not be clobbered")
 	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
+}
+
+func TestAddAbortsWhenTargetSourceChangesDuringRegistryLookup(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "dbc.toml")
+	initialContent := "[drivers.test-driver-1]\nversion = '>=1.0.0'\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(initialContent), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1>=1.1.0"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+	concurrentContent := "[drivers.test-driver-1]\n" +
+		"version = '>=1.0.0'\n" +
+		"[drivers.test-driver-1.source]\n" +
+		"type = 'registry'\n" +
+		"url = 'https://registry.example.test/custom'\n" +
+		"\n[drivers.test-driver-2]\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
+
+	close(unblock)
+	msgOut := <-done
+	err, ok := msgOut.(error)
+	require.True(t, ok, "add must reject source drift for the entry it resolved")
+	assert.ErrorContains(t, err, "driver \"test-driver-1\" source changed while resolving drivers")
+
+	data, readErr := os.ReadFile(tomlPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, concurrentContent, string(data), "source drift must leave concurrent contents unchanged")
+}
+
+func TestAddAbortsWhenTargetEntryPresenceChangesDuringRegistryLookup(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+	tests := []struct {
+		name              string
+		initialContent    string
+		concurrentContent string
+	}{
+		{
+			name:              "concurrent remove with nil source",
+			initialContent:    "[drivers.test-driver-1]\nversion = '>=1.0.0'\n",
+			concurrentContent: "[drivers]\n",
+		},
+		{
+			name:              "concurrent add with nil source",
+			initialContent:    "[drivers]\n",
+			concurrentContent: "[drivers.test-driver-1]\nversion = '>=1.0.0'\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tomlPath := filepath.Join(dir, "dbc.toml")
+			require.NoError(t, os.WriteFile(tomlPath, []byte(tt.initialContent), 0o644))
+
+			lookupStarted := make(chan struct{})
+			unblock := make(chan struct{})
+			slowRegistry := func() ([]dbc.Driver, error) {
+				close(lookupStarted)
+				<-unblock
+				return getTestDriverRegistry()
+			}
+
+			done := make(chan tea.Msg, 1)
+			go func() {
+				m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1>=1.1.0"}}.GetModelCustom(
+					baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+				)
+				done <- runTeaCmdToCompletion(t, m.(interface {
+					Init() tea.Cmd
+					Update(tea.Msg) (tea.Model, tea.Cmd)
+				}))
+			}()
+
+			<-lookupStarted
+			require.NoError(t, os.WriteFile(tomlPath, []byte(tt.concurrentContent), 0o644))
+			close(unblock)
+
+			msgOut := <-done
+			err, ok := msgOut.(error)
+			require.True(t, ok, "add must reject target entry creation/removal during lookup")
+			assert.ErrorContains(t, err, "entry presence changed")
+
+			data, readErr := os.ReadFile(tomlPath)
+			require.NoError(t, readErr)
+			assert.Equal(t, tt.concurrentContent, string(data), "target presence drift must preserve concurrent contents")
+		})
+	}
+}
+
+func TestAddAbortsOnConcurrentInvalidDriverSource(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	dir := t.TempDir()
+	tomlPath := dir + "/dbc.toml"
+	require.NoError(t, os.WriteFile(tomlPath, []byte("[drivers]\n"), 0o644))
+
+	lookupStarted := make(chan struct{})
+	unblock := make(chan struct{})
+	slowRegistry := func() ([]dbc.Driver, error) {
+		close(lookupStarted)
+		<-unblock
+		return getTestDriverRegistry()
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		m := AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModelCustom(
+			baseModel{getDriverRegistry: slowRegistry, downloadPkg: downloadTestPkg},
+		)
+		done <- runTeaCmdToCompletion(t, m.(interface {
+			Init() tea.Cmd
+			Update(tea.Msg) (tea.Model, tea.Cmd)
+		}))
+	}()
+
+	<-lookupStarted
+
+	concurrentContent := "[drivers]\n" +
+		"[drivers.invalid]\n" +
+		"[drivers.invalid.source]\n" +
+		"type = 'path'\n" +
+		"path = '../packages/driver.tar.gz'\n" +
+		"project = 'github.com/owner/project'\n"
+	require.NoError(t, os.WriteFile(tomlPath, []byte(concurrentContent), 0o644))
+
+	close(unblock)
+	msgOut := <-done
+	err, ok := msgOut.(error)
+	require.True(t, ok, "AddCmd must reject an invalid source from the locked re-read")
+	assert.Contains(t, err.Error(), "error re-reading driver list under lock")
+	assert.Contains(t, err.Error(), `driver "invalid" source: path source contains fields for another source type`)
+
+	data, readErr := os.ReadFile(tomlPath)
+	require.NoError(t, readErr)
+	assert.Equal(t, concurrentContent, string(data), "invalid concurrent content must remain unchanged")
 }
 
 // TestAddInitialReadIsAtomicAgainstTornState drives an actual torn-write

@@ -1,0 +1,13 @@
+name: Example Registry
+drivers:
+  - name: Example Driver
+    description: Synthetic registry fixture for archive metadata.
+    license: Apache-2.0
+    path: example-driver
+    pkginfo:
+      - version: v1.2.3
+        packages:
+          - platform: linux_amd64
+            url: example-driver/1.2.3/example-driver-linux_amd64.tar.gz
+            hash: sha256:0000000000000000000000000000000000000000000000000000000000000000
+            future_metadata: ignored

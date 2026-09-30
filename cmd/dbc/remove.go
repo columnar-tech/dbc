@@ -95,6 +95,9 @@ func (m removeModel) Init() tea.Cmd {
 		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
 			return err
 		}
+		if err := m.list.validateSources(); err != nil {
+			return err
+		}
 
 		m.Driver = strings.TrimSpace(m.Driver)
 		if m.list.Drivers == nil {

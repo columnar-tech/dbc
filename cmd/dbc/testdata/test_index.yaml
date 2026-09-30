@@ -87,7 +87,7 @@ drivers:
     license: Apache-2.0
     path: test-driver-no-sig
     pkginfo:
-      - version: v1.0.0
+      - version: v1.1.0
         packages:
           - platform: linux_amd64
           - platform: linux_arm64

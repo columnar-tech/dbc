@@ -15,11 +15,11 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,17 +34,6 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
-
-func manifestToPackageInfo(m config.Manifest) dbc.PkgInfo {
-	return dbc.PkgInfo{
-		Driver: dbc.Driver{
-			Title:   m.Name,
-			Path:    m.ID,
-			License: m.License,
-		},
-		Version: m.Version,
-	}
-}
 
 func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 	driver = strings.TrimSpace(driver)
@@ -63,8 +52,7 @@ func parseDriverConstraint(driver string) (string, *semver.Constraints, error) {
 }
 
 type InstallCmd struct {
-	// URI    url.URL `arg:"-u" placeholder:"URL" help:"Base URL for fetching drivers"`
-	Driver             string             `arg:"positional,required" help:"Driver to install, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
+	Driver             string             `arg:"positional,required" help:"Driver to install, a version constraint (mysql>=1,<2), a local .tar.gz/.tgz package, or a Packslip source (github.com/owner/repo=1.2.3)"`
 	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	Json               bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
 	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
@@ -75,17 +63,23 @@ type InstallCmd struct {
 
 func (InstallCmd) Description() string {
 	return "Install a driver.\n\n" +
-		"`DRIVER` may include a version constraint, for example `dbc install mysql`, `dbc install \"mysql=0.1.0\"`, or `dbc install \"mysql>=1,<2\"`.\n" +
+		"`DRIVER` may be a registry driver with a version constraint (for example `dbc install mysql`, `dbc install \"mysql=0.1.0\"`, or `dbc install \"mysql>=1,<2\"`), a local `.tar.gz`/`.tgz` package, or an exact Packslip project release such as `dbc install github.com/owner/repo=1.2.3`.\n" +
 		"See https://docs.columnar.tech/dbc/guides/installing/#version-constraints for more on version constraint syntax."
 }
 
 func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
-	isLocal := strings.HasSuffix(c.Driver, ".tar.gz") || strings.HasSuffix(c.Driver, ".tgz")
+	isLocal := (strings.HasSuffix(c.Driver, ".tar.gz") || strings.HasSuffix(c.Driver, ".tgz")) && !strings.Contains(c.Driver, "://")
 	localPackagePath := ""
 	if isLocal {
 		localPackagePath = c.Driver
+	}
+	var packslipProject, packslipVersion string
+	var isPackslip bool
+	var packslipErr error
+	if !isLocal {
+		packslipProject, packslipVersion, isPackslip, packslipErr = parsePackslipInstallArgument(c.Driver)
 	}
 	return progressiveInstallModel{
 		Driver:             c.Driver,
@@ -99,6 +93,10 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		baseModel:          baseModel,
 		isLocal:            isLocal,
 		localPackagePath:   localPackagePath,
+		isPackslip:         isPackslip,
+		packslipProject:    packslipProject,
+		packslipVersion:    packslipVersion,
+		directInputErr:     packslipErr,
 		p: NewFileProgress(
 			progress.WithDefaultBlend(),
 			progress.WithWidth(20),
@@ -111,45 +109,18 @@ func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
 }
 
-func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || noVerify {
-		return nil
-	}
+type directInstallResolvedMsg struct{ item installItem }
 
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
-
-	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
-	if err != nil {
-		return fmt.Errorf("could not open driver file: %w", err)
-	}
-	defer lib.Close()
-
-	sigFile := m.Files.Signature
-	if sigFile == "" {
-		sigFile = m.Files.Driver + ".sig"
-	}
-
-	sig, err := os.Open(filepath.Join(path, sigFile))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
-		}
-		return fmt.Errorf("failed to open signature file: %w", err)
-	}
-	defer sig.Close()
-
-	if err := dbc.SignedByColumnar(lib, sig); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return nil
+type directInstallPreparedMsg struct {
+	item     installItem
+	executor *packageExecutor
 }
 
-type writeDriverManifestMsg struct {
-	DriverInfo config.DriverInfo
+type directInstallFinishedMsg struct {
+	item   installItem
+	result config.EnsurePackageResult
+	err    error
 }
-
-type localInstallMsg struct{}
 
 // alreadyInstalledChecksumMsg carries the checksum computed for an already-installed driver.
 type alreadyInstalledChecksumMsg string
@@ -236,6 +207,11 @@ type progressiveInstallModel struct {
 	width, height    int
 	isLocal          bool
 	localPackagePath string
+	isPackslip       bool
+	packslipProject  string
+	packslipVersion  string
+	directInputErr   error
+	installSource    *jsonschema.InstallSource
 
 	registryErrors           error
 	alreadyInstalledChecksum string
@@ -249,9 +225,19 @@ type driversWithRegistryError struct {
 }
 
 func (m progressiveInstallModel) Init() tea.Cmd {
-	if strings.HasSuffix(m.Driver, ".tar.gz") || strings.HasSuffix(m.Driver, ".tgz") {
+	if m.directInputErr != nil {
+		return errCmd("%w", m.directInputErr)
+	}
+	if m.isPackslip && m.Pre {
+		return errCmd("--pre does not apply to exact Packslip releases")
+	}
+	if m.isLocal || m.isPackslip {
 		return tea.Batch(m.spinner.Tick, func() tea.Msg {
-			return localInstallMsg{}
+			item, err := m.resolveDirectInstall(context.Background())
+			if err != nil {
+				return err
+			}
+			return directInstallResolvedMsg{item: item}
 		})
 	}
 
@@ -287,6 +273,60 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 	})
 }
 
+func (m progressiveInstallModel) startDirectInstall(item installItem) (tea.Model, tea.Cmd) {
+	m.Driver = item.Release.DriverID
+	version, err := semver.NewVersion(item.Release.Version)
+	if err != nil {
+		return m, errCmd("invalid resolved driver version %q: %w", item.Release.Version, err)
+	}
+	m.DriverPackage = dbc.PkgInfo{Driver: dbc.Driver{Path: m.Driver, Title: m.Driver}, Version: version, PlatformTuple: item.Platform}
+	m.installSource = &jsonschema.InstallSource{Type: item.Release.Source.Type, Reference: item.Release.Source.Reference}
+	if m.isLocal {
+		m.state = stInstalling
+		m = m.addEvent("download.complete")
+		m = m.addEvent("extract.start")
+	} else {
+		m.state = stDownloading
+		m = m.addEvent("download.start")
+	}
+	return m, func() tea.Msg {
+		executor, err := m.newDirectInstallExecutor(item)
+		if err != nil {
+			return err
+		}
+		installCfg, err := installConfigForEnsure(executor.cfg)
+		if err != nil {
+			if closeErr := closeDirectInstallResources(&item); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close prepared package: %w", closeErr))
+			}
+			return err
+		}
+		executor.cfg = installCfg
+		if err := executor.prepareItem(context.Background(), &item); err != nil {
+			if closeErr := closeDirectInstallResources(&item); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("close prepared package: %w", closeErr))
+			}
+			return err
+		}
+		return directInstallPreparedMsg{item: item, executor: executor}
+	}
+}
+
+func (m progressiveInstallModel) startDirectEnsure(item installItem, executor *packageExecutor) (tea.Model, tea.Cmd) {
+	if !m.isLocal {
+		m = m.addEvent("download.complete")
+		m = m.addEvent("extract.start")
+	}
+	m.state = stInstalling
+	return m, func() tea.Msg {
+		result, err := executor.ensurePreparedPackage(context.Background(), &item)
+		if closeErr := closeDirectInstallResources(&item); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close prepared package: %w", closeErr))
+		}
+		return directInstallFinishedMsg{item: item, result: result, err: err}
+	}
+}
+
 func (m progressiveInstallModel) Preamble() string {
 	if m.isLocal {
 		return "Installing from local package: " + m.localPackagePath + "\n\n"
@@ -314,6 +354,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 				Driver:   m.conflictingInfo.ID,
 				Version:  m.conflictingInfo.Version.String(),
 				Location: filepath.SplitList(m.cfg.Location)[0],
+				Source:   m.installSource,
 			}
 			if m.alreadyInstalledChecksum != "" {
 				payload.Checksum = m.alreadyInstalledChecksum
@@ -344,6 +385,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 			Driver:   m.Driver,
 			Version:  m.DriverPackage.Version.String(),
 			Location: filepath.SplitList(m.cfg.Location)[0],
+			Source:   m.installSource,
 		}
 		if m.hasConflict() {
 			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
@@ -438,59 +480,29 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	}
 }
 
-func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
-	m.state = stDownloading
-	if m.isAlreadyInstalled() {
-		m.state = stDone
-		if m.jsonOutput && !m.insecureNoChecksum && m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple()) != "" {
-			driverPath := m.conflictingInfo.Driver.Shared.Get(config.PlatformTuple())
-			return m, func() tea.Msg {
-				chksum, err := checksum(driverPath)
-				if err != nil {
-					return fmt.Errorf("checksum_failed: %w", err)
-				}
-				return alreadyInstalledChecksumMsg(chksum)
-			}
-		}
-		return m, tea.Quit
+func packageVerificationError(err error) error {
+	const prefix = "package verification failed: "
+	if strings.HasPrefix(err.Error(), prefix) {
+		return errors.New(strings.TrimPrefix(err.Error(), prefix))
 	}
-
-	m = m.addEvent("download.start")
-	return m, func() tea.Msg {
-		output, err := m.downloadPkg(m.DriverPackage)
-		if err != nil {
-			return err
-		}
-		return output
-	}
+	return err
 }
 
-func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model, tea.Cmd) {
-	m.state = stInstalling
-	if m.isLocal {
-		driverName := strings.TrimSuffix(
-			strings.TrimSuffix(filepath.Base(m.Driver), ".tar.gz"), ".tgz")
-		parts := strings.Split(driverName, "_"+config.PlatformTuple()+"_")
-		if len(parts) < 2 {
-			m.Driver = driverName
-		} else {
-			m.Driver = parts[0] // drivername_platform_arch_version grab drivername
-		}
-	}
+func isPackageVerificationFailure(err error) bool {
+	return strings.HasPrefix(err.Error(), "package verification failed: ")
+}
 
-	return m, func() tea.Msg {
-		if m.conflictingInfo.ID != "" {
-			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
-				return err
-			}
-		}
-
-		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded)
-		if err != nil {
-			return err
-		}
-		return manifest
+func (m progressiveInstallModel) fail(err error) (tea.Model, tea.Cmd) {
+	m.status = 1
+	m.err = err
+	if m.jsonOutput {
+		m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
+			Code:    "install_failed",
+			Message: err.Error(),
+		})
+		return m, tea.Quit
 	}
+	return m, tea.Quit
 }
 
 func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -523,65 +535,72 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case []dbc.Driver:
 		// For backwards compatibility, still handle plain driver list
 		return m.searchForDriver(msg)
-	case localInstallMsg:
-		m.isLocal = true
-		if m.localPackagePath == "" {
-			m.localPackagePath = m.Driver
+	case directInstallResolvedMsg:
+		return m.startDirectInstall(msg.item)
+	case directInstallPreparedMsg:
+		return m.startDirectEnsure(msg.item, msg.executor)
+	case directInstallFinishedMsg:
+		if msg.err != nil {
+			return m.fail(msg.err)
 		}
-		return m, func() tea.Msg {
-			localDrv, err := os.Open(m.Driver)
-			if err != nil {
-				return err
+		if msg.result.Installed == nil {
+			return m.fail(errors.New("package ensure returned no installed driver registration"))
+		}
+		m.Driver = msg.item.Release.DriverID
+		version, err := semver.NewVersion(msg.item.Release.Version)
+		if err != nil {
+			return m.fail(fmt.Errorf("invalid resolved driver version %q: %w", msg.item.Release.Version, err))
+		}
+		m.DriverPackage = dbc.PkgInfo{Driver: dbc.Driver{Path: m.Driver, Title: m.Driver}, Version: version, PlatformTuple: msg.item.Platform}
+		m.installSource = &jsonschema.InstallSource{Type: msg.item.Release.Source.Type, Reference: msg.item.Release.Source.Reference}
+		m.installedDriverInfo = *msg.result.Installed
+		if msg.result.Skipped {
+			m.conflictingInfo = *msg.result.Installed
+			m.state = stDone
+			if m.jsonOutput && !m.insecureNoChecksum && msg.result.Installed.Driver.Shared.Get(msg.item.Platform) != "" {
+				libraryPath := msg.result.Installed.Driver.Shared.Get(msg.item.Platform)
+				return m, func() tea.Msg {
+					checksumValue, checksumErr := checksum(libraryPath)
+					if checksumErr != nil {
+						return fmt.Errorf("checksum_failed: %w", checksumErr)
+					}
+					return alreadyInstalledChecksumMsg(checksumValue)
+				}
 			}
-			return localDrv
-		}
-	case dbc.PkgInfo:
-		m.DriverPackage = msg
-		di, err := config.GetDriver(m.cfg, m.Driver)
-		if err == nil {
-			m.conflictingInfo = di
-		}
-
-		return m.startDownloading()
-	case *os.File:
-		m = m.addEvent("download.complete")
-		m = m.addEvent("extract.start")
-		return m.startInstalling(msg)
-	case config.Manifest:
-		if m.DriverPackage.Version == nil {
-			m.DriverPackage = manifestToPackageInfo(msg)
-		}
-
-		m.state = stVerifying
-		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
-		m = m.addEvent("extract.complete")
-		m = m.addEvent("verify.start")
-		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.NoVerify); err != nil {
-				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
-				_ = os.RemoveAll(path)
-				return err
-			}
-			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
-		}
-	case writeDriverManifestMsg:
-		m.state = stDone
-		m.installedDriverInfo = msg.DriverInfo
-		m = m.addEvent("verify.complete")
-		m = m.addEvent("manifest.create")
-		return m, tea.Sequence(func() tea.Msg {
-			return config.CreateManifest(m.cfg, msg.DriverInfo)
-		}, tea.Quit)
-	case error:
-		m.status = 1
-		m.err = msg
-		if m.jsonOutput {
-			m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
-				Code:    "install_failed",
-				Message: msg.Error(),
-			})
 			return m, tea.Quit
 		}
+		if msg.result.Manifest == nil {
+			return m.fail(errors.New("package ensure returned no install manifest"))
+		}
+		m.conflictingInfo = config.DriverInfo{}
+		if msg.result.Previous != nil {
+			if msg.result.Previous.Version == nil || !msg.result.Previous.Version.Equal(version) {
+				m.conflictingInfo = *msg.result.Previous
+			}
+		}
+		m.postInstallMessage = strings.Join(msg.result.Manifest.PostInstall.Messages, "\n")
+		m.state = stDone
+		m = m.addEvent("extract.complete")
+		m = m.addEvent("verify.start")
+		m = m.addEvent("verify.complete")
+		m = m.addEvent("manifest.create")
+		return m, tea.Quit
+	case dbc.PkgInfo:
+		release, err := resolvedReleaseFromRegistryPackage(msg.Driver, msg)
+		if err == nil {
+			var artifactIndex int
+			artifactIndex, err = artifactIndexForPlatform(release, msg.PlatformTuple)
+			if err == nil {
+				var item installItem
+				item, err = newInstallItem(release, artifactIndex, msg.PlatformTuple, nil)
+				if err == nil {
+					return m.startDirectInstall(item)
+				}
+			}
+		}
+		return m.fail(err)
+	case error:
+		return m.fail(msg)
 	}
 
 	base, cmd := m.baseModel.Update(msg)

@@ -17,37 +17,39 @@
 package fslock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"syscall"
-	"time"
 )
 
-// Acquire acquires an exclusive advisory lock on the file at path, retrying
-// until timeout elapses. Returns an error if the lock cannot be acquired.
-func Acquire(path string, timeout time.Duration) (Lock, error) {
-	deadline := time.Now().Add(timeout)
+func acquireContext(ctx context.Context, path string, allowInitialAttempt bool) (Lock, error) {
 	for {
+		if !allowInitialAttempt {
+			if err := ctx.Err(); err != nil {
+				return Lock{}, err
+			}
+		}
+
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
 		}
 
-		lock, err := lockFile(f, path, deadline)
+		lock, err := lockFile(ctx, f, path, allowInitialAttempt)
+		allowInitialAttempt = false
 		if err == nil {
 			return lock, nil
 		}
 		f.Close()
 		if errors.Is(err, errStaleInode) {
-			if time.Now().Before(deadline) {
-				// Previous holder unlinked the file between our open and
-				// our flock; the path now refers to a different inode.
-				// Reopen and try again within the remaining budget.
-				continue
+			if ctx.Err() != nil {
+				return Lock{}, ctx.Err()
 			}
-			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
-				path, timeout, err, ErrLockContended)
+			// Previous holder unlinked the file between our open and our
+			// flock, so reopen and confirm the current inode.
+			continue
 		}
 		return Lock{}, err
 	}
@@ -57,8 +59,17 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 // unlinked (or replaced) since we opened it — we need to reopen and retry.
 var errStaleInode = errors.New("fslock: stale inode")
 
-func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
+func lockFile(ctx context.Context, f *os.File, path string, allowInitialAttempt bool) (Lock, error) {
+	firstAttempt := true
+	var lastLockErr error
 	for {
+		if !(firstAttempt && allowInitialAttempt) {
+			if err := ctx.Err(); err != nil {
+				return Lock{}, retryContextError(path, err, lastLockErr)
+			}
+		}
+		firstAttempt = false
+
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
 			// Confirm the path still points at our inode. If the previous
@@ -73,11 +84,10 @@ func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
 			}
 			return Lock{f: f, path: path}, nil
 		}
-		if time.Now().After(deadline) {
-			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s (%v): %w",
-				path, err, ErrLockContended)
+		lastLockErr = err
+		if err := waitForRetry(ctx); err != nil {
+			return Lock{}, retryContextError(path, err, lastLockErr)
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 

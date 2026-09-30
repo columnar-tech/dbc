@@ -22,17 +22,19 @@ import (
 	"strings"
 )
 
-// loadDir lists installed drivers from a directory. Under GOOS=js, os.ReadDir
-// and os.DirFS fail on Windows hosts because Go's js/wasm syscall layer rejects
-// the O_DIRECTORY flag (Node.js does not expose it on Windows). We work around
-// this by using os.Open (which omits O_DIRECTORY) followed by File.ReadDir.
-func loadDir(dir string) (map[string]DriverInfo, error) {
+// readDirEntries avoids os.ReadDir's O_DIRECTORY open flag, which the js/wasm
+// filesystem layer does not support on Windows hosts.
+func readDirEntries(dir string) ([]os.DirEntry, error) {
 	f, err := os.Open(dir)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := f.ReadDir(-1)
-	f.Close()
+	defer f.Close()
+	return f.ReadDir(-1)
+}
+
+func loadDir(dir string) (map[string]DriverInfo, error) {
+	entries, err := readDirEntries(dir)
 	if err != nil {
 		return nil, err
 	}

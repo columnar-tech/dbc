@@ -15,6 +15,7 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/atomicfile"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -115,7 +117,9 @@ func (d driverMap) String() string {
 	return sb.String()
 }
 
-type tomlDriverInfo struct {
+// runtimeManifestWire is the installed ADBC Driver Manifest format. A legacy
+// package's MANIFEST uses legacyPackageManifestWire.
+type runtimeManifestWire struct {
 	ManifestVersion int32           `toml:"manifest_version"`
 	Name            string          `toml:"name"`
 	Publisher       string          `toml:"publisher"`
@@ -171,7 +175,16 @@ func createManifestSymlink(location, driverID, manifestPath string) {
 	symlink := filepath.Join(parentDir, safeDriverID+".toml")
 
 	if filepath.Dir(symlink) == parentDir {
-		os.Symlink(manifestPath, symlink)
+		parentAbs, parentErr := filepath.Abs(parentDir)
+		manifestAbs, manifestErr := filepath.Abs(manifestPath)
+		if parentErr != nil || manifestErr != nil {
+			return
+		}
+		target, err := filepath.Rel(parentAbs, manifestAbs)
+		if err != nil {
+			target = manifestAbs
+		}
+		_ = os.Symlink(target, symlink)
 	}
 }
 
@@ -181,8 +194,45 @@ func removeManifestSymlink(filePath, driverID string) {
 	safeDriverID := filepath.Base(driverID)
 	symlink := filepath.Join(parentDir, safeDriverID+".toml")
 
-	if filepath.Dir(symlink) == parentDir {
-		os.Remove(symlink)
+	if filepath.Dir(symlink) != parentDir {
+		return
+	}
+	linkInfo, err := os.Lstat(symlink)
+	if err != nil || linkInfo.Mode()&os.ModeSymlink == 0 {
+		return
+	}
+	target, err := os.Readlink(symlink)
+	if err != nil {
+		return
+	}
+	symlinkAbs, symlinkErr := filepath.Abs(symlink)
+	if symlinkErr != nil {
+		return
+	}
+	symlinkParentAbs := filepath.Dir(symlinkAbs)
+	expected, expectedErr := filepath.Abs(filepath.Join(filePath, safeDriverID+".toml"))
+	if expectedErr != nil {
+		return
+	}
+	targetsExpectedManifest := func(candidate string) bool {
+		actual, err := filepath.Abs(candidate)
+		return err == nil && filepath.Clean(actual) == filepath.Clean(expected)
+	}
+	isTargetRegistration := false
+	if filepath.IsAbs(target) {
+		isTargetRegistration = targetsExpectedManifest(target)
+	} else {
+		// New links are relative to their parent directory. Older links may
+		// contain the original relative manifestPath. Only the exact original
+		// value is accepted for that legacy form; do not reinterpret arbitrary
+		// relative targets from the process working directory. Resolve the link
+		// target against the symlink's absolute parent, as the filesystem does.
+		isTargetRegistration = targetsExpectedManifest(filepath.Join(symlinkParentAbs, target))
+		legacyManifestPath := filepath.Join(filePath, safeDriverID+".toml")
+		isTargetRegistration = isTargetRegistration || target == legacyManifestPath
+	}
+	if isTargetRegistration {
+		_ = os.Remove(symlink)
 	}
 }
 
@@ -194,23 +244,7 @@ func createDriverManifest(location string, driver DriverInfo) error {
 	}
 
 	manifestPath := filepath.Join(location, driver.ID+".toml")
-	f, err := os.Create(manifestPath)
-	if err != nil {
-		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
-	}
-	defer f.Close()
-
-	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
-	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
-	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
-	//
-	// To work around this, we create a symlink on level up to the manifest we're
-	// installing.
-	//
-	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	createManifestSymlink(location, driver.ID, manifestPath)
-
-	toEncode := tomlDriverInfo{
+	toEncode := runtimeManifestWire{
 		ManifestVersion: currentManifestVersion,
 		Name:            driver.Name,
 		Publisher:       driver.Publisher,
@@ -227,11 +261,29 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		toEncode.Driver.Shared = driver.Driver.Shared.platformMap
 	}
 
-	enc := toml.NewEncoder(f).SetIndentTables(false)
-
+	var encoded bytes.Buffer
+	enc := toml.NewEncoder(&encoded).SetIndentTables(false)
 	if err := enc.Encode(toEncode); err != nil {
 		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
 	}
+	if err := atomicfile.WriteFile(manifestPath, encoded.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("error writing manifest %s: %w", driver.ID, err)
+	}
+
+	// Work around older driver managers that look one directory above the
+	// configured manifest directory.
+	createManifestSymlink(location, driver.ID, manifestPath)
 
 	return nil
 }
+
+type manifestRollbackError struct {
+	writeErr    error
+	rollbackErr error
+}
+
+func (e *manifestRollbackError) Error() string {
+	return fmt.Sprintf("%v; restoring previous manifest registration failed: %v", e.writeErr, e.rollbackErr)
+}
+
+func (e *manifestRollbackError) Unwrap() error { return e.writeErr }

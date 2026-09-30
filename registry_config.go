@@ -20,8 +20,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/columnar-tech/dbc/internal/sourceidentity"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -73,17 +73,8 @@ func validateRegistryEntry(e RegistryEntry) error {
 	if e.URL == "" {
 		return errors.New("registry entry has empty url")
 	}
-	u, err := url.Parse(e.URL)
-	if err != nil {
-		return fmt.Errorf("invalid registry URL %q: %w", e.URL, err)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("invalid registry URL %q: missing host", e.URL)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("invalid registry URL %q: scheme must be http or https", e.URL)
-	}
-	return nil
+	_, err := sourceidentity.Parse(sourceidentity.Registry, e.URL)
+	return err
 }
 
 // mergeRegistries combines project, global, and default registries into a
@@ -102,37 +93,24 @@ func mergeRegistries(
 		replaceDefaults = *projectReplaceDefaults
 	}
 
-	seen := make(map[string]bool)
+	seen := make(map[sourceidentity.Key]bool)
 	var result []Registry
-
-	// urlKey returns a canonical form that collapses only truly no-op
-	// differences: scheme/host casing, trailing-slash on the path, and
-	// fragments. Query, userinfo, and path segments are preserved because
-	// they change the effective registry endpoint (tenant selectors,
-	// credential-bearing URLs, path-mounted registries) and must be
-	// treated as distinct registries here.
-	urlKey := func(u *url.URL) string {
-		cp := *u
-		cp.Scheme = strings.ToLower(cp.Scheme)
-		cp.Host = strings.ToLower(cp.Host)
-		cp.Path = strings.TrimRight(cp.Path, "/")
-		cp.Fragment = ""
-		cp.RawFragment = ""
-		return cp.String()
-	}
 
 	addEntries := func(entries []RegistryEntry) {
 		for _, e := range entries {
-			u, err := url.Parse(e.URL)
-			if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			key, err := sourceidentity.Parse(sourceidentity.Registry, e.URL)
+			if err != nil {
 				continue
 			}
-			key := urlKey(u)
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			result = append(result, Registry{Name: e.Name, BaseURL: u})
+			baseURL, err := url.Parse(e.URL)
+			if err != nil {
+				continue
+			}
+			result = append(result, Registry{Name: e.Name, BaseURL: baseURL})
 		}
 	}
 
@@ -144,7 +122,10 @@ func mergeRegistries(
 			if r.BaseURL == nil {
 				continue
 			}
-			key := urlKey(r.BaseURL)
+			key, err := sourceidentity.Parse(sourceidentity.Registry, r.BaseURL.String())
+			if err != nil {
+				continue
+			}
 			if seen[key] {
 				continue
 			}

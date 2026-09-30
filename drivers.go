@@ -37,6 +37,7 @@ import (
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 )
 
@@ -263,6 +264,10 @@ type PkgInfo struct {
 	PlatformTuple string
 
 	Path *url.URL
+	// ArtifactHash is the optional digest of the downloaded archive.
+	ArtifactHash string
+	// ArtifactSize is the optional size in bytes of the downloaded archive.
+	ArtifactSize *int64
 }
 
 // Deprecated: Use Client.Download instead.
@@ -311,11 +316,14 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 }
 
 type pkginfo struct {
-	Version  *semver.Version `yaml:"version"`
-	Packages []struct {
-		PlatformTuple string `yaml:"platform"`
-		URL           string `yaml:"url"`
-	} `yaml:"packages"`
+	Version  *semver.Version   `yaml:"version"`
+	Packages []registryPackage `yaml:"packages"`
+}
+
+type registryPackage struct {
+	PlatformTuple string    `yaml:"platform"`
+	URL           string    `yaml:"url"`
+	Hash          yaml.Node `yaml:"hash,omitempty"`
 }
 
 func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
@@ -326,30 +334,23 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 	if d.Registry == nil {
 		return PkgInfo{}, fmt.Errorf("cannot resolve package URL for %s: driver has no registry", d.Title)
 	}
-	base := d.Registry.BaseURL
 	for _, pkg := range p.Packages {
 		if pkg.PlatformTuple == platformTuple {
-			var uri *url.URL
-
-			if pkg.URL != "" {
-				var err error
-				uri, err = url.Parse(pkg.URL)
-				if err != nil {
-					return PkgInfo{}, fmt.Errorf("invalid package URL %q: %w", pkg.URL, err)
-				}
-				if !uri.IsAbs() {
-					uri = base.JoinPath(pkg.URL)
-				}
-			} else {
-				uri = base.JoinPath(d.Path, p.Version.String(),
-					d.Path+"_"+platformTuple+"-"+p.Version.String()+".tar.gz")
+			uri, err := resolveRegistryPackageURL(d, p.Version, pkg)
+			if err != nil {
+				return PkgInfo{}, err
 			}
 
+			artifact, err := pkg.resolveArtifact()
+			if err != nil {
+				return PkgInfo{}, err
+			}
 			return PkgInfo{
 				Driver:        d,
 				Version:       p.Version,
 				PlatformTuple: platformTuple,
 				Path:          uri,
+				ArtifactHash:  artifact.Hash,
 			}, nil
 		}
 	}
@@ -395,10 +396,7 @@ func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (
 			return false
 		}
 
-		return slices.ContainsFunc(p.Packages, func(p struct {
-			PlatformTuple string `yaml:"platform"`
-			URL           string `yaml:"url"`
-		}) bool {
+		return slices.ContainsFunc(p.Packages, func(p registryPackage) bool {
 			return p.PlatformTuple == platformTuple
 		})
 	})
@@ -472,6 +470,47 @@ func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowP
 	}
 
 	return pkg.GetPackage(d, platformTuple)
+}
+
+// GetPackages returns every artifact described by the exact registry release.
+// The returned packages are ordered by platform tuple so callers can use the
+// metadata to build deterministic release snapshots. A nil version is not
+// accepted because this method must not select a release independently from
+// the normal registry version-resolution path.
+func (d Driver) GetPackages(version *semver.Version) ([]PkgInfo, error) {
+	if version == nil {
+		return nil, errors.New("exact registry version is required")
+	}
+	var release *pkginfo
+	for i := range d.PkgInfo {
+		if d.PkgInfo[i].Version.Equal(version) {
+			release = &d.PkgInfo[i]
+			break
+		}
+	}
+	if release == nil {
+		return nil, fmt.Errorf("version %s not found", version)
+	}
+
+	packages := make([]PkgInfo, 0, len(release.Packages))
+	for _, artifact := range release.Packages {
+		uri, err := resolveRegistryPackageURL(d, release.Version, artifact)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := artifact.resolveArtifact()
+		if err != nil {
+			return nil, err
+		}
+		packages = append(packages, PkgInfo{
+			Driver: d, Version: release.Version, PlatformTuple: artifact.PlatformTuple,
+			Path: uri, ArtifactHash: metadata.Hash,
+		})
+	}
+	sort.Slice(packages, func(i, j int) bool {
+		return packages[i].PlatformTuple < packages[j].PlatformTuple
+	})
+	return packages, nil
 }
 
 func (d Driver) MaxVersion() (VersionInfo, bool) {

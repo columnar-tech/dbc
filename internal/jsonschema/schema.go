@@ -57,6 +57,14 @@ type InstallStatus struct {
 	Conflict string `json:"conflict,omitempty"`
 	// Checksum is the hex-encoded checksum of the installed artifact (added for T7).
 	Checksum string `json:"checksum,omitempty"`
+	// Source identifies the resolved release source when available.
+	Source *InstallSource `json:"source,omitempty"`
+}
+
+// InstallSource is the source provenance of a resolved package release.
+type InstallSource struct {
+	Type      string `json:"type"`
+	Reference string `json:"reference"`
 }
 
 // InstallProgressEvent is a single line in the NDJSON progress stream emitted
@@ -257,6 +265,13 @@ type SyncError struct {
 	Error string `json:"error"`
 }
 
+// SyncMigration records a lockfile schema migration completed by sync.
+// It is omitted when the input lockfile was already at the current version.
+type SyncMigration struct {
+	FromVersion int `json:"from_version"`
+	ToVersion   int `json:"to_version"`
+}
+
 // SyncStatus is the final JSON payload emitted after a sync operation completes.
 type SyncStatus struct {
 	// Installed lists drivers that were newly installed.
@@ -265,6 +280,8 @@ type SyncStatus struct {
 	Skipped []SyncedDriver `json:"skipped"`
 	// Errors lists drivers that failed to install.
 	Errors []SyncError `json:"errors"`
+	// Migration describes a lockfile schema migration, when one was persisted.
+	Migration *SyncMigration `json:"migration,omitempty"`
 }
 
 // -----------------------------------------------------------------------------

@@ -18,7 +18,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -32,6 +34,7 @@ import (
 	"github.com/columnar-tech/dbc/cmd/dbc/completions"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/packslip"
 	"github.com/mattn/go-isatty"
 )
 
@@ -74,6 +77,19 @@ type HasStatus interface {
 // tea.Printf and return an empty View do not need the renderer.
 type NeedsRenderer interface {
 	NeedsRenderer()
+}
+
+func filterProgramMessage(model tea.Model, msg tea.Msg) tea.Msg {
+	if filtered, ok := model.(interface{ FilterProgramMessage(tea.Msg) tea.Msg }); ok {
+		return filtered.FilterProgramMessage(msg)
+	}
+	return msg
+}
+
+func notifyProgramExited(model tea.Model) {
+	if lifecycle, ok := model.(interface{ ProgramExited() }); ok {
+		lifecycle.ProgramExited()
+	}
 }
 
 var (
@@ -167,7 +183,6 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	return dbcClient.Search(context.Background(), "")
 }
 
-
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
 		return d.Path == name
@@ -190,6 +205,13 @@ func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
 	})
 }
 
+func downloadPackage(ctx context.Context, pkg dbc.PkgInfo) (io.ReadCloser, error) {
+	if err := initDBCClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize authenticated download client: %w", err)
+	}
+	return dbcClient.Download(ctx, pkg)
+}
+
 func getConfig(c config.ConfigLevel) config.Config {
 	switch c {
 	case config.ConfigSystem, config.ConfigUser:
@@ -204,8 +226,11 @@ func getConfig(c config.ConfigLevel) config.Config {
 }
 
 type baseModel struct {
-	getDriverRegistry func() ([]dbc.Driver, error)
-	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
+	getDriverRegistry     func() ([]dbc.Driver, error)
+	downloadPkg           func(p dbc.PkgInfo) (*os.File, error)
+	downloadArtifact      func(context.Context, dbc.PkgInfo) (io.ReadCloser, error)
+	fetchPackslipArtifact func(context.Context, *url.URL) (io.ReadCloser, error)
+	newPackslipResolver   func() (packslip.Resolver, error)
 
 	status int
 	err    error
@@ -467,12 +492,12 @@ func main() {
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
-		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil))
+		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithFilter(filterProgramMessage))
 	} else if args.Quiet {
 		// Quiet still prints stderr as GNU standard is to suppress "usual" output
-		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr))
+		prog = tea.NewProgram(m, tea.WithoutRenderer(), tea.WithInput(nil), tea.WithOutput(os.Stderr), tea.WithFilter(filterProgramMessage))
 	} else {
-		prog = tea.NewProgram(m)
+		prog = tea.NewProgram(m, tea.WithFilter(filterProgramMessage))
 		usedRenderer = true
 	}
 
@@ -484,8 +509,11 @@ func main() {
 		}
 	}
 
+	programModel := m
 	var runErr error
-	if m, runErr = prog.Run(); runErr != nil {
+	m, runErr = prog.Run()
+	notifyProgramExited(programModel)
+	if runErr != nil {
 		fmt.Fprintln(os.Stderr, "Error running program:", runErr)
 		os.Exit(1)
 	}
