@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/fslock"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 func TestAcquireContextSerializesSamePath(t *testing.T) {
@@ -75,6 +76,9 @@ func TestAcquireContextSerializesSymlinkedParentAlias(t *testing.T) {
 	}
 	aliasDir := filepath.Join(root, "alias")
 	if err := os.Symlink(realDir, aliasDir); err != nil {
+		if hostpath.IsWindows() {
+			t.Skipf("symlink creation is unavailable on this Windows host: %v", err)
+		}
 		t.Fatal(err)
 	}
 
