@@ -87,8 +87,7 @@ func cleanupLegacyPackageRegistrationAtRoot(parent *os.Root, root string, info D
 		// transaction cleanup path. A missing receipt is required for fallback.
 		return nil
 	}
-	currentGenerationInfo, err := generation.Stat(".")
-	if err != nil || legacyMetadataSidecarElsewhere(parent, generationName, currentGenerationInfo, info) {
+	if _, err := generation.Stat("."); err != nil {
 		return nil
 	}
 	payloadInfo, err := generation.Lstat(sharedName)
@@ -139,30 +138,4 @@ func cleanupLegacyPackageRegistrationAtRoot(parent *os.Root, root string, info D
 		return fmt.Errorf("remove empty legacy package directory %s: %w", generationPath, err)
 	}
 	return nil
-}
-
-// legacyMetadataSidecarElsewhere protects a registered external path when a
-// separate standard legacy generation for the same registration exists. The
-// older installer named package directories from the archive basename, so this
-// is only a conservative guard; an extra standard generation can retain an
-// arbitrary-basename payload until a later cleanup attempt.
-func legacyMetadataSidecarElsewhere(parent *os.Root, generationName string, generationInfo os.FileInfo, info DriverInfo) bool {
-	if info.Version == nil {
-		return false
-	}
-	knownName := info.ID + "_" + PlatformTuple() + "_v" + info.Version.String()
-	if knownName == generationName {
-		return false
-	}
-	knownInfo, err := parent.Lstat(knownName)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false
-	}
-	if err != nil {
-		return true
-	}
-	if !knownInfo.IsDir() || knownInfo.Mode()&os.ModeSymlink != 0 {
-		return false
-	}
-	return !os.SameFile(generationInfo, knownInfo)
 }

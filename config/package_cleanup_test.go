@@ -1438,83 +1438,50 @@ func TestLegacyPackageCleanupPreservesGenerationReferencedBySibling(t *testing.T
 	}
 }
 
-func TestLegacyManifestOnlySidecarCleanupHonorsReferences(t *testing.T) {
-	// Legacy cleanup examines every Shared path, including other platforms, and
-	// retains sidecars when raw parent traversal makes reference resolution uncertain.
-	for _, referenceKind := range []string{"unreferenced sidecar", "other platform reference", "parent traversal"} {
-		t.Run(referenceKind, func(t *testing.T) {
-			root := t.TempDir()
-			cfg := Config{Level: ConfigEnv, Location: root}
-			version := semver.MustParse("1.2.3+build.4")
-			sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
-			if err := os.MkdirAll(sidecar, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(sidecar, "NOTICE"), []byte("metadata"), 0o600); err != nil {
-				t.Fatal(err)
-			}
+func TestLegacyCleanupRecoversPayloadDespiteUnrelatedMetadataSidecar(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	version := semver.MustParse("1.2.3+build.4")
 
-			external := filepath.Join(root, "external", "library.so")
-			reference := external
-			if referenceKind == "parent traversal" {
-				subdirectory := filepath.Join(sidecar, "subdir")
-				if err := os.MkdirAll(subdirectory, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				external = filepath.Join(sidecar, "library.so")
-				if err := os.WriteFile(filepath.Join(sidecar, "sibling.txt"), []byte("keep"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				link := filepath.Join(root, "sidecar-subdir")
-				if err := os.Symlink(subdirectory, link); err != nil {
-					t.Skipf("symlink creation is unavailable: %v", err)
-				}
-				reference = link + string(filepath.Separator) + ".." + string(filepath.Separator) + filepath.Base(external)
-			}
-			if err := os.MkdirAll(filepath.Dir(external), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(external, []byte("external library"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if referenceKind == "parent traversal" {
-				assertParentTraversalReferenceResolvesOnUnix(t, reference)
-			}
+	// Pre-0.4 installs used the archive basename, which need not match the
+	// package ID. An unrelated metadata directory must not block exact cleanup.
+	generation := filepath.Join(root, "archive-derived-directory")
+	if err := os.Mkdir(generation, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	library := filepath.Join(generation, "driver.so")
+	if err := os.WriteFile(library, []byte("legacy driver"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
+	if err := os.Mkdir(sidecar, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	metadata := filepath.Join(sidecar, "NOTICE")
+	if err := os.WriteFile(metadata, []byte("metadata"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
-			info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
-			info.Driver.Shared.Set(PlatformTuple(), reference)
-			if referenceKind == "other platform reference" {
-				info.Driver.Shared.Set("other_platform", filepath.Join(sidecar, "library.so"))
-			}
-			if err := CreateManifest(cfg, info); err != nil {
-				t.Fatal(err)
-			}
-			selected, err := GetDriver(cfg, info.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := UninstallDriver(cfg, selected); err != nil {
-				t.Fatal(err)
-			}
-
-			if _, sidecarErr := os.Stat(sidecar); sidecarErr != nil {
-				t.Fatalf("legacy sidecar with unknown metadata was removed: %v", sidecarErr)
-			}
-			if data, readErr := os.ReadFile(filepath.Join(sidecar, "NOTICE")); readErr != nil || string(data) != "metadata" {
-				t.Fatalf("unknown sidecar metadata changed: %q, %v", data, readErr)
-			}
-			if referenceKind != "parent traversal" {
-				if _, err := os.Stat(external); err != nil {
-					t.Fatalf("external library was removed: %v", err)
-				}
-			} else {
-				for _, path := range []string{external, filepath.Join(sidecar, "sibling.txt")} {
-					if _, err := os.Stat(path); err != nil {
-						t.Errorf("sidecar data %s was removed through parent traversal: %v", path, err)
-					}
-				}
-			}
-		})
+	info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
+	info.Driver.Shared.Set(PlatformTuple(), library)
+	if err := CreateManifest(cfg, info); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := GetDriver(cfg, info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriver(cfg, selected); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(library); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("registered legacy payload remains: %v", err)
+	}
+	if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty legacy payload directory remains: %v", err)
+	}
+	if data, err := os.ReadFile(metadata); err != nil || string(data) != "metadata" {
+		t.Fatalf("unrelated metadata sidecar changed: %q, %v", data, err)
 	}
 }
 
