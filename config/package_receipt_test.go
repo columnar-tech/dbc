@@ -56,7 +56,7 @@ func TestInstallPackageWritesOwnedLibraryReceipt(t *testing.T) {
 	if err != nil || receipt.RegistrationScope != wantScope {
 		t.Fatalf("receipt registration scope = %q, want %q: %v", receipt.RegistrationScope, wantScope, err)
 	}
-	if receipt.LibraryKind != packageLibraryFile || receipt.OwnedLibraryFilename != "driver.so" {
+	if receipt.OwnedLibraryFilename != "driver.so" {
 		t.Fatalf("receipt ownership = %+v", receipt)
 	}
 	expected := sha256.Sum256([]byte("post verifier bytes"))
@@ -75,6 +75,14 @@ func TestInstallPackageWritesOwnedLibraryReceipt(t *testing.T) {
 		if _, exists := keys[key]; exists {
 			t.Fatalf("source-specific key %q in receipt", key)
 		}
+	}
+	for _, key := range []string{"owned_library_filename", "owned_library_sha256"} {
+		if _, exists := keys[key]; !exists {
+			t.Fatalf("required ownership key %q is missing from receipt", key)
+		}
+	}
+	if _, exists := keys["library_kind"]; exists {
+		t.Fatal("owned receipt retains the removed library-kind distinction")
 	}
 }
 
@@ -102,7 +110,8 @@ func TestWritePackageInstallReceiptEnforcesFinalSizeLimit(t *testing.T) {
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
 		Generation:                   filepath.Base(generation),
-		LibraryKind:                  packageLibraryExternal,
+		OwnedLibraryFilename:         "driver.so",
+		OwnedLibrarySHA256:           strings.Repeat("a", sha256.Size*2),
 		RegistrationFingerprintAlgo:  registrationFingerprintName,
 		RegistrationFingerprintVer:   registrationFingerprintVer,
 		RegistrationFingerprintValue: strings.Repeat("a", sha256.Size*2),
@@ -182,55 +191,55 @@ func TestRuntimeRegistrationFingerprintCanonicalization(t *testing.T) {
 	cfg := Config{Level: ConfigEnv}
 	info := fingerprintTestDriverInfo()
 	info.AdbcInfo.Features.Supported = []string{"zeta", "alpha", "zeta"}
-	first, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryFile, "driver.so")
+	first, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil {
 		t.Fatal(err)
 	}
 	info.FilePath = "/unrelated/registration/location"
 	info.Driver.Shared.Set("linux_amd64", "/random/generation-a/driver.so")
 	info.AdbcInfo.Features.Supported = []string{"alpha", "zeta"}
-	second, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryFile, "driver.so")
+	second, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil || second != first {
 		t.Fatalf("owned fingerprint changed with generation path/feature order: %q, %v", second, err)
 	}
 	info.Name = "Changed name"
-	metadataChanged, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryFile, "driver.so")
+	metadataChanged, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil || metadataChanged == first {
 		t.Fatalf("metadata did not change fingerprint: %q, %v", metadataChanged, err)
 	}
 	info = fingerprintTestDriverInfo()
 	info.AdbcInfo.Features.Supported = nil
-	nilFeatures, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryExternal, "/external/lib.so")
+	nilFeatures, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil {
 		t.Fatal(err)
 	}
 	info.AdbcInfo.Features.Supported = []string{}
-	emptyFeatures, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryExternal, "/external/lib.so")
+	emptyFeatures, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil || emptyFeatures != nilFeatures {
 		t.Fatalf("nil and empty feature sets differ: %q, %q, %v", nilFeatures, emptyFeatures, err)
 	}
 	info.AdbcInfo.Features.Supported = []string{"alpha", "alpha"}
-	duplicateFeatures, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryExternal, "/external/lib.so")
+	duplicateFeatures, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil {
 		t.Fatal(err)
 	}
 	info.AdbcInfo.Features.Supported = []string{"alpha"}
-	singleFeature, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryExternal, "/external/lib.so")
+	singleFeature, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil || duplicateFeatures != singleFeature {
 		t.Fatalf("feature deduplication behavior = %q, %v", duplicateFeatures, err)
 	}
 	info.AdbcInfo.Features.Supported = nil
-	externalChanged, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryExternal, "/external/other.so")
-	if err != nil || externalChanged == nilFeatures {
-		t.Fatalf("external ref did not change fingerprint: %q, %v", externalChanged, err)
+	otherOwnedFile, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "other.so")
+	if err != nil || otherOwnedFile == nilFeatures {
+		t.Fatalf("owned filename did not change fingerprint: %q, %v", otherOwnedFile, err)
 	}
 	info = fingerprintTestDriverInfo()
-	canonicalVersion, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryFile, "driver.so")
+	canonicalVersion, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil {
 		t.Fatal(err)
 	}
 	info.Version = semver.MustParse("1.2.3+build.4")
-	spelledVersion, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, packageLibraryFile, "driver.so")
+	spelledVersion, err := runtimeRegistrationFingerprint(cfg, "driver", "linux_amd64", info, "driver.so")
 	if err != nil || spelledVersion != canonicalVersion {
 		t.Fatalf("canonical semver spellings differ: %q, %q, %v", canonicalVersion, spelledVersion, err)
 	}
@@ -249,7 +258,8 @@ func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
 		Generation:                   filepath.Base(generation),
-		LibraryKind:                  packageLibraryExternal,
+		OwnedLibraryFilename:         "driver.so",
+		OwnedLibrarySHA256:           strings.Repeat("b", sha256.Size*2),
 		RegistrationFingerprintAlgo:  registrationFingerprintName,
 		RegistrationFingerprintVer:   registrationFingerprintVer,
 		RegistrationFingerprintValue: strings.Repeat("a", sha256.Size*2),
@@ -269,10 +279,10 @@ func TestReceiptReaderRejectsMalformedEvidence(t *testing.T) {
 		t.Fatal("valid receipt was rejected")
 	}
 	invalid := valid
-	invalid.OwnedLibraryFilename = "driver.so"
+	invalid.OwnedLibraryFilename = "../driver.so"
 	write(invalid)
 	if _, ok := readPackageInstallReceipt(root, generation); ok {
-		t.Fatal("external receipt with owned filename was accepted")
+		t.Fatal("receipt with an unsafe owned filename was accepted")
 	}
 	invalid = valid
 	invalid.RegistrationScope = "unknown"
@@ -406,7 +416,8 @@ func TestReceiptReaderRejectsUnknownSchemaAndFields(t *testing.T) {
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
 		Generation:                   filepath.Base(generation),
-		LibraryKind:                  packageLibraryExternal,
+		OwnedLibraryFilename:         "driver.so",
+		OwnedLibrarySHA256:           strings.Repeat("b", sha256.Size*2),
 		RegistrationFingerprintAlgo:  registrationFingerprintName,
 		RegistrationFingerprintVer:   registrationFingerprintVer,
 		RegistrationFingerprintValue: strings.Repeat("b", sha256.Size*2),
@@ -468,7 +479,8 @@ func TestReceiptReaderRejectsOversizedTrailingData(t *testing.T) {
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
 		Generation:                   filepath.Base(generation),
-		LibraryKind:                  packageLibraryExternal,
+		OwnedLibraryFilename:         "driver.so",
+		OwnedLibrarySHA256:           strings.Repeat("c", sha256.Size*2),
 		RegistrationFingerprintAlgo:  registrationFingerprintName,
 		RegistrationFingerprintVer:   registrationFingerprintVer,
 		RegistrationFingerprintValue: strings.Repeat("c", sha256.Size*2),
@@ -502,7 +514,8 @@ func TestReceiptReaderRejectsSymlinkedEvidence(t *testing.T) {
 		DriverVersion:                "1.0.0",
 		Platform:                     "linux_amd64",
 		Generation:                   filepath.Base(actualGeneration),
-		LibraryKind:                  packageLibraryExternal,
+		OwnedLibraryFilename:         "driver.so",
+		OwnedLibrarySHA256:           strings.Repeat("d", sha256.Size*2),
 		RegistrationFingerprintAlgo:  registrationFingerprintName,
 		RegistrationFingerprintVer:   registrationFingerprintVer,
 		RegistrationFingerprintValue: strings.Repeat("d", sha256.Size*2),

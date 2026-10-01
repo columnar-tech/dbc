@@ -36,20 +36,15 @@ import (
 
 const (
 	packageInstallReceiptFilename = "dbc-install-receipt.json"
-	packageInstallReceiptVersion  = 1
+	packageInstallReceiptVersion  = 2
 	registrationFingerprintName   = "sha256"
-	registrationFingerprintVer    = 1
+	registrationFingerprintVer    = 2
 	packageInstallReceiptMaxSize  = 16 * 1024
 )
-
-type packageLibraryKind string
 
 type packageRegistrationScope string
 
 const (
-	packageLibraryFile     packageLibraryKind = "package_file"
-	packageLibraryExternal packageLibraryKind = "external"
-
 	packageRegistrationFile           packageRegistrationScope = "file"
 	packageRegistrationRegistryUser   packageRegistrationScope = "registry-user"
 	packageRegistrationRegistrySystem packageRegistrationScope = "registry-system"
@@ -67,9 +62,8 @@ type packageInstallReceipt struct {
 	DriverVersion                string                   `json:"driver_version"`
 	Platform                     string                   `json:"platform"`
 	Generation                   string                   `json:"generation"`
-	LibraryKind                  packageLibraryKind       `json:"library_kind"`
-	OwnedLibraryFilename         string                   `json:"owned_library_filename,omitempty"`
-	OwnedLibrarySHA256           string                   `json:"owned_library_sha256,omitempty"`
+	OwnedLibraryFilename         string                   `json:"owned_library_filename"`
+	OwnedLibrarySHA256           string                   `json:"owned_library_sha256"`
 	RegistrationFingerprintAlgo  string                   `json:"registration_fingerprint_algorithm"`
 	RegistrationFingerprintVer   int                      `json:"registration_fingerprint_version"`
 	RegistrationFingerprintValue string                   `json:"registration_fingerprint"`
@@ -87,17 +81,12 @@ type registrationFingerprintDTO struct {
 	DriverVer  string                      `json:"driver_version"`
 	ADBCVer    *string                     `json:"adbc_version,omitempty"`
 	Features   *registrationFeatureSetsDTO `json:"features,omitempty"`
-	Shared     registrationSharedIdentity  `json:"shared"`
+	Shared     string                      `json:"shared"`
 }
 
 type registrationFeatureSetsDTO struct {
 	Supported   []string `json:"supported"`
 	Unsupported []string `json:"unsupported"`
-}
-
-type registrationSharedIdentity struct {
-	Kind  packageLibraryKind `json:"kind"`
-	Value string             `json:"value"`
 }
 
 var packagePlatformPattern = regexp.MustCompile(`^[a-z0-9]+_[a-z0-9]+$`)
@@ -145,7 +134,7 @@ func validPackageRegistrationScope(scope packageRegistrationScope) bool {
 	}
 }
 
-func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, platform string, manifest Manifest) (packageInstallReceipt, error) {
+func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, platform string, info DriverInfo, ownedLibraryFilename string) (packageInstallReceipt, error) {
 	scope, err := packageRegistrationScopeForConfig(cfg)
 	if err != nil {
 		return packageInstallReceipt{}, fmt.Errorf("resolve package registration scope: %w", err)
@@ -156,41 +145,30 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 	if !packagePlatformPattern.MatchString(platform) {
 		return packageInstallReceipt{}, fmt.Errorf("invalid package platform %q", platform)
 	}
-	if manifest.Version == nil {
-		return packageInstallReceipt{}, errors.New("package manifest has no driver version")
+	if info.Version == nil {
+		return packageInstallReceipt{}, errors.New("package has no driver version")
 	}
-	if manifest.DriverInfo.ID != runtimeID {
-		return packageInstallReceipt{}, errors.New("package manifest runtime ID does not match receipt ID")
+	if info.ID != runtimeID {
+		return packageInstallReceipt{}, errors.New("package runtime ID does not match receipt ID")
 	}
-	version := manifest.Version.String()
-	kind := packageLibraryExternal
-	filename, libraryHash := "", ""
-	sharedIdentity := manifest.Driver.Shared.Get(platform)
-	if manifest.Files.Driver != "" {
-		kind = packageLibraryFile
-		filename = manifest.Files.Driver
-		if err := validateOwnedPackageFilename(filename); err != nil {
-			return packageInstallReceipt{}, fmt.Errorf("invalid owned library filename: %w", err)
-		}
-		sharedIdentity = filename
-		file, err := os.Open(hostpath.Join(stagingDir, filename))
-		if err != nil {
-			return packageInstallReceipt{}, fmt.Errorf("open package library for receipt: %w", err)
-		}
-		hash := sha256.New()
-		_, copyErr := io.Copy(hash, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return packageInstallReceipt{}, fmt.Errorf("hash package library for receipt: %w", copyErr)
-		}
-		if closeErr != nil {
-			return packageInstallReceipt{}, fmt.Errorf("close package library after hashing: %w", closeErr)
-		}
-		libraryHash = hex.EncodeToString(hash.Sum(nil))
-	} else if sharedIdentity == "" {
-		return packageInstallReceipt{}, fmt.Errorf("manifest-only package has no shared library for platform %s", platform)
+	if err := validateOwnedPackageFilename(ownedLibraryFilename); err != nil {
+		return packageInstallReceipt{}, fmt.Errorf("invalid owned library filename: %w", err)
 	}
-	fingerprint, err := runtimeRegistrationFingerprint(cfg, runtimeID, platform, manifest.DriverInfo, kind, sharedIdentity)
+	file, err := os.Open(hostpath.Join(stagingDir, ownedLibraryFilename))
+	if err != nil {
+		return packageInstallReceipt{}, fmt.Errorf("open package library for receipt: %w", err)
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(hash, file)
+	closeErr := file.Close()
+	if copyErr != nil {
+		return packageInstallReceipt{}, fmt.Errorf("hash package library for receipt: %w", copyErr)
+	}
+	if closeErr != nil {
+		return packageInstallReceipt{}, fmt.Errorf("close package library after hashing: %w", closeErr)
+	}
+	libraryHash := hex.EncodeToString(hash.Sum(nil))
+	fingerprint, err := runtimeRegistrationFingerprint(cfg, runtimeID, platform, info, ownedLibraryFilename)
 	if err != nil {
 		return packageInstallReceipt{}, err
 	}
@@ -198,11 +176,10 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 		SchemaVersion:                packageInstallReceiptVersion,
 		RegistrationScope:            scope,
 		RuntimeID:                    runtimeID,
-		DriverVersion:                version,
+		DriverVersion:                info.Version.String(),
 		Platform:                     platform,
 		Generation:                   generation,
-		LibraryKind:                  kind,
-		OwnedLibraryFilename:         filename,
+		OwnedLibraryFilename:         ownedLibraryFilename,
 		OwnedLibrarySHA256:           libraryHash,
 		RegistrationFingerprintAlgo:  registrationFingerprintName,
 		RegistrationFingerprintVer:   registrationFingerprintVer,
@@ -210,19 +187,12 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 	}, nil
 }
 
-func runtimeRegistrationFingerprint(cfg Config, runtimeID, platform string, info DriverInfo, kind packageLibraryKind, sharedValue string) (string, error) {
+func runtimeRegistrationFingerprint(cfg Config, runtimeID, platform string, info DriverInfo, ownedLibraryFilename string) (string, error) {
 	if info.Version == nil {
 		return "", errors.New("runtime registration has no driver version")
 	}
-	sharedKind := kind
-	if sharedKind != packageLibraryFile && sharedKind != packageLibraryExternal {
-		return "", fmt.Errorf("invalid runtime library kind %q", sharedKind)
-	}
-	driverVersion := info.Version.String()
-	if sharedKind == packageLibraryFile {
-		if err := validateOwnedPackageFilename(sharedValue); err != nil {
-			return "", fmt.Errorf("invalid package library identity: %w", err)
-		}
+	if err := validateOwnedPackageFilename(ownedLibraryFilename); err != nil {
+		return "", fmt.Errorf("invalid package library identity: %w", err)
 	}
 	dto := registrationFingerprintDTO{
 		Version:    registrationFingerprintVer,
@@ -233,8 +203,8 @@ func runtimeRegistrationFingerprint(cfg Config, runtimeID, platform string, info
 		Publisher:  info.Publisher,
 		License:    info.License,
 		Entrypoint: info.Driver.Entrypoint,
-		DriverVer:  driverVersion,
-		Shared:     registrationSharedIdentity{Kind: sharedKind, Value: sharedValue},
+		DriverVer:  info.Version.String(),
+		Shared:     ownedLibraryFilename,
 	}
 	if registrationFingerprintIncludesADBC(cfg) {
 		features := registrationFeatureSetsDTO{
@@ -414,19 +384,10 @@ func validPackageInstallReceiptForGeneration(receipt packageInstallReceipt, gene
 	if _, err := hex.DecodeString(receipt.RegistrationFingerprintValue); err != nil || strings.ToLower(receipt.RegistrationFingerprintValue) != receipt.RegistrationFingerprintValue {
 		return false
 	}
-	switch receipt.LibraryKind {
-	case packageLibraryFile:
-		if validateOwnedPackageFilename(receipt.OwnedLibraryFilename) != nil || len(receipt.OwnedLibrarySHA256) != sha256.Size*2 {
-			return false
-		}
-		if _, err := hex.DecodeString(receipt.OwnedLibrarySHA256); err != nil || strings.ToLower(receipt.OwnedLibrarySHA256) != receipt.OwnedLibrarySHA256 {
-			return false
-		}
-	case packageLibraryExternal:
-		if receipt.OwnedLibraryFilename != "" || receipt.OwnedLibrarySHA256 != "" {
-			return false
-		}
-	default:
+	if validateOwnedPackageFilename(receipt.OwnedLibraryFilename) != nil || len(receipt.OwnedLibrarySHA256) != sha256.Size*2 {
+		return false
+	}
+	if _, err := hex.DecodeString(receipt.OwnedLibrarySHA256); err != nil || strings.ToLower(receipt.OwnedLibrarySHA256) != receipt.OwnedLibrarySHA256 {
 		return false
 	}
 	return true

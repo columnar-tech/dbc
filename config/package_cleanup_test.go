@@ -16,6 +16,8 @@ package config
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -385,6 +387,89 @@ func TestUninstallDriverRetainsUnprovenGeneration(t *testing.T) {
 	}
 }
 
+func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t *testing.T) {
+	for _, kind := range []string{"external", "package_file"} {
+		t.Run(kind, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: root}
+			legacyDir := filepath.Join(root, "legacy-package")
+			if err := os.Mkdir(legacyDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			legacyLibrary := filepath.Join(legacyDir, "driver.so")
+			if err := os.WriteFile(legacyLibrary, []byte("legacy library"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			info := DriverInfo{ID: "driver", Name: "Driver", Version: semver.MustParse("1.0.0"), Source: "dbc"}
+			info.Driver.Shared.Set(PlatformTuple(), legacyLibrary)
+			if err := CreateManifest(cfg, info); err != nil {
+				t.Fatal(err)
+			}
+			registered, err := GetDriver(cfg, "driver")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			generation := testPackageGenerationPath(t, root, "driver", "old-v1")
+			if err := os.Mkdir(generation, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			filename, payload := "external.so", []byte("external receipt bytes")
+			ownedFilename, ownedHash := "", ""
+			if kind == "package_file" {
+				filename, payload = "driver.so", []byte("old owned receipt bytes")
+				ownedFilename = filename
+				digest := sha256.Sum256(payload)
+				ownedHash = hex.EncodeToString(digest[:])
+			}
+			if err := os.WriteFile(filepath.Join(generation, filename), payload, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			legacyReceipt := map[string]any{
+				"schema_version":                     1,
+				"registration_scope":                 packageRegistrationFile,
+				"runtime_id":                         "driver",
+				"driver_version":                     "1.0.0",
+				"platform":                           PlatformTuple(),
+				"generation":                         filepath.Base(generation),
+				"library_kind":                       kind,
+				"owned_library_filename":             ownedFilename,
+				"owned_library_sha256":               ownedHash,
+				"registration_fingerprint_algorithm": registrationFingerprintName,
+				"registration_fingerprint_version":   1,
+				"registration_fingerprint":           strings.Repeat("a", sha256.Size*2),
+			}
+			data, err := json.Marshal(legacyReceipt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receiptPath := filepath.Join(generation, packageInstallReceiptFilename)
+			if err := os.WriteFile(receiptPath, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := readPackageInstallReceipt(root, generation); ok {
+				t.Fatal("pre-v2 receipt was accepted as current ownership evidence")
+			}
+
+			if err := UninstallDriver(cfg, registered); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := os.ReadFile(legacyLibrary); err != nil || string(got) != "legacy library" {
+				t.Fatalf("legacy payload was removed by fallback: %q, %v", got, err)
+			}
+			if got, err := os.ReadFile(filepath.Join(generation, filename)); err != nil || string(got) != string(payload) {
+				t.Fatalf("pre-v2 generation bytes changed: %q, %v", got, err)
+			}
+			if _, err := os.Stat(receiptPath); err != nil {
+				t.Fatalf("pre-v2 receipt evidence was removed: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("runtime registration remains: %v", err)
+			}
+		})
+	}
+}
+
 func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 	levels := []ConfigLevel{ConfigEnv, ConfigUser, ConfigSystem}
 	seen := make(map[packageRegistrationScope]struct{})
@@ -402,17 +487,26 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 		info := fingerprintTestDriverInfo()
 		info.ID = "driver"
 		info.Source = "dbc"
-		info.Driver.Shared.Set(PlatformTuple(), "/external/shared.so")
-		fingerprint, err := runtimeRegistrationFingerprint(cfg, info.ID, PlatformTuple(), info, packageLibraryExternal, "/external/shared.so")
-		if err != nil {
-			t.Fatal(err)
-		}
+		ownedBytes := []byte("owned driver bytes")
+		ownedHash := sha256.Sum256(ownedBytes)
 		locations := make(map[packageRegistrationScope]string)
 		for _, candidateScope := range []packageRegistrationScope{packageRegistrationFile, packageRegistrationRegistryUser, packageRegistrationRegistrySystem} {
 			generation := testPackageGenerationPath(t, root, "driver", string(candidateScope))
 			if err := os.Mkdir(generation, 0o700); err != nil {
 				t.Fatal(err)
 			}
+			if err := os.WriteFile(filepath.Join(generation, "driver.so"), ownedBytes, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			locations[candidateScope] = generation
+		}
+		info.Driver.Shared.Set(PlatformTuple(), filepath.Join(locations[scope], "driver.so"))
+		fingerprint, err := runtimeRegistrationFingerprint(cfg, info.ID, PlatformTuple(), info, "driver.so")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, candidateScope := range []packageRegistrationScope{packageRegistrationFile, packageRegistrationRegistryUser, packageRegistrationRegistrySystem} {
+			generation := locations[candidateScope]
 			receipt := packageInstallReceipt{
 				SchemaVersion:                packageInstallReceiptVersion,
 				RegistrationScope:            candidateScope,
@@ -420,7 +514,8 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 				DriverVersion:                info.Version.String(),
 				Platform:                     PlatformTuple(),
 				Generation:                   filepath.Base(generation),
-				LibraryKind:                  packageLibraryExternal,
+				OwnedLibraryFilename:         "driver.so",
+				OwnedLibrarySHA256:           hex.EncodeToString(ownedHash[:]),
 				RegistrationFingerprintAlgo:  registrationFingerprintName,
 				RegistrationFingerprintVer:   registrationFingerprintVer,
 				RegistrationFingerprintValue: fingerprint,
@@ -432,7 +527,6 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(generation, packageInstallReceiptFilename), data, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			locations[candidateScope] = generation
 		}
 		if err := cleanupInstalledPackage(cfg, root, info); err != nil {
 			t.Fatal(err)
@@ -451,6 +545,9 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 		if err := os.Mkdir(gcGeneration, 0o700); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(filepath.Join(gcGeneration, "driver.so"), ownedBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
 		gcReceipt := packageInstallReceipt{
 			SchemaVersion:                packageInstallReceiptVersion,
 			RegistrationScope:            scope,
@@ -458,7 +555,8 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 			DriverVersion:                info.Version.String(),
 			Platform:                     PlatformTuple(),
 			Generation:                   filepath.Base(gcGeneration),
-			LibraryKind:                  packageLibraryExternal,
+			OwnedLibraryFilename:         "driver.so",
+			OwnedLibrarySHA256:           hex.EncodeToString(ownedHash[:]),
 			RegistrationFingerprintAlgo:  registrationFingerprintName,
 			RegistrationFingerprintVer:   registrationFingerprintVer,
 			RegistrationFingerprintValue: fingerprint,

@@ -70,9 +70,7 @@ func TestWindowsRegistryReceiptFingerprintMatchesRoundTrip(t *testing.T) {
 	driver.AdbcInfo.Features.Supported = []string{"transactions", "bulk_ingest"}
 	driver.AdbcInfo.Features.Unsupported = []string{"substrait"}
 	driver.Driver.Shared.Set(PlatformTuple(), filepath.Join(generation, "driver.dll"))
-	manifest := Manifest{DriverInfo: driver}
-	manifest.Files.Driver = "driver.dll"
-	receipt, err := makePackageInstallReceipt(cfg, stage, filepath.Base(generation), id, PlatformTuple(), manifest)
+	receipt, err := makePackageInstallReceipt(cfg, stage, filepath.Base(generation), id, PlatformTuple(), driver, "driver.dll")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +102,7 @@ func TestWindowsRegistryReceiptFingerprintMatchesRoundTrip(t *testing.T) {
 	if loaded.AdbcInfo.Version != nil || len(loaded.AdbcInfo.Features.Supported) != 0 || len(loaded.AdbcInfo.Features.Unsupported) != 0 {
 		t.Fatalf("registry unexpectedly persisted ADBC metadata: %+v", loaded.AdbcInfo)
 	}
-	fingerprint, err := runtimeRegistrationFingerprint(cfg, receipt.RuntimeID, receipt.Platform, loaded, receipt.LibraryKind, receipt.OwnedLibraryFilename)
+	fingerprint, err := runtimeRegistrationFingerprint(cfg, receipt.RuntimeID, receipt.Platform, loaded, receipt.OwnedLibraryFilename)
 	if err != nil {
 		t.Fatal(err)
 	}

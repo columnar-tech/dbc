@@ -53,10 +53,10 @@ type packageInstallOperations struct {
 // but a rollback failure or process termination during that update can leave
 // the previous registration uncertain. If rollback fails, the candidate
 // generation is preserved. After successful registration, stale receipt-backed
-// generations and a strictly proven legacy predecessor are removed on a
-// best-effort basis. An error while releasing the driver lock can be returned
-// after commit; in that case the new generation remains installed. This API
-// does not promise durability across power loss. Context cancellation is
+// generations and a legacy predecessor matching the pre-0.4 install layout are
+// removed on a best-effort basis. An error while releasing the driver lock can
+// be returned after commit; in that case the new generation remains installed.
+// This API does not promise durability across power loss. Context cancellation is
 // checked at transaction boundaries but does not interrupt archive extraction
 // or verification. Once registration starts, it completes; a successful
 // registration is reported as success even if the context is canceled during
@@ -121,6 +121,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	if err != nil {
 		return Manifest{}, fmt.Errorf("failed to extract package: %w", err)
 	}
+	driverFilename := manifest.Files.Driver
 	defer func() {
 		if stageDir != "" {
 			if cleanupErr := operations.removeAll(stageDir); cleanupErr != nil {
@@ -158,7 +159,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	}
 	reservationExists = false
 	manifest.Driver.Shared = driverMap{}
-	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
+	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, driverFilename))
 	if options.Verifier != nil {
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, fmt.Errorf("install canceled before package verification: %w", err)
@@ -176,7 +177,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	}
 	defer func() { err = errors.Join(err, namespaceLock.release()) }()
 	legacyCandidate, hasLegacyCandidate := legacyPackageReplacementCandidate(cfg, location, registrationLocation, runtimeID)
-	receipt, err := makePackageInstallReceipt(cfg, stageDir, hostpath.Base(generationDir), runtimeID, PlatformTuple(), manifest)
+	receipt, err := makePackageInstallReceipt(cfg, stageDir, hostpath.Base(generationDir), runtimeID, PlatformTuple(), manifest.DriverInfo, driverFilename)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
 	}
@@ -195,7 +196,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	}
 	stageDir = ""
 	manifest.Driver.Shared = driverMap{}
-	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
+	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, driverFilename))
 
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, cleanupFailedPackageRegistration(generationDir, fmt.Errorf("install canceled before registration: %w", err), operations.removeAll)

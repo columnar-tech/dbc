@@ -167,15 +167,11 @@ func receiptMatchesRegistration(cfg Config, root, generation string, receipt pac
 	if shared == "" || hasParentTraversal(shared) {
 		return false
 	}
-	identity := shared
-	if receipt.LibraryKind == packageLibraryFile {
-		identity = receipt.OwnedLibraryFilename
-		expected := hostpath.Join(generation, receipt.OwnedLibraryFilename)
-		if !sameResolvedFilesystemPath(resolvePackagePath(root, shared), expected) {
-			return false
-		}
+	expected := hostpath.Join(generation, receipt.OwnedLibraryFilename)
+	if !sameResolvedFilesystemPath(resolvePackagePath(root, shared), expected) {
+		return false
 	}
-	fingerprint, err := runtimeRegistrationFingerprint(cfg, receipt.RuntimeID, receipt.Platform, info, receipt.LibraryKind, identity)
+	fingerprint, err := runtimeRegistrationFingerprint(cfg, receipt.RuntimeID, receipt.Platform, info, receipt.OwnedLibraryFilename)
 	return err == nil && fingerprint == receipt.RegistrationFingerprintValue
 }
 

@@ -29,8 +29,7 @@ type ownedLibraryHashFunc func(io.Reader) ([]byte, error)
 type ownedLibraryIntegrityState uint8
 
 const (
-	ownedLibraryIntegrityExternal ownedLibraryIntegrityState = iota
-	ownedLibraryIntegrityVerified
+	ownedLibraryIntegrityVerified ownedLibraryIntegrityState = iota
 	ownedLibraryIntegrityMissing
 )
 
@@ -38,13 +37,6 @@ const (
 // the receipt's local integrity evidence. This does not prove correspondence
 // to any downloaded or locked archive.
 func verifyPackageOwnedLibraryIntegrityAtRoot(generation *os.Root, receipt packageInstallReceipt, hashLibrary ownedLibraryHashFunc) (ownedLibraryIntegrityState, error) {
-	switch receipt.LibraryKind {
-	case packageLibraryExternal:
-		return ownedLibraryIntegrityExternal, nil
-	case packageLibraryFile:
-	default:
-		return 0, fmt.Errorf("invalid package library kind %q", receipt.LibraryKind)
-	}
 	if err := validateOwnedPackageFilename(receipt.OwnedLibraryFilename); err != nil {
 		return 0, fmt.Errorf("invalid owned library filename: %w", err)
 	}
