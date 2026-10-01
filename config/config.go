@@ -15,19 +15,17 @@
 package config
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -118,18 +116,14 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 }
 
 func EnsureLocation(cfg Config) (string, error) {
-	loc := cfg.Location
-	if cfg.Level == ConfigEnv {
-		list := splitConfigList(loc)
-		if len(list) == 0 {
-			return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
-		}
-		loc = list[0]
+	loc := cfg.PrimaryLocation()
+	if cfg.Level == ConfigEnv && loc == "" {
+		return "", errors.New("ADBC_DRIVER_PATH is empty, must be set to valid path to use")
 	}
 
 	if _, err := os.Stat(loc); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			if err := os.MkdirAll(loc, 0o755); err != nil {
+			if err := hostpath.MkdirAll(loc, 0o755); err != nil {
 				return "", fmt.Errorf("failed to create config directory %s: %w", loc, err)
 			}
 			// Create a .gitignore with "*" in it.
@@ -137,7 +131,7 @@ func EnsureLocation(cfg Config) (string, error) {
 			// This depends on the if block it's in: We only want to create this file
 			// if we also had to create `loc` in the same call.
 			if cfg.Level == ConfigEnv {
-				gitignorePath := filepath.Join(loc, ".gitignore")
+				gitignorePath := hostpath.Join(loc, ".gitignore")
 				_ = os.WriteFile(gitignorePath, []byte("*\n"), 0o644)
 			}
 		} else {
@@ -155,7 +149,7 @@ func loadConfig(lvl ConfigLevel) Config {
 	}
 
 	if lvl == ConfigEnv {
-		pathList := filepath.SplitList(cfg.Location)
+		pathList := splitConfigList(cfg.Location)
 		slices.Reverse(pathList)
 		finalDrivers := make(map[string]DriverInfo)
 		for _, p := range pathList {
@@ -207,22 +201,27 @@ func FindDriverConfigsIn(location string) []DriverInfo {
 }
 
 func getEnvConfigDir() string {
-	envConfigLoc := filepath.SplitList(os.Getenv(adbcEnvVar))
+	envConfigLoc := splitConfigList(os.Getenv(adbcEnvVar))
 	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
-		envConfigLoc = append(envConfigLoc, filepath.Join(venv, "etc", "adbc", "drivers"))
+		envConfigLoc = append(envConfigLoc, hostpath.Join(venv, "etc", "adbc", "drivers"))
 	}
 
 	if conda := os.Getenv("CONDA_PREFIX"); conda != "" {
-		envConfigLoc = append(envConfigLoc, filepath.Join(conda, "etc", "adbc", "drivers"))
+		envConfigLoc = append(envConfigLoc, hostpath.Join(conda, "etc", "adbc", "drivers"))
 	}
 
 	envConfigLoc = slices.DeleteFunc(envConfigLoc, func(s string) bool {
 		return s == ""
 	})
 
-	return strings.Join(envConfigLoc, string(filepath.ListSeparator))
+	return strings.Join(envConfigLoc, string(hostpath.ListSeparator()))
 }
 
+// InstallDriver extracts a package into the legacy archive-derived directory and returns its Manifest.
+// It does not update runtime registration, create an install receipt, or participate in
+// InstallPackage's transaction lock. Pairing it with CreateManifest is not one transaction.
+//
+// Deprecated: use InstallPackage for transactional package installation.
 func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {
 	var (
 		loc string
@@ -231,10 +230,10 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 	if loc, err = EnsureLocation(cfg); err != nil {
 		return Manifest{}, fmt.Errorf("could not ensure config location: %w", err)
 	}
-	base := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(downloaded.Name()), ".tar.gz"), ".tgz")
-	finalDir := filepath.Join(loc, base)
+	base := strings.TrimSuffix(strings.TrimSuffix(hostpath.Base(downloaded.Name()), ".tar.gz"), ".tgz")
+	finalDir := hostpath.Join(loc, base)
 
-	if err := os.MkdirAll(finalDir, 0o755); err != nil {
+	if err := hostpath.MkdirAll(finalDir, 0o755); err != nil {
 		return Manifest{}, fmt.Errorf("failed to create driver directory %s: %w", finalDir, err)
 	}
 
@@ -243,68 +242,14 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 		return Manifest{}, fmt.Errorf("failed to extract tarball: %w", err)
 	}
 
-	driverPath := filepath.Join(finalDir, manifest.Files.Driver)
+	driverPath := hostpath.Join(finalDir, manifest.Files.Driver)
 
 	manifest.DriverInfo.ID = shortName
 	manifest.DriverInfo.Source = "dbc"
+	manifest.DriverInfo.Driver.Shared = driverMap{}
 	manifest.DriverInfo.Driver.Shared.Set(PlatformTuple(), driverPath)
 
 	return manifest, nil
-}
-
-// TODO: Unexport once we refactor sync.go. sync.go has it's own separate
-// installation routine which it probably shouldn't.
-func InflateTarball(f *os.File, outDir string) (Manifest, error) {
-	defer f.Close()
-	var m Manifest
-
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return m, fmt.Errorf("could not seek to start: %w", err)
-	}
-	rdr, err := gzip.NewReader(f)
-	if err != nil {
-		return m, fmt.Errorf("could not create gzip reader: %w", err)
-	}
-	defer rdr.Close()
-
-	t := tar.NewReader(rdr)
-	for {
-		hdr, err := t.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-
-		if err != nil {
-			return m, fmt.Errorf("error reading tarball: %w", err)
-		}
-
-		// Return a helpful error if an entry is a directory. dbc doesn't support
-		// installing driver tarballs that contain directories.
-		if hdr.Typeflag == tar.TypeDir {
-			return m, fmt.Errorf("found a directory entry when trying to extract %s which isn't supported. driver archives shouldn't contain subdirectories", f.Name())
-		}
-
-		if hdr.Name != "MANIFEST" {
-			next, err := os.Create(filepath.Join(outDir, hdr.Name))
-			if err != nil {
-				return m, fmt.Errorf("could not create file %s: %w", hdr.Name, err)
-			}
-
-			if _, err = io.Copy(next, t); err != nil {
-				next.Close()
-				return m, fmt.Errorf("could not write file from tarball %s: %w", hdr.Name, err)
-			}
-			next.Close()
-		} else {
-			m, err = decodeManifest(t, "", false)
-			if err != nil {
-				return m, fmt.Errorf("could not decode manifest: %w", err)
-			}
-
-		}
-	}
-
-	return m, nil
 }
 
 func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifest, error) {
@@ -360,87 +305,4 @@ func decodeManifest(r io.Reader, driverName string, requireShared bool) (Manifes
 	}
 
 	return result, nil
-}
-
-// Common, non-platform-specific code for uninstalling a driver. Called by
-// platform-specific UninstallDriver function.
-func UninstallDriverShared(info DriverInfo) error {
-	// For the User and System config levels, info.FilePath is set to the
-	// appropriate registry key instead of the filesystem on windows so we
-	// handle that here first.
-	filesystemLocation := info.FilePath
-	if strings.Contains(info.FilePath, "HKCU\\") {
-		filesystemLocation = ConfigUser.ConfigLocation()
-	} else if strings.Contains(info.FilePath, "HKLM\\") {
-		filesystemLocation = ConfigSystem.ConfigLocation()
-	}
-
-	root, err := os.OpenRoot(filesystemLocation)
-	if err != nil {
-		return fmt.Errorf("error opening driver path %s: %w", info.FilePath, err)
-	}
-	defer root.Close()
-
-	for sharedPath := range info.Driver.Shared.Paths() {
-		// Make sharedPath relative to info.FilePath and use it within root
-		// to ensure that nothing can escape the intended directory.
-		// (i.e. avoid malicious driver manifests)
-		sharedPath, err = filepath.Rel(filesystemLocation, sharedPath)
-		if err != nil {
-			// If we can't make it relative, something is wrong, skip
-			continue
-		}
-
-		// dbc installs drivers in a folder, other tools may not so we handle each
-		// differently.
-		if info.Source == "dbc" {
-			sharedDir := filepath.Dir(sharedPath)
-			// Edge case when manifest is ill-formed: if sharedPath is set to the
-			// folder containing the shared library instead of the shared library
-			// itself, sharedDir is info.FilePath and we definitely don't want to
-			// remove that
-			if sharedDir == "." {
-				continue
-			}
-
-			if err := root.RemoveAll(sharedDir); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		} else {
-			if err := root.Remove(sharedPath); err != nil {
-				// Ignore only when not found. This supports manifest-only drivers.
-				// TODO: Come up with a better mechanism to handle manifest-only drivers
-				// and remove this continue when we do
-				if errors.Is(err, fs.ErrNotExist) {
-					continue
-				}
-				return fmt.Errorf("error removing driver %s: %w", info.ID, err)
-			}
-		}
-	}
-
-	// Special handling to clean up manifest-only drivers
-	//
-	// Manifest only drivers can come with extra files such as a LICENSE and we
-	// create a folder next to the driver manifest to store them, same as we'd
-	// store the actual driver shared library. Above, we find the path of this
-	// folder by looking at the Driver.shared path. For manifest-only drivers,
-	// Driver.shared is not a valid path (it's just a name), so this trick doesn't
-	// work. We do want to clean this folder up so here we guess what it is and
-	// try to remove it e.g., "somedriver_macos_arm64_v1.2.3."
-	extraFolder := fmt.Sprintf("%s_%s_v%s", info.ID, platformTuple, info.Version)
-	extraFolder = filepath.Clean(extraFolder)
-	finfo, err := root.Stat(extraFolder)
-	if err == nil && finfo.IsDir() && extraFolder != "." {
-		_ = root.RemoveAll(extraFolder)
-		// ignore errors
-	}
-
-	return nil
 }

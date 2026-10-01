@@ -27,6 +27,8 @@ import (
 
 func (suite *SubcommandTestSuite) TearDownTest() {
 	// Clean up the registry and filesystem after each test
+	// TODO: Isolate User/System test state before deleting real registrations and
+	// driver directories.
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
 

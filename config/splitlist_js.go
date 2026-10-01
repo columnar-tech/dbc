@@ -16,10 +16,8 @@
 
 package config
 
-// splitConfigList does not split under GOOS=js: the wasm API passes a single
-// explicit directory as the location, and ':' (the Unix list separator that
-// filepath.SplitList uses under js) would corrupt a Windows drive-lettered
-// path such as "C:/drivers".
+// splitConfigList preserves the Wasm API's single-location contract. Splitting
+// on either ':' or ';' would corrupt valid Windows drive paths or POSIX names.
 func splitConfigList(s string) []string {
 	if s == "" {
 		return nil

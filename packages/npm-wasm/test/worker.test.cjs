@@ -15,6 +15,7 @@
 "use strict";
 
 const assert = require("assert");
+const crypto = require("crypto");
 const fs = require("fs");
 const http = require("http");
 const os = require("os");
@@ -25,11 +26,27 @@ const { loadDbc } = require("..");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const indexData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test_index.yaml"));
 const tarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-1.tar.gz"));
+const manifestOnlyTarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-manifest-only.tar.gz"));
+
+function listEntries(root, directory = root, entries = []) {
+  for (const name of fs.readdirSync(directory)) {
+    const entryPath = path.join(directory, name);
+    entries.push(path.relative(root, entryPath));
+    if (fs.lstatSync(entryPath).isDirectory()) {
+      listEntries(root, entryPath, entries);
+    }
+  }
+  return entries.sort();
+}
 
 const server = http.createServer((req, res) => {
   if (req.url.startsWith("/index.yaml")) {
     res.setHeader("Content-Type", "application/yaml");
     res.end(indexData);
+  } else if (req.url.includes("test-driver-manifest-only")) {
+    res.setHeader("Content-Type", "application/gzip");
+    res.setHeader("Content-Length", String(manifestOnlyTarData.length));
+    res.end(manifestOnlyTarData);
   } else if (req.url.includes(".tar.gz")) {
     res.setHeader("Content-Type", "application/gzip");
     res.setHeader("Content-Length", String(tarData.length));
@@ -39,13 +56,6 @@ const server = http.createServer((req, res) => {
     res.end("not found");
   }
 });
-
-function findFile(dir, suffix) {
-  for (const entry of fs.readdirSync(dir, { recursive: true })) {
-    if (entry.toString().endsWith(suffix)) return path.join(dir, entry.toString());
-  }
-  return null;
-}
 
 async function main() {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -57,19 +67,71 @@ async function main() {
   assert(search.drivers.length > 0, "search returned no drivers");
 
   const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-wasm-worker-"));
+  const externalLibrary = path.join(installDir, "external-driver.so");
+  const externalBytes = Buffer.from("externally managed driver library");
+  fs.writeFileSync(externalLibrary, externalBytes);
   const manifest = await dbc.install("test-driver-1", installDir);
   assert(manifest.driverPath && fs.existsSync(manifest.driverPath), "installed driver missing on disk");
+  const generationDir = path.dirname(manifest.driverPath);
+  assert(fs.existsSync(generationDir), "installed package generation missing on disk");
+  const installedBytes = fs.readFileSync(manifest.driverPath);
+  const receiptPath = path.join(generationDir, "dbc-install-receipt.json");
+  const receiptBytes = fs.readFileSync(receiptPath);
+  const receipt = JSON.parse(receiptBytes);
+  assert.strictEqual(receipt.generation, path.basename(generationDir), "receipt does not identify the installed generation");
+  assert.strictEqual(
+    receipt.owned_library_sha256,
+    crypto.createHash("sha256").update(installedBytes).digest("hex"),
+    "receipt hash does not match the installed library"
+  );
+
+  const entriesBeforeManifestOnlyInstall = listEntries(installDir);
+  await assert.rejects(
+    dbc.install("test-driver-manifest-only", installDir),
+    /does not specify Files\.driver/,
+    "manifest-only package should be rejected without Files.driver"
+  );
+  assert.deepStrictEqual(
+    listEntries(installDir),
+    entriesBeforeManifestOnlyInstall,
+    "rejected manifest-only package published files"
+  );
+  assert(!fs.existsSync(path.join(installDir, "test-driver-manifest-only.toml")), "manifest-only registration was published");
+  assert.deepStrictEqual(fs.readFileSync(manifest.driverPath), installedBytes, "rejected package changed the installed driver bytes");
+  assert.deepStrictEqual(fs.readFileSync(receiptPath), receiptBytes, "rejected package changed the installed receipt");
+
+  // Keep a separate registration backed by an external library so uninstall
+  // continues to cover the existing rule that external files are not owned.
+  fs.writeFileSync(
+    path.join(installDir, "external-borrower.toml"),
+    `name = "External Borrower"\nversion = "1.0.0"\nsource = "external"\n\n[Driver.shared]\nlinux_amd64 = ${JSON.stringify(externalLibrary)}\n`
+  );
 
   const installed = await dbc.listInstalled(installDir);
-  assert(installed.length === 1 && installed[0].id === "test-driver-1", "listInstalled mismatch");
+  assert(
+    installed.length === 2 && installed.some((driver) => driver.id === "test-driver-1") && installed.some((driver) => driver.id === "external-borrower"),
+    `listInstalled mismatch: ${JSON.stringify(installed)}`
+  );
 
-  const so = findFile(installDir, ".so");
-  const sig = findFile(installDir, ".sig");
+  const so = manifest.driverPath;
+  const sig = `${manifest.driverPath}.sig`;
   const ok = await dbc.verifySignature(new Uint8Array(fs.readFileSync(so)), new Uint8Array(fs.readFileSync(sig)));
   assert(ok === true, "verifySignature failed for a valid signature");
 
   await dbc.uninstall("test-driver-1", installDir);
-  assert((await dbc.listInstalled(installDir)).length === 0, "driver still listed after uninstall");
+  const after = await dbc.listInstalled(installDir);
+  assert(after.length === 1 && after[0].id === "external-borrower", `registration state after uninstall mismatch: ${JSON.stringify(after)}`);
+  assert(!fs.existsSync(path.join(installDir, "test-driver-1.toml")), "package registration remains after uninstall");
+  assert(fs.existsSync(generationDir), "un-pinned package generation was not retained after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(manifest.driverPath), installedBytes, "retained package library bytes changed after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(receiptPath), receiptBytes, "retained package receipt changed after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(externalLibrary), externalBytes, "external library changed after uninstall");
+  assert(fs.existsSync(path.join(installDir, "external-borrower.toml")), "external library registration was removed");
+
+  await dbc.uninstall("external-borrower", installDir);
+  assert(!(await dbc.listInstalled(installDir)).some((driver) => driver.id === "external-borrower"), "external registration remains after uninstall");
+  assert(!fs.existsSync(path.join(installDir, "external-borrower.toml")), "external registration manifest remains after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(externalLibrary), externalBytes, "external library changed when its registration was removed");
 
   await dbc.close();
 

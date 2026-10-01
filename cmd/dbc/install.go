@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -111,12 +113,17 @@ func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
 }
 
-func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || noVerify {
+func verifySignatureInStaging(stagingDir string, m config.Manifest, noVerify bool) error {
+	return verifySignatureInDirectory(stagingDir, m, noVerify)
+}
+
+func verifySignatureInDirectory(path string, m config.Manifest, noVerify bool) error {
+	if m.Files.Driver == "" {
+		return fmt.Errorf("package manifest does not specify Files.driver")
+	}
+	if noVerify {
 		return nil
 	}
-
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
 
 	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
 	if err != nil {
@@ -145,9 +152,12 @@ func verifySignature(m config.Manifest, noVerify bool) error {
 	return nil
 }
 
-type writeDriverManifestMsg struct {
+type packageInstallResultMsg struct {
+	Manifest   config.Manifest
 	DriverInfo config.DriverInfo
 }
+
+type installVerificationStartedMsg struct{}
 
 type localInstallMsg struct{}
 
@@ -241,6 +251,8 @@ type progressiveInstallModel struct {
 	alreadyInstalledChecksum string
 	jsonOut                  io.Writer
 	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
+	verificationStarted      bool
+	verifyStagedPackage      func(string, config.Manifest, bool) error
 }
 
 type driversWithRegistryError struct {
@@ -257,8 +269,8 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 
 	return tea.Batch(m.spinner.Tick, func() tea.Msg {
 		installDir := "."
-		if locs := filepath.SplitList(m.cfg.Location); len(locs) > 0 && locs[0] != "" {
-			installDir = locs[0]
+		if root := primaryInstallRoot(m.cfg.Location, m.cfg.Level); root != "" {
+			installDir = root
 		}
 		lockDir := installDir
 		for {
@@ -313,7 +325,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 				Status:   "already installed",
 				Driver:   m.conflictingInfo.ID,
 				Version:  m.conflictingInfo.Version.String(),
-				Location: filepath.SplitList(m.cfg.Location)[0],
+				Location: primaryInstallRoot(m.cfg.Location, m.cfg.Level),
 			}
 			if m.alreadyInstalledChecksum != "" {
 				payload.Checksum = m.alreadyInstalledChecksum
@@ -334,7 +346,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 			return string(jsonOutput)
 		}
 		return fmt.Sprintf("\nDriver %s %s already installed at %s",
-			m.conflictingInfo.ID, m.conflictingInfo.Version, filepath.SplitList(m.cfg.Location)[0])
+			m.conflictingInfo.ID, m.conflictingInfo.Version, primaryInstallRoot(m.cfg.Location, m.cfg.Level))
 	}
 
 	var b strings.Builder
@@ -343,7 +355,7 @@ func (m progressiveInstallModel) FinalOutput() string {
 			Status:   "installed",
 			Driver:   m.Driver,
 			Version:  m.DriverPackage.Version.String(),
-			Location: filepath.SplitList(m.cfg.Location)[0],
+			Location: primaryInstallRoot(m.cfg.Location, m.cfg.Level),
 		}
 		if m.hasConflict() {
 			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
@@ -383,7 +395,11 @@ func (m progressiveInstallModel) FinalOutput() string {
 		}
 
 		if installStatus.Conflict != "" {
-			fmt.Fprintf(&b, "\nRemoved conflicting driver: %s", installStatus.Conflict)
+			label := "Shadowed active driver"
+			if conflictIsInInstallRoot(m.conflictingInfo, primaryInstallRoot(m.cfg.Location, m.cfg.Level), m.cfg.Level) {
+				label = "Replaced active driver"
+			}
+			fmt.Fprintf(&b, "\n%s: %s", label, installStatus.Conflict)
 		}
 
 		fmt.Fprintf(&b, "\nInstalled %s %s to %s",
@@ -394,6 +410,47 @@ func (m progressiveInstallModel) FinalOutput() string {
 		}
 	}
 	return b.String()
+}
+
+func conflictIsInInstallRoot(conflict config.DriverInfo, installRoot string, level config.ConfigLevel) bool {
+	if conflict.FilePath == "" || installRoot == "" {
+		return false
+	}
+
+	// Registry registrations identify their hive rather than a filesystem root.
+	// They are replaced when this install targets the same registry level.
+	switch strings.ToUpper(conflict.FilePath) {
+	case `HKCU\SOFTWARE\ADBC\DRIVERS`:
+		return level == config.ConfigUser
+	case `HKLM\SOFTWARE\ADBC\DRIVERS`:
+		return level == config.ConfigSystem
+	}
+
+	return sameInstallRoot(conflict.FilePath, installRoot)
+}
+
+func sameInstallRoot(a, b string) bool {
+	if aInfo, err := os.Stat(a); err == nil {
+		if bInfo, err := os.Stat(b); err == nil && os.SameFile(aInfo, bInfo) {
+			return true
+		}
+	}
+	canonicalize := func(path string) string {
+		absolute, err := hostpath.Abs(path)
+		if err != nil {
+			absolute = hostpath.Clean(path)
+		}
+		if resolved, err := hostpath.EvalSymlinks(absolute); err == nil {
+			absolute = resolved
+		}
+		return hostpath.Clean(absolute)
+	}
+
+	return hostpath.Equal(canonicalize(a), canonicalize(b))
+}
+
+func primaryInstallRoot(location string, level config.ConfigLevel) string {
+	return (config.Config{Level: level, Location: location}).PrimaryLocation()
 }
 
 func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, tea.Cmd) {
@@ -478,18 +535,24 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 		}
 	}
 
+	program := prog
+	verifier := m.verifyStagedPackage
+	if verifier == nil {
+		verifier = verifySignatureInStaging
+	}
 	return m, func() tea.Msg {
-		if m.conflictingInfo.ID != "" {
-			if err := config.UninstallDriver(m.cfg, m.conflictingInfo); err != nil {
-				return err
-			}
-		}
-
-		manifest, err := config.InstallDriver(m.cfg, m.Driver, downloaded)
+		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, config.InstallPackageOptions{
+			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
+				if program != nil {
+					program.Send(installVerificationStartedMsg{})
+				}
+				return verifier(stagingDir, stagedManifest, m.NoVerify)
+			},
+		})
 		if err != nil {
 			return err
 		}
-		return manifest
+		return packageInstallResultMsg{Manifest: manifest, DriverInfo: manifest.DriverInfo}
 	}
 }
 
@@ -547,31 +610,27 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.addEvent("download.complete")
 		m = m.addEvent("extract.start")
 		return m.startInstalling(msg)
-	case config.Manifest:
-		if m.DriverPackage.Version == nil {
-			m.DriverPackage = manifestToPackageInfo(msg)
+	case installVerificationStartedMsg:
+		if m.state >= stDone || m.status != 0 || m.verificationStarted {
+			return m, nil
 		}
-
-		m.state = stVerifying
-		m.postInstallMessage = strings.Join(msg.PostInstall.Messages, "\n")
+		m.verificationStarted = true
 		m = m.addEvent("extract.complete")
 		m = m.addEvent("verify.start")
-		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.NoVerify); err != nil {
-				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
-				_ = os.RemoveAll(path)
-				return err
-			}
-			return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
+		if !m.NoVerify {
+			m.state = stVerifying
 		}
-	case writeDriverManifestMsg:
-		m.state = stDone
+		return m, nil
+	case packageInstallResultMsg:
+		if m.DriverPackage.Version == nil {
+			m.DriverPackage = manifestToPackageInfo(msg.Manifest)
+		}
+		m.postInstallMessage = strings.Join(msg.Manifest.PostInstall.Messages, "\n")
 		m.installedDriverInfo = msg.DriverInfo
 		m = m.addEvent("verify.complete")
 		m = m.addEvent("manifest.create")
-		return m, tea.Sequence(func() tea.Msg {
-			return config.CreateManifest(m.cfg, msg.DriverInfo)
-		}, tea.Quit)
+		m.state = stDone
+		return m, tea.Sequence(tea.Quit)
 	case error:
 		m.status = 1
 		m.err = msg
