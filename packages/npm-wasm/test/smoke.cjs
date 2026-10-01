@@ -26,11 +26,27 @@ const { loadDbc } = require("..");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const indexData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test_index.yaml"));
 const tarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-1.tar.gz"));
+const manifestOnlyTarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-manifest-only.tar.gz"));
+
+function listEntries(root, directory = root, entries = []) {
+  for (const name of fs.readdirSync(directory)) {
+    const entryPath = path.join(directory, name);
+    entries.push(path.relative(root, entryPath));
+    if (fs.lstatSync(entryPath).isDirectory()) {
+      listEntries(root, entryPath, entries);
+    }
+  }
+  return entries.sort();
+}
 
 const server = http.createServer((req, res) => {
   if (req.url.startsWith("/index.yaml")) {
     res.setHeader("Content-Type", "application/yaml");
     res.end(indexData);
+  } else if (req.url.includes("test-driver-manifest-only")) {
+    res.setHeader("Content-Type", "application/gzip");
+    res.setHeader("Content-Length", String(manifestOnlyTarData.length));
+    res.end(manifestOnlyTarData);
   } else if (req.url.includes(".tar.gz")) {
     res.setHeader("Content-Type", "application/gzip");
     res.setHeader("Content-Length", String(tarData.length));
@@ -72,6 +88,21 @@ async function main() {
     "receipt hash does not match the installed library"
   );
 
+  const entriesBeforeManifestOnlyInstall = listEntries(installDir);
+  await assert.rejects(
+    dbc.install("test-driver-manifest-only", installDir),
+    /does not specify Files\.driver/,
+    "manifest-only package should be rejected without Files.driver"
+  );
+  assert.deepStrictEqual(
+    listEntries(installDir),
+    entriesBeforeManifestOnlyInstall,
+    "rejected manifest-only package published files"
+  );
+  assert(!fs.existsSync(path.join(installDir, "test-driver-manifest-only.toml")), "manifest-only registration was published");
+  assert.deepStrictEqual(fs.readFileSync(manifest.driverPath), installedBytes, "rejected package changed the installed driver bytes");
+  assert.deepStrictEqual(fs.readFileSync(receiptPath), receiptBytes, "rejected package changed the installed receipt");
+
   // Keep a separate registration backed by an external library so uninstall
   // continues to cover the existing rule that external files are not owned.
   fs.writeFileSync(
@@ -102,6 +133,11 @@ async function main() {
   assert.deepStrictEqual(fs.readFileSync(receiptPath), receiptBytes, "retained package receipt changed after uninstall");
   assert.deepStrictEqual(fs.readFileSync(externalLibrary), externalBytes, "external library changed after uninstall");
   assert(fs.existsSync(path.join(installDir, "external-borrower.toml")), "external library registration was removed");
+
+  await dbc.uninstall("external-borrower", installDir);
+  assert(!(await dbc.listInstalled(installDir)).some((driver) => driver.id === "external-borrower"), "external registration remains after uninstall");
+  assert(!fs.existsSync(path.join(installDir, "external-borrower.toml")), "external registration manifest remains after uninstall");
+  assert.deepStrictEqual(fs.readFileSync(externalLibrary), externalBytes, "external library changed when its registration was removed");
 
   // Regression guard (roborev 6562): in-process loadDbc() must namespace
   // load-time client-construction failures with `dbc-wasm:`, matching the worker
