@@ -30,14 +30,13 @@ name = 'ADBC Driver Foundry Driver for MySQL'
 publisher = 'ADBC Drivers Contributors'
 license = 'Apache-2.0'
 version = '0.1.0'
-source = 'dbc'
 
 [ADBC]
 version = '1.1.0'
 
 [Driver]
 [Driver.shared]
-macos_arm64 = '/Users/user/Library/Application Support/ADBC/Drivers/mysql_macos_arm64_v0.1.0/libadbc_driver_mysql.dylib'
+macos_arm64 = '/usr/local/lib/libadbc_driver_mysql.dylib'
 ```
 
 Many details about how driver manifests work are outlined in the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) documentation. When you [install a driver](../guides/installing.md) with dbc, it creates and manages driver manifests for you automatically.

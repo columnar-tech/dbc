@@ -38,7 +38,7 @@ func (suite *SubcommandTestSuite) TestUninstallNotFound() {
 	suite.validateOutput("\r ", "\nError: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
-func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
+func (suite *SubcommandTestSuite) TestUninstallExternalRuntimeRegistration() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}

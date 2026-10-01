@@ -194,17 +194,11 @@ $ dbc install mysql
 
 Installed mysql 0.1.0 to /home/user/drivers
 
-$ tree $ADBC_DRIVER_PATH
-/home/user/drivers
-├── mysql_linux_amd64_v0.1.0
-│   ├── libadbc_driver_mysql.so
-│   ├── libadbc_driver_mysql.so.sig
-│   ├── LICENSE
-│   └── NOTICE
-└── mysql.toml
-
-2 directories, 5 files
+$ ls "$ADBC_DRIVER_PATH"
+mysql.toml
 ```
+
+dbc stores the installed package payload in its managed storage.
 
 !!! note
 
