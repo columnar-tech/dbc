@@ -286,7 +286,9 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	return &manifest, nil
 }
 
-// Uninstall uninstalls a driver with the given name from the specified configuration.
+// Uninstall removes a driver's runtime registration from the specified
+// configuration. For external registrations, the shared library remains in
+// place because dbc does not own it.
 func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 	di, err := config.GetDriver(cfg, driverName)
 	if err != nil {

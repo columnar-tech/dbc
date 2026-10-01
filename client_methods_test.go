@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/stretchr/testify/assert"
@@ -167,6 +168,26 @@ func TestClientUninstall(t *testing.T) {
 		err := c.Uninstall(cfg, "not-installed-driver")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "not-installed-driver")
+	})
+
+	t.Run("removes external registration and preserves shared library", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		cfg := config.Config{Level: config.ConfigEnv, Location: tmpDir}
+		shared := filepath.Join(tmpDir, "managed-elsewhere", "driver.so")
+		require.NoError(t, os.MkdirAll(filepath.Dir(shared), 0o700))
+		require.NoError(t, os.WriteFile(shared, []byte("external library"), 0o600))
+		info := config.DriverInfo{
+			ID: "external-driver", FilePath: tmpDir, Name: "External Driver",
+			Version: semver.MustParse("1.0.0"), Source: "external",
+		}
+		info.Driver.Shared.Set(config.PlatformTuple(), shared)
+		require.NoError(t, config.CreateManifest(cfg, info))
+
+		require.NoError(t, c.Uninstall(cfg, info.ID))
+		assert.NoFileExists(t, filepath.Join(tmpDir, "external-driver.toml"))
+		data, err := os.ReadFile(shared)
+		require.NoError(t, err)
+		assert.Equal(t, "external library", string(data))
 	})
 }
 

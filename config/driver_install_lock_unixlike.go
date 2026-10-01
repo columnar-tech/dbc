@@ -76,11 +76,6 @@ func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo
 	if err := removeDriverRegistration(cfg, info, operations); err != nil {
 		return err
 	}
-	if info.Source != "dbc" {
-		if err := uninstallDriverSharedWithReferences(cfg, info, operations, otherRegistrations, referencesCertain); err != nil {
-			return fmt.Errorf("failed to delete driver shared object: %w", err)
-		}
-	}
 	return nil
 }
 

@@ -57,7 +57,7 @@ version = "1.0.0"
 	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!", suite.runCmd(m))
 }
 
-func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
+func (suite *SubcommandTestSuite) TestUninstallExternalRegistrationPreservesSharedLibrary() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
@@ -77,6 +77,8 @@ version = "1.0.0"
 
 	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
 	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!", suite.runCmd(m))
+	suite.NoFileExists(path.Join(suite.tempdir, "found.toml"))
+	suite.FileExists(path.Join(pkgdir, "some.dll"))
 }
 
 // Test what happens when a user installs a driver in multiple locations

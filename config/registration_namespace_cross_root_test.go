@@ -191,13 +191,6 @@ func TestUninstallProtectsExternalLibraryReferencedFromSecondaryRoot(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := UninstallDriverShared(selected); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(shared); err != nil {
-		t.Fatalf("standalone shared cleanup removed library despite secondary reference: %v", err)
-	}
-	assertDirectoryEntriesUnchanged(t, secondary, secondaryEntries)
 	if err := UninstallDriver(cfg, selected); err != nil {
 		t.Fatal(err)
 	}
@@ -208,24 +201,6 @@ func TestUninstallProtectsExternalLibraryReferencedFromSecondaryRoot(t *testing.
 		t.Fatalf("target registration remains after uninstall: %v", err)
 	}
 	assertDirectoryEntriesUnchanged(t, secondary, secondaryEntries)
-}
-
-func TestUninstallDriverSharedRetainsFilesWithoutPinnedCleanup(t *testing.T) {
-	if supportsPinnedCleanup() {
-		t.Skip("host provides pinned-root cleanup")
-	}
-	root := t.TempDir()
-	shared := filepath.Join(root, "driver.so")
-	if err := os.WriteFile(shared, []byte("external library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := crossRootRegistration("driver", root, shared)
-	if err := UninstallDriverShared(info); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(shared); err != nil {
-		t.Fatalf("external payload was removed on a host without pinned cleanup: %v", err)
-	}
 }
 
 func TestInstallPackageGCProtectsGenerationReferencedFromSecondaryRoot(t *testing.T) {

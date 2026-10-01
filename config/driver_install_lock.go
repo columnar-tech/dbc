@@ -115,6 +115,9 @@ func driverInstallLockPath(location, runtimeID string) (string, error) {
 	return hostpath.Join(canonicalLocation, fmt.Sprintf(".dbc.install.%x.lock", key)), nil
 }
 
+// UninstallDriver removes a driver's runtime registration. It also removes
+// package payloads when dbc can establish ownership; external registrations
+// are removed without deleting their shared library files.
 func UninstallDriver(cfg Config, info DriverInfo) (err error) {
 	location, err := uninstallLockLocation(cfg, info)
 	if err != nil {

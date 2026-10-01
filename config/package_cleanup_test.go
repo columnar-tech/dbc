@@ -930,57 +930,33 @@ func TestUninstallKeepsGenerationReferencedBySiblingDriver(t *testing.T) {
 	}
 }
 
-func TestUninstallDriverSharedRejectsDBCRegistrationsWithoutMutation(t *testing.T) {
-	for _, kind := range []string{"legacy", "transaction"} {
-		t.Run(kind, func(t *testing.T) {
-			root := t.TempDir()
-			cfg := Config{Level: ConfigEnv, Location: root}
-			var info DriverInfo
-			var err error
-			var payloadPaths []string
-			switch kind {
-			case "legacy":
-				version := semver.MustParse("1.2.3")
-				generation := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
-				if err := os.Mkdir(generation, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				library := filepath.Join(generation, "driver.so")
-				if err := os.WriteFile(library, []byte("legacy"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				info = DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Source: "dbc", Version: version}
-				info.Driver.Shared.Set(PlatformTuple(), library)
-				payloadPaths = []string{generation, library}
-				if err := CreateManifest(cfg, info); err != nil {
-					t.Fatal(err)
-				}
-			case "transaction":
-				installInitialPackage(t, cfg)
-				info, err = GetDriver(cfg, "driver")
-				if err != nil {
-					t.Fatal(err)
-				}
-				payloadPaths = []string{filepath.Dir(info.Driver.Shared.Get(PlatformTuple())), info.Driver.Shared.Get(PlatformTuple())}
-			}
-			if kind != "legacy" {
-				// The install path created the registration before returning info.
-				if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if err := UninstallDriverShared(info); err == nil || !strings.Contains(err.Error(), "use UninstallDriver(cfg, info)") {
-				t.Fatalf("UninstallDriverShared error = %v, want config-aware uninstall guidance", err)
-			}
-			if _, err := os.Stat(filepath.Join(root, "driver.toml")); err != nil {
-				t.Fatalf("UninstallDriverShared changed the registration: %v", err)
-			}
-			for _, path := range payloadPaths {
-				if _, err := os.Stat(path); err != nil {
-					t.Errorf("UninstallDriverShared changed payload %s: %v", path, err)
-				}
-			}
-		})
+func TestUninstallExternalRegistrationPreservesSharedLibrary(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	shared := filepath.Join(root, "externally-managed", "driver.so")
+	if err := os.MkdirAll(filepath.Dir(shared), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(shared, []byte("external library"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := DriverInfo{ID: "external", FilePath: root, Name: "External", Version: semver.MustParse("1.0.0"), Source: "external"}
+	info.Driver.Shared.Set(PlatformTuple(), shared)
+	if err := CreateManifest(cfg, info); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := GetDriver(cfg, info.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriver(cfg, selected); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "external.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("external registration remains: %v", err)
+	}
+	if data, err := os.ReadFile(shared); err != nil || string(data) != "external library" {
+		t.Fatalf("external shared library changed: %q, %v", data, err)
 	}
 }
 
@@ -1044,12 +1020,6 @@ func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := UninstallDriverShared(selected); err != nil {
-				t.Fatalf("public borrower cleanup: %v", err)
-			}
-			if _, err := os.Stat(library); err != nil {
-				t.Fatalf("public helper removed transaction-owned library: %v", err)
-			}
 			if err := UninstallDriver(cfg, selected); err != nil {
 				t.Fatalf("borrower uninstall: %v", err)
 			}
@@ -1068,96 +1038,6 @@ func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestNonDBCCleanupUsesSameRelativePathForGuardAndRemoval(t *testing.T) {
-	root := t.TempDir()
-	drivers := filepath.Join(root, "drivers")
-	if err := os.Mkdir(drivers, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	generation := testPackageGenerationPath(t, drivers, "owner", "generation")
-	if err := os.Mkdir(generation, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	library := filepath.Join(generation, "lib.so")
-	if err := os.WriteFile(library, []byte("managed"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	alias := filepath.Join(drivers, "alias")
-	if err := os.Symlink(filepath.Base(generation), alias); err != nil {
-		t.Skipf("symlink creation is unavailable: %v", err)
-	}
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(workingDirectory); err != nil {
-			t.Errorf("restore working directory: %v", err)
-		}
-	}()
-	info := DriverInfo{ID: "borrower", FilePath: "drivers", Source: "external"}
-	info.Driver.Shared.Set(PlatformTuple(), "drivers/alias/lib.so")
-	if err := UninstallDriverShared(info); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(library); err != nil {
-		t.Fatalf("relative symlink alias removed managed library: %v", err)
-	}
-}
-
-func TestNonDBCCleanupRetainsDerivedParentTraversalPath(t *testing.T) {
-	root := t.TempDir()
-	drivers := filepath.Join(root, "drivers")
-	if err := os.Mkdir(drivers, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	generation := testPackageGenerationPath(t, root, "owner", "generation")
-	if err := os.Mkdir(generation, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	library := filepath.Join(generation, "lib.so")
-	if err := os.WriteFile(library, []byte("managed"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := DriverInfo{ID: "borrower", FilePath: drivers, Source: "external"}
-	info.Driver.Shared.Set(PlatformTuple(), library)
-	if err := UninstallDriverShared(info); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(library); err != nil {
-		t.Fatalf("derived parent-traversal path removed managed library: %v", err)
-	}
-}
-
-func TestNonDBCCleanupDoesNotGuessManifestOnlyExtraFolder(t *testing.T) {
-	root := t.TempDir()
-	library := filepath.Join(root, "driver.so")
-	if err := os.WriteFile(library, []byte("external"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	extraFolder := filepath.Join(root, "external_"+PlatformTuple()+"_v1.2.3")
-	if err := os.Mkdir(extraFolder, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(extraFolder, "NOTICE"), []byte("metadata"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info := DriverInfo{ID: "external", FilePath: root, Source: "external", Version: semver.MustParse("1.2.3")}
-	info.Driver.Shared.Set(PlatformTuple(), library)
-	if err := UninstallDriverShared(info); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(library); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("ordinary shared library remains: %v", err)
-	}
-	if _, err := os.Stat(extraFolder); err != nil {
-		t.Fatalf("guessed metadata folder was removed: %v", err)
 	}
 }
 

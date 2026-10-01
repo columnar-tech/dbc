@@ -420,14 +420,6 @@ func hasTransactionEvidence(entries []fs.DirEntry, runtimeID string) bool {
 	return false
 }
 
-func safeToRemoveUnmanagedSharedFile(lexicalTarget string) bool {
-	if lexicalTarget == "" || hasParentTraversal(lexicalTarget) || hasReservedTransactionAncestor(lexicalTarget) {
-		return false
-	}
-	resolved, certain := canonicalFilesystemPath(lexicalTarget)
-	return certain && !hasReservedTransactionAncestor(resolved)
-}
-
 func hasReservedTransactionAncestor(path string) bool {
 	absolute, err := hostpath.Abs(path)
 	if err != nil {
