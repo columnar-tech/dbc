@@ -265,6 +265,9 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 	if !manifestSeen {
 		return "", manifest, nil, errors.New("archive does not contain a MANIFEST")
 	}
+	if manifest.Files.Driver == "" {
+		return "", Manifest{}, nil, errors.New("package manifest does not specify Files.driver")
+	}
 	for _, ref := range []struct {
 		kind string
 		name string

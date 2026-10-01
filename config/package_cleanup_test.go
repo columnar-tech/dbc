@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -68,8 +67,8 @@ func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testin
 			if err := os.WriteFile(sibling, []byte("keep"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			manifest := fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external)
-			archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "package metadata"))
+			manifest := "name = \"External\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
+			archive := writeCustomPackageArchive(t, manifest, packageFile("driver.so", "owned library"), packageFile("NOTICE", "package metadata"))
 			if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}
@@ -478,8 +477,8 @@ func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
 	}
 }
 
-func TestInstallPackageProtectsGenerationReferencedByNewRegistration(t *testing.T) {
-	// Post-commit GC must include the new registration when collecting references.
+func TestInstallPackageProtectsGenerationReferencedByExternalRegistration(t *testing.T) {
+	// Package replacement must preserve old payloads borrowed by external registrations.
 	// The reference symlink and payload-root alias put symlinks on opposite sides
 	// of the lookup; raw parent traversal is uncertain before path resolution.
 	for _, referenceKind := range []string{"direct", "reference symlink", "payload root alias", "parent traversal"} {
@@ -519,8 +518,12 @@ func TestInstallPackageProtectsGenerationReferencedByNewRegistration(t *testing.
 				assertParentTraversalReferenceResolvesOnUnix(t, reference)
 			}
 
-			manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"2.0.0\"\n[Driver]\nshared = %q\n", reference)
-			archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
+			borrower := DriverInfo{ID: "borrower", Name: "Borrower", Version: semver.MustParse("1.0.0"), Source: "external"}
+			borrower.Driver.Shared.Set(PlatformTuple(), reference)
+			if err := CreateManifest(cfg, borrower); err != nil {
+				t.Fatal(err)
+			}
+			archive := testPackageArchive(t, "replacement")
 			if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}
@@ -529,8 +532,15 @@ func TestInstallPackageProtectsGenerationReferencedByNewRegistration(t *testing.
 			if err != nil {
 				t.Fatal(err)
 			}
-			if current.Driver.Shared.Get(PlatformTuple()) != reference {
-				t.Fatalf("manifest-only registration points to %q, want %q", current.Driver.Shared.Get(PlatformTuple()), reference)
+			if current.Driver.Shared.Get(PlatformTuple()) == reference {
+				t.Fatalf("replacement registration still points to old generation %q", reference)
+			}
+			registeredBorrower, err := GetDriver(cfg, "borrower")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if registeredBorrower.Driver.Shared.Get(PlatformTuple()) != reference {
+				t.Fatalf("external borrower points to %q, want %q", registeredBorrower.Driver.Shared.Get(PlatformTuple()), reference)
 			}
 			if data, err := os.ReadFile(firstLibrary); err != nil || string(data) != "xxx" {
 				t.Fatalf("referenced previous generation was not preserved: %q, %v", data, err)
@@ -921,7 +931,7 @@ func TestUninstallKeepsGenerationReferencedBySiblingDriver(t *testing.T) {
 }
 
 func TestUninstallDriverSharedRejectsDBCRegistrationsWithoutMutation(t *testing.T) {
-	for _, kind := range []string{"legacy", "transaction", "manifest-only"} {
+	for _, kind := range []string{"legacy", "transaction"} {
 		t.Run(kind, func(t *testing.T) {
 			root := t.TempDir()
 			cfg := Config{Level: ConfigEnv, Location: root}
@@ -952,25 +962,6 @@ func TestUninstallDriverSharedRejectsDBCRegistrationsWithoutMutation(t *testing.
 					t.Fatal(err)
 				}
 				payloadPaths = []string{filepath.Dir(info.Driver.Shared.Get(PlatformTuple())), info.Driver.Shared.Get(PlatformTuple())}
-			case "manifest-only":
-				external := filepath.Join(t.TempDir(), "external.so")
-				if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				archive := writeCustomPackageArchive(t, fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external), packageFile("NOTICE", "metadata"))
-				if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
-					t.Fatal(err)
-				}
-				assertArchiveClosed(t, archive)
-				info, err = GetDriver(cfg, "driver")
-				if err != nil {
-					t.Fatal(err)
-				}
-				generationNames := packageGenerationNames(t, root, "driver")
-				if len(generationNames) != 1 {
-					t.Fatalf("manifest-only generation count = %d, want 1", len(generationNames))
-				}
-				payloadPaths = []string{filepath.Join(root, generationNames[0]), external}
 			}
 			if kind != "legacy" {
 				// The install path created the registration before returning info.
@@ -1761,7 +1752,7 @@ func TestInstallPackageRetainsUnprovenLegacyCandidates(t *testing.T) {
 }
 
 func TestInstallPackageLegacyCleanupRespectsReferencesAndUncertainty(t *testing.T) {
-	for _, mode := range []string{"sibling reference", "new manifest-only reference", "uncertain reference snapshot"} {
+	for _, mode := range []string{"sibling reference", "external borrower", "uncertain reference snapshot"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			cfg := Config{Level: ConfigEnv, Location: root}
@@ -1772,17 +1763,19 @@ func TestInstallPackageLegacyCleanupRespectsReferencesAndUncertainty(t *testing.
 				if err := createRuntimeRegistrationUnlocked(cfg, root, sibling); err != nil {
 					t.Fatal(err)
 				}
+			} else if mode == "external borrower" {
+				borrower := DriverInfo{ID: "borrower", Name: "Borrower", Version: semver.MustParse("1.0.0"), Source: "external"}
+				borrower.Driver.Shared.Set(PlatformTuple(), legacyLibrary)
+				if err := CreateManifest(cfg, borrower); err != nil {
+					t.Fatal(err)
+				}
 			} else if mode == "uncertain reference snapshot" {
 				if err := os.WriteFile(filepath.Join(root, "sibling.toml"), []byte("invalid = ["), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
 			var archive *os.File
-			if mode == "new manifest-only reference" {
-				archive = writeCustomPackageArchive(t, fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", legacyLibrary))
-			} else {
-				archive = testPackageArchive(t, "new")
-			}
+			archive = testPackageArchive(t, "new")
 			if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}

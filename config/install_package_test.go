@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -399,13 +400,13 @@ func TestInstallPackageReportsPrecommitCleanupFailures(t *testing.T) {
 	})
 }
 
-func TestInstallPackageManifestOnlyAndMalformedRegistration(t *testing.T) {
+func TestInstallPackageRecoversMalformedRegistrationWithOwnedPayload(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}
 	if err := os.WriteFile(filepath.Join(location, "external.toml"), []byte("invalid = ["), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	archive := writeCustomPackageArchive(t, "name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"/external/lib.so\"\n")
+	archive := writeCustomPackageArchive(t, "name = \"External\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", "library"))
 	if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -413,64 +414,123 @@ func TestInstallPackageManifestOnlyAndMalformedRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := registered.Driver.Shared.Get(PlatformTuple()); got != "/external/lib.so" {
-		t.Fatalf("external shared path = %q", got)
+	if got := registered.Driver.Shared.Get(PlatformTuple()); !strings.HasPrefix(got, location) {
+		t.Fatalf("owned shared path = %q, want path below %q", got, location)
 	}
 }
 
-func TestInstallPackageRejectsManifestOnlyWithoutCurrentPlatformLibrary(t *testing.T) {
-	location := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: location}
+func TestInstallPackageRejectsManifestOnlyWithExternalLibrary(t *testing.T) {
 	externalLibrary := filepath.Join(t.TempDir(), "external.so")
 	if err := os.WriteFile(externalLibrary, []byte("external library"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	quotedPath := strings.ReplaceAll(externalLibrary, `\`, `\\`)
-	validManifest := fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"%s\"\n", quotedPath)
-	archive := writeCustomPackageArchive(t, validManifest)
-	if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	previous, err := GetDriver(cfg, "external")
-	if err != nil {
-		t.Fatal(err)
-	}
-	previousGenerationNames := packageGenerationNames(t, location, "external")
-	if len(previousGenerationNames) != 1 {
-		t.Fatalf("initial generation count = %d, want 1", len(previousGenerationNames))
-	}
-
-	invalidManifests := []struct {
+	tests := []struct {
 		name     string
 		manifest string
+		verifier bool
 	}{
-		{name: "no shared library", manifest: "name = \"External\"\nversion = \"2.0.0\"\n"},
-		{name: "shared mapping omits current platform", manifest: "name = \"External\"\nversion = \"2.0.0\"\n[Driver.shared]\nother_platform = \"/external/other.so\"\n"},
+		{name: "external shared string", manifest: fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"%s\"\n", quotedPath)},
+		{name: "external shared string with verifier", manifest: fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"%s\"\n", quotedPath), verifier: true},
+		{name: "external shared platform map", manifest: fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver.shared]\n%s = \"%s\"\n", PlatformTuple(), quotedPath)},
 	}
-	for _, test := range invalidManifests {
+	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			location := t.TempDir()
+			cfg := Config{Level: ConfigEnv, Location: location}
 			invalidArchive := writeCustomPackageArchive(t, test.manifest)
-			_, installErr := InstallPackage(context.Background(), cfg, "external", invalidArchive, InstallPackageOptions{})
-			if installErr == nil || !strings.Contains(installErr.Error(), "no shared library for platform") {
+			options := InstallPackageOptions{}
+			if test.verifier {
+				options.Verifier = func(string, Manifest) error { return nil }
+			}
+			_, installErr := InstallPackage(context.Background(), cfg, "external", invalidArchive, options)
+			if installErr == nil || !strings.Contains(installErr.Error(), "does not specify Files.driver") {
 				t.Fatalf("InstallPackage error = %v", installErr)
 			}
 			assertArchiveClosed(t, invalidArchive)
-			current, getErr := GetDriver(cfg, "external")
-			if getErr != nil {
-				t.Fatal(getErr)
-			}
-			if got := current.Driver.Shared.Get(PlatformTuple()); got != previous.Driver.Shared.Get(PlatformTuple()) {
-				t.Fatalf("registration changed to %q, want %q", got, previous.Driver.Shared.Get(PlatformTuple()))
+			if _, getErr := GetDriver(cfg, "external"); getErr == nil {
+				t.Fatal("manifest-only package created a runtime registration")
 			}
 			data, readErr := os.ReadFile(externalLibrary)
 			if readErr != nil || string(data) != "external library" {
 				t.Fatalf("external library changed: %q, %v", data, readErr)
 			}
-			if got := packageGenerationNames(t, location, "external"); !equalStrings(got, previousGenerationNames) {
-				t.Fatalf("generation names = %v, want %v", got, previousGenerationNames)
+			if got := packageGenerationNames(t, location, "external"); len(got) != 0 {
+				t.Fatalf("manifest-only package published generations: %v", got)
 			}
 		})
+	}
+}
+
+func TestInstallPackageRejectsManifestOnlyUpdateAndPreservesOwnedPackage(t *testing.T) {
+	location := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: location}
+	initialArchive := testPackageArchive(t, "old")
+	if _, err := InstallPackage(context.Background(), cfg, "driver", initialArchive, InstallPackageOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	assertArchiveClosed(t, initialArchive)
+	previous, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousPath := previous.Driver.Shared.Get(PlatformTuple())
+	previousBytes, err := os.ReadFile(previousPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousGenerations := packageGenerationNames(t, location, "driver")
+	if len(previousGenerations) != 1 {
+		t.Fatalf("initial generation count = %d, want 1", len(previousGenerations))
+	}
+
+	externalLibrary := filepath.Join(t.TempDir(), "external.so")
+	if err := os.WriteFile(externalLibrary, []byte("external library"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	quotedPath := strings.ReplaceAll(externalLibrary, `\`, `\\`)
+	manifest := fmt.Sprintf("name = \"External\"\nversion = \"2.0.0\"\n[Driver]\nshared = \"%s\"\n", quotedPath)
+	updateArchive := writeCustomPackageArchive(t, manifest)
+	_, installErr := InstallPackage(context.Background(), cfg, "driver", updateArchive, InstallPackageOptions{})
+	if installErr == nil || !strings.Contains(installErr.Error(), "does not specify Files.driver") {
+		t.Fatalf("InstallPackage update error = %v", installErr)
+	}
+	assertArchiveClosed(t, updateArchive)
+	current, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(current, previous) {
+		t.Fatalf("registration changed after rejected update:\ncurrent:  %+v\nprevious: %+v", current, previous)
+	}
+	if got, err := os.ReadFile(previousPath); err != nil || !reflect.DeepEqual(got, previousBytes) {
+		t.Fatalf("previous payload changed after rejected update: %q, %v", got, err)
+	}
+	if got := packageGenerationNames(t, location, "driver"); !equalStrings(got, previousGenerations) {
+		t.Fatalf("generation names after rejected update = %v, want %v", got, previousGenerations)
+	}
+	if got, err := os.ReadFile(externalLibrary); err != nil || string(got) != "external library" {
+		t.Fatalf("external library changed after rejected update: %q, %v", got, err)
+	}
+}
+
+func TestInstallDriverUsesOwnedPayloadOverDefaultSharedPath(t *testing.T) {
+	location := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: location}
+	archive := writeCustomPackageArchive(t,
+		"name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"/external/libdriver.so\"\n[Files]\ndriver = \"driver.so\"\n",
+		packageFile("driver.so", "owned library"),
+	)
+	manifest, err := InstallDriver(cfg, "driver", archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(location, "package", "driver.so")
+	if got := manifest.DriverInfo.Driver.Shared.Get(PlatformTuple()); got != want {
+		t.Fatalf("installed shared path = %q, want owned payload %q", got, want)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("owned payload is missing: %v", err)
 	}
 }
 

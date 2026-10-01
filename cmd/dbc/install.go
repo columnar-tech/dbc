@@ -118,7 +118,10 @@ func verifySignatureInStaging(stagingDir string, m config.Manifest, noVerify boo
 }
 
 func verifySignatureInDirectory(path string, m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || noVerify {
+	if m.Files.Driver == "" {
+		return fmt.Errorf("package manifest does not specify Files.driver")
+	}
+	if noVerify {
 		return nil
 	}
 

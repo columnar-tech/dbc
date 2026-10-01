@@ -15,15 +15,15 @@
 package config
 
 import (
-	"context"
 	"crypto/sha256"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 func TestCleanupVerifiesOwnedLibraryIntegrityBeforeRemoval(t *testing.T) {
@@ -189,21 +189,16 @@ func TestOwnedLibraryIntegrityIsCheckedOnceBeforeRemoval(t *testing.T) {
 	}
 }
 
-func TestExternalPackageCleanupDoesNotHashSharedLibrary(t *testing.T) {
+func TestExternalRegistrationCleanupDoesNotHashSharedLibrary(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	external := filepath.Join(t.TempDir(), "shared.so")
 	if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest := fmt.Sprintf("name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external)
-	archive := writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
-	if _, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	info, err := GetDriver(cfg, "external")
-	if err != nil {
+	info := DriverInfo{ID: "external", Name: "External", Version: semver.MustParse("1.0.0"), Source: "external"}
+	info.Driver.Shared.Set(PlatformTuple(), external)
+	if err := CreateManifest(cfg, info); err != nil {
 		t.Fatal(err)
 	}
 	checks := 0

@@ -246,6 +246,7 @@ func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest,
 
 	manifest.DriverInfo.ID = shortName
 	manifest.DriverInfo.Source = "dbc"
+	manifest.DriverInfo.Driver.Shared = driverMap{}
 	manifest.DriverInfo.Driver.Shared.Set(PlatformTuple(), driverPath)
 
 	return manifest, nil

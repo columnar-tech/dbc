@@ -339,14 +339,13 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers"), suite.runCmd(m))
 }
 
-func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
+func (suite *SubcommandTestSuite) TestInstallRejectsManifestOnlyDriverEvenWithSharedPath() {
+	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel, NoVerify: true}.
 		GetModelCustom(testBaseModel())
 
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+
-			"\n\nMust have libtest_driver installed to load this driver", suite.runCmd(m))
-	suite.driverIsInstalled("test-driver-manifest-only", false)
+	output := suite.runCmdErr(m)
+	suite.Contains(output, "does not specify Files.driver")
+	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-manifest-only.toml"))
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {

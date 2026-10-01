@@ -30,6 +30,13 @@ import (
 
 func writePackageArchive(t *testing.T, entries ...*tar.Header) *os.File {
 	t.Helper()
+	driverName := ""
+	for _, header := range entries {
+		if header.Name != "MANIFEST" && (header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeRegA) {
+			driverName = header.Name
+			break
+		}
+	}
 	path := filepath.Join(t.TempDir(), "package.tar.gz")
 	f, err := os.Create(path)
 	require.NoError(t, err)
@@ -39,6 +46,9 @@ func writePackageArchive(t *testing.T, entries ...*tar.Header) *os.File {
 		var body string
 		if header.Name == "MANIFEST" {
 			body = "name = \"Test Driver\"\nversion = \"1.0.0\"\n"
+			if driverName != "" {
+				body += "[Files]\ndriver = \"" + driverName + "\"\n"
+			}
 			header.Size = int64(len(body))
 		} else if header.Size > 0 {
 			body = strings.Repeat("x", int(header.Size))
@@ -104,15 +114,15 @@ func TestInflateTarballStagesAndPublishes(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(out, "escape"))
 	})
 
-	t.Run("manifest only archive", func(t *testing.T) {
+	t.Run("manifest only archive is rejected", func(t *testing.T) {
 		f := writePackageArchive(t, packageFile("MANIFEST", ""))
 		_, err := InflateTarball(f, t.TempDir())
-		require.NoError(t, err)
+		require.ErrorContains(t, err, "does not specify Files.driver")
 	})
 }
 
 func TestPackageArchiveAcceptsPAXMetadata(t *testing.T) {
-	manifest := "name = \"Test Driver\"\nversion = \"1.0.0\"\n"
+	manifest := "name = \"Test Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
 	f := writePackageArchive(t,
 		&tar.Header{Name: "global", Typeflag: tar.TypeXGlobalHeader, PAXRecords: map[string]string{"comment": "global metadata"}},
 		&tar.Header{Name: "MANIFEST", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(manifest)), Format: tar.FormatPAX, ModTime: time.Unix(1, 123456789)},
@@ -169,7 +179,7 @@ func TestPackageArchiveValidatesManifestReferences(t *testing.T) {
 		manifest string
 	}{
 		{name: "missing driver", manifest: "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"missing.so\"\n"},
-		{name: "missing signature", manifest: "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\nsignature = \"missing.sig\"\n"},
+		{name: "missing signature", manifest: "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"other\"\nsignature = \"missing.sig\"\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -183,9 +193,9 @@ func TestPackageArchiveValidatesManifestReferences(t *testing.T) {
 
 func TestPackageArchiveRejectsLargeManifestAndBadGzipFooter(t *testing.T) {
 	t.Run("manifest at limit", func(t *testing.T) {
-		manifest := "name = \"Driver\"\nversion = \"1.0.0\"\n"
+		manifest := "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
 		manifest += strings.Repeat(" ", maxPackageManifestSize-len(manifest))
-		f := writeCustomPackageArchive(t, manifest)
+		f := writeCustomPackageArchive(t, manifest, packageFile("driver.so", "x"))
 		defer f.Close()
 		stage, _, _, err := extractPackageArchive(f, t.TempDir())
 		require.NoError(t, err)
@@ -227,7 +237,7 @@ func TestPackageArchiveLimits(t *testing.T) {
 	})
 
 	t.Run("regular total at limit succeeds and one over fails", func(t *testing.T) {
-		manifest := "name = \"Test Driver\"\nversion = \"1.0.0\"\n"
+		manifest := "name = \"Test Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"data\"\n"
 		payloadSize := int64(8)
 		limits := testPackageArchiveLimits()
 		limits.totalSize = int64(len(manifest)) + payloadSize

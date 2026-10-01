@@ -89,38 +89,6 @@ func TestPackageRegistrationScopesAreValidatedAndDistinct(t *testing.T) {
 	}
 }
 
-func TestInstallPackageWritesExternalReceiptWithoutOwnedLibrary(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	archive := writeCustomPackageArchive(t, "name = \"External\"\nversion = \"1.0.0\"\n[Driver]\nshared = \"/external/lib.so\"\n")
-	_, err := InstallPackage(context.Background(), cfg, "external", archive, InstallPackageOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	registered, err := GetDriver(cfg, "external")
-	if err != nil {
-		t.Fatal(err)
-	}
-	generation := filepath.Join(root, packageGenerationNames(t, root, "external")[0])
-	receipt, ok := readPackageInstallReceipt(root, generation)
-	if !ok {
-		t.Fatal("manifest-only generation has no valid receipt")
-	}
-	if receipt.LibraryKind != packageLibraryExternal || receipt.OwnedLibraryFilename != "" || receipt.OwnedLibrarySHA256 != "" {
-		t.Fatalf("external receipt claims package bytes: %+v", receipt)
-	}
-	if registered.Driver.Shared.Get(PlatformTuple()) != "/external/lib.so" {
-		t.Fatalf("external registration = %q", registered.Driver.Shared.Get(PlatformTuple()))
-	}
-	data, err := os.ReadFile(filepath.Join(generation, packageInstallReceiptFilename))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), "/external/lib.so") {
-		t.Fatalf("receipt serialized external reference: %s", data)
-	}
-}
-
 func TestWritePackageInstallReceiptEnforcesFinalSizeLimit(t *testing.T) {
 	root := t.TempDir()
 	generation := testPackageGenerationPath(t, root, "driver", "generation")

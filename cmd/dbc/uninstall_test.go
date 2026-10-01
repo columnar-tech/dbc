@@ -21,10 +21,10 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
@@ -168,76 +168,34 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 	suite.NoFileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 }
 
-func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
-		GetModelCustom(testBaseModel())
-
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+
-			"\n\nMust have libtest_driver installed to load this driver", suite.runCmd(m))
-	suite.driverIsInstalled("test-driver-manifest-only", false)
-
-	// The transactional installer stores package-owned metadata in a receipt-backed generation.
-	generation := suite.installedPackageGeneration("test-driver-manifest-only")
-	suite.DirExists(generation)
-	externalLibrary := filepath.Join(suite.Dir(), "test_driver")
-	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("external library"), 0o644))
-	externalSibling := filepath.Join(suite.Dir(), "external-sibling.txt")
-	suite.Require().NoError(os.WriteFile(externalSibling, []byte("keep"), 0o644))
-
-	// Now uninstall and verify we clean up
-	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
-		GetModelCustom(testBaseModel())
-	suite.validateOutput("\r ", "Driver `test-driver-manifest-only` uninstalled successfully!", suite.runCmd(m))
-	suite.driverIsNotInstalled("test-driver-manifest-only")
-	suite.NoDirExists(generation)
-	suite.FileExists(externalLibrary)
-	suite.FileExists(externalSibling)
-}
-
-func (suite *SubcommandTestSuite) installedPackageGeneration(runtimeID string) string {
-	entries, err := os.ReadDir(suite.Dir())
-	suite.Require().NoError(err)
-	prefix := ".dbc-package-g-" + strconv.Itoa(len([]byte(runtimeID))) + "-" + runtimeID + "-"
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), prefix) {
-			return filepath.Join(suite.Dir(), entry.Name())
-		}
-	}
-	suite.FailNow("receipt-backed package generation not found for " + runtimeID)
-	return ""
-}
-
-// See https://github.com/columnar-tech/dbc/issues/37
-func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
+func (suite *SubcommandTestSuite) TestUninstallLegacyPackageRemovesExactPayloadAndPreservesExternalFiles() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
 
-	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
-		GetModelCustom(testBaseModel())
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-
-	// A valid receipt identifies the package generation even though the manifest's
-	// external shared-library reference is malformed for normal loading.
-	generation := suite.installedPackageGeneration("test-driver-invalid-manifest")
-	suite.FileExists(filepath.Join(generation, "libadbc_driver_invalid_manifest.so"))
+	packageDir := filepath.Join(suite.Dir(), "legacy-test-driver-install")
+	suite.Require().NoError(os.Mkdir(packageDir, 0o755))
+	legacyLibrary := filepath.Join(packageDir, "libadbc_driver_invalid_manifest.so")
+	suite.Require().NoError(os.WriteFile(legacyLibrary, []byte("legacy package library"), 0o644))
 	externalLibrary := filepath.Join(suite.Dir(), "libadbc_driver_invalid_manifest.so")
 	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("external library"), 0o644))
+	info := config.DriverInfo{
+		ID:      "test-driver-invalid-manifest",
+		Name:    "Legacy Test Driver",
+		Version: semver.MustParse("1.0.0"),
+		Source:  "dbc",
+	}
+	info.Driver.Shared.Set(config.PlatformTuple(), legacyLibrary)
+	suite.Require().NoError(config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, info))
 
-	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
+	m := UninstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.GetModel()
 	output := suite.runCmd(m)
 
 	suite.validateOutput("\r ", "Driver `test-driver-invalid-manifest` uninstalled successfully!", output)
 
-	// Ensure we don't nuke the installation directory which is the original (major) issue
 	suite.DirExists(suite.Dir())
-
-	// We do remove the manifest
 	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-	// The owned package generation is removed, while the external shared reference is preserved.
-	suite.NoDirExists(generation)
+	suite.NoDirExists(packageDir)
 	suite.FileExists(externalLibrary)
 }
 

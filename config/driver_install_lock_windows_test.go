@@ -127,60 +127,42 @@ func TestWindowsUninstallLockRejectsUnknownConfigLevel(t *testing.T) {
 
 func TestWindowsConfigAwareUninstallCleansDefaultAndCustomPackageRoots(t *testing.T) {
 	for _, locationKind := range []string{"default", "custom"} {
-		for _, packageKind := range []string{"package-owned", "manifest-only"} {
-			t.Run(locationKind+"/"+packageKind, func(t *testing.T) {
-				cfg := Config{Level: ConfigUser}
-				if locationKind == "custom" {
-					cfg.Location = t.TempDir()
-				} else {
-					cfg.Location = cfg.Level.ConfigLocation()
-				}
-				root, err := packageCleanupRoot(cfg, DriverInfo{FilePath: "HKCU\\SOFTWARE\\ADBC\\Drivers"})
-				if err != nil {
-					t.Fatal(err)
-				}
-				id := fmt.Sprintf("dbc-cleanup-%d", time.Now().UnixNano())
-				var archive *os.File
-				var external string
-				if packageKind == "package-owned" {
-					archive = testPackageArchive(t, "library")
-				} else {
-					external = filepath.Join(t.TempDir(), "external.dll")
-					if err := os.WriteFile(external, []byte("external"), 0o600); err != nil {
-						t.Fatal(err)
-					}
-					manifest := fmt.Sprintf("name = \"Driver\"\nversion = \"1.0.0\"\n[Driver]\nshared = %q\n", external)
-					archive = writeCustomPackageArchive(t, manifest, packageFile("NOTICE", "metadata"))
-				}
-				if _, err := InstallPackage(context.Background(), cfg, id, archive, InstallPackageOptions{}); err != nil {
-					t.Fatal(err)
-				}
-				assertArchiveClosed(t, archive)
-				selected, err := GetDriver(cfg, id)
-				if err != nil {
-					t.Fatal(err)
-				}
-				generations := packageGenerationNames(t, root, id)
-				if len(generations) != 1 {
-					t.Fatalf("installed generation count = %d, want 1", len(generations))
-				}
-				generation := filepath.Join(root, generations[0])
-				if err := UninstallDriver(cfg, selected); err != nil {
-					t.Fatalf("config-aware uninstall: %v", err)
-				}
-				if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
-					t.Fatalf("owned generation remains: %v", err)
-				}
-				if packageKind == "manifest-only" {
-					if _, err := os.Stat(external); err != nil {
-						t.Fatalf("external library was removed: %v", err)
-					}
-				}
-				if _, err := GetDriver(cfg, id); err == nil {
-					t.Fatal("runtime registration remains after uninstall")
-				}
-			})
-		}
+		t.Run(locationKind, func(t *testing.T) {
+			cfg := Config{Level: ConfigUser}
+			if locationKind == "custom" {
+				cfg.Location = t.TempDir()
+			} else {
+				cfg.Location = cfg.Level.ConfigLocation()
+			}
+			root, err := packageCleanupRoot(cfg, DriverInfo{FilePath: "HKCU\\SOFTWARE\\ADBC\\Drivers"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := fmt.Sprintf("dbc-cleanup-%d", time.Now().UnixNano())
+			archive := testPackageArchive(t, "library")
+			if _, err := InstallPackage(context.Background(), cfg, id, archive, InstallPackageOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			assertArchiveClosed(t, archive)
+			selected, err := GetDriver(cfg, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generations := packageGenerationNames(t, root, id)
+			if len(generations) != 1 {
+				t.Fatalf("installed generation count = %d, want 1", len(generations))
+			}
+			generation := filepath.Join(root, generations[0])
+			if err := UninstallDriver(cfg, selected); err != nil {
+				t.Fatalf("config-aware uninstall: %v", err)
+			}
+			if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("owned generation remains: %v", err)
+			}
+			if _, err := GetDriver(cfg, id); err == nil {
+				t.Fatal("runtime registration remains after uninstall")
+			}
+		})
 	}
 }
 

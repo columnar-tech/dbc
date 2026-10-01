@@ -136,9 +136,6 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 
 	manifest.DriverInfo.ID = runtimeID
 	manifest.DriverInfo.Source = "dbc"
-	if manifest.Files.Driver == "" && manifest.Driver.Shared.Get(PlatformTuple()) == "" {
-		return Manifest{}, fmt.Errorf("manifest-only package has no shared library for platform %s", PlatformTuple())
-	}
 	generationPrefix, err := packageGenerationPrefix(runtimeID)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package generation name: %w", err)
@@ -160,10 +157,8 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		return Manifest{}, fmt.Errorf("release package generation reservation: %w", err)
 	}
 	reservationExists = false
-	if manifest.Files.Driver != "" {
-		manifest.Driver.Shared = driverMap{}
-		manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
-	}
+	manifest.Driver.Shared = driverMap{}
+	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
 	if options.Verifier != nil {
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, fmt.Errorf("install canceled before package verification: %w", err)
@@ -199,10 +194,8 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		return Manifest{}, fmt.Errorf("publish package generation: %w", err)
 	}
 	stageDir = ""
-	if manifest.Files.Driver != "" {
-		manifest.Driver.Shared = driverMap{}
-		manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
-	}
+	manifest.Driver.Shared = driverMap{}
+	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, manifest.Files.Driver))
 
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, cleanupFailedPackageRegistration(generationDir, fmt.Errorf("install canceled before registration: %w", err), operations.removeAll)
