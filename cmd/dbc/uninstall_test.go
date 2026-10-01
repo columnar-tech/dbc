@@ -175,6 +175,7 @@ func (suite *SubcommandTestSuite) TestUninstallLegacyPackageRemovesExactPayloadA
 		suite.T().Skip()
 	}
 
+	suite.Require().NoError(os.MkdirAll(suite.Dir(), 0o755))
 	packageDir := filepath.Join(suite.Dir(), "legacy-test-driver-install")
 	suite.Require().NoError(os.Mkdir(packageDir, 0o755))
 	legacyLibrary := filepath.Join(packageDir, "libadbc_driver_invalid_manifest.so")
@@ -188,9 +189,9 @@ func (suite *SubcommandTestSuite) TestUninstallLegacyPackageRemovesExactPayloadA
 		Source:  "dbc",
 	}
 	info.Driver.Shared.Set(config.PlatformTuple(), legacyLibrary)
-	suite.Require().NoError(config.CreateManifest(config.Config{Level: config.ConfigEnv, Location: suite.Dir()}, info))
+	suite.Require().NoError(config.CreateManifest(config.Config{Level: suite.configLevel, Location: suite.Dir()}, info))
 
-	m := UninstallCmd{Driver: "test-driver-invalid-manifest", Level: config.ConfigEnv}.GetModel()
+	m := UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
 
 	suite.validateOutput("\r ", "Driver `test-driver-invalid-manifest` uninstalled successfully!", output)
