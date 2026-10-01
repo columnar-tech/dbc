@@ -36,9 +36,9 @@ import (
 
 const (
 	packageInstallReceiptFilename = "dbc-install-receipt.json"
-	packageInstallReceiptVersion  = 2
+	packageInstallReceiptVersion  = 1
 	registrationFingerprintName   = "sha256"
-	registrationFingerprintVer    = 2
+	registrationFingerprintVer    = 1
 	packageInstallReceiptMaxSize  = 16 * 1024
 )
 

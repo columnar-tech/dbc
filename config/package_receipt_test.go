@@ -71,6 +71,16 @@ func TestInstallPackageWritesOwnedLibraryReceipt(t *testing.T) {
 	if err := json.Unmarshal(data, &keys); err != nil {
 		t.Fatal(err)
 	}
+	var encodedVersions struct {
+		SchemaVersion              int `json:"schema_version"`
+		RegistrationFingerprintVer int `json:"registration_fingerprint_version"`
+	}
+	if err := json.Unmarshal(data, &encodedVersions); err != nil {
+		t.Fatal(err)
+	}
+	if encodedVersions.SchemaVersion != 1 || encodedVersions.RegistrationFingerprintVer != 1 {
+		t.Fatalf("serialized receipt and fingerprint versions = %d/%d, want 1/1", encodedVersions.SchemaVersion, encodedVersions.RegistrationFingerprintVer)
+	}
 	for _, key := range []string{"url", "source_identity", "archive_hash", "archive_size", "source_type", "registry", "path"} {
 		if _, exists := keys[key]; exists {
 			t.Fatalf("source-specific key %q in receipt", key)
@@ -445,6 +455,16 @@ func TestReceiptReaderRejectsUnknownSchemaAndFields(t *testing.T) {
 	write(data)
 	if _, ok := readPackageInstallReceipt(root, generation); ok {
 		t.Fatal("unknown receipt schema was accepted")
+	}
+	unknownFingerprintVersion := valid
+	unknownFingerprintVersion.RegistrationFingerprintVer++
+	data, err = json.Marshal(unknownFingerprintVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(data)
+	if _, ok := readPackageInstallReceipt(root, generation); ok {
+		t.Fatal("unknown registration fingerprint version was accepted")
 	}
 	write([]byte(strings.TrimSuffix(string(encoded), "}") + `,"unrecognized":true}`))
 	if _, ok := readPackageInstallReceipt(root, generation); ok {

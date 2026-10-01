@@ -387,9 +387,9 @@ func TestUninstallDriverRetainsUnprovenGeneration(t *testing.T) {
 	}
 }
 
-func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t *testing.T) {
+func TestUninstallPreservesUnsupportedReceiptShapesAndDoesNotFallBackToLegacyCleanup(t *testing.T) {
 	for _, kind := range []string{"external", "package_file"} {
-		t.Run(kind, func(t *testing.T) {
+		t.Run(kind+" receipt shape", func(t *testing.T) {
 			root := t.TempDir()
 			cfg := Config{Level: ConfigEnv, Location: root}
 			legacyDir := filepath.Join(root, "legacy-package")
@@ -410,7 +410,7 @@ func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t 
 				t.Fatal(err)
 			}
 
-			generation := testPackageGenerationPath(t, root, "driver", "old-v1")
+			generation := testPackageGenerationPath(t, root, "driver", "unsupported-shape")
 			if err := os.Mkdir(generation, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -425,8 +425,8 @@ func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t 
 			if err := os.WriteFile(filepath.Join(generation, filename), payload, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			legacyReceipt := map[string]any{
-				"schema_version":                     1,
+			unsupportedReceipt := map[string]any{
+				"schema_version":                     packageInstallReceiptVersion,
 				"registration_scope":                 packageRegistrationFile,
 				"runtime_id":                         "driver",
 				"driver_version":                     "1.0.0",
@@ -436,10 +436,10 @@ func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t 
 				"owned_library_filename":             ownedFilename,
 				"owned_library_sha256":               ownedHash,
 				"registration_fingerprint_algorithm": registrationFingerprintName,
-				"registration_fingerprint_version":   1,
+				"registration_fingerprint_version":   registrationFingerprintVer,
 				"registration_fingerprint":           strings.Repeat("a", sha256.Size*2),
 			}
-			data, err := json.Marshal(legacyReceipt)
+			data, err := json.Marshal(unsupportedReceipt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -448,7 +448,7 @@ func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t 
 				t.Fatal(err)
 			}
 			if _, ok := readPackageInstallReceipt(root, generation); ok {
-				t.Fatal("pre-v2 receipt was accepted as current ownership evidence")
+				t.Fatalf("unsupported %s receipt shape was accepted at schema version %d", kind, packageInstallReceiptVersion)
 			}
 
 			if err := UninstallDriver(cfg, registered); err != nil {
@@ -458,10 +458,10 @@ func TestUninstallPreservesPreV2ReceiptBytesAndDoesNotFallBackToLegacyCleanup(t 
 				t.Fatalf("legacy payload was removed by fallback: %q, %v", got, err)
 			}
 			if got, err := os.ReadFile(filepath.Join(generation, filename)); err != nil || string(got) != string(payload) {
-				t.Fatalf("pre-v2 generation bytes changed: %q, %v", got, err)
+				t.Fatalf("unsupported receipt generation bytes changed: %q, %v", got, err)
 			}
 			if _, err := os.Stat(receiptPath); err != nil {
-				t.Fatalf("pre-v2 receipt evidence was removed: %v", err)
+				t.Fatalf("unsupported receipt evidence was removed: %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("runtime registration remains: %v", err)
