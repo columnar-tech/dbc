@@ -119,15 +119,25 @@ func TestClientInstall(t *testing.T) {
 	}
 
 	t.Run("installs driver successfully", func(t *testing.T) {
-		manifest, err := c.Install(t.Context(), cfg, "test-driver-1")
+		manifest, err := c.Install(t.Context(), cfg, "test-driver-1", "")
 		require.NoError(t, err)
 		require.NotNil(t, manifest)
 		assert.Equal(t, "test-driver-1", manifest.DriverInfo.ID)
 		assert.NotNil(t, manifest.DriverInfo.Version)
 	})
 
+	t.Run("installs driver for explicit platform", func(t *testing.T) {
+		const platform = "linux_amd64"
+		manifest, err := c.Install(t.Context(), cfg, "test-driver-1", config.Platform(platform))
+		require.NoError(t, err)
+		require.NotNil(t, manifest)
+		sharedPath := manifest.DriverInfo.Driver.Shared.Get(platform)
+		assert.NotEmpty(t, sharedPath)
+		assert.FileExists(t, sharedPath)
+	})
+
 	t.Run("returns error for nonexistent driver", func(t *testing.T) {
-		_, err := c.Install(t.Context(), cfg, "nonexistent-driver")
+		_, err := c.Install(t.Context(), cfg, "nonexistent-driver", "")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nonexistent-driver")
 	})
@@ -144,7 +154,7 @@ func TestClientUninstall(t *testing.T) {
 			Location: tmpDir,
 		}
 
-		_, err := c.Install(t.Context(), cfg, "test-driver-1")
+		_, err := c.Install(t.Context(), cfg, "test-driver-1", "")
 		require.NoError(t, err)
 
 		manifestPath := filepath.Join(tmpDir, "test-driver-1.toml")

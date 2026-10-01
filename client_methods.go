@@ -247,7 +247,9 @@ func (c *Client) Download(ctx context.Context, pkg PkgInfo) (io.ReadCloser, erro
 }
 
 // Install installs a driver with the given name to the specified configuration.
-func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string) (*config.Manifest, error) {
+// platform selects the driver package platform tuple; when empty, the host
+// platform is used.
+func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string, platform config.Platform) (*config.Manifest, error) {
 	drivers, err := c.Search(ctx, driverName)
 	// Only fail if the driver wasn't found in any registry; partial registry errors
 	// are acceptable as long as we can still locate the target driver.
@@ -267,7 +269,9 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		return nil, fmt.Errorf("driver %q not found", driverName)
 	}
 
-	pkg, err := found.GetPackage(nil, config.PlatformTuple(), false)
+	targetPlatform := platform.Resolve()
+
+	pkg, err := found.GetPackage(nil, targetPlatform, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}
@@ -278,7 +282,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	manifest, err := config.InstallDriver(cfg, driverName, f)
+	manifest, err := config.InstallDriver(cfg, driverName, f, targetPlatform)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
 	}
