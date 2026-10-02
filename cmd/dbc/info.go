@@ -85,6 +85,9 @@ func formatDriverInfo(drv dbc.Driver) string {
 	b.WriteString(bold.Render("Title: ") + drv.Title + "\n")
 	b.WriteString(bold.Render("License: ") + drv.License + "\n")
 	b.WriteString(bold.Render("Description: ") + drv.Desc + "\n")
+	if drv.DocsURL != "" {
+		b.WriteString(bold.Render("Docs: ") + drv.DocsURL + "\n")
+	}
 	b.WriteString(bold.Render("Available Packages:") + "\n")
 	for _, pkg := range info.Packages {
 		b.WriteString("   - " + descStyle.Render(pkg.Platform) + "\n")
@@ -105,6 +108,7 @@ func driverInfoJSON(drv dbc.Driver) string {
 		Title:       drv.Title,
 		License:     drv.License,
 		Description: drv.Desc,
+		DocsURL:     drv.DocsURL,
 	}
 	for _, pkg := range info.Packages {
 		driverInfo.Packages = append(driverInfo.Packages, pkg.Platform)
