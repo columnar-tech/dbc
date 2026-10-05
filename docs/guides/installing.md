@@ -67,6 +67,8 @@ $ dbc install mysql
 Installed mysql 0.1.0 to /Users/user/Library/Application Support/ADBC/Drivers
 ```
 
+Local package archives must include a driver payload named by `Files.driver`.
+
 To confirm the driver is installed, run [`dbc list`](../reference/cli.md#list):
 
 ```console
@@ -138,7 +140,7 @@ For example, if you were to run `dbc install mysql` and get version 0.1.0, if �
 
 !!! note
 
-    When dbc updates a driver like this, the old driver is uninstalled first. [ADBC driver manifests](../concepts/driver_manifest.md) provide a mechanism to support having multiple versions of the same driver installed at the same time and dbc may provide a convenient way to do this in a future release.
+    dbc prepares and validates the new package before replacing the driver registration. It then makes a conservative attempt to clean up the previous owned payload.
 
 ## Installing System Wide
 
@@ -192,17 +194,11 @@ $ dbc install mysql
 
 Installed mysql 0.1.0 to /home/user/drivers
 
-$ tree $ADBC_DRIVER_PATH
-/home/user/drivers
-├── mysql_linux_amd64_v0.1.0
-│   ├── libadbc_driver_mysql.so
-│   ├── libadbc_driver_mysql.so.sig
-│   ├── LICENSE
-│   └── NOTICE
-└── mysql.toml
-
-2 directories, 5 files
+$ ls "$ADBC_DRIVER_PATH"
+mysql.toml
 ```
+
+dbc stores the installed package payload in its managed storage.
 
 !!! note
 
@@ -316,3 +312,7 @@ dbc will search in the following order:
     3. `CONDA_PREFIX`
 2. User
 3. System
+
+Uninstall removes an owned driver payload when safe cleanup is available, while external registrations are removed without deleting their libraries; package files may remain on platforms such as WebAssembly. Metadata from legacy installs may remain after the driver library is removed.
+
+In Go programs, `config.UninstallDriverShared` was removed in v0.4; use `config.UninstallDriver` or `Client.Uninstall` instead.

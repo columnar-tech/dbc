@@ -74,6 +74,8 @@ const installed = await dbc.listInstalled("/etc/adbc/drivers");
 await dbc.uninstall("snowflake", "/etc/adbc/drivers");
 ```
 
+On WebAssembly, uninstall removes the driver registration while retaining the installed package files.
+
 CommonJS works too:
 
 ```js

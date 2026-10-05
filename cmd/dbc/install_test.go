@@ -16,16 +16,24 @@ package main
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"testing"
+	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -83,19 +91,23 @@ func (suite *SubcommandTestSuite) TestInstallWithVersionLessSpace() {
 }
 
 func (suite *SubcommandTestSuite) TestReinstallUpdateVersion() {
-	m := InstallCmd{Driver: "test-driver-1<=1.0.0"}.
+	m := InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-1 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-1 1.0.0 to "+suite.Dir(), suite.runCmd(m))
+	oldGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 
-	m = InstallCmd{Driver: "test-driver-1"}.
+	m = InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.tempdir,
+		"\nReplaced active driver: test-driver-1 (version: 1.0.0)\nInstalled test-driver-1 1.1.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
-	suite.Equal([]string{"test-driver-1.1/test-driver-1-not-valid.so",
-		"test-driver-1.1/test-driver-1-not-valid.so.sig", "test-driver-1.toml"}, suite.getFilesInTempDir())
+	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
+	suite.NotEqual(oldGeneration, newGeneration)
+	suite.True(strings.HasPrefix(filepath.Base(newGeneration), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
+	suite.DirExists(newGeneration)
+	suite.NoDirExists(oldGeneration)
 }
 
 func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
@@ -104,18 +116,173 @@ func (suite *SubcommandTestSuite) TestReinstallDowngradeVersion() {
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
 		"\nInstalled test-driver-1 1.1.0 to "+suite.Dir(), suite.runCmd(m))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.1.0", true)
+	oldGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
 
 	m = InstallCmd{Driver: "test-driver-1<=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(testBaseModel())
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nRemoved conflicting driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
+		"\nReplaced active driver: test-driver-1 (version: 1.1.0)\nInstalled test-driver-1 1.0.0 to "+suite.Dir(),
 		suite.runCmd(m))
 
-	files := suite.getFilesInDir(suite.Dir())
-	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so")
-	suite.Contains(files, "test-driver-1/test-driver-1-not-valid.so.sig")
-	suite.NotContains(files, "test-driver-1.1/test-driver-1-not-valid.so")
+	newGeneration := filepath.Dir(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
+	suite.NotEqual(oldGeneration, newGeneration)
+	suite.True(strings.HasPrefix(filepath.Base(newGeneration), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
+	suite.DirExists(newGeneration)
+	suite.NoDirExists(oldGeneration)
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
+}
+
+func (suite *SubcommandTestSuite) TestInstallShadowsLowerPriorityVersion() {
+	secondary := filepath.Join(suite.T().TempDir(), "secondary")
+	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
+	suite.T().Setenv("ADBC_DRIVER_PATH", secondary)
+
+	archive, err := os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	_, err = config.InstallPackage(context.Background(), config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1", archive,
+		config.InstallPackageOptions{Verifier: func(stagingDir string, manifest config.Manifest) error {
+			return verifySignatureInStaging(stagingDir, manifest, false)
+		}})
+	suite.Require().NoError(err)
+	secondaryDriver, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1")
+	suite.Require().NoError(err)
+	secondaryLibrary := secondaryDriver.Driver.Shared.Get(config.PlatformTuple())
+	secondaryBytes, err := os.ReadFile(secondaryLibrary)
+	suite.Require().NoError(err)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
+	primaryConfig := config.Config{Level: config.ConfigEnv, Location: suite.tempdir + string(os.PathListSeparator) + secondary}
+	selectedConflict, err := config.GetDriver(primaryConfig, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal(secondary, selectedConflict.FilePath)
+	suite.False(conflictIsInInstallRoot(selectedConflict, filepath.SplitList(primaryConfig.Location)[0], config.ConfigEnv))
+	newInstall := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+		GetModelCustom(testBaseModel())
+	newInstallModel := newInstall.(progressiveInstallModel)
+	newInstallModel.cfg = primaryConfig
+	out := suite.runCmd(newInstallModel)
+	suite.Contains(out, "Shadowed active driver: test-driver-1 (version: 1.0.0)")
+	suite.NotContains(out, "Removed conflicting driver")
+
+	active, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal("1.1.0", active.Version.String())
+	activeLibrary := active.Driver.Shared.Get(config.PlatformTuple())
+	relativeActiveLibrary, err := filepath.Rel(suite.tempdir, activeLibrary)
+	suite.Require().NoError(err)
+	suite.False(filepath.IsAbs(relativeActiveLibrary) || relativeActiveLibrary == ".." ||
+		strings.HasPrefix(relativeActiveLibrary, ".."+string(os.PathSeparator)),
+		"active library should be inside the primary root: %s", activeLibrary)
+	suite.FileExists(activeLibrary)
+
+	remainingSecondary, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1")
+	suite.Require().NoError(err)
+	suite.Equal("1.0.0", remainingSecondary.Version.String())
+	remainingBytes, err := os.ReadFile(secondaryLibrary)
+	suite.Require().NoError(err)
+	suite.Equal(secondaryBytes, remainingBytes)
+}
+
+func TestConflictIsInInstallRoot(t *testing.T) {
+	root := t.TempDir()
+	conflict := config.DriverInfo{FilePath: root}
+	if !conflictIsInInstallRoot(conflict, root, config.ConfigEnv) {
+		t.Fatal("same install root should be reported as replaced")
+	}
+
+	otherRoot := filepath.Join(t.TempDir(), "secondary")
+	if conflictIsInInstallRoot(conflict, otherRoot, config.ConfigEnv) {
+		t.Fatal("a different install root should be reported as shadowed")
+	}
+
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(root, alias); err == nil {
+		if !conflictIsInInstallRoot(conflict, alias, config.ConfigEnv) {
+			t.Fatal("symlink aliases of the same install root should be reported as replaced")
+		}
+		if !sameInstallRoot(root, alias) {
+			t.Fatal("symlink aliases of the same install root should have the same filesystem identity")
+		}
+	} else if !hostpath.IsWindows() {
+		t.Fatalf("create install root symlink: %v", err)
+	}
+
+	caseRoot := filepath.Join(t.TempDir(), "CaseRoot")
+	if err := os.Mkdir(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	caseVariant := filepath.Join(filepath.Dir(caseRoot), "caseroot")
+	caseInfo, caseErr := os.Stat(caseVariant)
+	if originalInfo, err := os.Stat(caseRoot); err == nil && caseErr == nil && os.SameFile(originalInfo, caseInfo) {
+		if !sameInstallRoot(caseRoot, caseVariant) {
+			t.Fatal("case variants identifying the same directory should have the same filesystem identity")
+		}
+	}
+
+	if got := primaryInstallRoot("", config.ConfigEnv); got != "" {
+		t.Fatalf("empty env location primary root = %q, want empty", got)
+	}
+	location := "first" + string(hostpath.ListSeparator()) + "second"
+	if got := primaryInstallRoot(location, config.ConfigEnv); got != "first" {
+		t.Fatalf("primary root = %q, want first path-list entry", got)
+	}
+
+	if conflictIsInInstallRoot(config.DriverInfo{FilePath: `HKCU\SOFTWARE\ADBC\Drivers`}, root, config.ConfigSystem) {
+		t.Fatal("a user registry registration should not be reported as replaced by a system install")
+	}
+	if !conflictIsInInstallRoot(config.DriverInfo{FilePath: `HKCU\SOFTWARE\ADBC\Drivers`}, root, config.ConfigUser) {
+		t.Fatal("a user registry registration should be reported as replaced by a user install")
+	}
+}
+
+func TestPrimaryInstallRootUsesConfigLevelPathContract(t *testing.T) {
+	location := "first" + string(hostpath.ListSeparator()) + "second"
+	want := "first"
+	if runtime.GOOS == "js" {
+		want = location
+	}
+	if got := primaryInstallRoot(location, config.ConfigEnv); got != want {
+		t.Errorf("primary install root = %q, want %q", got, want)
+	}
+	for _, level := range []config.ConfigLevel{config.ConfigUser, config.ConfigSystem} {
+		if got := primaryInstallRoot(location, level); got != location {
+			t.Errorf("config level %s primary install root = %q, want unchanged location %q", level, got, location)
+		}
+	}
+}
+
+func (suite *SubcommandTestSuite) TestInstallSameVersionOnSecondaryRootSkipsDownload() {
+	secondary := filepath.Join(suite.tempdir, "secondary")
+	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
+	suite.T().Setenv("ADBC_DRIVER_PATH", secondary)
+
+	oldInstall := InstallCmd{Driver: "test-driver-1=1.0.0", Level: config.ConfigEnv}.
+		GetModelCustom(testBaseModel())
+	suite.runCmd(oldInstall)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", suite.tempdir+string(os.PathListSeparator)+secondary)
+	downloads := 0
+	base := baseModel{
+		getDriverRegistry: getTestDriverRegistry,
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloads++
+			return downloadTestPkg(pkg)
+		},
+	}
+	m := InstallCmd{Driver: "test-driver-1=1.0.0", Level: config.ConfigEnv}.
+		GetModelCustom(base)
+	out := suite.runCmd(m)
+
+	suite.Contains(out, "already installed")
+	suite.Zero(downloads, "same-version install on a secondary root should skip before download")
+	active, err := config.GetDriver(config.Get()[config.ConfigEnv], "test-driver-1")
+	suite.Require().NoError(err)
+	activeLibrary := active.Driver.Shared.Get(config.PlatformTuple())
+	relativeActiveLibrary, err := filepath.Rel(secondary, activeLibrary)
+	suite.Require().NoError(err)
+	suite.False(filepath.IsAbs(relativeActiveLibrary) || relativeActiveLibrary == ".." ||
+		strings.HasPrefix(relativeActiveLibrary, ".."+string(os.PathSeparator)),
+		"same-version install should keep using the secondary root: %s", activeLibrary)
 }
 
 func (suite *SubcommandTestSuite) TestInstallVenv() {
@@ -172,14 +339,13 @@ func (suite *SubcommandTestSuite) TestInstallCondaPrefix() {
 		"\nInstalled test-driver-1 1.1.0 to "+filepath.Join(suite.tempdir, "etc", "adbc", "drivers"), suite.runCmd(m))
 }
 
-func (suite *SubcommandTestSuite) TestInstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
+func (suite *SubcommandTestSuite) TestInstallRejectsManifestOnlyDriverEvenWithSharedPath() {
+	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel, NoVerify: true}.
 		GetModelCustom(testBaseModel())
 
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+
-			"\n\nMust have libtest_driver installed to load this driver", suite.runCmd(m))
-	suite.driverIsInstalled("test-driver-manifest-only", false)
+	output := suite.runCmdErr(m)
+	suite.Contains(output, "does not specify Files.driver")
+	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-manifest-only.toml"))
 }
 
 func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
@@ -188,15 +354,45 @@ func (suite *SubcommandTestSuite) TestInstallDriverNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Equal(expectedFilesWithPersistentDriverLock("test-driver-no-sig"), suite.getFilesInTempDir())
+	suite.assertPersistentDriverLockFile("test-driver-no-sig")
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
+
+	registryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			_, _ = fmt.Fprint(w, installRegistryDriverIndex("test-driver-no-sig", "v1.1.0", "test-driver-no-sig.tar.gz"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer registryServer.Close()
+	client, err := dbc.NewClient(dbc.WithBaseURL(registryServer.URL))
+	suite.Require().NoError(err)
+	downloads := 0
+	base := baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) {
+			return client.Search(context.Background(), "")
+		},
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloads++
+			return downloadTestPkg(pkg)
+		},
+	}
 
 	// Note: The UI output (first parameter) serves as documentation but isn't verified
 	// by validateOutput due to tea.WithoutRenderer() mode. Manual verification needed.
 	m = InstallCmd{Driver: "test-driver-no-sig", NoVerify: true}.
-		GetModelCustom(testBaseModel())
+		GetModelCustom(base)
 	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[-] verifying signature\r\n",
-		"\nInstalled test-driver-no-sig 1.0.0 to "+suite.tempdir, suite.runCmd(m))
+		"\nInstalled test-driver-no-sig 1.1.0 to "+suite.tempdir, suite.runCmd(m))
+	suite.Equal(1, downloads)
+
+	downloads = 0
+	m = InstallCmd{Driver: "test-driver-no-sig"}.GetModelCustom(base)
+	out = suite.runCmd(m)
+	suite.Contains(out, "already installed")
+	suite.NotContains(out, "signature")
+	suite.Zero(downloads, "same-version install should not download or reverify the package")
 }
 
 func (suite *SubcommandTestSuite) TestInstallGitignoreDefaultBehavior() {
@@ -326,7 +522,8 @@ func (suite *SubcommandTestSuite) TestInstallLocalPackageNoSignature() {
 	out := suite.runCmdErr(m)
 	suite.Contains(out, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
 
-	suite.Empty(suite.getFilesInTempDir())
+	suite.Equal(expectedFilesWithPersistentDriverLock("test-driver-no-sig"), suite.getFilesInTempDir())
+	suite.assertPersistentDriverLockFile("test-driver-no-sig")
 	suite.NoDirExists(filepath.Join(suite.tempdir, "test-driver-no-sig"))
 
 	m = InstallCmd{Driver: packagePath, NoVerify: true}.
@@ -581,6 +778,121 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	suite.True(hasDownloadStart, "expected download.start event")
 }
 
+func (suite *SubcommandTestSuite) TestInstall_NoVerifyJSONProgressKeepsVerificationEventsOrdered() {
+	m := InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel, NoVerify: true, JsonStreamProgress: true}.
+		GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+
+	startIndex := strings.Index(out, `"event":"verify.start"`)
+	completeIndex := strings.Index(out, `"event":"verify.complete"`)
+	suite.Require().GreaterOrEqual(startIndex, 0, "expected verify.start progress event")
+	suite.Require().GreaterOrEqual(completeIndex, 0, "expected verify.complete progress event")
+	suite.Less(startIndex, completeIndex, "verification progress events should stay ordered")
+	suite.Contains(out, `"kind":"install.status"`)
+}
+
+func (suite *SubcommandTestSuite) TestInstallVerificationPhaseIsReportedBeforeVerifierCompletes() {
+	model := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, JsonStreamProgress: true}.
+		GetModelCustom(testBaseModel()).(progressiveInstallModel)
+	verifyEntered := make(chan struct{})
+	verifyRelease := make(chan struct{})
+	verifyCompleted := make(chan struct{})
+	verifierReleased := false
+	defer func() {
+		if !verifierReleased {
+			close(verifyRelease)
+		}
+	}()
+	model.verifyStagedPackage = func(string, config.Manifest, bool) error {
+		close(verifyEntered)
+		<-verifyRelease
+		close(verifyCompleted)
+		return nil
+	}
+	var progress bytes.Buffer
+	model = model.WithJSONWriter(&progress).(progressiveInstallModel)
+
+	states := make(chan installState, 8)
+	observed := &installStateObservedModel{model: model, states: states}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output := &bytes.Buffer{}
+	savedProg := prog
+	defer func() { prog = savedProg }()
+	program := tea.NewProgram(observed, tea.WithInput(nil), tea.WithOutput(output),
+		tea.WithoutRenderer(), tea.WithContext(ctx))
+	prog = program
+	runDone := make(chan error, 1)
+	go func() {
+		_, err := program.Run()
+		program.Wait()
+		runDone <- err
+	}()
+
+	select {
+	case <-verifyEntered:
+	case <-ctx.Done():
+		suite.FailNow("verifier was not entered before timeout")
+	}
+
+	stateReached := false
+	for !stateReached {
+		select {
+		case state := <-states:
+			stateReached = state == stVerifying
+		case <-ctx.Done():
+			suite.FailNow("install model did not enter the verifying state before timeout")
+		}
+	}
+	select {
+	case <-verifyCompleted:
+		suite.FailNow("verifier completed before the test released it")
+	default:
+	}
+
+	close(verifyRelease)
+	verifierReleased = true
+	select {
+	case err := <-runDone:
+		suite.Require().NoError(err)
+	case <-ctx.Done():
+		suite.FailNow("install did not finish before timeout")
+	}
+
+	var events []string
+	progressOutput := strings.TrimSpace(progress.String())
+	suite.Require().NotEmpty(progressOutput, "expected progress events")
+	for _, line := range strings.Split(progressOutput, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var envelope jsonschema.Envelope
+		suite.Require().NoError(
+			json.Unmarshal([]byte(line), &envelope),
+			"invalid progress line: %q in %q", line, progressOutput,
+		)
+		if envelope.Kind != "install.progress" {
+			continue
+		}
+		var event jsonschema.InstallProgressEvent
+		suite.Require().NoError(json.Unmarshal(envelope.Payload, &event))
+		events = append(events, event.Event)
+	}
+	startIndex := -1
+	completeIndex := -1
+	for i, event := range events {
+		if event == "verify.start" {
+			startIndex = i
+		}
+		if event == "verify.complete" {
+			completeIndex = i
+		}
+	}
+	suite.Require().GreaterOrEqual(startIndex, 0, "expected verify.start progress event")
+	suite.Require().GreaterOrEqual(completeIndex, 0, "expected verify.complete progress event")
+	suite.Less(startIndex, completeIndex, "verification progress events should stay ordered")
+}
+
 // TestInstallJSON_AlreadyInstalledChecksumFailure is a regression test for the
 // fix that gates FinalOutput() on m.status. When the driver binary is missing
 // the checksum computation fails, the model exits with status 1, and
@@ -628,4 +940,27 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	var errPayload jsonschema.ErrorResponse
 	suite.Require().NoError(json.Unmarshal(errEnv.Payload, &errPayload))
 	suite.Equal("install_failed", errPayload.Code, "expected install_failed error code")
+}
+
+type installStateObservedModel struct {
+	model  progressiveInstallModel
+	states chan installState
+}
+
+func (m *installStateObservedModel) Init() tea.Cmd {
+	return m.model.Init()
+}
+
+func (m *installStateObservedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	previousState := m.model.state
+	updated, cmd := m.model.Update(msg)
+	m.model = updated.(progressiveInstallModel)
+	if m.model.state != previousState {
+		m.states <- m.model.state
+	}
+	return m, cmd
+}
+
+func (m *installStateObservedModel) View() tea.View {
+	return m.model.View()
 }

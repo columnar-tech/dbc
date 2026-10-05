@@ -20,8 +20,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,6 +64,7 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 
 func (s *RegistryTestSuite) clearRegistry() {
 	// Clear out any existing ADBC registry keys to ensure a clean slate.
+	// TODO: Isolate registry state before deleting real user driver registrations.
 	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
 	if errors.Is(err, registry.ErrNotExist) {
 		return
@@ -78,6 +81,7 @@ func (s *RegistryTestSuite) clearRegistry() {
 
 func (s *RegistryTestSuite) SetupSuite() {
 	s.cfgUserPath = config.Get()[config.ConfigUser].Location
+	// TODO: Isolate this cleanup before deleting real user driver data.
 	os.RemoveAll(s.cfgUserPath)
 }
 
@@ -111,7 +115,11 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 
 	val, _, err = k.GetStringValue("driver")
 	s.Require().NoError(err)
-	s.Equal(filepath.Join(s.cfgUserPath, "test-driver-1.1", "test-driver-1-not-valid.so"), val)
+	s.Equal("test-driver-1-not-valid.so", filepath.Base(val))
+	generation := filepath.Dir(val)
+	s.Equal(s.cfgUserPath, filepath.Dir(generation))
+	s.True(strings.HasPrefix(filepath.Base(generation), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
+	s.DirExists(generation)
 }
 
 func (s *RegistryTestSuite) TestPartialReinstallDriver() {

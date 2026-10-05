@@ -17,12 +17,15 @@
 package config
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"time"
 )
 
 const (
@@ -109,23 +112,15 @@ func CreateManifest(cfg Config, driver DriverInfo) (err error) {
 	if err != nil {
 		return err
 	}
-	return createDriverManifest(loc, driver)
-}
-
-func UninstallDriver(_ Config, info DriverInfo) error {
-	manifest := filepath.Join(info.FilePath, info.ID+".toml")
-	if err := os.Remove(manifest); err != nil {
-		return fmt.Errorf("error removing manifest %s: %w", manifest, err)
+	lock, err := acquireDriverInstallLockWith(context.Background(), loc, driver.ID, 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("acquire driver registration lock: %w", err)
 	}
-
-	// Remove the symlink created during installation (one level up from the
-	// manifest)
-	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	removeManifestSymlink(info.FilePath, info.ID)
-
-	if err := UninstallDriverShared(info); err != nil {
-		return fmt.Errorf("failed to delete driver shared object: %w", err)
+	defer func() { err = errors.Join(err, lock.release()) }()
+	namespaceLock, _, err := acquireRegistrationNamespaceLock(context.Background(), cfg, loc, 10*time.Second)
+	if err != nil {
+		return err
 	}
-
-	return nil
+	defer func() { err = errors.Join(err, namespaceLock.release()) }()
+	return createDriverManifestUnlocked(loc, driver)
 }
