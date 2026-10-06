@@ -41,7 +41,7 @@ func (suite *SubcommandTestSuite) TestSearchCmd() {
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalled() {
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{"test-driver-1"}, Level: config.ConfigEnv}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -80,7 +80,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{"test-driver-1"}, Level: config.ConfigEnv}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -121,7 +121,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithMissingVersionInManifest() {
 	// Install a driver
-	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{"test-driver-1"}, Level: config.ConfigEnv}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -189,7 +189,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithPre() {
 }
 
 func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPre() {
-	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+	m := InstallCmd{Driver: []string{"test-driver-only-pre"}, Level: config.ConfigEnv, Pre: true}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -211,7 +211,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalledPre() {
 	before := suite.runCmd(searchModel)
 	suite.NotContains(before, "test-driver-only-pre")
 
-	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+	m := InstallCmd{Driver: []string{"test-driver-only-pre"}, Level: config.ConfigEnv, Pre: true}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -233,7 +233,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdNonVerboseWithInstalledPre() {
 	before := suite.runCmd(searchModel)
 	suite.NotContains(before, "test-driver-only-pre")
 
-	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+	m := InstallCmd{Driver: []string{"test-driver-only-pre"}, Level: config.ConfigEnv, Pre: true}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -253,7 +253,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithInstalledPreJSON() {
 	before := suite.runCmd(searchModel)
 	suite.NotContains(before, `"test-driver-only-pre"`)
 
-	m := InstallCmd{Driver: "test-driver-only-pre", Level: config.ConfigEnv, Pre: true}.
+	m := InstallCmd{Driver: []string{"test-driver-only-pre"}, Level: config.ConfigEnv, Pre: true}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(m)
 
@@ -406,7 +406,7 @@ func (suite *SubcommandTestSuite) TestSearch_JSON() {
 
 	var result struct {
 		Drivers []jsonschema.SearchDriverBasic `json:"drivers"`
-		Warning string                          `json:"warning,omitempty"`
+		Warning string                         `json:"warning,omitempty"`
 	}
 	suite.Require().NoError(json.Unmarshal(env.Payload, &result))
 	suite.NotEmpty(result.Drivers)
@@ -425,7 +425,7 @@ func (suite *SubcommandTestSuite) TestSearch_JSON_Verbose() {
 
 	var result struct {
 		Drivers []jsonschema.SearchDriverVerbose `json:"drivers"`
-		Warning string                            `json:"warning,omitempty"`
+		Warning string                           `json:"warning,omitempty"`
 	}
 	suite.Require().NoError(json.Unmarshal(env.Payload, &result))
 	suite.NotEmpty(result.Drivers)
