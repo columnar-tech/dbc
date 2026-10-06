@@ -53,18 +53,15 @@ The short names in lowercase on the left of the output are the names you need to
 
     The drivers listed above with the `[private]` label require a license to use. See [Private Drivers](./private_drivers.md) to learn how to use these drivers.
 
-## Installing a Driver
+## Installing Drivers
 
 To install a specific driver, such as `mysql`, run:
 
 ```console
 $ dbc install mysql
-[✓] searching
-[✓] downloading
-[✓] installing
-[✓] verifying signature
-
-Installed mysql 0.1.0 to /Users/user/Library/Application Support/ADBC/Drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ mysql 0.1.0
 ```
 
 To confirm the driver is installed, run [`dbc list`](../reference/cli.md#list):
@@ -75,6 +72,22 @@ DRIVER  VERSION  LEVEL  LOCATION
 
 mysql   0.1.0    user   /Users/user/Library/Application Support/ADBC/Drivers
 ```
+
+{{ since_version('v0.4.0') }}
+
+To install multiple drivers in one command, pass each to `dbc install`:
+
+```console
+$ dbc install bigquery "snowflake>=1"
+Resolved 2 drivers
+Installed 2 drivers
+├── ✓ bigquery 1.0.0
+└── ✓ snowflake 1.1.0
+```
+
+!!! note
+
+    Installing multiple drivers this way is an alternative to [dbc sync](../reference/cli.md#sync) using a [driver list](driver_list.md).
 
 ## Version Constraints
 
@@ -152,12 +165,9 @@ Numerous dbc subcommands, including `install`, accept an optional `--level` flag
 
 ```console
 $ sudo dbc install --level system mysql
-[✓] searching
-[✓] downloading
-[✓] installing
-[✓] verifying signature
-
-Installed mysql 0.1.0 to /Library/Application Support/ADBC/Drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ mysql 0.1.0
 ```
 
 Where this installs depends on your operating system:
@@ -184,13 +194,9 @@ For example:
 $ mkdir "$HOME/drivers"
 $ export ADBC_DRIVER_PATH="$HOME/drivers"
 $ dbc install mysql
-
-[✓] searching
-[✓] downloading
-[✓] installing
-[✓] verifying signature
-
-Installed mysql 0.1.0 to /home/user/drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ mysql 0.1.0
 
 $ tree $ADBC_DRIVER_PATH
 /home/user/drivers
@@ -233,12 +239,9 @@ $ source .venv/bin/activate.fish
 
 ~/tmp/my-adbc-project
 .venv $ dbc install mysql
-[✓] searching
-[✓] downloading
-[✓] installing
-[✓] verifying signature
-
-Installed mysql 0.1.0 to /Users/user/tmp/my-adbc-project/.venv/etc/adbc/drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ mysql 0.1.0
 ```
 
 !!! note
@@ -253,12 +256,9 @@ By default, dbc automatically detects whether you've activated a [Conda environm
 $ conda create -n my-adbc-project
 $ conda activate my-adbc-project
 my-adbc-project $ dbc install mysql
-[✓] searching
-[✓] downloading
-[✓] installing
-[✓] verifying signature
-
-Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-project/etc/adbc/drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ mysql 0.1.0
 ```
 
 !!! note
@@ -273,12 +273,9 @@ To install from a local archive, pass the path to a local archive instead of a n
 
 ```console
 $ dbc install --no-verify some_driver.tar.gz
-Installing from local package: some_driver.tar.gz
-
-[✓] installing
-[-] verifying signature
-
-Installed some_driver 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ some_driver 1.0.0
 ```
 
 !!! note
