@@ -102,12 +102,9 @@ Now install it:
 
 ```console
 $ dbc install bigquery
-[✓] searching
-[✓] downloading
-[✓] installing
-[✓] verifying signature
-
-Installed bigquery 1.0.0 to /Users/user/Library/Application Support/ADBC/Drivers
+Resolved 1 driver
+Installed 1 driver
+└── ✓ bigquery 1.0.0
 ```
 
 The BigQuery ADBC driver is now installed and usable by any [driver manager](../concepts/driver_manager.md).

@@ -185,7 +185,11 @@ func (suite *SubcommandTestSuite) runCmdErr(m tea.Model) string {
 	if jm, ok := m.(interface{ IsJSONMode() bool }); ok {
 		inJSONMode = jm.IsJSONMode()
 	}
-	if cmdErr := m.(HasStatus).Err(); cmdErr != nil && !inJSONMode {
+	errShown := false
+	if ed, ok := m.(ErrorDisplayer); ok {
+		errShown = ed.ErrorDisplayed()
+	}
+	if cmdErr := m.(HasStatus).Err(); cmdErr != nil && !inJSONMode && !errShown {
 		extra += "\n" + formatErr(cmdErr)
 	}
 	return ansi.Strip(out.String() + extra)
@@ -229,12 +233,12 @@ func (suite *SubcommandTestSuite) validateOutput(_ /* uiOutput */, finalOutput, 
 // opt into this behavior by instantiating subcommands with `suite.configLevel`
 // like:
 //
-//	m := InstallCmd{Driver: "foo", Level: suite.configLevel}
-//	                                      ^---- here
+//	m := InstallCmd{Driver: []string{"foo"}, Level: suite.configLevel}
+//	                                                ^---- here
 //
 // and can opt out of this behavior by specifying it separately like:
 //
-//	m := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+//	m := InstallCmd{Driver: []string{"test-driver-1"}, Level: config.ConfigEnv}.
 //
 // When any level is explicitly requested, tests are only run for that level.
 // i.e., to run tests for multiple levels, each level must be specified
