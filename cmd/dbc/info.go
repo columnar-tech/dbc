@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
@@ -86,7 +87,7 @@ func formatDriverInfo(drv dbc.Driver) string {
 	b.WriteString(bold.Render("License: ") + drv.License + "\n")
 	b.WriteString(bold.Render("Description: ") + drv.Desc + "\n")
 	if drv.DocsURL != "" {
-		b.WriteString(bold.Render("Docs: ") + drv.DocsURL + "\n")
+		b.WriteString(bold.Render("Documentation: ") + lipgloss.NewStyle().Hyperlink(drv.DocsURL).Underline(true).Render(drv.DocsURL) + "\n")
 	}
 	b.WriteString(bold.Render("Available Packages:") + "\n")
 	for _, pkg := range info.Packages {

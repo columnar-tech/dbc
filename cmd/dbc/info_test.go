@@ -33,7 +33,7 @@ func (suite *SubcommandTestSuite) TestInfo() {
 		"Available Packages:\n"+
 		"   - linux_amd64\n   - macos_amd64\n"+
 		"   - macos_arm64\n   - windows_amd64", out)
-	suite.NotContains(out, "Docs:")
+	suite.NotContains(out, "Documentation:")
 }
 
 func (suite *SubcommandTestSuite) TestInfo_DocsURL() {
@@ -44,7 +44,7 @@ func (suite *SubcommandTestSuite) TestInfo_DocsURL() {
 	suite.validateOutput("\r ", "Driver: test-driver-docs-url\n"+
 		"Version: 1.0.0\nTitle: Test Driver With Docs URL Set\n"+
 		"License: Apache-2.0\nDescription: This is manifest-only with its docs_url key set\n"+
-		"Docs: http://example.com\n"+
+		"Documentation: http://example.com\n"+
 		"Available Packages:\n"+
 		"   - linux_amd64\n   - macos_amd64\n"+
 		"   - macos_arm64\n   - windows_amd64", out)
