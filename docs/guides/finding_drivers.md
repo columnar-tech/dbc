@@ -157,7 +157,8 @@ $ dbc search --verbose
     ├── 0.12.0
     ├── 0.12.6
     ├── 0.12.7
-    ╰── 0.13.0
+    ├── 0.13.0
+    ╰── 0.16.0
 • flightsql
    Title: ASF Apache Arrow Flight SQL Driver
    Description: An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
