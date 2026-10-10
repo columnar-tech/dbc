@@ -24,6 +24,8 @@ import (
 	"slices"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/systempath"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -39,9 +41,9 @@ func init() {
 func (c ConfigLevel) key() registry.Key {
 	switch c {
 	case ConfigSystem:
-		return registry.LOCAL_MACHINE
+		return winregroot.SystemRoot()
 	case ConfigUser:
-		return registry.CURRENT_USER
+		return winregroot.UserRoot()
 	default:
 		return 0
 	}
@@ -62,7 +64,7 @@ func (c ConfigLevel) ConfigLocation() string {
 	var prefix string
 	switch c {
 	case ConfigSystem:
-		prefix = "C:\\Program Files"
+		prefix = systempath.ProgramFilesRoot()
 	case ConfigUser:
 		prefix, _ = os.UserConfigDir()
 	case ConfigEnv:
