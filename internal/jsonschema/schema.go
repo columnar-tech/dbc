@@ -40,8 +40,29 @@ type Envelope struct {
 // Install
 // -----------------------------------------------------------------------------
 
-// InstallStatus is the final JSON payload emitted after a driver installation
-// attempt. It corresponds to the inline struct in cmd/dbc/install.go.
+// InstallResult is the payload of the install.result envelope, emitted last
+// once `dbc install` succeeds, whether one or several drivers were requested.
+// It is preceded by one install.status envelope per driver.
+type InstallResult struct {
+	// Installed lists drivers that were newly installed.
+	Installed []InstallStatus `json:"installed"`
+	// Skipped lists drivers that were already installed at the resolved version.
+	Skipped []InstallStatus `json:"skipped"`
+	// Errors lists drivers that failed to install.
+	Errors []InstallError `json:"errors"`
+}
+
+// InstallError records a driver that failed to install.
+type InstallError struct {
+	// Driver is the driver identifier.
+	Driver string `json:"driver"`
+	// Error is a human-readable description of the failure.
+	Error string `json:"error"`
+}
+
+// InstallStatus is the payload of the install.status envelope, emitted once
+// per driver as it finishes installing (or is found already installed). The
+// same values are listed in InstallResult.
 type InstallStatus struct {
 	// Status is the outcome: "installed", "already installed", or "error".
 	Status string `json:"status"`

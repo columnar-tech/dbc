@@ -1099,7 +1099,7 @@ func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
 		return nil, errors.New("install_registry_test: download stubbed")
 	}
 
-	m := InstallCmd{Driver: "install-test-driver", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{"install-test-driver"}, Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{
 			getDriverRegistry: realRegistryThroughClient(t),
 			downloadPkg:       stubDownload,
@@ -1148,7 +1148,7 @@ func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T)
 		return nil, errors.New("install_registry_test: download stubbed")
 	}
 
-	m := InstallCmd{Driver: "only-driver", Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{"only-driver"}, Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{
 			getDriverRegistry: realRegistryThroughClient(t),
 			downloadPkg:       stubDownload,
@@ -1210,7 +1210,7 @@ func TestInstallCmdRegistryPriorityFirstDeclaredWins(t *testing.T) {
 		return nil, errors.New("install_registry_test: download stubbed")
 	}
 
-	m := InstallCmd{Driver: driverPath, Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{driverPath}, Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{
 			getDriverRegistry: realRegistryThroughClient(t),
 			downloadPkg:       stubDownload,
@@ -1278,7 +1278,7 @@ func TestInstallCmdDBCBaseURLOverridesGlobalConfig(t *testing.T) {
 		return nil, errors.New("install_registry_test: download stubbed")
 	}
 
-	m := InstallCmd{Driver: driverPath, Level: config.ConfigEnv}.
+	m := InstallCmd{Driver: []string{driverPath}, Level: config.ConfigEnv}.
 		GetModelCustom(baseModel{
 			getDriverRegistry: realRegistryThroughClient(t),
 			downloadPkg:       stubDownload,
@@ -1620,7 +1620,7 @@ func TestInstallCmdIgnoresProjectRegistries(t *testing.T) {
 		return nil, errors.New("install_registry_test: download stubbed")
 	}
 
-	m := InstallCmd{Driver: driverPath, Level: config.ConfigEnv}.GetModelCustom(baseModel{
+	m := InstallCmd{Driver: []string{driverPath}, Level: config.ConfigEnv}.GetModelCustom(baseModel{
 		getDriverRegistry: realRegistryThroughClient(t),
 		downloadPkg:       stubDownload,
 	})

@@ -64,6 +64,21 @@ type HasPreamble interface {
 	Preamble() string
 }
 
+// FinalOutputInView is implemented by models whose last rendered frame can
+// already show their FinalOutput, so it stays on screen. When
+// FinalOutputInView returns true and a renderer was used, main doesn't print
+// FinalOutput. It is still printed when no renderer was used (e.g. stdout
+// isn't a TTY).
+type FinalOutputInView interface {
+	FinalOutputInView() bool
+}
+
+// ErrorDisplayer is implemented by models that may show their error in their
+// own output. When ErrorDisplayed returns true, main doesn't print it again.
+type ErrorDisplayer interface {
+	ErrorDisplayed() bool
+}
+
 type HasStatus interface {
 	Status() int
 	Err() error
@@ -501,13 +516,20 @@ func main() {
 	}
 	// Always print FinalOutput in JSON mode — machine-readable payloads must
 	// not be suppressed by --quiet. For non-JSON mode, respect the quiet flag.
+	// finalShown records whether the model's final output reached the user,
+	// either printed here or left on screen as its last rendered frame.
+	finalShown := false
 	if !args.Quiet || inJSONMode {
-		if fo, ok := m.(HasFinalOutput); ok {
+		iv, ok := m.(FinalOutputInView)
+		if usedRenderer && ok && iv.FinalOutputInView() {
+			finalShown = true
+		} else if fo, ok := m.(HasFinalOutput); ok {
 			if output := fo.FinalOutput(); output != "" {
 				// Use lipgloss.Println instead of fmt.Println so that
 				// ANSI codes are automatically stripped when stdout is
 				// not a terminal (e.g. piping to less or grep).
 				lipgloss.Println(output)
+				finalShown = true
 			}
 		}
 	}
@@ -516,7 +538,13 @@ func main() {
 		// Suppress plaintext error formatting when the model already emitted a
 		// structured JSON error envelope (JSON mode). Printing formatErr after
 		// a JSON envelope would corrupt NDJSON consumers.
-		if err := h.Err(); err != nil && !inJSONMode {
+		// Models can show their error in their final output; only skip it here
+		// if that output was actually shown (it isn't with --quiet).
+		errShown := false
+		if ed, ok := m.(ErrorDisplayer); ok && finalShown {
+			errShown = ed.ErrorDisplayed()
+		}
+		if err := h.Err(); err != nil && !inJSONMode && !errShown {
 			lipgloss.Println(formatErr(err))
 		}
 		os.Exit(h.Status())

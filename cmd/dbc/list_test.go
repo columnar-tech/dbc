@@ -35,7 +35,7 @@ func (suite *SubcommandTestSuite) TestListInstalled() {
 		suite.T().Skip()
 	}
 
-	install := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	install := InstallCmd{Driver: []string{"test-driver-1"}, Level: config.ConfigEnv}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(install)
 
@@ -67,7 +67,7 @@ func (suite *SubcommandTestSuite) TestListJSONInstalled() {
 		suite.T().Skip()
 	}
 
-	install := InstallCmd{Driver: "test-driver-1", Level: config.ConfigEnv}.
+	install := InstallCmd{Driver: []string{"test-driver-1"}, Level: config.ConfigEnv}.
 		GetModelCustom(testBaseModel())
 	suite.runCmd(install)
 
