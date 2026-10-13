@@ -55,6 +55,19 @@ linux_amd64 = '/path/to/majestik/moose/file'
 	assert.Equal(t, driverName, driverInfo.ID)
 
 	assert.Equal(t, "/path/to/majestik/moose/file", driverInfo.Driver.Shared.Get("linux_amd64"))
+	assert.True(t, driverInfo.Driver.Shared.HasPlatform("linux_amd64"))
+	assert.False(t, driverInfo.Driver.Shared.HasPlatform("macos_arm64"))
+	assert.Equal(t, []string{"linux_amd64"}, driverInfo.Driver.Shared.PlatformTuples())
+}
+
+func TestDriverMapDefaultPath(t *testing.T) {
+	var shared driverMap
+	shared.defaultPath = "/path/to/driver.so"
+
+	assert.True(t, shared.HasPlatform("linux_amd64"))
+	assert.True(t, shared.HasPlatform("any_platform"))
+	assert.True(t, shared.UsesDefaultPath())
+	assert.Empty(t, shared.PlatformTuples())
 }
 
 func TestCreateDriverManifest(t *testing.T) {

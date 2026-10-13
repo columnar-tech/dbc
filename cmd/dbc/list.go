@@ -29,8 +29,9 @@ import (
 )
 
 type ListCmd struct {
-	Level config.ConfigLevel `arg:"-l" help:"Only list drivers installed at this config level (user, system)"`
-	Json  bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
+	Level        config.ConfigLevel `arg:"-l" help:"Only list drivers installed at this config level (user, system)"`
+	AllPlatforms bool               `arg:"--all-platforms" help:"List drivers for all platforms, including those not loadable on this host"`
+	Json         bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (ListCmd) Description() string {
@@ -39,17 +40,19 @@ func (ListCmd) Description() string {
 
 func (c ListCmd) GetModel() tea.Model {
 	return listModel{
-		level:      c.Level,
-		jsonOutput: c.Json,
+		level:        c.Level,
+		allPlatforms: c.AllPlatforms,
+		jsonOutput:   c.Json,
 	}
 }
 
 type installedDriver struct {
-	Level   config.ConfigLevel
-	ID      string
-	Name    string
-	Version string
-	Path    string
+	Level    config.ConfigLevel
+	ID       string
+	Name     string
+	Version  string
+	Path     string
+	Platform string
 }
 
 type installedDriversMsg []installedDriver
@@ -57,14 +60,44 @@ type installedDriversMsg []installedDriver
 type listModel struct {
 	baseModel
 
-	level      config.ConfigLevel
-	jsonOutput bool
-	drivers    []installedDriver
+	level        config.ConfigLevel
+	allPlatforms bool
+	jsonOutput   bool
+	drivers      []installedDriver
+}
+
+func driverAvailableOnHost(d config.DriverInfo, hostPlatform string) bool {
+	return d.Driver.Shared.HasPlatform(hostPlatform)
+}
+
+func formatPlatformsColumn(d config.DriverInfo, hostPlatform string) string {
+    // If the driver is configured with a default path (i.e. no explicit 
+	// `<platform> = '/path/to/driver.so'` in the manifest),
+	// then we assume that the driver is a match for the host platform.
+	if d.Driver.Shared.UsesDefaultPath() {
+		return hostPlatform + " (*)"
+	}
+
+	platforms := d.Driver.Shared.PlatformTuples()
+	if len(platforms) == 0 {
+		return ""
+	}
+
+	parts := make([]string, len(platforms))
+	for i, platform := range platforms {
+		if platform == hostPlatform {
+			parts[i] = platform + " (*)"
+		} else {
+			parts[i] = platform
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (m listModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		cfgs := config.Get()
+		hostPlatform := config.PlatformTuple()
 
 		var levels []config.ConfigLevel
 		if m.level == config.ConfigUnknown {
@@ -83,17 +116,26 @@ func (m listModel) Init() tea.Cmd {
 				return fmt.Errorf("failed to list drivers at %s level: %w", lvl, cfg.Err)
 			}
 			for _, d := range cfg.Drivers {
+				if !m.allPlatforms && !driverAvailableOnHost(d, hostPlatform) {
+					continue
+				}
+
 				version := ""
 				if d.Version != nil {
 					version = d.Version.String()
 				}
-				drivers = append(drivers, installedDriver{
+
+				entry := installedDriver{
 					Level:   lvl,
 					ID:      d.ID,
 					Name:    d.Name,
 					Version: version,
 					Path:    d.FilePath,
-				})
+				}
+				if m.allPlatforms {
+					entry.Platform = formatPlatformsColumn(d, hostPlatform)
+				}
+				drivers = append(drivers, entry)
 			}
 		}
 
@@ -136,20 +178,25 @@ func (m listModel) FinalOutput() string {
 	}
 
 	if m.jsonOutput {
-		return listDriversJSON(m.drivers)
+		return listDriversJSON(m.drivers, m.allPlatforms)
 	}
-	return formatInstalledDrivers(m.drivers)
+	return formatInstalledDrivers(m.drivers, m.allPlatforms)
 }
 
-func formatInstalledDrivers(drivers []installedDriver) string {
+func formatInstalledDrivers(drivers []installedDriver, allPlatforms bool) string {
 	if len(drivers) == 0 {
 		lipgloss.Fprintln(os.Stderr, "No drivers installed.")
 		return ""
 	}
 
+	headers := []string{"DRIVER", "VERSION", "LEVEL", "LOCATION"}
+	if allPlatforms {
+		headers = []string{"DRIVER", "VERSION", "PLATFORM", "LEVEL", "LOCATION"}
+	}
+
 	t := table.New().Border(lipgloss.HiddenBorder()).
 		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false).
-		Headers("DRIVER", "VERSION", "LEVEL", "LOCATION")
+		Headers(headers...)
 	headerStyle := lipgloss.NewStyle().Bold(true)
 	levelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("63"))
 	versionStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
@@ -163,27 +210,42 @@ func formatInstalledDrivers(drivers []installedDriver) string {
 		case 1:
 			return versionStyle
 		case 2:
+			if allPlatforms {
+				return lipgloss.NewStyle()
+			}
 			return levelStyle
+		case 3:
+			if allPlatforms {
+				return levelStyle
+			}
 		}
 		return lipgloss.NewStyle()
 	})
 	for _, d := range drivers {
-		t.Row(d.ID, d.Version, d.Level.String(), d.Path)
+		if allPlatforms {
+			t.Row(d.ID, d.Version, d.Platform, d.Level.String(), d.Path)
+		} else {
+			t.Row(d.ID, d.Version, d.Level.String(), d.Path)
+		}
 	}
 
 	return strings.TrimRight(t.String(), "\n")
 }
 
-func listDriversJSON(drivers []installedDriver) string {
+func listDriversJSON(drivers []installedDriver, allPlatforms bool) string {
 	entries := make([]jsonschema.ListDriverEntry, 0, len(drivers))
 	for _, d := range drivers {
-		entries = append(entries, jsonschema.ListDriverEntry{
+		entry := jsonschema.ListDriverEntry{
 			Driver:   d.ID,
 			Name:     d.Name,
 			Version:  d.Version,
 			Level:    d.Level.String(),
 			Location: d.Path,
-		})
+		}
+		if allPlatforms {
+			entry.Platform = d.Platform
+		}
+		entries = append(entries, entry)
 	}
 	payloadBytes, err := json.Marshal(jsonschema.ListResponse{Drivers: entries})
 	if err != nil {
