@@ -28,6 +28,7 @@ databricks           An ADBC Driver for Databricks developed by the ADBC Driver 
 datafusion           An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
 duckdb               An ADBC driver for DuckDB developed by the DuckDB Foundation
 exasol               An ADBC driver for Exasol developed by Exasol Labs
+firebolt             An ADBC driver for Firebolt
 flightsql            An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 mssql                An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql                An ADBC Driver for MySQL developed by the ADBC Driver Foundry
@@ -118,7 +119,8 @@ $ dbc search --verbose
    License: Apache-2.0
    Available Versions:
     ├── 0.1.2
-    ╰── 0.1.3
+    ├── 0.1.3
+    ╰── 0.2.0
 • datafusion
    Title: ADBC Driver Foundry Driver for Apache DataFusion
    Description: An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
@@ -159,6 +161,12 @@ $ dbc search --verbose
     ├── 0.12.7
     ├── 0.13.0
     ╰── 0.16.0
+• firebolt
+   Title: firebolt
+   Description: An ADBC driver for Firebolt
+   License: Apache-2.0
+   Available Versions:
+    ╰── 0.2.0
 • flightsql
    Title: ASF Apache Arrow Flight SQL Driver
    Description: An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
@@ -199,7 +207,8 @@ $ dbc search --verbose
     ├── 0.4.0
     ├── 0.5.0
     ├── 0.6.0
-    ╰── 0.6.1
+    ├── 0.6.1
+    ╰── 0.7.0
 • postgresql
    Title: ASF PostgreSQL Driver
    Description: An ADBC driver for PostgreSQL developed under the Apache Software Foundation
@@ -269,7 +278,8 @@ $ dbc search --verbose
     ├── 0.5.0
     ├── 0.5.1
     ├── 0.5.2
-    ╰── 0.5.3
+    ├── 0.5.3
+    ╰── 0.6.0
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
@@ -329,7 +339,8 @@ $ dbc search --pre --verbose mysql
     ├── 0.4.0
     ├── 0.5.0
     ├── 0.6.0
-    ╰── 0.6.1
+    ├── 0.6.1
+    ╰── 0.7.0
 ```
 <!-- /dbc-output -->
 
