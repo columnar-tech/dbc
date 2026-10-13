@@ -33,6 +33,7 @@ databricks           An ADBC Driver for Databricks developed by the ADBC Driver 
 datafusion           An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
 duckdb               An ADBC driver for DuckDB developed by the DuckDB Foundation
 exasol               An ADBC driver for Exasol developed by Exasol Labs
+firebolt             An ADBC driver for Firebolt
 flightsql            An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 mssql                An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql                An ADBC Driver for MySQL developed by the ADBC Driver Foundry
