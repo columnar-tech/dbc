@@ -59,8 +59,8 @@ func TestProxyEnvHelper(t *testing.T) {
 
 func TestProxyEnv(t *testing.T) {
 	const (
-		httpTarget  = "http://dbc-cdn.columnar.tech/index.yaml"
-		httpsTarget = "https://dbc-cdn.columnar.tech/index.yaml"
+		httpTarget  = "http://dbc-proxy-test.invalid/index.yaml"
+		httpsTarget = "https://dbc-proxy-test.invalid/index.yaml"
 	)
 
 	tests := []struct {
@@ -77,8 +77,8 @@ func TestProxyEnv(t *testing.T) {
 		{"HTTPS_PROXY ignored for http", map[string]string{"HTTPS_PROXY": "{proxy}"}, httpTarget, false, ""},
 		{"HTTP_PROXY ignored for https", map[string]string{"HTTP_PROXY": "{proxy}"}, httpsTarget, false, ""},
 		{"no proxy variables", nil, httpsTarget, false, ""},
-		{"NO_PROXY bypasses HTTP_PROXY", map[string]string{"HTTP_PROXY": "{proxy}", "NO_PROXY": "dbc-cdn.columnar.tech"}, httpTarget, false, ""},
-		{"no_proxy bypasses HTTPS_PROXY", map[string]string{"HTTPS_PROXY": "{proxy}", "no_proxy": "dbc-cdn.columnar.tech"}, httpsTarget, false, ""},
+		{"NO_PROXY bypasses HTTP_PROXY", map[string]string{"HTTP_PROXY": "{proxy}", "NO_PROXY": "dbc-proxy-test.invalid"}, httpTarget, false, ""},
+		{"no_proxy bypasses HTTPS_PROXY", map[string]string{"HTTPS_PROXY": "{proxy}", "no_proxy": "dbc-proxy-test.invalid"}, httpsTarget, false, ""},
 		{"NO_PROXY domain suffix", map[string]string{"HTTPS_PROXY": "{proxy}", "NO_PROXY": ".invalid"}, httpsTarget, false, ""},
 		{"NO_PROXY wildcard", map[string]string{"HTTPS_PROXY": "{proxy}", "NO_PROXY": "*"}, httpsTarget, false, ""},
 		{"NO_PROXY for other host", map[string]string{"HTTPS_PROXY": "{proxy}", "NO_PROXY": "example.com"}, httpsTarget, true, http.MethodConnect},
@@ -121,7 +121,7 @@ func TestProxyEnv(t *testing.T) {
 			}
 			require.Len(t, seen, 1, "expected exactly one request via the proxy")
 			assert.Equal(t, tt.wantMeth, seen[0].Method)
-			assert.Equal(t, "dbc-cdn.columnar.tech", strings.Split(seen[0].Host, ":")[0])
+			assert.Equal(t, "dbc-proxy-test.invalid", strings.Split(seen[0].Host, ":")[0])
 		})
 	}
 }
