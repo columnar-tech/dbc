@@ -27,13 +27,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sys/windows/registry"
 )
 
 // This test suite is only run when the "test_registry" build tag is set.
-// Only run these tests if you're able to modify the windows registry and won't be broken
-// if the ADBC registry keys are cleared/modified/etc.
+// The Windows test main sets dbc's User/System registry roots and driver roots
+// to process-private temporary fixtures. These tests do not exercise real
+// Program Files permissions or the machine registry's ACLs.
 type RegistryTestSuite struct {
 	suite.Suite
 
@@ -62,7 +64,7 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 
 func (s *RegistryTestSuite) clearRegistry() {
 	// Clear out any existing ADBC registry keys to ensure a clean slate.
-	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
+	k, err := registry.OpenKey(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
 	if errors.Is(err, registry.ErrNotExist) {
 		return
 	}
@@ -100,7 +102,7 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
 
-	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
+	k, err := registry.OpenKey(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
 	s.Require().NoError(err)
 	defer k.Close()
 
