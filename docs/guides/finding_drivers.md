@@ -194,7 +194,8 @@ $ dbc search --verbose
     ├── 1.5.0
     ├── 1.6.0
     ├── 1.6.1
-    ╰── 1.6.2
+    ├── 1.6.2
+    ╰── 1.7.0
 • mysql
    Title: ADBC Driver Foundry Driver for MySQL
    Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
@@ -231,7 +232,8 @@ $ dbc search --verbose
     ├── 1.4.0
     ├── 1.5.0
     ├── 1.6.0
-    ╰── 1.7.0
+    ├── 1.7.0
+    ╰── 1.8.0
 • snowflake
    Title: ASF Snowflake Driver
    Description: An ADBC driver for Snowflake developed under the Apache Software Foundation
@@ -253,7 +255,8 @@ $ dbc search --verbose
    Available Versions:
     ├── 0.1.0
     ├── 0.2.0
-    ╰── 0.2.1
+    ├── 0.2.1
+    ╰── 0.2.2
 • sqlite
    Title: ASF SQLite Driver
    Description: An ADBC driver for SQLite developed under the Apache Software Foundation
