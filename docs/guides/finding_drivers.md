@@ -282,7 +282,8 @@ $ dbc search --verbose
     ├── 0.5.1
     ├── 0.5.2
     ├── 0.5.3
-    ╰── 0.6.0
+    ├── 0.6.0
+    ╰── 0.6.1
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
