@@ -98,7 +98,8 @@ $ dbc search --verbose
     ├── 1.12.0
     ├── 1.12.1
     ├── 1.12.2
-    ╰── 1.13.0
+    ├── 1.13.0
+    ╰── 1.14.0
 • chdb
    Title: chDB Driver
    Description: An embedded ADBC driver powered by ClickHouse
@@ -247,7 +248,8 @@ $ dbc search --verbose
     ├── 1.11.0
     ├── 1.12.0
     ├── 1.13.0
-    ╰── 1.14.0
+    ├── 1.14.0
+    ╰── 1.15.0
 • spark
    Title: ADBC Driver Foundry Driver for Apache Spark
    Description: An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
