@@ -20,4 +20,11 @@ dbc installs drivers from a "driver registry" which is an internet-accessible in
 
 By default, dbc is configured to communicate with Columnar's public and private driver registries. Most drivers will be from the public registry but some will be marked with a `[private]` label which means they're from the private registry. See [Private Drivers](../guides/private_drivers.md) for information on how to install and use private drivers.
 
+- Public: [https://dbc-cdn.columnar.tech](https://dbc-cdn.columnar.tech)
+- Private: [https://dbc-cdn-private.columnar.tech](https://dbc-cdn-private.columnar.tech)
+
+!!! note
+
+    If you access these registries without dbc, please set a user agent. See [Can I download drivers directly from Columnar's CDN?](../getting_started/faq.md#can-i-download-drivers-directly-from-columnars-cdn).
+
 When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available from each configured registry by downloading its `index.yaml` or using a cached copy.

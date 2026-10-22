@@ -11,6 +11,13 @@ When you use dbc to search for or install a driver, dbc communicates with Column
 - Operating system name and architecture (e.g., linux/amd64)
 - A non-reversible but stable per-machine ID and a random UUID (generated once per install)
 
+Columnar's CDN uses the following two domain names:
+
+- https://dbc-cdn.columnar.tech
+- https://dbc-cdn-private.columnar.tech
+
+Tools that access the CDN without dbc are asked to set a user agent that identifies them. See the [FAQ](../getting_started/faq.md#can-i-download-drivers-directly-from-columnars-cdn).
+
 ## Where does it get stored?
 
 The above data is stored as part of the normal recording of HTTP request logs to the CDN. Logs are stored in a private S3 bucket which is only accessible to authorized Columnar staff.
