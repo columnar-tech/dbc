@@ -27,7 +27,7 @@ import (
 )
 
 func (suite *SubcommandTestSuite) TearDownTest() {
-	// Clean up the process-private registry and filesystem fixtures after each test.
+	// Clean up the selected registry roots and filesystem roots after each test.
 	_, user := os.LookupEnv("DBC_TEST_LEVEL_USER")
 	_, system := os.LookupEnv("DBC_TEST_LEVEL_SYSTEM")
 

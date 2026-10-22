@@ -58,9 +58,7 @@ jobs:
       - name: Build dbc
         run: go build ./cmd/dbc
       - name: Run Tests
-        # the file with `test_registry` also requires windows, so we can safely add this tag
-        # without it running on non-windows OSes
-        run: go test -v -tags test_registry ./...
+        run: go test -v ./...
 
       # User and System level tests
       - name: Run Tests (User)
@@ -76,5 +74,8 @@ jobs:
       - name: Run Tests (System, Windows)
         if: runner.os == 'Windows'
         run: go test -v ./...
+        # Disposable runner only: exercises real HKLM/Program Files (and the
+        # registry suite's real HKCU) while deleting ADBC registrations/files.
         env:
           DBC_TEST_LEVEL_SYSTEM: 1
+          DBC_TEST_WINDOWS_REAL_LOCATIONS: 1

@@ -22,6 +22,9 @@ import "sync"
 const defaultProgramFilesRoot = `C:\Program Files`
 
 var (
+	// Setters are used by TestMain before tests and restored after they finish.
+	// The mutex protects reads and writes of this variable; it does not make
+	// changing the root while tests are using it safe.
 	programFilesRootMu sync.RWMutex
 	programFilesRoot   = defaultProgramFilesRoot
 )

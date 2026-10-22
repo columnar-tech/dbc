@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build windows && test_registry
+//go:build windows
 
 package main
 
@@ -32,10 +32,10 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// This test suite is only run when the "test_registry" build tag is set.
-// The Windows test main sets dbc's User/System registry roots and driver roots
-// to process-private temporary fixtures. These tests do not exercise real
-// Program Files permissions or the machine registry's ACLs.
+// This suite runs in the default Windows test set. The Windows test main uses
+// process-private fixtures by default; DBC_TEST_WINDOWS_REAL_LOCATIONS=1 bypasses
+// them, in which case these tests modify and remove the current user's ADBC
+// registry keys and driver files.
 type RegistryTestSuite struct {
 	suite.Suite
 

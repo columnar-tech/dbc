@@ -14,9 +14,10 @@
 
 //go:build windows
 
-// Package winregroot provides the registry roots used by dbc's Windows
-// registration code. Test overrides affect only callers of this package and do
-// not change the registry view seen by Windows system libraries.
+// Package winregroot provides registry roots for dbc's Windows registration
+// code. Keeping registry-root selection separate from filesystem-root
+// selection lets tests isolate those two concerns independently. Overrides
+// affect only dbc callers and do not change Windows system libraries' view.
 package winregroot
 
 import (
@@ -26,6 +27,9 @@ import (
 )
 
 var (
+	// Setters are used by TestMain before tests and restored after they finish.
+	// The mutex protects reads and writes of these variables; it does not make
+	// changing roots while tests are using them safe.
 	rootsMu    sync.RWMutex
 	userRoot   = registry.CURRENT_USER
 	systemRoot = registry.LOCAL_MACHINE

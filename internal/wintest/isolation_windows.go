@@ -33,6 +33,13 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// RealLocationsEnvironment disables the private fixture when set to "1" by a
+// Windows test binary's TestMain. This mode is for disposable CI runners: tests
+// may modify and remove the current user's and machine's ADBC registrations and
+// files. Callers choose it explicitly; Setup always creates and verifies
+// isolation and never falls back to real roots.
+const RealLocationsEnvironment = "DBC_TEST_WINDOWS_REAL_LOCATIONS"
+
 const regProcessAppKey = 0x00000001
 
 var clearForTestsEnvironment = []string{"ADBC_DRIVER_PATH", "VIRTUAL_ENV", "CONDA_PREFIX"}
@@ -66,7 +73,8 @@ type environmentValue struct {
 }
 
 // Setup creates the process-private Windows test fixture. Any setup failure
-// rolls back all state before returning, so callers can fail closed.
+// rolls back all state before returning, so callers can fail closed. Tests
+// that intentionally use real Windows roots must choose that mode in TestMain.
 func Setup() (*Isolation, error) {
 	isolation := &Isolation{}
 	isolation.priorAppData, isolation.hadAppData = os.LookupEnv("APPDATA")

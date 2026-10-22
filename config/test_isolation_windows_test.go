@@ -28,6 +28,10 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv(wintest.RealLocationsEnvironment) == "1" {
+		os.Exit(m.Run())
+	}
+
 	isolation, err := wintest.Setup()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "set up isolated Windows config tests: %v\n", err)

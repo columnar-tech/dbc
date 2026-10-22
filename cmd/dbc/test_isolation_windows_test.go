@@ -37,6 +37,7 @@ import (
 
 const (
 	windowsTestIsolationChildEnv = "DBC_WINDOWS_TEST_ISOLATION_CHILD"
+	windowsTestRealLocationsEnv  = wintest.RealLocationsEnvironment
 	windowsTestIsolationUserEnv  = "DBC_WINDOWS_TEST_ISOLATION_PARENT_USER"
 	windowsTestIsolationSysEnv   = "DBC_WINDOWS_TEST_ISOLATION_PARENT_SYSTEM"
 	windowsTestIsolationDriverID = "dbc-process-isolation-sentinel"
@@ -44,6 +45,10 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv(windowsTestRealLocationsEnv) == "1" {
+		os.Exit(m.Run())
+	}
+
 	isolation, err := wintest.Setup()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "set up isolated Windows CLI tests: %v\n", err)
@@ -74,6 +79,9 @@ func verifyWindowsCLIConfigRoots(isolation *wintest.Isolation) error {
 }
 
 func TestWindowsTestIsolationAcrossProcesses(t *testing.T) {
+	if os.Getenv(windowsTestRealLocationsEnv) == "1" {
+		t.Skip("destructive process-isolation test requires private registry and filesystem roots")
+	}
 	if os.Getenv(windowsTestIsolationChildEnv) == "1" {
 		runWindowsTestIsolationChild(t)
 		return
@@ -166,6 +174,9 @@ func runWindowsTestIsolationChild(t *testing.T) {
 
 func assertLocalHTTPRoundTrip(t *testing.T) {
 	t.Helper()
+	// Exercise loopback networking in a fresh process after changing only dbc's
+	// registry roots. This guards against regressions like the earlier global
+	// registry override, which was associated with Windows network-init failures.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "local loopback works")
 	}))
