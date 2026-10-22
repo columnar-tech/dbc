@@ -5,7 +5,9 @@ _dbc() {
     _init_completion || return
 
     local subcommands="install uninstall list init add sync search info docs remove completion auth"
-    local global_opts="--help -h --version --quiet -q --user-agent -u"
+    # --user-agent/-u is a hidden option: never offered, but its value is
+    # skipped below so completion keeps working when it is used.
+    local global_opts="--help -h --version --quiet -q"
 
     # --user-agent takes a free-form value; offer no completions for it
     # (covers both "-u <TAB>" and "--user-agent=<TAB>")

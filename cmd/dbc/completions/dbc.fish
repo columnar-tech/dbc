@@ -21,8 +21,21 @@ function __fish_dbc_tokens
     end
 end
 
+# True when the cursor sits on the value of the hidden --user-agent/-u option,
+# which is deliberately not declared to fish (so it is never offered).
+function __fish_dbc_in_user_agent_value
+    switch (commandline -opc)[-1]
+        case -u --user-agent
+            return 0
+    end
+    return 1
+end
+
 # Helper function to check if a subcommand has been given
 function __fish_dbc_needs_command
+    if __fish_dbc_in_user_agent_value
+        return 1
+    end
     set -l cmd (__fish_dbc_tokens)
     set -e cmd[1]
     if test (count $cmd) -eq 0
@@ -47,7 +60,8 @@ complete -c dbc -n '__fish_dbc_needs_command' -l help -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -s h -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -l version -d 'Show version'
 complete -c dbc -n '__fish_dbc_needs_command' -l quiet -s q -d 'Suppress all output'
-complete -c dbc -n '__fish_dbc_needs_command' -l user-agent -s u -x -d 'Append a custom string to the User-Agent header'
+# The hidden --user-agent value is free-form: no file or other candidates
+complete -c dbc -n '__fish_dbc_in_user_agent_value' -f
 
 # Subcommands
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'install' -d 'Install a driver'
