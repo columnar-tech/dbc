@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -88,4 +91,35 @@ func TestNewDBCClientSendsUserAgent(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// TestSetUserAgentSuffixCoversAuthAndDownloads verifies that the HTTP paths
+// outside dbcClient — the auth client and package downloads via
+// PkgInfo.DownloadPackage — also send the suffix.
+func TestSetUserAgentSuffixCoversAuthAndDownloads(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = append(got, r.Header.Get("User-Agent"))
+		_, _ = w.Write([]byte("pkg"))
+	}))
+	t.Cleanup(srv.Close)
+	t.Setenv("CI", "")
+
+	prevSuffix, prevDefault := userAgentSuffix, dbc.DefaultClient
+	t.Cleanup(func() { userAgentSuffix, dbc.DefaultClient = prevSuffix, prevDefault })
+	setUserAgentSuffix("my-tool/2.0")
+	want := defaultUserAgent() + " my-tool/2.0"
+
+	resp, err := authHTTPClient().Get(srv.URL)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	u, err := url.Parse(srv.URL + "/pkg.tar.gz")
+	require.NoError(t, err)
+	f, err := dbc.PkgInfo{Path: u}.DownloadPackage(func(int64, int64) {})
+	require.NoError(t, err)
+	f.Close()
+	t.Cleanup(func() { os.RemoveAll(filepath.Dir(f.Name())) })
+
+	assert.Equal(t, []string{want, want}, got)
 }

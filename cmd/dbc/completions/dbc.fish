@@ -1,8 +1,29 @@
 # fish completion for dbc            -*- shell-script -*-
 
+# Tokens before the cursor with leading global options (and the --user-agent
+# value) removed, so the subcommand is always at index 2.
+function __fish_dbc_tokens
+    set -l tokens (commandline -opc)
+    printf '%s\n' $tokens[1]
+    set -l i 2
+    while test $i -le (count $tokens)
+        switch $tokens[$i]
+            case -u --user-agent
+                set i (math $i + 2)
+            case '-*'
+                set i (math $i + 1)
+            case '*'
+                break
+        end
+    end
+    if test $i -le (count $tokens)
+        printf '%s\n' $tokens[$i..-1]
+    end
+end
+
 # Helper function to check if a subcommand has been given
 function __fish_dbc_needs_command
-    set -l cmd (commandline -opc)
+    set -l cmd (__fish_dbc_tokens)
     set -e cmd[1]
     if test (count $cmd) -eq 0
         return 0
@@ -12,7 +33,7 @@ end
 
 # Helper function to check if we're using a specific subcommand
 function __fish_dbc_using_subcommand
-    set -l cmd (commandline -opc)
+    set -l cmd (__fish_dbc_tokens)
     if test (count $cmd) -gt 1
         if test $argv[1] = $cmd[2]
             return 0
@@ -112,7 +133,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand completion' -a 'fish' -d 'Gen
 
 # Helper function to check if we're using auth subcommand and need a nested subcommand
 function __fish_dbc_auth_needs_subcommand
-    set -l cmd (commandline -opc)
+    set -l cmd (__fish_dbc_tokens)
     if test (count $cmd) -eq 2
         if test $cmd[2] = "auth"
             return 0
@@ -123,7 +144,7 @@ end
 
 # Helper function to check if we're using a specific auth subcommand
 function __fish_dbc_auth_using_subcommand
-    set -l cmd (commandline -opc)
+    set -l cmd (__fish_dbc_tokens)
     if test (count $cmd) -gt 2
         if test $cmd[2] = "auth" -a $argv[1] = $cmd[3]
             return 0
@@ -151,7 +172,7 @@ complete -f -c dbc -n '__fish_dbc_auth_using_subcommand logout' -l purge -d 'Rem
 
 # Helper function to check if we need a license subcommand
 function __fish_dbc_auth_license_needs_subcommand
-    set -l cmd (commandline -opc)
+    set -l cmd (__fish_dbc_tokens)
     if test (count $cmd) -eq 3
         if test $cmd[2] = "auth" -a $cmd[3] = "license"
             return 0
@@ -162,7 +183,7 @@ end
 
 # Helper function to check if we're using a specific auth license subcommand
 function __fish_dbc_auth_license_using_subcommand
-    set -l cmd (commandline -opc)
+    set -l cmd (__fish_dbc_tokens)
     if test (count $cmd) -gt 3
         if test $cmd[2] = "auth" -a $cmd[3] = "license" -a $argv[1] = $cmd[4]
             return 0

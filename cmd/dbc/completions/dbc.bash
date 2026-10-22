@@ -14,14 +14,41 @@ _dbc() {
             ;;
     esac
 
-    # If we're completing the first argument (subcommand)
-    if [[ $cword -eq 1 ]]; then
+    # Skip leading global options (and the --user-agent value) to find the
+    # subcommand. COMP_WORDS splits "--user-agent=x" into "--user-agent" "=" "x".
+    local i=1
+    while [[ $i -lt $COMP_CWORD ]]; do
+        case "${COMP_WORDS[i]}" in
+            --user-agent|-u)
+                if [[ "${COMP_WORDS[i+1]}" == "=" ]]; then
+                    ((i += 3))
+                else
+                    ((i += 2))
+                fi
+                ;;
+            -*)
+                ((i += 1))
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    # If we're completing the subcommand itself
+    if [[ $i -ge $COMP_CWORD ]]; then
         COMPREPLY=($(compgen -W "$subcommands $global_opts" -- "$cur"))
         return 0
     fi
 
-    # Get the subcommand (first argument)
-    local subcommand="${words[1]}"
+    local subcommand="${COMP_WORDS[i]}"
+
+    # The per-subcommand completers index COMP_WORDS positionally (subcommand
+    # at 1), so hand them a view with the global options removed.
+    local -a sub_words=("${COMP_WORDS[0]}" "${COMP_WORDS[@]:i}")
+    local sub_cword=$((COMP_CWORD - i + 1))
+    local -a COMP_WORDS=("${sub_words[@]}")
+    local COMP_CWORD=$sub_cword
 
     case "$subcommand" in
         install)

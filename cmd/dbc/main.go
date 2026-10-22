@@ -95,16 +95,33 @@ func newDefaultClient() (*dbc.Client, error) {
 
 // authHTTPClient returns an *http.Client suitable for auth flows (device-code
 // login, license fetch, etc.) that do not need driver registries resolved.
-// It bypasses dbc.NewClient so registry misconfiguration — a valid state for
-// a user who is about to run `dbc auth login` to fix it — cannot break login.
+// It bypasses dbc.NewClient's registry resolution so registry misconfiguration
+// — a valid state for a user who is about to run `dbc auth login` to fix it —
+// cannot break login. It carries the --user-agent suffix, if any.
 func authHTTPClient() *http.Client {
-	c, err := dbc.NewClient(dbc.WithBaseURL("https://placeholder.invalid"))
+	opts := []dbc.Option{dbc.WithBaseURL("https://placeholder.invalid")}
+	if userAgentSuffix != "" {
+		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
+	}
+	c, err := dbc.NewClient(opts...)
 	if err != nil {
 		// Impossible in practice: WithBaseURL short-circuits all registry
 		// validation. Fall back to http.DefaultClient so auth still works.
 		return http.DefaultClient
 	}
 	return c.HTTPClient()
+}
+
+// setUserAgentSuffix records the --user-agent suffix for every client the CLI
+// builds. Must run before the program issues requests, as dbc.DefaultClient
+// requires.
+func setUserAgentSuffix(suffix string) {
+	userAgentSuffix = suffix
+	if suffix != "" {
+		// Package downloads (PkgInfo.DownloadPackage) use the package-level
+		// client rather than dbcClient.
+		dbc.DefaultClient = authHTTPClient()
+	}
 }
 
 // newDBCClient builds a client with the given project registry overrides.
@@ -472,7 +489,7 @@ func main() {
 		needsRenderer = false
 	}
 
-	userAgentSuffix = args.UserAgent
+	setUserAgentSuffix(args.UserAgent)
 
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false

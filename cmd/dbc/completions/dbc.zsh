@@ -6,7 +6,12 @@ compdef _dbc dbc
 function _dbc {
     local line state
 
+    # Global options are declared here (not only listed as values below) so
+    # _arguments skips them and the --user-agent value when locating the
+    # subcommand.
     _arguments -C \
+        '(-q --quiet)'{-q,--quiet}'[Suppress all output]' \
+        '(-u --user-agent)'{-u,--user-agent}'[Append a custom string to the User-Agent header]:user agent suffix: ' \
         "1: :->subcommand" \
         "*::arg:->args"
 
@@ -27,11 +32,7 @@ function _dbc {
                 'auth[Authenticate with a driver registry]' \
                 '--help[Show help]' \
                 '-h[Show help]' \
-                '--version[Show version]' \
-                '--quiet[Suppress all output]' \
-                '-q[Suppress all output]' \
-                '--user-agent[Append a custom string to the User-Agent header]' \
-                '-u[Append a custom string to the User-Agent header]'
+                '--version[Show version]'
         ;;
         args)
             case $line[1] in
