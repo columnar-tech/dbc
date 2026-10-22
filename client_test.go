@@ -74,7 +74,7 @@ func TestNewClientUserAgentCI(t *testing.T) {
 		{"one", "1", true},
 		{"false", "false", false},
 		{"zero", "0", false},
-		{"unparseable", "yes", false},
+		{"unparsable", "yes", false},
 	}
 
 	for _, tt := range tests {
