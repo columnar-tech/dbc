@@ -77,6 +77,8 @@ type NeedsRenderer interface {
 }
 
 var (
+	userAgentSuffix string
+
 	dbcClient     *dbc.Client
 	dbcClientErr  error
 	dbcClientOnce = &sync.Once{}
@@ -120,6 +122,11 @@ func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool)
 			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
 		}
 	}
+
+	if userAgentSuffix != "" {
+		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
+	}
+
 	return dbc.NewClient(opts...)
 }
 
@@ -166,7 +173,6 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	}
 	return dbcClient.Search(context.Background(), "")
 }
-
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -245,6 +251,7 @@ type cmds struct {
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
+	UserAgent  string           `arg:"-u,--user-agent" help:"Append a custom string to the User-Agent header"`
 }
 
 func (cmds) Version() string {
@@ -464,6 +471,9 @@ func main() {
 	if jm, ok := m.(interface{ IsJSONMode() bool }); ok && jm.IsJSONMode() {
 		needsRenderer = false
 	}
+
+	userAgentSuffix = args.UserAgent
+
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {
