@@ -84,6 +84,10 @@ $ dbc search [PATTERN]
 
 :   Suppress all output
 
+`--user-agent`, `-u` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with HTTP requests
+
 ## install
 
 Install a driver.
@@ -125,6 +129,10 @@ $ dbc install [OPTIONS] <DRIVER>
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
+
+`--user-agent`, `-u` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with HTTP requests
 
 ## uninstall
 
@@ -234,6 +242,10 @@ $ dbc add <DRIVER>
 
 :   Suppress all output
 
+`--user-agent`, `-u` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with HTTP requests
+
 ## remove
 
 Remove a driver from the current [driver list](../concepts/driver_list.md).
@@ -291,6 +303,10 @@ dbc sync --file dbc.toml
 
 :   Suppress all output
 
+`--user-agent`, `-u` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with HTTP requests
+
 ## info
 
 Get information about a driver. Shows information about the latest version of the driver with the given name.
@@ -316,6 +332,10 @@ $ dbc info <DRIVER>
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
+
+`--user-agent`, `-u` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with HTTP requests
 
 ## docs
 
@@ -345,6 +365,10 @@ $ dbc docs <DRIVER>
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
+
+`--user-agent`, `-u` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with HTTP requests
 
 ## auth
 

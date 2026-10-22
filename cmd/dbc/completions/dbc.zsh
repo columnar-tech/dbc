@@ -29,7 +29,9 @@ function _dbc {
                 '-h[Show help]' \
                 '--version[Show version]' \
                 '--quiet[Suppress all output]' \
-                '-q[Suppress all output]'
+                '-q[Suppress all output]' \
+                '--user-agent[Append a custom string to the User-Agent header]' \
+                '-u[Append a custom string to the User-Agent header]'
         ;;
         args)
             case $line[1] in

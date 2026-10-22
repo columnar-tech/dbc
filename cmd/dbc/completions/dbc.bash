@@ -5,7 +5,14 @@ _dbc() {
     _init_completion || return
 
     local subcommands="install uninstall list init add sync search info docs remove completion auth"
-    local global_opts="--help -h --version --quiet -q"
+    local global_opts="--help -h --version --quiet -q --user-agent -u"
+
+    # --user-agent takes a free-form value; offer no completions for it
+    case "$prev" in
+        --user-agent|-u)
+            return 0
+            ;;
+    esac
 
     # If we're completing the first argument (subcommand)
     if [[ $cword -eq 1 ]]; then
