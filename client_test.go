@@ -17,6 +17,7 @@ package dbc_test
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/columnar-tech/dbc"
@@ -60,4 +61,32 @@ func TestNewClientWithUserAgent(t *testing.T) {
 	c, err := dbc.NewClient(dbc.WithUserAgent("custom-agent/1.0"))
 	require.NoError(t, err)
 	assert.Equal(t, "custom-agent/1.0", c.UserAgent())
+}
+
+func TestNewClientUserAgentCI(t *testing.T) {
+	tests := []struct {
+		name   string
+		ci     string
+		wantCI bool
+	}{
+		{"unset", "", false},
+		{"true", "true", true},
+		{"one", "1", true},
+		{"false", "false", false},
+		{"zero", "0", false},
+		{"unparseable", "yes", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CI", tt.ci)
+			c, err := dbc.NewClient()
+			require.NoError(t, err)
+			if tt.wantCI {
+				assert.True(t, strings.HasSuffix(c.UserAgent(), " CI"), c.UserAgent())
+			} else {
+				assert.NotContains(t, c.UserAgent(), "CI")
+			}
+		})
+	}
 }

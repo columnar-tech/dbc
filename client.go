@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync"
 
 	"github.com/columnar-tech/dbc/auth"
@@ -68,6 +69,12 @@ func NewClient(opts ...Option) (*Client, error) {
 			{BaseURL: mustParseURL("https://" + auth.DefaultOauthURI())},
 		},
 		userAgent: fmt.Sprintf("dbc-cli/%s (%s; %s)", Version, runtime.GOOS, runtime.GOARCH),
+	}
+
+	if ci := os.Getenv("CI"); ci != "" {
+		if val, _ := strconv.ParseBool(ci); val {
+			cfg.userAgent += " CI"
+		}
 	}
 
 	for _, opt := range opts {
