@@ -33,6 +33,21 @@ func (suite *SubcommandTestSuite) TestInfo() {
 		"Available Packages:\n"+
 		"   - linux_amd64\n   - macos_amd64\n"+
 		"   - macos_arm64\n   - windows_amd64", out)
+	suite.NotContains(out, "Documentation:")
+}
+
+func (suite *SubcommandTestSuite) TestInfo_DocsURL() {
+	m := InfoCmd{Driver: "test-driver-docs-url"}.
+		GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+
+	suite.validateOutput("\r ", "Driver: test-driver-docs-url\n"+
+		"Version: 1.0.0\nTitle: Test Driver With Docs URL Set\n"+
+		"License: Apache-2.0\nDescription: This is manifest-only with its docs_url key set\n"+
+		"Documentation: http://example.com\n"+
+		"Available Packages:\n"+
+		"   - linux_amd64\n   - macos_amd64\n"+
+		"   - macos_arm64\n   - windows_amd64", out)
 }
 
 func (suite *SubcommandTestSuite) TestInfo_DriverNotFound() {
@@ -113,6 +128,21 @@ func (suite *SubcommandTestSuite) TestInfo_JSON() {
 	suite.Equal("1.1.0", info.Version)
 	suite.NotEmpty(info.Title)
 	suite.NotEmpty(info.Packages)
+	suite.Empty(info.DocsURL)
+}
+
+func (suite *SubcommandTestSuite) TestInfo_JSON_DocsURL() {
+	m := InfoCmd{Driver: "test-driver-docs-url", Json: true}.
+		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+
+	var env jsonschema.Envelope
+	suite.Require().NoError(json.Unmarshal([]byte(out), &env), "output must be valid JSON: %s", out)
+
+	var info jsonschema.DriverInfo
+	suite.Require().NoError(json.Unmarshal(env.Payload, &info))
+	suite.Equal("test-driver-docs-url", info.Driver)
+	suite.Equal("http://example.com", info.DocsURL)
 }
 
 func (suite *SubcommandTestSuite) TestInfo_JSON_DriverNotFound() {

@@ -289,6 +289,7 @@ func TestDriverInfo(t *testing.T) {
 		Title:       "Snowflake Driver",
 		License:     "Apache-2.0",
 		Description: "Connects to Snowflake via ADBC",
+		DocsURL:     "https://docs.example.com/snowflake",
 		Packages:    []string{"linux-amd64", "darwin-arm64"},
 	}
 	b, _ := json.Marshal(v)
@@ -297,7 +298,7 @@ func TestDriverInfo(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if got.Driver != v.Driver || got.Version != v.Version || got.Title != v.Title ||
-		got.License != v.License || got.Description != v.Description {
+		got.License != v.License || got.Description != v.Description || got.DocsURL != v.DocsURL {
 		t.Errorf("field mismatch: %+v", got)
 	}
 	if len(got.Packages) != 2 {
@@ -310,7 +311,7 @@ func TestDriverInfo_JSONFieldNames(t *testing.T) {
 	b, _ := json.Marshal(v)
 	var m map[string]interface{}
 	_ = json.Unmarshal(b, &m)
-	for _, key := range []string{"driver", "version", "title", "license", "description", "packages"} {
+	for _, key := range []string{"driver", "version", "title", "license", "description", "docs_url", "packages"} {
 		if _, ok := m[key]; !ok {
 			t.Errorf("missing JSON key %q", key)
 		}

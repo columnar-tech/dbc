@@ -153,6 +153,8 @@ type DriverInfo struct {
 	License string `json:"license"`
 	// Description is a detailed description of the driver.
 	Description string `json:"description"`
+	// DocsURL is the URL of the driver's documentation, or empty if none.
+	DocsURL string `json:"docs_url"`
 	// Packages lists the supported platform tuples.
 	Packages []string `json:"packages"`
 }
