@@ -47,7 +47,7 @@ complete -c dbc -n '__fish_dbc_needs_command' -l help -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -s h -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -l version -d 'Show version'
 complete -c dbc -n '__fish_dbc_needs_command' -l quiet -s q -d 'Suppress all output'
-complete -c dbc -n '__fish_dbc_needs_command' -l user-agent -s u -r -d 'Append a custom string to the User-Agent header'
+complete -c dbc -n '__fish_dbc_needs_command' -l user-agent -s u -x -d 'Append a custom string to the User-Agent header'
 
 # Subcommands
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'install' -d 'Install a driver'

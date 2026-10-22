@@ -8,11 +8,19 @@ _dbc() {
     local global_opts="--help -h --version --quiet -q --user-agent -u"
 
     # --user-agent takes a free-form value; offer no completions for it
+    # (covers both "-u <TAB>" and "--user-agent=<TAB>")
     case "$prev" in
         --user-agent|-u)
             return 0
             ;;
     esac
+    # COMP_WORDS splits "--user-agent=val" into "--user-agent" "=" "val"; the
+    # cursor is on "=" or on the value word after it.
+    local w1="${COMP_WORDS[COMP_CWORD-1]}" w2="${COMP_WORDS[COMP_CWORD-2]}"
+    if [[ "${COMP_WORDS[COMP_CWORD]}" == "=" && "$w1" == --user-agent ]] ||
+        [[ "$w1" == "=" && "$w2" == --user-agent ]]; then
+        return 0
+    fi
 
     # Skip leading global options (and the --user-agent value) to find the
     # subcommand. COMP_WORDS splits "--user-agent=x" into "--user-agent" "=" "x".
