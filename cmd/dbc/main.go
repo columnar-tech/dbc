@@ -268,7 +268,7 @@ type cmds struct {
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
-	UserAgent  string           `arg:"-u,--user-agent" help:"Append a custom string to the User-Agent header"`
+	UserAgent  string           `arg:"-u,--user-agent,hidden"`
 }
 
 func (cmds) Version() string {
