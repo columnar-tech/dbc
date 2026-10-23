@@ -50,6 +50,12 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#auth">dbc auth</a></dt><dd><p>Manage driver registry credentials</p></dd>
 </dl>
 
+<h2>Environment Variables</h2>
+
+`DBC_USER_AGENT_SUFFIX` {{ since_version('v0.4.0') }}
+
+:   Append a custom string to the `User-Agent` header sent with dbc's HTTP requests (driver registry lookups, package downloads, and `dbc auth login`)
+
 ## search
 
 Search for a driver to install.
