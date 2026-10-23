@@ -18,7 +18,7 @@ limitations under the License.
 
 {{ since_version('v0.2.0') }}
 
-Most [drivers](../concepts/driver.md) available with [dbc](../index.md) are hosted on Columnar's public [driver registry](../concepts/driver_registry.md). However, some of the drivers you see when you run [`dbc search`](../reference/cli.md#search) may be marked with a `[private]` label.
+Most [drivers](../concepts/driver.md) available with [dbc](../index.md) are hosted on the public ADBC [driver registry](../concepts/driver_registry.md). However, some of the drivers you see when you run [`dbc search`](../reference/cli.md#search) may be marked with a `[private]` label.
 
 To install and use these drivers, you must:
 
