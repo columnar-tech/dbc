@@ -7,14 +7,33 @@ _dbc() {
     local subcommands="install uninstall list init add sync search info docs remove completion auth"
     local global_opts="--help -h --version --quiet -q"
 
-    # If we're completing the first argument (subcommand)
-    if [[ $cword -eq 1 ]]; then
+    # Skip leading global options to find the subcommand.
+    local i=1
+    while [[ $i -lt $COMP_CWORD ]]; do
+        case "${COMP_WORDS[i]}" in
+            -*)
+                ((i += 1))
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
+    # If we're completing the subcommand itself
+    if [[ $i -ge $COMP_CWORD ]]; then
         COMPREPLY=($(compgen -W "$subcommands $global_opts" -- "$cur"))
         return 0
     fi
 
-    # Get the subcommand (first argument)
-    local subcommand="${words[1]}"
+    local subcommand="${COMP_WORDS[i]}"
+
+    # The per-subcommand completers index COMP_WORDS positionally (subcommand
+    # at 1), so hand them a view with the global options removed.
+    local -a sub_words=("${COMP_WORDS[0]}" "${COMP_WORDS[@]:i}")
+    local sub_cword=$((COMP_CWORD - i + 1))
+    local -a COMP_WORDS=("${sub_words[@]}")
+    local COMP_CWORD=$sub_cword
 
     case "$subcommand" in
         install)

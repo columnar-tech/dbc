@@ -6,7 +6,13 @@ compdef _dbc dbc
 function _dbc {
     local line state
 
+    # Global options are declared as _arguments specs (not listed as values
+    # below) so _arguments offers them and skips them when locating the
+    # subcommand.
     _arguments -C \
+        '(-h --help)'{-h,--help}'[Show help]' \
+        '--version[Show version]' \
+        '(-q --quiet)'{-q,--quiet}'[Suppress all output]' \
         "1: :->subcommand" \
         "*::arg:->args"
 
@@ -24,12 +30,7 @@ function _dbc {
                 'docs[Open driver documentation in a web browser]' \
                 'remove[Remove a driver from the driver list]' \
                 'completion[Generate shell completions]' \
-                'auth[Authenticate with a driver registry]' \
-                '--help[Show help]' \
-                '-h[Show help]' \
-                '--version[Show version]' \
-                '--quiet[Suppress all output]' \
-                '-q[Suppress all output]'
+                'auth[Authenticate with a driver registry]'
         ;;
         args)
             case $line[1] in
