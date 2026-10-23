@@ -48,7 +48,7 @@ teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 <!-- /dbc-output -->
 
-The short names in lowercase on the left of the output are the names you need to pass to [`dbc install`](../reference/cli.md#install). These drivers are available from Columnar's [driver registry](../concepts/driver_registry.md).
+The short names in lowercase on the left of the output are the names you need to pass to [`dbc install`](../reference/cli.md#install). These drivers are available from the public ADBC [driver registry](../concepts/driver_registry.md).
 
 !!! note
 

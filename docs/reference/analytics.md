@@ -4,19 +4,19 @@ Columnar collects basic, anonymized information in order to help us better under
 
 ## What data do we collect?
 
-When you use dbc to search for or install a driver, dbc communicates with Columnar's CDN which is hosted using [Amazon Web Services](http://aws.amazon.com). Requests to the CDN include information such as:
+When you use dbc to search for or install a driver, dbc sends requests to the [driver registries](../concepts/driver_registry.md) it's configured to use. By default, these are:
+
+- The public ADBC driver registry (https://dbc-cdn.columnar.tech), which is affiliated with the [ADBC Driver Foundry](https://adbc-drivers.org) and hosted by Columnar
+- Columnar's private driver registry (https://dbc-cdn-private.columnar.tech)
+
+Both registries are served from a CDN that Columnar operates on [Amazon Web Services](http://aws.amazon.com). Requests to the CDN include information such as:
 
 - IP address
 - dbc version
 - Operating system name and architecture (e.g., linux/amd64)
 - A non-reversible but stable per-machine ID and a random UUID (generated once per install)
 
-Columnar's CDN uses the following two domain names:
-
-- https://dbc-cdn.columnar.tech
-- https://dbc-cdn-private.columnar.tech
-
-Tools that access the CDN without dbc are asked to set a user agent that identifies them. See the [FAQ](../getting_started/faq.md#can-i-download-drivers-directly-from-columnars-cdn).
+Tools that access the registries without dbc are asked to set a user agent that identifies them. See the [FAQ](../getting_started/faq.md#can-i-download-drivers-directly-from-the-driver-registries).
 
 ## Where does it get stored?
 
