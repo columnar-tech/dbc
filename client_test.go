@@ -90,3 +90,29 @@ func TestNewClientUserAgentCI(t *testing.T) {
 		})
 	}
 }
+
+func TestNewClientWithUserAgentSuffix(t *testing.T) {
+	base, err := dbc.NewClient()
+	require.NoError(t, err)
+
+	c, err := dbc.NewClient(dbc.WithUserAgentSuffix("my-tool/2.0"))
+	require.NoError(t, err)
+	assert.Equal(t, base.UserAgent()+" my-tool/2.0", c.UserAgent())
+
+	c, err = dbc.NewClient(dbc.WithUserAgentSuffix(""))
+	require.NoError(t, err)
+	assert.Equal(t, base.UserAgent(), c.UserAgent(), "empty suffix must not add a trailing space")
+}
+
+// The suffix is applied after all options, so it composes with WithUserAgent
+// regardless of option order.
+func TestNewClientUserAgentSuffixAppliesToCustomUserAgent(t *testing.T) {
+	for _, opts := range [][]dbc.Option{
+		{dbc.WithUserAgent("custom-agent/1.0"), dbc.WithUserAgentSuffix("my-tool/2.0")},
+		{dbc.WithUserAgentSuffix("my-tool/2.0"), dbc.WithUserAgent("custom-agent/1.0")},
+	} {
+		c, err := dbc.NewClient(opts...)
+		require.NoError(t, err)
+		assert.Equal(t, "custom-agent/1.0 my-tool/2.0", c.UserAgent())
+	}
+}

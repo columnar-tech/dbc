@@ -77,6 +77,8 @@ type NeedsRenderer interface {
 }
 
 var (
+	userAgentSuffix string
+
 	dbcClient     *dbc.Client
 	dbcClientErr  error
 	dbcClientOnce = &sync.Once{}
@@ -93,16 +95,33 @@ func newDefaultClient() (*dbc.Client, error) {
 
 // authHTTPClient returns an *http.Client suitable for auth flows (device-code
 // login, license fetch, etc.) that do not need driver registries resolved.
-// It bypasses dbc.NewClient so registry misconfiguration — a valid state for
-// a user who is about to run `dbc auth login` to fix it — cannot break login.
+// It bypasses dbc.NewClient's registry resolution so registry misconfiguration
+// — a valid state for a user who is about to run `dbc auth login` to fix it —
+// cannot break login. It carries the DBC_USER_AGENT_SUFFIX suffix, if any.
 func authHTTPClient() *http.Client {
-	c, err := dbc.NewClient(dbc.WithBaseURL("https://placeholder.invalid"))
+	opts := []dbc.Option{dbc.WithBaseURL("https://placeholder.invalid")}
+	if userAgentSuffix != "" {
+		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
+	}
+	c, err := dbc.NewClient(opts...)
 	if err != nil {
 		// Impossible in practice: WithBaseURL short-circuits all registry
 		// validation. Fall back to http.DefaultClient so auth still works.
 		return http.DefaultClient
 	}
 	return c.HTTPClient()
+}
+
+// setUserAgentSuffix records the DBC_USER_AGENT_SUFFIX value for every client
+// the CLI builds. Must run before the program issues requests, as
+// dbc.DefaultClient requires.
+func setUserAgentSuffix(suffix string) {
+	userAgentSuffix = suffix
+	if suffix != "" {
+		// Package downloads (PkgInfo.DownloadPackage) use the package-level
+		// client rather than dbcClient.
+		dbc.DefaultClient = authHTTPClient()
+	}
 }
 
 // newDBCClient builds a client with the given project registry overrides.
@@ -120,6 +139,11 @@ func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool)
 			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
 		}
 	}
+
+	if userAgentSuffix != "" {
+		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
+	}
+
 	return dbc.NewClient(opts...)
 }
 
@@ -166,7 +190,6 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	}
 	return dbcClient.Search(context.Background(), "")
 }
-
 
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
@@ -464,6 +487,9 @@ func main() {
 	if jm, ok := m.(interface{ IsJSONMode() bool }); ok && jm.IsJSONMode() {
 		needsRenderer = false
 	}
+
+	setUserAgentSuffix(os.Getenv("DBC_USER_AGENT_SUFFIX"))
+
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false
 	if !isatty.IsTerminal(os.Stdout.Fd()) || !needsRenderer {

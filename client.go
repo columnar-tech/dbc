@@ -37,6 +37,7 @@ type clientConfig struct {
 	// who pass WithRegistries retain full control over that baseline.
 	registries             []Registry
 	userAgent              string
+	userAgentSuffix        string
 	baseURL                string
 	credentialResolver     func(*url.URL) (*auth.Credential, error)
 	globalConfig           *GlobalConfig
@@ -79,6 +80,10 @@ func NewClient(opts ...Option) (*Client, error) {
 
 	for _, opt := range opts {
 		opt(cfg)
+	}
+
+	if cfg.userAgentSuffix != "" {
+		cfg.userAgent += " " + cfg.userAgentSuffix
 	}
 
 	httpClient := cfg.httpClient
@@ -200,4 +205,11 @@ func WithBaseURL(u string) Option {
 // custom client is supplied its transport is used as-is.
 func WithUserAgent(ua string) Option {
 	return func(cfg *clientConfig) { cfg.userAgent = ua }
+}
+
+// WithUserAgentSuffix appends suffix, separated by a space, to the user agent
+// string (the default or one set via WithUserAgent). Like WithUserAgent, it
+// has no effect on a custom HTTP client supplied via WithHTTPClient.
+func WithUserAgentSuffix(suffix string) Option {
+	return func(cfg *clientConfig) { cfg.userAgentSuffix = suffix }
 }

@@ -20,4 +20,5 @@ limitations under the License.
 - [Config level](./config_level.md)
 - [Driver List](./driver_list.md)
 - [Supported Platforms](./supported_platforms.md)
+- [Environment Variables](./environment_variables.md)
 - [Analytics](./analytics.md)
