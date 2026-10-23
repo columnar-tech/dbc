@@ -7,12 +7,9 @@ function _dbc {
     local line state
 
     # Global options are declared here (not only listed as values below) so
-    # _arguments skips them and the --user-agent value when locating the
-    # subcommand. --user-agent/-u is hidden: "!" keeps it parsed but unoffered.
+    # _arguments skips them when locating the subcommand.
     _arguments -C \
         '(-q --quiet)'{-q,--quiet}'[Suppress all output]' \
-        '!-u:user agent suffix: ' \
-        '!--user-agent=:user agent suffix: ' \
         "1: :->subcommand" \
         "*::arg:->args"
 

@@ -97,7 +97,7 @@ func newDefaultClient() (*dbc.Client, error) {
 // login, license fetch, etc.) that do not need driver registries resolved.
 // It bypasses dbc.NewClient's registry resolution so registry misconfiguration
 // — a valid state for a user who is about to run `dbc auth login` to fix it —
-// cannot break login. It carries the --user-agent suffix, if any.
+// cannot break login. It carries the DBC_USER_AGENT_SUFFIX suffix, if any.
 func authHTTPClient() *http.Client {
 	opts := []dbc.Option{dbc.WithBaseURL("https://placeholder.invalid")}
 	if userAgentSuffix != "" {
@@ -112,9 +112,9 @@ func authHTTPClient() *http.Client {
 	return c.HTTPClient()
 }
 
-// setUserAgentSuffix records the --user-agent suffix for every client the CLI
-// builds. Must run before the program issues requests, as dbc.DefaultClient
-// requires.
+// setUserAgentSuffix records the DBC_USER_AGENT_SUFFIX value for every client
+// the CLI builds. Must run before the program issues requests, as
+// dbc.DefaultClient requires.
 func setUserAgentSuffix(suffix string) {
 	userAgentSuffix = suffix
 	if suffix != "" {
@@ -268,7 +268,6 @@ type cmds struct {
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
-	UserAgent  string           `arg:"-u,--user-agent,hidden"`
 }
 
 func (cmds) Version() string {
@@ -489,7 +488,7 @@ func main() {
 		needsRenderer = false
 	}
 
-	setUserAgentSuffix(args.UserAgent)
+	setUserAgentSuffix(os.Getenv("DBC_USER_AGENT_SUFFIX"))
 
 	// Work around https://github.com/columnar-tech/dbc/issues/351
 	usedRenderer := false

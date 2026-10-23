@@ -33,28 +33,6 @@ func defaultUserAgent() string {
 	return fmt.Sprintf("dbc-cli/%s (%s; %s)", dbc.Version, runtime.GOOS, runtime.GOARCH)
 }
 
-func TestUserAgentFlagParsing(t *testing.T) {
-	tests := []struct {
-		name string
-		argv []string
-		want string
-	}{
-		{"short", []string{"-u", "my-tool/2.0", "search"}, "my-tool/2.0"},
-		{"long", []string{"--user-agent", "my-tool/2.0", "search"}, "my-tool/2.0"},
-		{"long equals", []string{"--user-agent=with spaces (x)", "search"}, "with spaces (x)"},
-		{"absent", []string{"search"}, ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var args cmds
-			p, err := newParser(&args)
-			require.NoError(t, err)
-			require.NoError(t, p.Parse(tt.argv))
-			assert.Equal(t, tt.want, args.UserAgent)
-		})
-	}
-}
-
 // TestNewDBCClientSendsUserAgent verifies the header that actually reaches the
 // server, with and without a custom suffix.
 func TestNewDBCClientSendsUserAgent(t *testing.T) {

@@ -5,37 +5,12 @@ _dbc() {
     _init_completion || return
 
     local subcommands="install uninstall list init add sync search info docs remove completion auth"
-    # --user-agent/-u is a hidden option: never offered, but its value is
-    # skipped below so completion keeps working when it is used.
     local global_opts="--help -h --version --quiet -q"
 
-    # --user-agent takes a free-form value; offer no completions for it
-    # (covers both "-u <TAB>" and "--user-agent=<TAB>")
-    case "$prev" in
-        --user-agent|-u)
-            return 0
-            ;;
-    esac
-    # COMP_WORDS splits "--user-agent=val" into "--user-agent" "=" "val"; the
-    # cursor is on "=" or on the value word after it.
-    local w1="${COMP_WORDS[COMP_CWORD-1]}" w2="${COMP_WORDS[COMP_CWORD-2]}"
-    if [[ "${COMP_WORDS[COMP_CWORD]}" == "=" && "$w1" == --user-agent ]] ||
-        [[ "$w1" == "=" && "$w2" == --user-agent ]]; then
-        return 0
-    fi
-
-    # Skip leading global options (and the --user-agent value) to find the
-    # subcommand. COMP_WORDS splits "--user-agent=x" into "--user-agent" "=" "x".
+    # Skip leading global options to find the subcommand.
     local i=1
     while [[ $i -lt $COMP_CWORD ]]; do
         case "${COMP_WORDS[i]}" in
-            --user-agent|-u)
-                if [[ "${COMP_WORDS[i+1]}" == "=" ]]; then
-                    ((i += 3))
-                else
-                    ((i += 2))
-                fi
-                ;;
             -*)
                 ((i += 1))
                 ;;

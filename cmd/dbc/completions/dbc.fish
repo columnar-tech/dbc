@@ -1,15 +1,13 @@
 # fish completion for dbc            -*- shell-script -*-
 
-# Tokens before the cursor with leading global options (and the --user-agent
-# value) removed, so the subcommand is always at index 2.
+# Tokens before the cursor with leading global options removed, so the
+# subcommand is always at index 2.
 function __fish_dbc_tokens
     set -l tokens (commandline -opc)
     printf '%s\n' $tokens[1]
     set -l i 2
     while test $i -le (count $tokens)
         switch $tokens[$i]
-            case -u --user-agent
-                set i (math $i + 2)
             case '-*'
                 set i (math $i + 1)
             case '*'
@@ -21,21 +19,8 @@ function __fish_dbc_tokens
     end
 end
 
-# True when the cursor sits on the value of the hidden --user-agent/-u option,
-# which is deliberately not declared to fish (so it is never offered).
-function __fish_dbc_in_user_agent_value
-    switch (commandline -opc)[-1]
-        case -u --user-agent
-            return 0
-    end
-    return 1
-end
-
 # Helper function to check if a subcommand has been given
 function __fish_dbc_needs_command
-    if __fish_dbc_in_user_agent_value
-        return 1
-    end
     set -l cmd (__fish_dbc_tokens)
     set -e cmd[1]
     if test (count $cmd) -eq 0
@@ -60,8 +45,6 @@ complete -c dbc -n '__fish_dbc_needs_command' -l help -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -s h -d 'Show help'
 complete -c dbc -n '__fish_dbc_needs_command' -l version -d 'Show version'
 complete -c dbc -n '__fish_dbc_needs_command' -l quiet -s q -d 'Suppress all output'
-# The hidden --user-agent value is free-form: no file or other candidates
-complete -c dbc -n '__fish_dbc_in_user_agent_value' -f
 
 # Subcommands
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'install' -d 'Install a driver'
