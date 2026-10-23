@@ -33,6 +33,7 @@ flightsql            An ADBC driver for Apache Arrow Flight SQL developed under 
 mssql                An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql                An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 postgresql           An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+quack                An ADBC driver for remote DuckDB via Quack
 redshift             An ADBC driver for Amazon Redshift developed by Columnar
 snowflake            An ADBC driver for Snowflake developed under the Apache Software Foundation
 spark                An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
@@ -99,7 +100,8 @@ $ dbc search --verbose
     ├── 1.12.1
     ├── 1.12.2
     ├── 1.13.0
-    ╰── 1.14.0
+    ├── 1.14.0
+    ╰── 1.14.1
 • chdb
    Title: chDB Driver
    Description: An embedded ADBC driver powered by ClickHouse
@@ -121,7 +123,8 @@ $ dbc search --verbose
    Available Versions:
     ├── 0.1.2
     ├── 0.1.3
-    ╰── 0.2.0
+    ├── 0.2.0
+    ╰── 0.3.0
 • datafusion
    Title: ADBC Driver Foundry Driver for Apache DataFusion
    Description: An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
@@ -225,6 +228,12 @@ $ dbc search --verbose
     ├── 1.10.0
     ├── 1.11.0
     ╰── 1.12.0
+• quack
+   Title: ADBC Driver for DuckDB Quack
+   Description: An ADBC driver for remote DuckDB via Quack
+   License: Apache-2.0
+   Available Versions:
+    ╰── 0.1.0
 • redshift
    Title: Columnar ADBC Driver for Amazon Redshift
    Description: An ADBC driver for Amazon Redshift developed by Columnar
@@ -264,7 +273,8 @@ $ dbc search --verbose
     ├── 0.1.0
     ├── 0.2.0
     ├── 0.2.1
-    ╰── 0.2.2
+    ├── 0.2.2
+    ╰── 0.3.0
 • sqlite
    Title: ASF SQLite Driver
    Description: An ADBC driver for SQLite developed under the Apache Software Foundation
@@ -291,7 +301,8 @@ $ dbc search --verbose
     ├── 0.5.2
     ├── 0.5.3
     ├── 0.6.0
-    ╰── 0.6.1
+    ├── 0.6.1
+    ╰── 0.7.0
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
