@@ -6,10 +6,7 @@ compdef _dbc dbc
 function _dbc {
     local line state
 
-    # Global options are declared here (not only listed as values below) so
-    # _arguments skips them when locating the subcommand.
     _arguments -C \
-        '(-q --quiet)'{-q,--quiet}'[Suppress all output]' \
         "1: :->subcommand" \
         "*::arg:->args"
 
@@ -30,7 +27,9 @@ function _dbc {
                 'auth[Authenticate with a driver registry]' \
                 '--help[Show help]' \
                 '-h[Show help]' \
-                '--version[Show version]'
+                '--version[Show version]' \
+                '--quiet[Suppress all output]' \
+                '-q[Suppress all output]'
         ;;
         args)
             case $line[1] in
