@@ -35,6 +35,29 @@ func fileRegistrationNamespaceIdentity(path string, windows bool) string {
 	return "file:" + path
 }
 
+func fileRegistrationNamespaceLockSpec(location string) (identity, lockDirectory, registrationLocation string, err error) {
+	if location == "" {
+		return "", "", "", errors.New("registration namespace location is empty")
+	}
+	absolute, err := hostpath.Abs(location)
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve registration namespace location: %w", err)
+	}
+	resolved, err := hostpath.EvalSymlinks(hostpath.Clean(absolute))
+	if err != nil {
+		return "", "", "", fmt.Errorf("resolve registration namespace symlinks: %w", err)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", "", "", fmt.Errorf("inspect registration namespace: %w", err)
+	}
+	if !info.IsDir() {
+		return "", "", "", fmt.Errorf("registration namespace %s is not a directory", resolved)
+	}
+	resolved = hostpath.Clean(resolved)
+	return fileRegistrationNamespaceIdentity(resolved, hostpath.IsWindows()), resolved, resolved, nil
+}
+
 func registrationNamespaceLockFilename(identity string) string {
 	if strings.HasPrefix(identity, "registry-") {
 		key := sha256.Sum256([]byte(identity))
@@ -60,8 +83,7 @@ func acquireRegistrationNamespaceLock(ctx context.Context, cfg Config, location 
 		return nil, "", errors.New("registration namespace identity is empty")
 	}
 	// The root-local fixed name lets the filesystem resolve case and Unicode
-	// aliases according to its own identity rules. Older pre-merge PR snapshots
-	// used a root-hashed name and do not share this lock protocol.
+	// aliases according to its own identity rules.
 	lockPath := hostpath.Join(canonicalDirectory, registrationNamespaceLockFilename(identity))
 	lock, err := acquireDriverInstallLock(ctx, lockPath, timeout)
 	if err != nil {
@@ -97,33 +119,9 @@ func collectFileRegistrationSharedMapsExcluding(location, excludedRoot, excluded
 			continue
 		}
 		path := hostpath.Join(location, name)
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			if err == nil {
-				err = fmt.Errorf("registration is not a regular file")
-			}
-			return nil, false, fmt.Errorf("inspect registration %s: %w", path, err)
-		}
-		file, err := os.Open(path)
+		manifest, err := readRegistrationManifest(path, id)
 		if err != nil {
-			return nil, false, fmt.Errorf("open registration %s: %w", path, err)
-		}
-		openedInfo, statErr := file.Stat()
-		if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
-			closeErr := file.Close()
-			if statErr == nil {
-				statErr = errors.New("registration changed while being read")
-			}
-			return nil, false, errors.Join(fmt.Errorf("verify registration %s: %w", path, statErr), closeErr)
-		}
-		manifest, decodeErr := decodeManifest(file, id, true)
-		closeErr := file.Close()
-		if decodeErr != nil || closeErr != nil || manifest.DriverInfo.ID != id {
-			cause := errors.Join(decodeErr, closeErr)
-			if cause == nil {
-				cause = errors.New("registration identity does not match its filename")
-			}
-			return nil, false, fmt.Errorf("decode registration %s: %w", path, cause)
+			return nil, false, err
 		}
 		resolvedShared, err := sharedPathsFromRegistrationRoot(location, manifest.DriverInfo.Driver.Shared)
 		if err != nil {
@@ -143,12 +141,10 @@ func collectRegistrationSharedMapsExcluding(cfg Config, registrationLocation, ex
 		return collectScopedRegistrationSharedMaps(cfg, registrationLocation, excludedID)
 	}
 
-	// ConfigEnv can select a registration from any path in ADBC_DRIVER_PATH.
-	// Scan every configured root without taking secondary locks or writing to
-	// those roots. A missing root is empty; any other incomplete scan makes the
-	// full reference set uncertain so cleanup can retain the payload.
-	// This is a read-only scan, not a consistent multi-root snapshot; a
-	// concurrent reference created in an unlocked secondary root can race cleanup.
+	// ConfigEnv can select a registration from any configured root. Scan them
+	// read-only without secondary locks; a missing root is empty and any other
+	// incomplete scan makes the reference set uncertain. This is not a consistent
+	// snapshot, so a concurrent reference in a secondary root can race cleanup.
 	roots := configuredRegistrationRoots(cfg.Location, registrationLocation)
 	var shared []driverMap
 	for _, root := range roots {
@@ -236,27 +232,46 @@ func resolveRegistrationSharedPath(root, sharedPath string) (string, error) {
 	return resolved, nil
 }
 
+// readRegistrationManifest reads a regular manifest file and verifies that it
+// is the file that was inspected and that its ID matches id.
+func readRegistrationManifest(path, id string) (Manifest, error) {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		if err == nil {
+			err = fmt.Errorf("registration is not a regular file")
+		}
+		return Manifest{}, fmt.Errorf("inspect registration %s: %w", path, err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("open registration %s: %w", path, err)
+	}
+	openedInfo, statErr := file.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		closeErr := file.Close()
+		if statErr == nil {
+			statErr = errors.New("registration changed while being read")
+		}
+		return Manifest{}, errors.Join(fmt.Errorf("verify registration %s: %w", path, statErr), closeErr)
+	}
+	manifest, decodeErr := decodeManifest(file, id, true)
+	closeErr := file.Close()
+	if decodeErr != nil || closeErr != nil || manifest.DriverInfo.ID != id {
+		cause := errors.Join(decodeErr, closeErr)
+		if cause == nil {
+			cause = errors.New("registration identity does not match its filename")
+		}
+		return Manifest{}, fmt.Errorf("decode registration %s: %w", path, cause)
+	}
+	return manifest, nil
+}
+
 func readFileRuntimeRegistration(location, runtimeID string) (DriverInfo, bool) {
 	if validatePackageFilename(runtimeID) != nil {
 		return DriverInfo{}, false
 	}
-	path := hostpath.Join(location, runtimeID+".toml")
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return DriverInfo{}, false
-	}
-	file, err := os.Open(path)
+	manifest, err := readRegistrationManifest(hostpath.Join(location, runtimeID+".toml"), runtimeID)
 	if err != nil {
-		return DriverInfo{}, false
-	}
-	openedInfo, statErr := file.Stat()
-	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
-		_ = file.Close()
-		return DriverInfo{}, false
-	}
-	manifest, decodeErr := decodeManifest(file, runtimeID, true)
-	closeErr := file.Close()
-	if decodeErr != nil || closeErr != nil || manifest.DriverInfo.ID != runtimeID {
 		return DriverInfo{}, false
 	}
 	manifest.DriverInfo.FilePath = location

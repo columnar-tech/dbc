@@ -19,8 +19,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"golang.org/x/sys/windows/registry"
@@ -31,9 +29,8 @@ func registrationNamespaceLockSpec(cfg Config, location string) (identity, lockD
 	case ConfigEnv:
 		return fileRegistrationNamespaceLockSpec(location)
 	case ConfigUser:
-		// The namespace identity is the HKCU hive, but the lock file lives under
-		// ConfigUser.ConfigLocation(). Processes with different APPDATA values
-		// therefore do not share this lock despite mutating the same registry.
+		// The lock file lives under ConfigLocation(), so processes with different
+		// APPDATA values do not share this lock despite mutating the same registry.
 		// TODO: Derive a stable HKCU lock identity independent of APPDATA.
 		return "registry-user:HKCU\\SOFTWARE\\ADBC\\Drivers", ConfigUser.ConfigLocation(), "HKCU\\SOFTWARE\\ADBC\\Drivers", nil
 	case ConfigSystem:
@@ -41,29 +38,6 @@ func registrationNamespaceLockSpec(cfg Config, location string) (identity, lockD
 	default:
 		return "", "", "", fmt.Errorf("unsupported registration config level %d", cfg.Level)
 	}
-}
-
-func fileRegistrationNamespaceLockSpec(location string) (identity, lockDirectory, registrationLocation string, err error) {
-	if location == "" {
-		return "", "", "", fmt.Errorf("registration namespace location is empty")
-	}
-	absolute, err := filepath.Abs(location)
-	if err != nil {
-		return "", "", "", fmt.Errorf("resolve registration namespace location: %w", err)
-	}
-	resolved, err := filepath.EvalSymlinks(filepath.Clean(absolute))
-	if err != nil {
-		return "", "", "", fmt.Errorf("resolve registration namespace symlinks: %w", err)
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", "", "", fmt.Errorf("inspect registration namespace: %w", err)
-	}
-	if !info.IsDir() {
-		return "", "", "", fmt.Errorf("registration namespace %s is not a directory", resolved)
-	}
-	resolved = filepath.Clean(resolved)
-	return "file:" + strings.ToLower(resolved), resolved, resolved, nil
 }
 
 func collectScopedRegistrationSharedMaps(cfg Config, location, excludedID string) ([]driverMap, bool, error) {

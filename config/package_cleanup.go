@@ -78,7 +78,6 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 	if err != nil {
 		return fmt.Errorf("read package installation root %s: %w", root, err)
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	referenced, uncertain := referencedPathsForRegistrations(root, otherRegistrations)
 	if uncertain {
 		return nil
@@ -196,7 +195,6 @@ func cleanupStalePackageGenerationsWithRoot(cfg Config, rootHandle *os.Root, roo
 	if err != nil {
 		return
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	if uncertainReferences {
 		return
 	}
@@ -316,7 +314,6 @@ func removePackageGenerationAtRoot(parent *os.Root, generation verifiedPackageGe
 		}
 		return fmt.Errorf("read package generation %s: %w", path, err)
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	if operations.afterGenerationEnumerate != nil {
 		operations.afterGenerationEnumerate(path)
 	}

@@ -37,6 +37,16 @@ var runtimeLocks = struct {
 	byPath map[string]*runtimeLock
 }{byPath: make(map[string]*runtimeLock)}
 
+// dropRuntimeLockRef drops one reference and forgets the entry when unused.
+func dropRuntimeLockRef(entry *runtimeLock, canonicalPath string) {
+	runtimeLocks.Lock()
+	defer runtimeLocks.Unlock()
+	entry.refs--
+	if entry.refs == 0 {
+		delete(runtimeLocks.byPath, canonicalPath)
+	}
+}
+
 func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
 	if err := ctx.Err(); err != nil {
 		return Lock{}, err
@@ -84,12 +94,7 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		}
 	}
 	if !acquired {
-		runtimeLocks.Lock()
-		entry.refs--
-		if entry.refs == 0 {
-			delete(runtimeLocks.byPath, canonicalPath)
-		}
-		runtimeLocks.Unlock()
+		dropRuntimeLockRef(entry, canonicalPath)
 		if err := ctx.Err(); err != nil {
 			return Lock{}, err
 		}
@@ -97,25 +102,15 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	}
 	if err := ctx.Err(); err != nil {
 		entry.token <- struct{}{}
-		runtimeLocks.Lock()
-		entry.refs--
-		if entry.refs == 0 {
-			delete(runtimeLocks.byPath, canonicalPath)
-		}
-		runtimeLocks.Unlock()
+		dropRuntimeLockRef(entry, canonicalPath)
 		return Lock{}, err
 	}
 
 	var once sync.Once
 	return Lock{releaseFn: func() error {
 		once.Do(func() {
-			runtimeLocks.Lock()
 			entry.token <- struct{}{}
-			entry.refs--
-			if entry.refs == 0 {
-				delete(runtimeLocks.byPath, canonicalPath)
-			}
-			runtimeLocks.Unlock()
+			dropRuntimeLockRef(entry, canonicalPath)
 		})
 		return nil
 	}}, nil

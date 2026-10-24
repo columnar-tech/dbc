@@ -1871,3 +1871,8 @@ func createLegacyPackageForInstall(t *testing.T, cfg Config, runtimeID, version,
 	}
 	return generation, library
 }
+
+func uninstallDriverUnlockedWithCleanup(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
+	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
+	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, registrations, certain, operations)
+}

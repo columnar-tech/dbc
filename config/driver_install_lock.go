@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
@@ -70,6 +71,17 @@ func acquireDriverInstallLockWith(ctx context.Context, location, runtimeID strin
 		}
 	}
 	return acquireDriverInstallLock(ctx, lockPath, timeout)
+}
+
+// acquireDriverInstallLock takes the fslock for path. On JavaScript/Wasm it
+// only guarantees exclusion within one Go/Wasm runtime, not across separate
+// Wasm instances or Node workers.
+func acquireDriverInstallLock(ctx context.Context, path string, timeout time.Duration) (*driverInstallLock, error) {
+	lock, err := fslock.AcquireContext(ctx, path, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return &driverInstallLock{releaseFn: lock.Release}, nil
 }
 
 func nativeRuntimeFileLock() bool {
@@ -146,6 +158,27 @@ func UninstallDriver(cfg Config, info DriverInfo) (err error) {
 	}
 	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, registrationLocation, current.FilePath, current.ID)
 	return uninstallDriverUnlockedWithReferences(cfg, current, registrations, certain)
+}
+
+func uninstallDriverUnlockedWithReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool) error {
+	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, otherRegistrations, referencesCertain, packageCleanupOperations{})
+}
+
+func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
+	if info.Source == "dbc" {
+		root, err := packageCleanupRoot(cfg, info)
+		if err != nil {
+			return err
+		}
+		if err := removeDriverRegistration(cfg, info, operations); err != nil {
+			return err
+		}
+		if err := cleanupInstalledPackageWithReferences(cfg, root, info, otherRegistrations, referencesCertain, operations); err != nil {
+			return fmt.Errorf("driver registration was removed, but package cleanup failed; package files may remain under %s: %w", root, err)
+		}
+		return nil
+	}
+	return removeDriverRegistration(cfg, info, operations)
 }
 
 func sameDriverRegistration(a, b DriverInfo) bool {

@@ -253,14 +253,6 @@ type alreadyInstalledDrvMsg struct {
 	item installItem
 }
 
-type syncSignatureVerificationError struct {
-	err error
-}
-
-func (e syncSignatureVerificationError) Error() string { return e.err.Error() }
-
-func (e syncSignatureVerificationError) Unwrap() error { return e.err }
-
 func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
 		if cfg.Exists {
@@ -300,17 +292,16 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				return
 			}
 
+			verificationFailed := false
 			manifest, err := config.InstallPackage(context.Background(), cfg, item.Driver.Path, output, config.InstallPackageOptions{
 				Verifier: func(stagingDir string, manifest config.Manifest) error {
-					if err := verifySignatureInStaging(stagingDir, manifest, s.NoVerify); err != nil {
-						return syncSignatureVerificationError{err: err}
-					}
-					return nil
+					err := verifySignatureInStaging(stagingDir, manifest, s.NoVerify)
+					verificationFailed = err != nil
+					return err
 				},
 			})
 			if err != nil {
-				var verificationErr syncSignatureVerificationError
-				if errors.As(err, &verificationErr) {
+				if verificationFailed {
 					prog.Send(fmt.Errorf("failed to verify signature: %w", err))
 					return
 				}

@@ -100,32 +100,6 @@ func readDriverRegistrationForUninstall(cfg Config, info DriverInfo) (DriverInfo
 	return loadDriverFromManifest(info.FilePath, info.ID)
 }
 
-func uninstallDriverUnlockedWithCleanup(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
-	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
-	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, registrations, certain, operations)
-}
-
-func uninstallDriverUnlockedWithReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool) error {
-	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, otherRegistrations, referencesCertain, packageCleanupOperations{})
-}
-
-func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
-	if info.Source == "dbc" {
-		root, err := packageCleanupRoot(cfg, info)
-		if err != nil {
-			return err
-		}
-		if err := removeDriverRegistration(cfg, info, operations); err != nil {
-			return err
-		}
-		if err := cleanupInstalledPackageWithReferences(cfg, root, info, otherRegistrations, referencesCertain, operations); err != nil {
-			return fmt.Errorf("driver registration was removed, but package cleanup failed; package files may remain under %s: %w", root, err)
-		}
-		return nil
-	}
-	return removeDriverRegistration(cfg, info, operations)
-}
-
 func removeDriverRegistration(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
 	if operations.removeRegistration != nil {
 		return operations.removeRegistration(cfg, info)

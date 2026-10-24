@@ -45,21 +45,13 @@ type packageInstallOperations struct {
 	writeReceipt        func(string, packageInstallReceipt) error
 }
 
-// InstallPackage installs a package generation and then updates the runtime
-// registration to point to it. The archive file is closed on every return.
-// On Unix, atomic replacement of the registration is the commit point. On
-// Windows, registry values are updated with rollback after a partial failure,
-// but a rollback failure or process termination during that update can leave
-// the previous registration uncertain. If rollback fails, the candidate
-// generation is preserved. After successful registration, stale receipt-backed
-// generations and a legacy predecessor matching the pre-0.4 install layout are
-// removed on a best-effort basis. An error while releasing the driver lock can
-// be returned after commit; in that case the new generation remains installed.
-// This API does not promise durability across power loss. Context cancellation is
-// checked at transaction boundaries but does not interrupt archive extraction
-// or verification. Once registration starts, it completes; a successful
-// registration is reported as success even if the context is canceled during
-// that update.
+// InstallPackage installs a package generation, then points the runtime
+// registration at it, and closes the archive file on every return. Stale
+// generations are removed best-effort afterwards. A lock release error can be
+// returned after commit; the new generation then remains installed.
+// On Windows, crash atomicity of the registry update is not guaranteed.
+// Cancellation is checked only at transaction boundaries; once registration
+// starts it completes.
 func InstallPackage(ctx context.Context, cfg Config, runtimeID string, downloaded *os.File, options InstallPackageOptions) (manifest Manifest, err error) {
 	return installPackageWithContextAndOperations(ctx, cfg, runtimeID, downloaded, options, packageInstallOperations{
 		rename:       os.Rename,
@@ -198,8 +190,6 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		return Manifest{}, fmt.Errorf("publish package generation: %w", err)
 	}
 	stageDir = ""
-	manifest.Driver.Shared = driverMap{}
-	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, driverFilename))
 
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, cleanupFailedPackageRegistration(generationDir, fmt.Errorf("install canceled before registration: %w", err), operations.removeAll)

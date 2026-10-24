@@ -59,7 +59,7 @@ func cleanupLegacyPackageRegistrationAtRoot(parent *os.Root, root string, info D
 	}
 	sharedAbs := resolvePackagePath(rootAbs, shared)
 	generationPath := hostpath.Dir(sharedAbs)
-	if !sameResolvedFilesystemPath(hostpath.Dir(generationPath), hostpath.Clean(rootAbs)) || hostpath.Dir(sharedAbs) != generationPath {
+	if !sameResolvedFilesystemPath(hostpath.Dir(generationPath), hostpath.Clean(rootAbs)) {
 		return nil
 	}
 	generationName := hostpath.Base(generationPath)
@@ -82,12 +82,9 @@ func cleanupLegacyPackageRegistrationAtRoot(parent *os.Root, root string, info D
 	}
 	defer generation.Close()
 
-	if _, err := generation.Lstat(packageInstallReceiptFilename); err == nil || !errors.Is(err, fs.ErrNotExist) {
+	if _, err := generation.Lstat(packageInstallReceiptFilename); !errors.Is(err, fs.ErrNotExist) {
 		// Any receipt, including a corrupt one, reserves this directory for the
 		// transaction cleanup path. A missing receipt is required for fallback.
-		return nil
-	}
-	if _, err := generation.Stat("."); err != nil {
 		return nil
 	}
 	payloadInfo, err := generation.Lstat(sharedName)

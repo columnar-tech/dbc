@@ -219,35 +219,11 @@ func TestConflictIsInInstallRoot(t *testing.T) {
 		}
 	}
 
-	if got := primaryInstallRoot("", config.ConfigEnv); got != "" {
-		t.Fatalf("empty env location primary root = %q, want empty", got)
-	}
-	location := "first" + string(hostpath.ListSeparator()) + "second"
-	if got := primaryInstallRoot(location, config.ConfigEnv); got != "first" {
-		t.Fatalf("primary root = %q, want first path-list entry", got)
-	}
-
 	if conflictIsInInstallRoot(config.DriverInfo{FilePath: `HKCU\SOFTWARE\ADBC\Drivers`}, root, config.ConfigSystem) {
 		t.Fatal("a user registry registration should not be reported as replaced by a system install")
 	}
 	if !conflictIsInInstallRoot(config.DriverInfo{FilePath: `HKCU\SOFTWARE\ADBC\Drivers`}, root, config.ConfigUser) {
 		t.Fatal("a user registry registration should be reported as replaced by a user install")
-	}
-}
-
-func TestPrimaryInstallRootUsesConfigLevelPathContract(t *testing.T) {
-	location := "first" + string(hostpath.ListSeparator()) + "second"
-	want := "first"
-	if runtime.GOOS == "js" {
-		want = location
-	}
-	if got := primaryInstallRoot(location, config.ConfigEnv); got != want {
-		t.Errorf("primary install root = %q, want %q", got, want)
-	}
-	for _, level := range []config.ConfigLevel{config.ConfigUser, config.ConfigSystem} {
-		if got := primaryInstallRoot(location, level); got != location {
-			t.Errorf("config level %s primary install root = %q, want unchanged location %q", level, got, location)
-		}
 	}
 }
 

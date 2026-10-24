@@ -31,12 +31,8 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		if err := ctx.Err(); err != nil {
 			return Lock{}, err
 		}
-		// Lock files are created with mode 0600, so cross-user coordination is
-		// not a supported contract by default. Flock coordinates cooperating
-		// processes that can open the same file. The kernel releases the advisory
-		// lock when a process exits; the persistent inode is reused.
-		// TODO: Define cross-user permissions and interrupted-writer recovery
-		// expectations before extending this same-user locking contract.
+		// Mode 0600 means only same-user coordination is supported.
+		// TODO: Define cross-user permissions and interrupted-writer recovery.
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
