@@ -22,14 +22,13 @@ import (
 	"strings"
 )
 
-func abs(path string) (string, error)               { return filepath.Abs(path) }
-func isAbs(path string) bool                        { return filepath.IsAbs(path) }
-func clean(path string) string                      { return filepath.Clean(path) }
-func join(elem ...string) string                    { return filepath.Join(elem...) }
-func dir(path string) string                        { return filepath.Dir(path) }
-func base(path string) string                       { return filepath.Base(path) }
-func rel(basepath, targpath string) (string, error) { return filepath.Rel(basepath, targpath) }
-func evalSymlinks(path string) (string, error)      { return filepath.EvalSymlinks(path) }
+func abs(path string) (string, error)          { return filepath.Abs(path) }
+func isAbs(path string) bool                   { return filepath.IsAbs(path) }
+func clean(path string) string                 { return filepath.Clean(path) }
+func join(elem ...string) string               { return filepath.Join(elem...) }
+func dir(path string) string                   { return filepath.Dir(path) }
+func base(path string) string                  { return filepath.Base(path) }
+func evalSymlinks(path string) (string, error) { return filepath.EvalSymlinks(path) }
 func equal(a, b string) bool {
 	a, b = filepath.Clean(a), filepath.Clean(b)
 	if filepath.Separator == '\\' {
@@ -40,4 +39,3 @@ func equal(a, b string) bool {
 func mkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
 func listSeparator() rune                          { return filepath.ListSeparator }
 func isWindows() bool                              { return filepath.Separator == '\\' }
-func separator() string                            { return string(filepath.Separator) }

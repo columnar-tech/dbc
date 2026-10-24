@@ -27,17 +27,6 @@ import (
 	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
-// WriteFile writes data to a temporary file beside path, then atomically
-// replaces path. Preparation or replacement failures leave the existing
-// destination untouched. Directory sync is best effort and its errors are
-// ignored after replacement.
-func WriteFile(path string, data []byte, perm os.FileMode) error {
-	return Write(path, perm, func(w io.Writer) error {
-		_, err := w.Write(data)
-		return err
-	})
-}
-
 // WriteFilePreservingMode atomically replaces path while retaining the
 // permission bits of an existing regular file. For a symlink to a regular
 // file, it replaces the symlink itself with a regular file using the target's
@@ -91,19 +80,6 @@ func preservingTempPermissions(existing bool, existingPerm, newPerm os.FileMode)
 		return 0o600, existingPerm, true
 	}
 	return newPerm, newPerm, false
-}
-
-// Write calls write with a temporary file and replaces path after the callback,
-// file sync, and close all succeed. Directory sync is best effort and its
-// errors are ignored after replacement.
-func Write(path string, perm os.FileMode, write func(io.Writer) error) (err error) {
-	return writeFile(path, perm, write, replace, syncDirectory)
-}
-
-func writeFile(path string, perm os.FileMode, write func(io.Writer) error, replaceFile func(string, string) error, syncDir func(string) error) (err error) {
-	return writeFileWithTemp(path, perm, true, func(dir, base string) (*os.File, error) {
-		return os.CreateTemp(dir, base)
-	}, write, replaceFile, syncDir)
 }
 
 func writeFileWithTemp(path string, perm os.FileMode, chmod bool, createTemp func(string, string) (*os.File, error), write func(io.Writer) error, replaceFile func(string, string) error, syncDir func(string) error) (err error) {

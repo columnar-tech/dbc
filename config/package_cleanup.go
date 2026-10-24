@@ -45,17 +45,9 @@ type verifiedPackageGeneration struct {
 	fileInfo os.FileInfo
 }
 
-func cleanupInstalledPackage(cfg Config, root string, info DriverInfo) error {
-	return cleanupInstalledPackageWithOperations(cfg, root, info, packageCleanupOperations{})
-}
-
 // Cleanup runs after driver registration has been removed. If cleanup fails,
 // package files may remain without a registration that can be uninstalled
 // again. TODO: Define a safe recovery path for these retained generations.
-func cleanupInstalledPackageWithOperations(cfg Config, root string, info DriverInfo, operations packageCleanupOperations) error {
-	return cleanupInstalledPackageWithReferences(cfg, root, info, nil, true, operations)
-}
-
 func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
 	if info.Source != "dbc" || root == "" {
 		return nil
@@ -114,7 +106,7 @@ func cleanupInstalledPackageWithReferences(cfg Config, root string, info DriverI
 			matchedCount++
 			matchedPaths = append(matchedPaths, generationPath)
 			if !generationReferenced(generationPath, referenced) {
-				_, integrityErr := verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, operations.hashOwnedLibrary)
+				integrityErr := verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, operations.hashOwnedLibrary)
 				if integrityErr != nil {
 					strictErr = errors.Join(strictErr, fmt.Errorf("verify owned package library in %s: %w", generationPath, integrityErr))
 				} else {
@@ -175,11 +167,6 @@ func receiptMatchesRegistration(cfg Config, root, generation string, receipt pac
 	return err == nil && fingerprint == receipt.RegistrationFingerprintValue
 }
 
-func cleanupStalePackageGenerations(cfg Config, root string, current DriverInfo, alreadyRemoved []string) {
-	referenced, uncertain := referencedPaths(root, current.Driver.Shared)
-	cleanupStalePackageGenerationsWithReferences(cfg, root, current, alreadyRemoved, referenced, uncertain, packageCleanupOperations{})
-}
-
 func cleanupStalePackageGenerationsWithReferences(cfg Config, root string, current DriverInfo, alreadyRemoved []string, referenced []string, uncertainReferences bool, operations packageCleanupOperations) {
 	root, err := hostpath.Abs(root)
 	if err != nil {
@@ -230,7 +217,7 @@ func cleanupStalePackageGenerationsWithRoot(cfg Config, rootHandle *os.Root, roo
 		if operations.afterReceiptVerified != nil {
 			operations.afterReceiptVerified(generation)
 		}
-		_, integrityErr := verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, operations.hashOwnedLibrary)
+		integrityErr := verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, operations.hashOwnedLibrary)
 		if integrityErr != nil {
 			_ = generationRoot.Close()
 			continue

@@ -158,8 +158,7 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 	if err != nil {
 		return packageInstallReceipt{}, fmt.Errorf("open package library for receipt: %w", err)
 	}
-	hash := sha256.New()
-	_, copyErr := io.Copy(hash, file)
+	digest, copyErr := hashSHA256(file)
 	closeErr := file.Close()
 	if copyErr != nil {
 		return packageInstallReceipt{}, fmt.Errorf("hash package library for receipt: %w", copyErr)
@@ -167,7 +166,7 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 	if closeErr != nil {
 		return packageInstallReceipt{}, fmt.Errorf("close package library after hashing: %w", closeErr)
 	}
-	libraryHash := hex.EncodeToString(hash.Sum(nil))
+	libraryHash := hex.EncodeToString(digest)
 	fingerprint, err := runtimeRegistrationFingerprint(cfg, runtimeID, platform, info, ownedLibraryFilename)
 	if err != nil {
 		return packageInstallReceipt{}, err
@@ -185,6 +184,13 @@ func makePackageInstallReceipt(cfg Config, stagingDir, generation, runtimeID, pl
 		RegistrationFingerprintVer:   registrationFingerprintVer,
 		RegistrationFingerprintValue: fingerprint,
 	}, nil
+}
+
+// hashSHA256 returns the SHA-256 digest of everything read from r.
+func hashSHA256(r io.Reader) ([]byte, error) {
+	hash := sha256.New()
+	_, err := io.Copy(hash, r)
+	return hash.Sum(nil), err
 }
 
 func runtimeRegistrationFingerprint(cfg Config, runtimeID, platform string, info DriverInfo, ownedLibraryFilename string) (string, error) {
@@ -266,46 +272,6 @@ func writePackageInstallReceipt(stagingDir string, receipt packageInstallReceipt
 	return nil
 }
 
-// readPackageInstallReceipt accepts evidence only when its identity is
-// structurally consistent with a direct generation under the absolute primary
-// root. Invalid or absent evidence is treated as no ownership proof.
-func readPackageInstallReceipt(primaryRoot, generationDir string) (packageInstallReceipt, bool) {
-	var empty packageInstallReceipt
-	root, err := hostpath.Abs(primaryRoot)
-	if err != nil {
-		return empty, false
-	}
-	generation, err := hostpath.Abs(generationDir)
-	if err != nil {
-		return empty, false
-	}
-	root = hostpath.Clean(root)
-	generation = hostpath.Clean(generation)
-	if hostpath.Dir(generation) != root {
-		return empty, false
-	}
-	parent, err := os.OpenRoot(root)
-	if err != nil {
-		return empty, false
-	}
-	defer parent.Close()
-	generationName := hostpath.Base(generation)
-	generationInfo, err := parent.Lstat(generationName)
-	if err != nil || !generationInfo.IsDir() || generationInfo.Mode()&os.ModeSymlink != 0 {
-		return empty, false
-	}
-	generationRoot, err := parent.OpenRoot(generationName)
-	if err != nil {
-		return empty, false
-	}
-	defer generationRoot.Close()
-	openedGenerationInfo, err := generationRoot.Stat(".")
-	if err != nil || !os.SameFile(generationInfo, openedGenerationInfo) {
-		return empty, false
-	}
-	return readPackageInstallReceiptAtRoot(generationRoot, generationName)
-}
-
 // readPackageInstallReceiptAtRoot reads ownership evidence relative to an
 // already verified generation handle. Cleanup keeps this handle open through
 // the subsequent payload deletion so it never reopens a checked pathname.
@@ -341,26 +307,6 @@ func readPackageInstallReceiptAtRoot(generationRoot *os.Root, generationName str
 		return empty, false
 	}
 	return receipt, true
-}
-
-func validPackageInstallReceipt(receipt packageInstallReceipt, primaryRoot, generationDir string) bool {
-	if receipt.SchemaVersion != packageInstallReceiptVersion || receipt.RegistrationFingerprintAlgo != registrationFingerprintName || receipt.RegistrationFingerprintVer != registrationFingerprintVer {
-		return false
-	}
-	if validatePackageFilename(receipt.RuntimeID) != nil || !packagePlatformPattern.MatchString(receipt.Platform) {
-		return false
-	}
-	if !validPackageRegistrationScope(receipt.RegistrationScope) {
-		return false
-	}
-	version, err := semver.NewVersion(receipt.DriverVersion)
-	if err != nil || version.String() != receipt.DriverVersion {
-		return false
-	}
-	if hostpath.Dir(generationDir) != primaryRoot {
-		return false
-	}
-	return validPackageInstallReceiptForGeneration(receipt, hostpath.Base(generationDir))
 }
 
 func validPackageInstallReceiptForGeneration(receipt packageInstallReceipt, generationName string) bool {

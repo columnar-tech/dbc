@@ -37,13 +37,12 @@ type InstallPackageOptions struct {
 }
 
 type packageInstallOperations struct {
-	rename                 func(string, string) error
-	remove                 func(string) error
-	removeAll              func(string) error
-	cleanupBeforeRemove    func(string) error
-	cleanupBeforeRemoveAll func(string) error
-	register               func(Config, string, DriverInfo) error
-	writeReceipt           func(string, packageInstallReceipt) error
+	rename              func(string, string) error
+	remove              func(string) error
+	removeAll           func(string) error
+	cleanupBeforeRemove func(string) error
+	register            func(Config, string, DriverInfo) error
+	writeReceipt        func(string, packageInstallReceipt) error
 }
 
 // InstallPackage installs a package generation and then updates the runtime
@@ -219,8 +218,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 			})
 		}
 		cleanupStalePackageGenerationsWithReferences(cfg, location, manifest.DriverInfo, []string{generationDir}, referenced, uncertain, packageCleanupOperations{
-			beforeRemove:    operations.cleanupBeforeRemove,
-			beforeRemoveAll: operations.cleanupBeforeRemoveAll,
+			beforeRemove: operations.cleanupBeforeRemove,
 		})
 	}
 	return manifest, nil

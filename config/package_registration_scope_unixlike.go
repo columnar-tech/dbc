@@ -19,10 +19,3 @@ package config
 func packageRegistrationScopeForConfig(Config) (packageRegistrationScope, error) {
 	return packageRegistrationFile, nil
 }
-
-func packageCleanupConfig(cfg Config, _ DriverInfo) Config {
-	if cfg.Level == ConfigUnknown {
-		cfg.Level = ConfigEnv
-	}
-	return cfg
-}

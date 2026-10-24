@@ -16,10 +16,7 @@
 
 package config
 
-import (
-	"fmt"
-	"strings"
-)
+import "fmt"
 
 func packageRegistrationScopeForConfig(cfg Config) (packageRegistrationScope, error) {
 	switch cfg.Level {
@@ -32,19 +29,4 @@ func packageRegistrationScopeForConfig(cfg Config) (packageRegistrationScope, er
 	default:
 		return "", fmt.Errorf("unsupported config level %d", cfg.Level)
 	}
-}
-
-func packageCleanupConfig(cfg Config, info DriverInfo) Config {
-	if cfg.Level != ConfigUnknown {
-		return cfg
-	}
-	switch {
-	case strings.Contains(info.FilePath, "HKCU\\"):
-		cfg.Level = ConfigUser
-	case strings.Contains(info.FilePath, "HKLM\\"):
-		cfg.Level = ConfigSystem
-	default:
-		cfg.Level = ConfigEnv
-	}
-	return cfg
 }

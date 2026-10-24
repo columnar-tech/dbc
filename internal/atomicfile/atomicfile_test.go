@@ -22,12 +22,23 @@ import (
 	"testing"
 )
 
+// writeFile exercises the generic temporary-file path with injectable
+// replacement and directory sync hooks.
+func writeFile(path string, perm os.FileMode, write func(io.Writer) error, replaceFile func(string, string) error, syncDir func(string) error) error {
+	return writeFileWithTemp(path, perm, true, func(dir, base string) (*os.File, error) {
+		return os.CreateTemp(dir, base)
+	}, write, replaceFile, syncDir)
+}
+
 func TestWriteFileReplacesExistingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.toml")
 	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteFile(path, []byte("new"), 0o640); err != nil {
+	if err := writeFile(path, 0o640, func(w io.Writer) error {
+		_, err := w.Write([]byte("new"))
+		return err
+	}, replace, syncDirectory); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -46,14 +57,14 @@ func TestWriteFailurePreservesExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantErr := errors.New("write failed")
-	err := Write(path, 0o600, func(w io.Writer) error {
+	err := writeFile(path, 0o600, func(w io.Writer) error {
 		if _, err := w.Write([]byte("partial")); err != nil {
 			return err
 		}
 		return wantErr
-	})
+	}, replace, syncDirectory)
 	if !errors.Is(err, wantErr) {
-		t.Fatalf("Write error = %v, want wrapped %v", err, wantErr)
+		t.Fatalf("writeFile error = %v, want wrapped %v", err, wantErr)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {

@@ -26,72 +26,52 @@ import (
 
 type ownedLibraryHashFunc func(io.Reader) ([]byte, error)
 
-type ownedLibraryIntegrityState uint8
-
-const (
-	ownedLibraryIntegrityVerified ownedLibraryIntegrityState = iota
-	ownedLibraryIntegrityMissing
-)
-
 // verifyPackageOwnedLibraryIntegrityAtRoot compares the installed bytes with
 // the receipt's local integrity evidence. This does not prove correspondence
-// to any downloaded or locked archive.
-func verifyPackageOwnedLibraryIntegrityAtRoot(generation *os.Root, receipt packageInstallReceipt, hashLibrary ownedLibraryHashFunc) (ownedLibraryIntegrityState, error) {
-	if err := validateOwnedPackageFilename(receipt.OwnedLibraryFilename); err != nil {
-		return 0, fmt.Errorf("invalid owned library filename: %w", err)
-	}
-	if len(receipt.OwnedLibrarySHA256) != sha256.Size*2 {
-		return 0, errors.New("owned library SHA-256 digest has invalid length")
-	}
-	if _, err := hex.DecodeString(receipt.OwnedLibrarySHA256); err != nil {
-		return 0, fmt.Errorf("owned library SHA-256 digest is invalid: %w", err)
-	}
-
+// to any downloaded or locked archive. The receipt must already have passed
+// validPackageInstallReceiptForGeneration, which checks the filename and
+// digest format. A library that is already absent is not an error.
+func verifyPackageOwnedLibraryIntegrityAtRoot(generation *os.Root, receipt packageInstallReceipt, hashLibrary ownedLibraryHashFunc) error {
 	filename := receipt.OwnedLibraryFilename
 	info, err := generation.Lstat(filename)
 	if errors.Is(err, fs.ErrNotExist) {
 		// Partial cleanup may already have removed the library while retaining
 		// the receipt. Allow a later pass to remove the remaining payload.
-		return ownedLibraryIntegrityMissing, nil
+		return nil
 	}
 	if err != nil {
-		return 0, fmt.Errorf("inspect owned library %s: %w", filename, err)
+		return fmt.Errorf("inspect owned library %s: %w", filename, err)
 	}
 	if !info.Mode().IsRegular() {
-		return 0, fmt.Errorf("owned library %s is not a regular file", filename)
+		return fmt.Errorf("owned library %s is not a regular file", filename)
 	}
 	file, err := generation.Open(filename)
 	if err != nil {
-		return 0, fmt.Errorf("open owned library %s: %w", filename, err)
+		return fmt.Errorf("open owned library %s: %w", filename, err)
 	}
 	openedInfo, statErr := file.Stat()
 	if statErr != nil {
 		closeErr := file.Close()
-		return 0, fmt.Errorf("stat opened owned library %s: %w", filename, errors.Join(statErr, closeErr))
+		return fmt.Errorf("stat opened owned library %s: %w", filename, errors.Join(statErr, closeErr))
 	}
 	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
 		closeErr := file.Close()
-		return 0, errors.Join(fmt.Errorf("opened owned library %s changed identity or is not a regular file", filename), closeErr)
+		return errors.Join(fmt.Errorf("opened owned library %s changed identity or is not a regular file", filename), closeErr)
 	}
-	var actualDigest []byte
-	var copyErr error
-	if hashLibrary != nil {
-		actualDigest, copyErr = hashLibrary(file)
-	} else {
-		hash := sha256.New()
-		_, copyErr = io.Copy(hash, file)
-		actualDigest = hash.Sum(nil)
+	if hashLibrary == nil {
+		hashLibrary = hashSHA256
 	}
+	actualDigest, copyErr := hashLibrary(file)
 	closeErr := file.Close()
 	if copyErr != nil || closeErr != nil {
-		return 0, fmt.Errorf("hash owned library %s: %w", filename, errors.Join(copyErr, closeErr))
+		return fmt.Errorf("hash owned library %s: %w", filename, errors.Join(copyErr, closeErr))
 	}
 	if len(actualDigest) != sha256.Size {
-		return 0, fmt.Errorf("hash owned library %s: got %d digest bytes, want %d", filename, len(actualDigest), sha256.Size)
+		return fmt.Errorf("hash owned library %s: got %d digest bytes, want %d", filename, len(actualDigest), sha256.Size)
 	}
 	actual := hex.EncodeToString(actualDigest)
 	if actual != receipt.OwnedLibrarySHA256 {
-		return 0, fmt.Errorf("owned library %s SHA-256 does not match installation receipt", filename)
+		return fmt.Errorf("owned library %s SHA-256 does not match installation receipt", filename)
 	}
-	return ownedLibraryIntegrityVerified, nil
+	return nil
 }

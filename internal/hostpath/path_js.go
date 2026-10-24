@@ -40,14 +40,9 @@ func call(name string, args ...any) (js.Value, bool) {
 	if f.Type() != js.TypeFunction {
 		return js.Undefined(), false
 	}
-	values := make([]any, len(args))
-	copy(values, args)
-	result := f.Invoke(values...)
+	result := f.Invoke(args...)
 	if result.Type() != js.TypeObject {
 		return js.Undefined(), false
-	}
-	if message := result.Get("error"); message.Type() == js.TypeString && message.String() != "" {
-		return result, true
 	}
 	return result, true
 }
@@ -125,13 +120,6 @@ func base(path string) string {
 	return filepath.Base(path)
 }
 
-func rel(basepath, targpath string) (string, error) {
-	if value, ok, err := stringCall("rel", basepath, targpath); ok {
-		return value, err
-	}
-	return filepath.Rel(basepath, targpath)
-}
-
 func evalSymlinks(path string) (string, error) {
 	if value, ok, err := stringCall("evalSymlinks", path); ok {
 		return value, err
@@ -166,11 +154,4 @@ func listSeparator() rune {
 func isWindows() bool {
 	value, ok := boolCall("isWindows")
 	return ok && value
-}
-
-func separator() string {
-	if isWindows() {
-		return "/"
-	}
-	return string(filepath.Separator)
 }

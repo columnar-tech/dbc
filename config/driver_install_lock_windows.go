@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -57,12 +56,6 @@ func packageCleanupRoot(cfg Config, info DriverInfo) (string, error) {
 			return cfg.Location, nil
 		}
 		return cfg.Level.ConfigLocation(), nil
-	}
-	if strings.Contains(info.FilePath, "HKCU\\") {
-		return ConfigUser.ConfigLocation(), nil
-	}
-	if strings.Contains(info.FilePath, "HKLM\\") {
-		return ConfigSystem.ConfigLocation(), nil
 	}
 	if info.FilePath == "" {
 		return "", nil
@@ -107,11 +100,6 @@ func readDriverRegistrationForUninstall(cfg Config, info DriverInfo) (DriverInfo
 	return loadDriverFromManifest(info.FilePath, info.ID)
 }
 
-func uninstallDriverUnlocked(cfg Config, info DriverInfo) error {
-	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
-	return uninstallDriverUnlockedWithReferences(cfg, info, registrations, certain)
-}
-
 func uninstallDriverUnlockedWithCleanup(cfg Config, info DriverInfo, operations packageCleanupOperations) error {
 	registrations, certain, _ := collectRegistrationSharedMapsExcluding(cfg, info.FilePath, info.FilePath, info.ID)
 	return uninstallDriverUnlockedWithCleanupAndReferences(cfg, info, registrations, certain, operations)
@@ -123,7 +111,7 @@ func uninstallDriverUnlockedWithReferences(cfg Config, info DriverInfo, otherReg
 
 func uninstallDriverUnlockedWithCleanupAndReferences(cfg Config, info DriverInfo, otherRegistrations []driverMap, referencesCertain bool, operations packageCleanupOperations) error {
 	if info.Source == "dbc" {
-		root, err := packageCleanupRoot(packageCleanupConfig(cfg, info), info)
+		root, err := packageCleanupRoot(cfg, info)
 		if err != nil {
 			return err
 		}

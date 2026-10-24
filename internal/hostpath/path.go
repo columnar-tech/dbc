@@ -19,16 +19,14 @@ package hostpath
 
 import "os"
 
-func Abs(path string) (string, error)               { return abs(path) }
-func IsAbs(path string) bool                        { return isAbs(path) }
-func Clean(path string) string                      { return clean(path) }
-func Join(elem ...string) string                    { return join(elem...) }
-func Dir(path string) string                        { return dir(path) }
-func Base(path string) string                       { return base(path) }
-func Rel(basepath, targpath string) (string, error) { return rel(basepath, targpath) }
-func EvalSymlinks(path string) (string, error)      { return evalSymlinks(path) }
-func Equal(a, b string) bool                        { return equal(a, b) }
-func MkdirAll(path string, perm os.FileMode) error  { return mkdirAll(path, perm) }
-func ListSeparator() rune                           { return listSeparator() }
-func IsWindows() bool                               { return isWindows() }
-func Separator() string                             { return separator() }
+func Abs(path string) (string, error)              { return abs(path) }
+func IsAbs(path string) bool                       { return isAbs(path) }
+func Clean(path string) string                     { return clean(path) }
+func Join(elem ...string) string                   { return join(elem...) }
+func Dir(path string) string                       { return dir(path) }
+func Base(path string) string                      { return base(path) }
+func EvalSymlinks(path string) (string, error)     { return evalSymlinks(path) }
+func Equal(a, b string) bool                       { return equal(a, b) }
+func MkdirAll(path string, perm os.FileMode) error { return mkdirAll(path, perm) }
+func ListSeparator() rune                          { return listSeparator() }
+func IsWindows() bool                              { return isWindows() }
