@@ -78,7 +78,7 @@ func TestCreateDriverManifest(t *testing.T) {
 	driverInfo.Driver.Entrypoint = "AdbcDriverInit"
 	driverInfo.Driver.Shared.Set("linux_amd64", "/path/to/driver.so")
 
-	err := createDriverManifest(prefix, driverInfo)
+	err := createDriverManifestUnlocked(prefix, driverInfo)
 	require.NoError(t, err)
 
 	assert.FileExists(t, manifestPath)

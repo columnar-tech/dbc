@@ -24,6 +24,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -137,6 +139,28 @@ func (suite *SubcommandTestSuite) getFilesInDir(dir string) []string {
 		return nil
 	}))
 	return filelist
+}
+
+func expectedFilesWithPersistentDriverLock(runtimeID string, files ...string) []string {
+	var want []string
+	want = append(want, files...)
+	if runtime.GOOS != "windows" && runtime.GOOS != "js" {
+		want = append(want, "."+runtimeID+".dbc")
+	}
+	sort.Strings(want)
+	return want
+}
+
+func (suite *SubcommandTestSuite) assertPersistentDriverLockFile(runtimeID string) {
+	suite.T().Helper()
+	if runtime.GOOS == "windows" || runtime.GOOS == "js" {
+		return
+	}
+	path := filepath.Join(suite.tempdir, "."+runtimeID+".dbc")
+	info, err := os.Lstat(path)
+	suite.Require().NoError(err)
+	suite.True(info.Mode().IsRegular(), "persistent driver lock should be a regular file")
+	suite.Zero(info.Size(), "persistent driver lock should remain empty")
 }
 
 // Get the base directory for where drivers are installed. Use this instead of

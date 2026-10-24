@@ -18,8 +18,9 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
 // loadDir lists installed drivers from a directory. Under GOOS=js, os.ReadDir
@@ -42,12 +43,12 @@ func loadDir(dir string) (map[string]DriverInfo, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
 			continue
 		}
-		p := filepath.Join(dir, e.Name())
-		di, err := loadDriverFromManifest(filepath.Dir(p), filepath.Base(p))
+		p := hostpath.Join(dir, e.Name())
+		di, err := loadDriverFromManifest(hostpath.Dir(p), hostpath.Base(p))
 		if err != nil {
 			continue
 		}
-		di.FilePath = filepath.Dir(p)
+		di.FilePath = hostpath.Dir(p)
 		ret[di.ID] = di
 	}
 	return ret, nil

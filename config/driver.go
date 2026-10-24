@@ -20,10 +20,11 @@ import (
 	"io/fs"
 	"iter"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/atomicfile"
+	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -148,7 +149,7 @@ type tomlDriverInfo struct {
 
 func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 	driverName = strings.TrimSuffix(driverName, ".toml")
-	manifest := filepath.Join(prefix, driverName+".toml")
+	manifest := hostpath.Join(prefix, driverName+".toml")
 	f, err := os.Open(manifest)
 	if err != nil {
 		return DriverInfo{}, fmt.Errorf("error opening manifest %s: %w", manifest, err)
@@ -166,50 +167,34 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 
 // Create a symlink to manifestPath in the parent dir
 func createManifestSymlink(location, driverID, manifestPath string) {
-	parentDir := filepath.Dir(filepath.Clean(location))
-	safeDriverID := filepath.Base(driverID)
-	symlink := filepath.Join(parentDir, safeDriverID+".toml")
+	parentDir := hostpath.Dir(hostpath.Clean(location))
+	safeDriverID := hostpath.Base(driverID)
+	symlink := hostpath.Join(parentDir, safeDriverID+".toml")
 
-	if filepath.Dir(symlink) == parentDir {
+	if hostpath.Dir(symlink) == parentDir {
 		os.Symlink(manifestPath, symlink)
 	}
 }
 
 // Remove the symlink to manifestPath in the parent dir
 func removeManifestSymlink(filePath, driverID string) {
-	parentDir := filepath.Dir(filepath.Clean(filePath))
-	safeDriverID := filepath.Base(driverID)
-	symlink := filepath.Join(parentDir, safeDriverID+".toml")
+	parentDir := hostpath.Dir(hostpath.Clean(filePath))
+	safeDriverID := hostpath.Base(driverID)
+	symlink := hostpath.Join(parentDir, safeDriverID+".toml")
 
-	if filepath.Dir(symlink) == parentDir {
+	if hostpath.Dir(symlink) == parentDir {
 		os.Remove(symlink)
 	}
 }
 
-func createDriverManifest(location string, driver DriverInfo) error {
+func createDriverManifestUnlocked(location string, driver DriverInfo) error {
 	if _, err := os.Stat(location); errors.Is(err, fs.ErrNotExist) {
-		if err := os.MkdirAll(location, 0755); err != nil {
+		if err := hostpath.MkdirAll(location, 0755); err != nil {
 			return fmt.Errorf("error creating driver location %s: %w", location, err)
 		}
 	}
 
-	manifestPath := filepath.Join(location, driver.ID+".toml")
-	f, err := os.Create(manifestPath)
-	if err != nil {
-		return fmt.Errorf("error creating manifest %s: %w", driver.ID, err)
-	}
-	defer f.Close()
-
-	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
-	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
-	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
-	//
-	// To work around this, we create a symlink on level up to the manifest we're
-	// installing.
-	//
-	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
-	createManifestSymlink(location, driver.ID, manifestPath)
-
+	manifestPath := hostpath.Join(location, driver.ID+".toml")
 	toEncode := tomlDriverInfo{
 		ManifestVersion: currentManifestVersion,
 		Name:            driver.Name,
@@ -227,11 +212,24 @@ func createDriverManifest(location string, driver DriverInfo) error {
 		toEncode.Driver.Shared = driver.Driver.Shared.platformMap
 	}
 
-	enc := toml.NewEncoder(f).SetIndentTables(false)
-
+	var data strings.Builder
+	enc := toml.NewEncoder(&data).SetIndentTables(false)
 	if err := enc.Encode(toEncode); err != nil {
 		return fmt.Errorf("error encoding manifest %s: %w", driver.ID, err)
 	}
+	if err := atomicfile.WriteFilePreservingMode(manifestPath, []byte(data.String()), 0666); err != nil {
+		return fmt.Errorf("error writing manifest %s: %w", driver.ID, err)
+	}
+
+	// Workaround for bug in Python driver manager packages. Version 1.8.0 of the
+	// packages use the old ADBC_CONFIG_PATH path we originally had and not the
+	// new ADBC_DRIVER_PATH (e.g., /etc/adbc instead of /etc/adbc/drivers).
+	//
+	// To work around this, we create a symlink on level up to the manifest we're
+	// installing.
+	//
+	// TODO: Remove this when the driver managers are fixed (>=1.8.1).
+	createManifestSymlink(location, driver.ID, manifestPath)
 
 	return nil
 }
