@@ -59,3 +59,33 @@ func removeDriverRegistration(cfg Config, info DriverInfo, operations packageCle
 	removeManifestSymlink(info.FilePath, info.ID)
 	return nil
 }
+
+func packageRegistrationScopeForConfig(Config) (packageRegistrationScope, error) {
+	return packageRegistrationFile, nil
+}
+
+func createRuntimeRegistrationUnlocked(_ Config, location string, driver DriverInfo) error {
+	return createDriverManifestUnlocked(location, driver)
+}
+
+func packageInstallLockLocation(_ Config, payloadLocation string) (string, error) {
+	return payloadLocation, nil
+}
+
+func preparePackageInstallLockLocation(Config, string) error {
+	return nil
+}
+
+func registrationNamespaceLockSpec(_ Config, location string) (identity, lockDirectory, registrationLocation string, err error) {
+	return fileRegistrationNamespaceLockSpec(location)
+}
+
+func collectScopedRegistrationSharedMaps(_ Config, location, excludedID string) ([]driverMap, bool, error) {
+	return collectFileRegistrationSharedMaps(location, excludedID)
+}
+
+func readPrimaryRuntimeRegistration(_ Config, registrationLocation, runtimeID string) (DriverInfo, bool) {
+	return readFileRuntimeRegistration(registrationLocation, runtimeID)
+}
+
+func registrationFingerprintIncludesADBC(Config) bool { return true }
