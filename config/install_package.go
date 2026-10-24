@@ -154,6 +154,10 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 			}
 		}
 	}()
+	generationMode, err := umaskedDirMode(reservation, "mode", 0o755)
+	if err != nil {
+		return Manifest{}, fmt.Errorf("prepare package generation: %w", err)
+	}
 	if err := operations.remove(reservation); err != nil {
 		return Manifest{}, fmt.Errorf("release package generation reservation: %w", err)
 	}
@@ -188,7 +192,7 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, fmt.Errorf("install canceled before publishing package generation: %w", err)
 	}
-	if err := os.Chmod(stageDir, 0o755); err != nil {
+	if err := os.Chmod(stageDir, generationMode); err != nil {
 		return Manifest{}, fmt.Errorf("prepare package generation: %w", err)
 	}
 	if err := operations.rename(stageDir, generationDir); err != nil {
@@ -220,6 +224,22 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		})
 	}
 	return manifest, nil
+}
+
+// umaskedDirMode returns the mode os.Mkdir would give a directory created with
+// perm, i.e. with the process umask applied. parent must be a unique private
+// directory so the probe cannot collide with anything.
+func umaskedDirMode(parent, name string, perm os.FileMode) (os.FileMode, error) {
+	probe := hostpath.Join(parent, name)
+	if err := os.Mkdir(probe, perm); err != nil {
+		return 0, err
+	}
+	info, statErr := os.Stat(probe)
+	removeErr := os.Remove(probe)
+	if statErr != nil {
+		return 0, statErr
+	}
+	return info.Mode().Perm(), removeErr
 }
 
 func cleanupFailedPackageRegistration(generationDir string, registrationErr error, removeAll func(string) error) error {
