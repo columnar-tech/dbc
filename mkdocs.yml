@@ -63,6 +63,7 @@ nav:
       - Config Level: reference/config_level.md
       - Driver List: reference/driver_list.md
       - Supported Platforms: reference/supported_platforms.md
+      - Environment Variables: reference/environment_variables.md
       - Analytics: reference/analytics.md
 theme:
   name: material

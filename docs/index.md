@@ -1372,7 +1372,7 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 === "Quack"
 
     ```console
-    $ dbc install --pre quack
+    $ dbc install quack
     ```
 
     <br/><span class="quickstart-step-number">3</span> [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:

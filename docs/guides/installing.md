@@ -33,10 +33,12 @@ databricks           An ADBC Driver for Databricks developed by the ADBC Driver 
 datafusion           An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
 duckdb               An ADBC driver for DuckDB developed by the DuckDB Foundation
 exasol               An ADBC driver for Exasol developed by Exasol Labs
+firebolt             An ADBC driver for Firebolt
 flightsql            An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
 mssql                An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql                An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 postgresql           An ADBC driver for PostgreSQL developed under the Apache Software Foundation
+quack                An ADBC driver for remote DuckDB via Quack
 redshift             An ADBC driver for Amazon Redshift developed by Columnar
 snowflake            An ADBC driver for Snowflake developed under the Apache Software Foundation
 spark                An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
@@ -47,7 +49,7 @@ teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 <!-- /dbc-output -->
 
-The short names in lowercase on the left of the output are the names you need to pass to [`dbc install`](../reference/cli.md#install). These drivers are available from Columnar's [driver registry](../concepts/driver_registry.md).
+The short names in lowercase on the left of the output are the names you need to pass to [`dbc install`](../reference/cli.md#install). These drivers are available from the public ADBC [driver registry](../concepts/driver_registry.md).
 
 !!! note
 

@@ -28,6 +28,7 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -83,7 +84,7 @@ func TestWindowsRegistryReceiptFingerprintMatchesRoundTrip(t *testing.T) {
 	if err := createRuntimeRegistrationUnlocked(cfg, generation, driver); err != nil {
 		t.Fatal(err)
 	}
-	driversKey, err := registry.OpenKey(registry.CURRENT_USER, regKeyADBC, registry.ALL_ACCESS)
+	driversKey, err := registry.OpenKey(winregroot.UserRoot(), regKeyADBC, registry.ALL_ACCESS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +267,7 @@ func createWindowsRegistrationTestKey(t *testing.T, label string) (registry.Key,
 		t.Fatal(err)
 	}
 	path := fmt.Sprintf("Software\\dbc-registration-test-%s-%s", label, hex.EncodeToString(suffix[:]))
-	key, _, err := registry.CreateKey(registry.CURRENT_USER, path, registry.ALL_ACCESS)
+	key, _, err := registry.CreateKey(winregroot.UserRoot(), path, registry.ALL_ACCESS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +275,7 @@ func createWindowsRegistrationTestKey(t *testing.T, label string) (registry.Key,
 		if err := key.Close(); err != nil {
 			t.Errorf("close test registry key: %v", err)
 		}
-		if err := registry.DeleteKey(registry.CURRENT_USER, path); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		if err := registry.DeleteKey(winregroot.UserRoot(), path); err != nil && !errors.Is(err, registry.ErrNotExist) {
 			t.Errorf("delete test registry key: %v", err)
 		}
 	}

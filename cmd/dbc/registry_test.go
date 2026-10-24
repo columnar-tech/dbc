@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build windows && test_registry
+//go:build windows
 
 package main
 
@@ -29,13 +29,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/winregroot"
 	"github.com/stretchr/testify/suite"
 	"golang.org/x/sys/windows/registry"
 )
 
-// This test suite is only run when the "test_registry" build tag is set.
-// Only run these tests if you're able to modify the windows registry and won't be broken
-// if the ADBC registry keys are cleared/modified/etc.
+// This suite runs in the default Windows test set. The Windows test main uses
+// process-private fixtures by default; DBC_TEST_WINDOWS_REAL_LOCATIONS=1 bypasses
+// them, in which case these tests modify and remove the current user's ADBC
+// registry keys and driver files.
 type RegistryTestSuite struct {
 	suite.Suite
 
@@ -64,8 +66,7 @@ func (s *RegistryTestSuite) run(m tea.Model) string {
 
 func (s *RegistryTestSuite) clearRegistry() {
 	// Clear out any existing ADBC registry keys to ensure a clean slate.
-	// TODO: Isolate registry state before deleting real user driver registrations.
-	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
+	k, err := registry.OpenKey(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers", registry.ALL_ACCESS)
 	if errors.Is(err, registry.ErrNotExist) {
 		return
 	}
@@ -81,7 +82,6 @@ func (s *RegistryTestSuite) clearRegistry() {
 
 func (s *RegistryTestSuite) SetupSuite() {
 	s.cfgUserPath = config.Get()[config.ConfigUser].Location
-	// TODO: Isolate this cleanup before deleting real user driver data.
 	os.RemoveAll(s.cfgUserPath)
 }
 
@@ -104,7 +104,7 @@ func (s *RegistryTestSuite) TestInstallDriver() {
 	out := s.run(m)
 	s.Equal("\nInstalled test-driver-1 1.1.0 to "+s.cfgUserPath, out)
 
-	k, err := registry.OpenKey(registry.CURRENT_USER, "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
+	k, err := registry.OpenKey(winregroot.UserRoot(), "SOFTWARE\\ADBC\\Drivers\\test-driver-1", registry.READ)
 	s.Require().NoError(err)
 	defer k.Close()
 
