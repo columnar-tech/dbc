@@ -412,6 +412,8 @@ func (m progressiveInstallModel) FinalOutput() string {
 	return b.String()
 }
 
+// TODO: The install-root path identity check below duplicates logic in config;
+// consider reusing it from, or moving it to, the config package.
 func conflictIsInInstallRoot(conflict config.DriverInfo, installRoot string, level config.ConfigLevel) bool {
 	if conflict.FilePath == "" || installRoot == "" {
 		return false

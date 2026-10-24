@@ -92,6 +92,8 @@ var defaultPackageArchiveLimits = packageArchiveLimits{
 	metadataSize: 16 << 20,
 }
 
+// TODO: InflateTarball has no production callers left in this repo; consider
+// unexporting or removing it in a future breaking release.
 func InflateTarball(f *os.File, outDir string) (Manifest, error) {
 	return inflateTarballWithLimits(f, outDir, defaultPackageArchiveLimits)
 }

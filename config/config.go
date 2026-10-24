@@ -222,6 +222,9 @@ func getEnvConfigDir() string {
 // InstallPackage's transaction lock. Pairing it with CreateManifest is not one transaction.
 //
 // Deprecated: use InstallPackage for transactional package installation.
+//
+// TODO: InstallDriver has no production callers left in this repo; consider
+// unexporting or removing it in a future breaking release.
 func InstallDriver(cfg Config, shortName string, downloaded *os.File) (Manifest, error) {
 	var (
 		loc string

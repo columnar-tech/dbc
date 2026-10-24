@@ -200,7 +200,7 @@ $ ls "$ADBC_DRIVER_PATH"
 mysql.toml
 ```
 
-dbc stores the installed package payload in its managed storage.
+dbc stores the package payload in a hidden `.dbc-package-g-*` subdirectory of the same directory. dbc may also leave small hidden lock files (such as `.dbc.*` or `.<driver>.dbc`) there; they are safe to leave in place.
 
 !!! note
 

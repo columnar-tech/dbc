@@ -49,7 +49,8 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		f.Close()
 		if errors.Is(err, errStaleInode) {
 			if time.Now().Before(deadline) {
-				// The path was replaced between our open and flock; the
+				// Defensive: Release never unlinks, but the file may be removed
+				// externally. The path was replaced between our open and flock; the
 				// acquired lock would protect a different inode from callers
 				// that open the current path, so retry against that inode.
 				// Reopen and try again within the remaining budget.
@@ -121,8 +122,9 @@ func inodeIsStale(f *os.File, path string) (bool, error) {
 }
 
 // Release closes the lock file descriptor, releasing the advisory lock.
-// Lock files are persistent: unlinking them would let a new caller create a
-// different inode while another process still holds the old inode open.
+// The lock file is intentionally left in place: unlinking it would let a new
+// caller create a different inode while another waiter still holds or is
+// about to lock the old one. Leftover lock files are therefore expected.
 func (l Lock) Release() error {
 	if l.f == nil {
 		return nil
