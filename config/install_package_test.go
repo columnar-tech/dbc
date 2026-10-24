@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,7 @@ func TestInstallPackageFailurePreservesPreviousGeneration(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}
 	install := func(contents string, verifier PackageVerifier) error {
-		archive := writeTransactionPackageArchive(t, contents)
+		archive := testPackageArchive(t, contents)
 		_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{Verifier: verifier})
 		if _, statErr := archive.Stat(); statErr == nil {
 			t.Error("archive remains open")
@@ -151,7 +152,7 @@ func TestInstallPackageFailurePreservesPreviousGeneration(t *testing.T) {
 func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}
-	installInitialTransactionPackage(t, cfg)
+	installInitialPackage(t, cfg)
 	previous, err := GetDriver(cfg, "driver")
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +161,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 	registrationErr := errors.New("registration failed")
 
 	t.Run("rename publish failure", func(t *testing.T) {
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		operations := testPackageInstallOperations()
 		operations.rename = func(string, string) error { return errors.New("injected rename failure") }
 		_, err := installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations)
@@ -172,7 +173,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 		assertOnlyPackageGeneration(t, location, filepath.Base(filepath.Dir(previousPath)))
 	})
 	t.Run("registration failure removes published candidate", func(t *testing.T) {
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		operations := testPackageInstallOperations()
 		operations.register = func(Config, string, DriverInfo) error { return registrationErr }
 		_, err := installPackageWithOperations(cfg, "driver", archive, InstallPackageOptions{}, operations)
@@ -184,7 +185,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 		assertOnlyPackageGeneration(t, location, filepath.Base(filepath.Dir(previousPath)))
 	})
 	t.Run("rollback failure preserves published candidate", func(t *testing.T) {
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		operations := testPackageInstallOperations()
 		var candidatePath string
 		operations.register = func(_ Config, _ string, driver DriverInfo) error {
@@ -202,7 +203,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 		}
 	})
 	t.Run("candidate cleanup failure retains both errors", func(t *testing.T) {
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		cleanupErr := errors.New("candidate cleanup failed")
 		operations := testPackageInstallOperations()
 		operations.register = func(Config, string, DriverInfo) error { return registrationErr }
@@ -229,7 +230,7 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 func TestInstallPackageContextCancellation(t *testing.T) {
 	t.Run("nil context closes archive", func(t *testing.T) {
 		cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		_, err := InstallPackage(nil, cfg, "driver", archive, InstallPackageOptions{})
 		if err == nil || !strings.Contains(err.Error(), "install context is nil") {
 			t.Fatalf("InstallPackage error = %v, want nil-context error", err)
@@ -247,7 +248,7 @@ func TestInstallPackageContextCancellation(t *testing.T) {
 		defer lock.release()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		result := make(chan error, 1)
 		go func() {
 			_, installErr := InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{})
@@ -274,7 +275,7 @@ func TestInstallPackageContextCancellation(t *testing.T) {
 		defer lock.release()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		verifierStarted := make(chan struct{})
 		result := make(chan error, 1)
 		go func() {
@@ -301,14 +302,14 @@ func TestInstallPackageContextCancellation(t *testing.T) {
 	t.Run("cancellation during verifier preserves registration", func(t *testing.T) {
 		location := t.TempDir()
 		cfg := Config{Level: ConfigEnv, Location: location}
-		installInitialTransactionPackage(t, cfg)
+		installInitialPackage(t, cfg)
 		previous, err := GetDriver(cfg, "driver")
 		if err != nil {
 			t.Fatal(err)
 		}
 		previousPath := previous.Driver.Shared.Get(PlatformTuple())
 		ctx, cancel := context.WithCancel(context.Background())
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		_, err = InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{
 			Verifier: func(string, Manifest) error {
 				cancel()
@@ -327,7 +328,7 @@ func TestInstallPackageContextCancellation(t *testing.T) {
 		cfg := Config{Level: ConfigEnv, Location: location}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		operations := testPackageInstallOperations()
 		operations.register = func(cfg Config, location string, driver DriverInfo) error {
 			cancel()
@@ -351,7 +352,7 @@ func TestInstallPackageContextCancellation(t *testing.T) {
 func TestInstallPackageReportsPrecommitCleanupFailures(t *testing.T) {
 	location := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: location}
-	installInitialTransactionPackage(t, cfg)
+	installInitialPackage(t, cfg)
 	previous, err := GetDriver(cfg, "driver")
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +360,7 @@ func TestInstallPackageReportsPrecommitCleanupFailures(t *testing.T) {
 	previousPath := previous.Driver.Shared.Get(PlatformTuple())
 
 	t.Run("staging cleanup", func(t *testing.T) {
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		verificationErr := errors.New("verification failed")
 		cleanupErr := errors.New("staging cleanup failed")
 		operations := testPackageInstallOperations()
@@ -380,7 +381,7 @@ func TestInstallPackageReportsPrecommitCleanupFailures(t *testing.T) {
 	})
 
 	t.Run("reservation cleanup", func(t *testing.T) {
-		archive := testTransactionPackageArchive(t, "new")
+		archive := testPackageArchive(t, "new")
 		releaseErr := errors.New("reservation release failed")
 		cleanupErr := errors.New("reservation cleanup failed")
 		operations := testPackageInstallOperations()
@@ -506,7 +507,7 @@ func TestInstallPackageRejectsManifestOnlyUpdateAndPreservesOwnedPackage(t *test
 	if got, err := os.ReadFile(previousPath); err != nil || !reflect.DeepEqual(got, previousBytes) {
 		t.Fatalf("previous payload changed after rejected update: %q, %v", got, err)
 	}
-	if got := packageGenerationNames(t, location, "driver"); !equalStrings(got, previousGenerations) {
+	if got := packageGenerationNames(t, location, "driver"); !slices.Equal(got, previousGenerations) {
 		t.Fatalf("generation names after rejected update = %v, want %v", got, previousGenerations)
 	}
 	if got, err := os.ReadFile(externalLibrary); err != nil || string(got) != "external library" {
@@ -634,7 +635,7 @@ func TestInstallPackageSharesLockWithUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	archive := testTransactionPackageArchive(t, "new")
+	archive := testPackageArchive(t, "new")
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	installDone := make(chan error, 1)
@@ -683,17 +684,9 @@ func assertPreviousPackage(t *testing.T, cfg Config, path string) {
 	}
 }
 
+// testPackageArchive builds a package whose driver.so holds exactly contents,
+// so tests can assert real payload bytes.
 func testPackageArchive(t *testing.T, contents string) *os.File {
-	t.Helper()
-	return writeCustomPackageArchive(t, "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", contents))
-}
-
-func testTransactionPackageArchive(t *testing.T, contents string) *os.File {
-	t.Helper()
-	return writeTransactionPackageArchive(t, contents)
-}
-
-func writeTransactionPackageArchive(t *testing.T, contents string) *os.File {
 	t.Helper()
 	const manifest = "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
 	path := filepath.Join(t.TempDir(), "package.tar.gz")
@@ -741,15 +734,6 @@ func testPackageInstallOperations() packageInstallOperations {
 func installInitialPackage(t *testing.T, cfg Config) {
 	t.Helper()
 	archive := testPackageArchive(t, "old")
-	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-}
-
-func installInitialTransactionPackage(t *testing.T, cfg Config) {
-	t.Helper()
-	archive := testTransactionPackageArchive(t, "old")
 	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -805,16 +789,4 @@ func testPackageGenerationPath(t *testing.T, root, runtimeID, suffix string) str
 func packageGenerationNameMatches(name, runtimeID string) bool {
 	generationID, valid := parsePackageGenerationName(name)
 	return valid && sameRuntimeID(generationID, runtimeID)
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

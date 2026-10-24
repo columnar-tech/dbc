@@ -149,7 +149,7 @@ func TestWritePackageInstallReceiptEnforcesFinalSizeLimit(t *testing.T) {
 func TestInstallPackageReceiptFailurePreservesPreviousRegistration(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialTransactionPackage(t, cfg)
+	installInitialPackage(t, cfg)
 	previous, err := GetDriver(cfg, "driver")
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestInstallPackageReceiptFailurePreservesPreviousRegistration(t *testing.T)
 func TestInstallPackageRollbackFailurePreservesReceipt(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialTransactionPackage(t, cfg)
+	installInitialPackage(t, cfg)
 	previous, err := GetDriver(cfg, "driver")
 	if err != nil {
 		t.Fatal(err)

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -94,26 +95,6 @@ func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testin
 				}
 			}
 		})
-	}
-}
-
-func TestUninstallDriverCleansOwnedPackageGeneration(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialPackage(t, cfg)
-	selected, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	generation := filepath.Dir(selected.Driver.Shared.Get(PlatformTuple()))
-	if err := UninstallDriver(cfg, selected); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("owned generation remains: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "driver.toml")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("registration remains: %v", err)
 	}
 }
 
@@ -640,7 +621,7 @@ func TestInstallPackageProtectsGenerationReferencedByExternalRegistration(t *tes
 			if registeredBorrower.Driver.Shared.Get(PlatformTuple()) != reference {
 				t.Fatalf("external borrower points to %q, want %q", registeredBorrower.Driver.Shared.Get(PlatformTuple()), reference)
 			}
-			if data, err := os.ReadFile(firstLibrary); err != nil || string(data) != "xxx" {
+			if data, err := os.ReadFile(firstLibrary); err != nil || string(data) != "old" {
 				t.Fatalf("referenced previous generation was not preserved: %q, %v", data, err)
 			}
 		})
@@ -662,92 +643,72 @@ func TestUncertainSymlinkReferenceProtectsGeneration(t *testing.T) {
 	}
 }
 
-func TestRemovePackageGenerationKeepsReceiptUntilPayloadIsRemoved(t *testing.T) {
-	root := t.TempDir()
-	generation := testPackageGenerationPath(t, root, "driver", "test")
-	if err := os.Mkdir(generation, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	payload := filepath.Join(generation, "driver.so")
-	if err := os.WriteFile(payload, []byte("library"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(generation, packageInstallReceiptFilename), []byte("receipt"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var removed []string
+func TestRemovePackageGenerationReceiptOrdering(t *testing.T) {
 	payloadErr := errors.New("loaded DLL")
-	parent, err := os.OpenRoot(root)
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name        string
+		failPayload bool
+		wantRemoved []string
+	}{
+		{name: "receipt retained after payload failure", failPayload: true, wantRemoved: []string{"driver.so"}},
+		{name: "receipt removed last"},
 	}
-	defer parent.Close()
-	gen, ok := openVerifiedGeneration(parent, filepath.Base(generation), root, packageCleanupOperations{})
-	if !ok {
-		t.Fatal("could not open verified generation")
-	}
-	genInfo, err := gen.Stat(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = removePackageGenerationAtRoot(parent, verifiedPackageGeneration{name: filepath.Base(generation), root: gen, fileInfo: genInfo}, root, packageCleanupOperations{beforeRemove: func(path string) error {
-		removed = append(removed, filepath.Base(path))
-		if path == payload {
-			return payloadErr
-		}
-		return nil
-	}})
-	if !errors.Is(err, payloadErr) {
-		t.Fatalf("remove generation error = %v", err)
-	}
-	if len(removed) != 1 || removed[0] != "driver.so" {
-		t.Fatalf("remove order = %v, receipt must not be removed after payload failure", removed)
-	}
-	if _, err := os.Stat(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
-		t.Fatalf("receipt was not retained: %v", err)
-	}
-}
-
-func TestRemovePackageGenerationDeletesReceiptAfterPayload(t *testing.T) {
-	root := t.TempDir()
-	generation := testPackageGenerationPath(t, root, "driver", "test")
-	if err := os.Mkdir(generation, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"driver.so", "NOTICE"} {
-		if err := os.WriteFile(filepath.Join(generation, name), []byte(name), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(filepath.Join(generation, packageInstallReceiptFilename), []byte("receipt"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var removed []string
-	beforeRemove := func(path string) error {
-		removed = append(removed, filepath.Base(path))
-		return nil
-	}
-	parent, err := os.OpenRoot(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer parent.Close()
-	gen, ok := openVerifiedGeneration(parent, filepath.Base(generation), root, packageCleanupOperations{})
-	if !ok {
-		t.Fatal("could not open verified generation")
-	}
-	genInfo, err := gen.Stat(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := removePackageGenerationAtRoot(parent, verifiedPackageGeneration{name: filepath.Base(generation), root: gen, fileInfo: genInfo}, root, packageCleanupOperations{beforeRemove: beforeRemove}); err != nil {
-		t.Fatal(err)
-	}
-	if len(removed) != 3 || removed[2] != packageInstallReceiptFilename {
-		t.Fatalf("removal order = %v, want receipt last", removed)
-	}
-	if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("generation remains after cleanup: %v", err)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			generation := testPackageGenerationPath(t, root, "driver", "test")
+			if err := os.Mkdir(generation, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			files := []string{"driver.so", packageInstallReceiptFilename}
+			if !test.failPayload {
+				files = append(files, "NOTICE")
+			}
+			for _, name := range files {
+				if err := os.WriteFile(filepath.Join(generation, name), []byte(name), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			parent, err := os.OpenRoot(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer parent.Close()
+			gen, ok := openVerifiedGeneration(parent, filepath.Base(generation), root, packageCleanupOperations{})
+			if !ok {
+				t.Fatal("could not open verified generation")
+			}
+			genInfo, err := gen.Stat(".")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var removed []string
+			err = removePackageGenerationAtRoot(parent, verifiedPackageGeneration{name: filepath.Base(generation), root: gen, fileInfo: genInfo}, root, packageCleanupOperations{beforeRemove: func(path string) error {
+				removed = append(removed, filepath.Base(path))
+				if test.failPayload && filepath.Base(path) == "driver.so" {
+					return payloadErr
+				}
+				return nil
+			}})
+			if test.failPayload != errors.Is(err, payloadErr) || (!test.failPayload && err != nil) {
+				t.Fatalf("remove generation error = %v", err)
+			}
+			if test.failPayload {
+				if !slices.Equal(removed, test.wantRemoved) {
+					t.Fatalf("remove order = %v, receipt must not be removed after payload failure", removed)
+				}
+				if _, err := os.Stat(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
+					t.Fatalf("receipt was not retained: %v", err)
+				}
+				return
+			}
+			if len(removed) != 3 || removed[2] != packageInstallReceiptFilename {
+				t.Fatalf("removal order = %v, want receipt last", removed)
+			}
+			if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("generation remains after cleanup: %v", err)
+			}
+		})
 	}
 }
 
@@ -935,25 +896,6 @@ func TestInstallPackageCleansStaleReceiptGenerationsBestEffort(t *testing.T) {
 	}
 	if _, ok := readPackageInstallReceipt(root, currentGeneration); !ok {
 		t.Fatal("current generation receipt is missing")
-	}
-}
-
-func TestInstallPackageRemovesStaleReceiptGeneration(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	installInitialPackage(t, cfg)
-	old, err := GetDriver(cfg, "driver")
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldGeneration := filepath.Dir(old.Driver.Shared.Get(PlatformTuple()))
-	archive := testPackageArchive(t, "updated")
-	if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	assertArchiveClosed(t, archive)
-	if _, err := os.Stat(oldGeneration); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stale generation remains after successful cleanup: %v", err)
 	}
 }
 
@@ -1407,53 +1349,6 @@ func TestLegacyPackageCleanupPreservesGenerationReferencedBySibling(t *testing.T
 	}
 }
 
-func TestLegacyCleanupRecoversPayloadDespiteUnrelatedMetadataSidecar(t *testing.T) {
-	root := t.TempDir()
-	cfg := Config{Level: ConfigEnv, Location: root}
-	version := semver.MustParse("1.2.3+build.4")
-
-	// Pre-0.4 installs used the archive basename, which need not match the
-	// package ID. An unrelated metadata directory must not block exact cleanup.
-	generation := filepath.Join(root, "archive-derived-directory")
-	if err := os.Mkdir(generation, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	library := filepath.Join(generation, "driver.so")
-	if err := os.WriteFile(library, []byte("legacy driver"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	sidecar := filepath.Join(root, "driver_"+PlatformTuple()+"_v"+version.String())
-	if err := os.Mkdir(sidecar, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	metadata := filepath.Join(sidecar, "NOTICE")
-	if err := os.WriteFile(metadata, []byte("metadata"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	info := DriverInfo{ID: "driver", FilePath: root, Name: "Driver", Version: version, Source: "dbc"}
-	info.Driver.Shared.Set(PlatformTuple(), library)
-	if err := CreateManifest(cfg, info); err != nil {
-		t.Fatal(err)
-	}
-	selected, err := GetDriver(cfg, info.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := UninstallDriver(cfg, selected); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(library); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("registered legacy payload remains: %v", err)
-	}
-	if _, err := os.Stat(generation); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("empty legacy payload directory remains: %v", err)
-	}
-	if data, err := os.ReadFile(metadata); err != nil || string(data) != "metadata" {
-		t.Fatalf("unrelated metadata sidecar changed: %q, %v", data, err)
-	}
-}
-
 func TestTransactionEvidenceBlocksLegacyFallback(t *testing.T) {
 	for _, receiptState := range []string{"missing", "corrupt"} {
 		t.Run(receiptState, func(t *testing.T) {
@@ -1764,7 +1659,7 @@ func TestInstallPackageLegacyCleanupRespectsReferencesAndUncertainty(t *testing.
 	}
 }
 
-func TestInstallPackageLegacyMetadataCleanupPreservesExternalLibraryAndUnknownFiles(t *testing.T) {
+func TestInstallPackageLegacyCleanupPreservesExternalLibraryAndUnknownFiles(t *testing.T) {
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	external := filepath.Join(t.TempDir(), "external.so")
@@ -1788,7 +1683,7 @@ func TestInstallPackageLegacyMetadataCleanupPreservesExternalLibraryAndUnknownFi
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(legacyGeneration); err != nil {
-		t.Fatalf("legacy metadata sidecar with unknown files was removed: %v", err)
+		t.Fatalf("legacy directory with unknown files was removed: %v", err)
 	}
 	if data, err := os.ReadFile(filepath.Join(legacyGeneration, "NOTICE")); err != nil || string(data) != "metadata" {
 		t.Fatalf("unknown legacy metadata changed: %q, %v", data, err)
