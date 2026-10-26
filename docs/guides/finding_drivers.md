@@ -313,7 +313,8 @@ $ dbc search --verbose
     ├── 0.6.0
     ├── 0.6.1
     ├── 0.6.2
-    ╰── 0.6.3
+    ├── 0.6.3
+    ╰── 0.6.4
 • teradata [private]
    Title: Columnar ADBC Driver for Teradata
    Description: An ADBC driver for Teradata developed by Columnar
