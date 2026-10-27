@@ -124,6 +124,10 @@ checksum = 'e989f8c49262359093f03e2f43a796b163d2774de519e07cef14ebd63590c81d'
 Every time you run `dbc sync`, this file is updated with the exact information about each driver that was installed.
 It's a good idea to track `dbc.lock` as well as `dbc.toml` in version control if you want to ensure a completely reproducible set of drivers.
 
+!!! note
+
+    Unlike lockfiles in some other package managers, `dbc.lock` doesn't give each project its own isolated set of drivers. `dbc sync` installs drivers to the same location `dbc install` would (see [Installing Drivers](installing.md)). If two projects on the same machine lock different versions of a driver, whichever project you sync last replaces the version the other one installed. To isolate a project's drivers, run `dbc sync` inside a [Python virtual environment](installing.md#python-support) or [conda environment](installing.md#conda-support), or set [`ADBC_DRIVER_PATH`](installing.md#adbc_driver_path) to a project-specific directory.
+
 ## Version Constraints
 
 Each driver in a driver list can optionally include a version constraint which dbc will respect when you run `dbc sync`. You can add a driver to the list with the same syntax as you used for `dbc install`, see [Installing Drivers](installing.md).

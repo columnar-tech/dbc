@@ -265,6 +265,7 @@ $ dbc remove <DRIVER>
 Install drivers from a [driver list](../concepts/driver_list.md).
 Also creates a `dbc.lock` file next to the [driver list](../concepts/driver_list.md).
 If `dbc.lock` exists, driver versions from it will be used when this subcommand is run.
+Drivers are installed to the same location as [install](#install), replacing any other installed version of the same driver. See [Lockfile](../guides/driver_list.md#lockfile) for how to isolate drivers per project.
 
 <h3>Usage</h3>
 
