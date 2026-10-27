@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -149,6 +150,71 @@ func (suite *SubcommandTestSuite) TestSyncCondaPrefix() {
 	}.GetModelCustom(
 		testBaseModel())
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
+}
+
+func (suite *SubcommandTestSuite) TestSyncEnvironmentPrecedence() {
+	// Like install, sync follows the driver managers' precedence chain when
+	// ADBC_DRIVER_PATH, VIRTUAL_ENV, and CONDA_PREFIX are set with each
+	// variable overriding the next.
+	driver_path := filepath.Join(suite.tempdir, "driver_path")
+	venv_path := filepath.Join(suite.tempdir, "venv_path")
+	conda_path := filepath.Join(suite.tempdir, "conda_path")
+	tomlPath := filepath.Join(suite.tempdir, "dbc.toml")
+
+	m := InitCmd{Path: tomlPath}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModel()
+	suite.runCmd(m)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
+	suite.T().Setenv("VIRTUAL_ENV", venv_path)
+	suite.T().Setenv("CONDA_PREFIX", conda_path)
+
+	m = SyncCmd{Path: tomlPath, Level: config.ConfigEnv}.GetModelCustom(testBaseModel())
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.FileExists(filepath.Join(driver_path, "test-driver-1.toml"))
+	suite.NoFileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", "")
+	m = SyncCmd{Path: tomlPath, Level: config.ConfigEnv}.GetModelCustom(testBaseModel())
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.FileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+
+	suite.T().Setenv("VIRTUAL_ENV", "")
+	m = SyncCmd{Path: tomlPath, Level: config.ConfigEnv}.GetModelCustom(testBaseModel())
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.FileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+}
+
+func (suite *SubcommandTestSuite) TestSyncExplicitLevelIgnoresEnvironment() {
+	if suite.configLevel == config.ConfigEnv {
+		suite.T().Skip("Only meaningful when running at the user or system config level")
+	}
+
+	driver_path := filepath.Join(suite.tempdir, "driver_path")
+	venv_path := filepath.Join(suite.tempdir, "venv_path")
+	conda_path := filepath.Join(suite.tempdir, "conda_path")
+	tomlPath := filepath.Join(suite.tempdir, "dbc.toml")
+
+	m := InitCmd{Path: tomlPath}.GetModel()
+	suite.runCmd(m)
+
+	m = AddCmd{Path: tomlPath, Driver: []string{"test-driver-1"}}.GetModel()
+	suite.runCmd(m)
+
+	suite.T().Setenv("ADBC_DRIVER_PATH", driver_path)
+	suite.T().Setenv("VIRTUAL_ENV", venv_path)
+	suite.T().Setenv("CONDA_PREFIX", conda_path)
+
+	m = SyncCmd{Path: tomlPath, Level: suite.configLevel}.GetModelCustom(testBaseModel())
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.driverIsInstalled("test-driver-1", true)
+	suite.NoFileExists(filepath.Join(driver_path, "test-driver-1.toml"))
+	suite.NoFileExists(filepath.Join(venv_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
+	suite.NoFileExists(filepath.Join(conda_path, "etc", "adbc", "drivers", "test-driver-1.toml"))
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallFailSig() {

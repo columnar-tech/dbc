@@ -66,3 +66,7 @@ Done!
 ```
 
 Now, at this point, both Developer 1 and Developer 2 have the same set of drivers available on their systems.
+
+!!! note
+
+    This holds for each machine and environment, not for each project. If either developer syncs another project that locks a different version of the same driver into the same location, that version replaces this one. See [Lockfile](./driver_list.md#lockfile) for how to isolate drivers per project.
