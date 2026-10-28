@@ -363,7 +363,6 @@ jobs:
           - { platform: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, python: python3 }
           - { platform: darwin-arm64, os: macos-latest, target: aarch64-apple-darwin, python: python3 }
           - { platform: darwin-x64, os: macos-15-intel, target: x86_64-apple-darwin, python: python3 }
-          - { platform: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, python: python }
           - { platform: windows-x64, os: windows-latest, target: x86_64-pc-windows-gnu, python: python }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
