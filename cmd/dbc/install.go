@@ -16,10 +16,8 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,40 +107,6 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 
 func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
-}
-
-func verifySignature(m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" || noVerify {
-		return nil
-	}
-
-	path := filepath.Dir(m.Driver.Shared.Get(config.PlatformTuple()))
-
-	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
-	if err != nil {
-		return fmt.Errorf("could not open driver file: %w", err)
-	}
-	defer lib.Close()
-
-	sigFile := m.Files.Signature
-	if sigFile == "" {
-		sigFile = m.Files.Driver + ".sig"
-	}
-
-	sig, err := os.Open(filepath.Join(path, sigFile))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
-		}
-		return fmt.Errorf("failed to open signature file: %w", err)
-	}
-	defer sig.Close()
-
-	if err := dbc.SignedByColumnar(lib, sig); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return nil
 }
 
 type writeDriverManifestMsg struct {
@@ -557,7 +521,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m = m.addEvent("extract.complete")
 		m = m.addEvent("verify.start")
 		return m, func() tea.Msg {
-			if err := verifySignature(msg, m.NoVerify); err != nil {
+			if m.NoVerify {
+				return writeDriverManifestMsg{DriverInfo: msg.DriverInfo}
+			}
+			if err := dbc.VerifyManifestSignature(msg); err != nil {
 				path := filepath.Dir(msg.Driver.Shared.Get(config.PlatformTuple()))
 				_ = os.RemoveAll(path)
 				return err

@@ -246,8 +246,26 @@ func (c *Client) Download(ctx context.Context, pkg PkgInfo) (io.ReadCloser, erro
 	return rsp.Body, nil
 }
 
-// Install installs a driver with the given name to the specified configuration.
-func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string) (*config.Manifest, error) {
+// InstallOption configures Client.Install.
+type InstallOption func(*installOptions)
+
+type installOptions struct{ allowUnsigned bool }
+
+// AllowUnsigned makes Client.Install skip signature verification, like the
+// CLI's --no-verify. Use it only for drivers from a trusted private registry.
+func AllowUnsigned() InstallOption {
+	return func(o *installOptions) { o.allowUnsigned = true }
+}
+
+// Install installs a driver with the given name to the specified
+// configuration and verifies its signature (see VerifyManifestSignature)
+// unless AllowUnsigned is given. A driver that fails verification is removed.
+func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string, opts ...InstallOption) (*config.Manifest, error) {
+	var o installOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	drivers, err := c.Search(ctx, driverName)
 	// Only fail if the driver wasn't found in any registry; partial registry errors
 	// are acceptable as long as we can still locate the target driver.
@@ -281,6 +299,12 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	manifest, err := config.InstallDriver(cfg, driverName, f)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
+	}
+	if !o.allowUnsigned {
+		if err := VerifyManifestSignature(manifest); err != nil {
+			_ = os.RemoveAll(filepath.Dir(manifest.Driver.Shared.Get(config.PlatformTuple())))
+			return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
+		}
 	}
 
 	if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {

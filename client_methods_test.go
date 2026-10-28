@@ -133,6 +133,52 @@ func TestClientInstall(t *testing.T) {
 	})
 }
 
+func TestClientInstallVerifiesSignature(t *testing.T) {
+	// The fixture is test-driver-1.tar.gz with one byte of the library
+	// flipped, so its bundled signature no longer matches.
+	tampered, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-tampered.tar.gz"))
+	require.NoError(t, err)
+	index := fmt.Sprintf(`drivers:
+  - name: Tampered Driver
+    description: Library modified after signing
+    license: MIT
+    path: test-driver-tampered
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: %s
+            url: test-driver-tampered/1.0.0/tampered.tar.gz
+`, config.PlatformTuple())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/index.yaml":
+			w.Write([]byte(index))
+		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
+			w.Write(tampered)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := newTestClientForServer(t, srv.URL)
+
+	t.Run("rejects the driver and leaves nothing installed", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := c.Install(t.Context(), config.Config{Level: config.ConfigEnv, Location: dir}, "test-driver-tampered")
+		require.ErrorContains(t, err, "signature verification failed")
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries)
+	})
+
+	t.Run("AllowUnsigned installs it anyway", func(t *testing.T) {
+		dir := t.TempDir()
+		m, err := c.Install(t.Context(), config.Config{Level: config.ConfigEnv, Location: dir}, "test-driver-tampered", dbc.AllowUnsigned())
+		require.NoError(t, err)
+		assert.FileExists(t, m.Driver.Shared.Get(config.PlatformTuple()))
+	})
+}
+
 func TestClientUninstall(t *testing.T) {
 	srv := newInstallTestServer(t)
 	c := newTestClientForServer(t, srv.URL)
