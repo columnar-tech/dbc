@@ -102,25 +102,28 @@ type InstalledDriver struct {
 }
 
 func Search(ctx context.Context, c *dbc.Client, pattern string) (SearchResult, error) {
-	// Fetch unfiltered so a partial outage with no matches is distinguishable
-	// from every registry failing; filter the same way dbc.Client.Search does.
-	drivers, searchErr := c.Search(ctx, "")
-	if searchErr != nil && len(drivers) == 0 {
+	drivers, searchErr := c.Search(ctx, pattern)
+	if searchErr != nil && allRegistriesFailed(c, searchErr) {
 		return SearchResult{}, searchErr
 	}
-	lowerPattern := strings.ToLower(pattern)
-	out := SearchResult{Drivers: []Driver{}}
+	out := SearchResult{Drivers: make([]Driver, 0, len(drivers))}
 	for _, d := range drivers {
-		if !strings.Contains(strings.ToLower(d.Path), lowerPattern) &&
-			!strings.Contains(strings.ToLower(d.Title), lowerPattern) {
-			continue
-		}
 		out.Drivers = append(out.Drivers, Driver{Path: d.Path, Title: d.Title, License: d.License, Description: d.Desc})
 	}
 	if searchErr != nil {
 		out.Warning = searchErr.Error()
 	}
 	return out, nil
+}
+
+// allRegistriesFailed reports whether err, as returned by dbc.Client.Search,
+// holds a failure for every configured registry.
+func allRegistriesFailed(c *dbc.Client, err error) bool {
+	failed := 1
+	if j, ok := err.(interface{ Unwrap() []error }); ok {
+		failed = len(j.Unwrap())
+	}
+	return failed >= len(c.Registries())
 }
 
 // Resolve reports the versions of driver name available for platform and the
@@ -130,7 +133,7 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 		platform = config.PlatformTuple()
 	}
 	drivers, searchErr := c.Search(ctx, name)
-	if searchErr != nil && len(drivers) == 0 {
+	if searchErr != nil && allRegistriesFailed(c, searchErr) {
 		return ResolveResult{}, searchErr
 	}
 	for _, d := range drivers {

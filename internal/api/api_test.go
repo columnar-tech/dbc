@@ -205,6 +205,32 @@ func TestSearchPartialFailureNoMatches(t *testing.T) {
 	assert.NotEmpty(t, res.Warning)
 }
 
+func TestSearchPartialFailureEmptyIndex(t *testing.T) {
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/index.yaml" {
+			w.Write([]byte("drivers: []\n"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(empty.Close)
+	down := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(down.Close)
+	var regs []dbc.Registry
+	for _, u := range []string{empty.URL, down.URL} {
+		base, err := url.Parse(u)
+		require.NoError(t, err)
+		regs = append(regs, dbc.Registry{BaseURL: base})
+	}
+	c, err := dbc.NewClient(dbc.WithRegistries(regs))
+	require.NoError(t, err)
+
+	res, err := api.Search(t.Context(), c, "")
+	require.NoError(t, err)
+	assert.Empty(t, res.Drivers)
+	assert.NotEmpty(t, res.Warning)
+}
+
 // latest must be the newest stable version available for the platform, even
 // when a newer stable version exists only for other platforms.
 func TestResolveLatestForPlatform(t *testing.T) {
