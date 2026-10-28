@@ -46,6 +46,10 @@ CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o rust/platfor
 cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
 ```
 
+That build is for development only. Release archives are built by the `capi`
+build in `.goreleaser.yaml`, which cross-compiles every target with Zig, and
+the PR snapshot runs the Rust tests on those exact archives.
+
 #### Linking a system libdbc
 
 To test against a custom static build without staging a platform crate:

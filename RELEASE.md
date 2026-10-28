@@ -51,6 +51,13 @@ checklist of steps:
       manually tested?
 - [ ] After pushing the tag, you will need to approve the deployment
       on the Actions tab of the repo.
+- [ ] *(One time)* The `production` environment has a `CARGO_REGISTRY_TOKEN`
+      secret for a crates.io account that owns the `columnar-dbc*` crates.
+      GoReleaser publishes them, with the release's version, in its final
+      `after` hook; a failure there happens after the GitHub release is out.
+      To recover, rerun `goreleaser build --clean --id capi` (needs Zig 0.17.0
+      and `GORELEASER_KEY`) at the tag, then
+      `python3 scripts/publish_crates.py --version <version>`.
 
 Once the above checklist is completed, just push the new tag to
 kick off the release process.
