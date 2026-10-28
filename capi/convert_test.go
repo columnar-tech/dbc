@@ -83,6 +83,53 @@ func TestClientConfig(t *testing.T) {
 		_, err := clientConfig([]string{"base-url"}, []string{"x"})
 		require.EqualError(t, err, `dbc: unknown client option "base-url"`)
 	})
+
+	t.Run("registry configuration keys", func(t *testing.T) {
+		cfg, err := clientConfig(
+			[]string{"registry.1.name", "registry.0.url", "registry.1.url", "registry_config", "project_file", "credential_store"},
+			[]string{"Private", "https://first.test", "https://second.test", "none", "/tmp/dbc.toml", "none"},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, api.ClientConfig{
+			Registries: []api.Registry{
+				{URL: "https://first.test"},
+				{URL: "https://second.test", Name: "Private"},
+			},
+			RegistryConfig:  "none",
+			ProjectFile:     "/tmp/dbc.toml",
+			CredentialStore: "none",
+		}, cfg)
+	})
+
+	t.Run("empty registry url", func(t *testing.T) {
+		_, err := clientConfig([]string{"registry.0.url"}, []string{""})
+		require.ErrorContains(t, err, "registry.0.url is required")
+	})
+
+	for _, tc := range []struct {
+		name string
+		keys []string
+	}{
+		{"duplicate url", []string{"registry.0.url", "registry.0.url"}},
+		{"duplicate name", []string{"registry.0.url", "registry.0.name", "registry.0.name"}},
+		{"gap", []string{"registry.0.url", "registry.2.url"}},
+		{"starts at one", []string{"registry.1.url"}},
+		{"name without url", []string{"registry.0.name"}},
+		{"negative index", []string{"registry.-1.url"}},
+		{"non numeric index", []string{"registry.x.url"}},
+		{"leading zero", []string{"registry.00.url"}},
+		{"unknown registry field", []string{"registry.0.title"}},
+		{"oversized index", []string{"registry.999999999999999999999999999.url"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := make([]string, len(tc.keys))
+			for i := range values {
+				values[i] = "https://registry.test"
+			}
+			_, err := clientConfig(tc.keys, values)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestInstallOptions(t *testing.T) {
@@ -96,4 +143,17 @@ func TestInstallOptions(t *testing.T) {
 
 	_, err = installOptions(installAllowUnsigned | 0x4)
 	require.EqualError(t, err, "dbc: unknown install flags 0x4")
+}
+
+func TestLicenseOptions(t *testing.T) {
+	force, err := licenseOptions(0)
+	require.NoError(t, err)
+	assert.False(t, force, "existing licenses are preserved by default")
+
+	force, err = licenseOptions(licenseForce)
+	require.NoError(t, err)
+	assert.True(t, force)
+
+	_, err = licenseOptions(licenseForce | 0x4)
+	require.EqualError(t, err, "dbc: unknown license flags 0x4")
 }

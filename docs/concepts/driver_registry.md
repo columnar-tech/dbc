@@ -28,3 +28,25 @@ By default, dbc is configured to communicate with two driver registries: the pub
     If you access these registries without dbc, please set a user agent. See [Can I download drivers directly from the driver registries?](../getting_started/faq.md#can-i-download-drivers-directly-from-the-driver-registries).
 
 When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available from each configured registry by downloading its `index.yaml` or using a cached copy.
+
+## Go library configuration
+
+Go callers can use `dbc.LoadProjectRegistries(path)` to read only the
+`registries` and `replace_defaults` settings from a project's `dbc.toml`,
+without decoding its driver specifications. Pass the returned entries and
+replacement flag to `dbc.WithProjectRegistries`. An omitted replacement flag
+inherits the global setting; an explicit `false` restores the built-in
+registries. A missing explicitly named project file is an error.
+
+The root Go `dbc.NewClient` does not discover configuration files itself:
+load global settings with `dbc.LoadGlobalConfig(configDir)` and pass them with
+`dbc.WithGlobalConfig` when needed. Project registries take priority over global
+registries, followed by the built-in defaults unless replaced. Explicit
+`dbc.WithBaseURL` or `dbc.WithRegistries` options bypass both configuration layers.
+Explicit lists preserve order and duplicates; an empty list disables all registries.
+
+Filesystem-enabled bindings load the user's global configuration by default,
+unlike the root Go client. Use `registryConfig: "none"` to skip global
+configuration; an explicitly named `projectFile` is still loaded. An explicit
+base URL or registry list skips both files entirely, including validation of
+`registryConfig`.

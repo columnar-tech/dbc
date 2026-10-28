@@ -196,23 +196,26 @@ func GetCredentials(u *url.URL) (*Credential, error) {
 
 func LoadCredentials() error {
 	loaded.Do(func() {
-		creds, err := loadCreds()
 		credMu.Lock()
+		creds, err := loadCreds()
 		loadedCredentials, credentialErr = creds, err
 		credMu.Unlock()
 	})
+	credMu.RLock()
+	defer credMu.RUnlock()
 	return credentialErr
 }
 
 func AddCredential(cred Credential, allowOverwrite bool) error {
-	if err := LoadCredentials(); err != nil {
-		return err
-	}
-
 	credMu.Lock()
 	defer credMu.Unlock()
 
-	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
+	creds, err := loadCreds()
+	if err != nil {
+		return err
+	}
+
+	idx := slices.IndexFunc(creds, func(c Credential) bool {
 		return c.RegistryURL.Host == cred.RegistryURL.Host
 	})
 
@@ -220,22 +223,23 @@ func AddCredential(cred Credential, allowOverwrite bool) error {
 		if !allowOverwrite {
 			return fmt.Errorf("credentials for %s already exist", cred.RegistryURL.Host)
 		}
-		loadedCredentials[idx] = cred
+		creds[idx] = cred
 	} else {
-		loadedCredentials = append(loadedCredentials, cred)
+		creds = append(creds, cred)
 	}
-	return writeCreds()
+	return writeCreds(creds)
 }
 
 func RemoveCredential(host Uri) error {
-	if err := LoadCredentials(); err != nil {
-		return err
-	}
-
 	credMu.Lock()
 	defer credMu.Unlock()
 
-	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
+	creds, err := loadCreds()
+	if err != nil {
+		return err
+	}
+
+	idx := slices.IndexFunc(creds, func(c Credential) bool {
 		return c.RegistryURL.Host == host.Host
 	})
 
@@ -243,13 +247,13 @@ func RemoveCredential(host Uri) error {
 		return fmt.Errorf("no credentials found for %s", host.Host)
 	}
 
-	loadedCredentials = append(loadedCredentials[:idx], loadedCredentials[idx+1:]...)
-	return writeCreds()
+	creds = append(creds[:idx], creds[idx+1:]...)
+	return writeCreds(creds)
 }
 
-// writeCreds persists loadedCredentials to disk.
+// writeCreds persists creds, then updates the lookup cache on success.
 // Caller must hold credMu.
-func writeCreds() error {
+func writeCreds(creds []Credential) error {
 	cp, err := getCredPath()
 	if err != nil {
 		return fmt.Errorf("failed to get credential path: %w", err)
@@ -265,11 +269,15 @@ func writeCreds() error {
 	}
 	defer f.Close()
 
-	return toml.NewEncoder(f).Encode(struct {
+	if err := toml.NewEncoder(f).Encode(struct {
 		Credentials []Credential `toml:"credentials"`
 	}{
-		Credentials: loadedCredentials,
-	})
+		Credentials: creds,
+	}); err != nil {
+		return err
+	}
+	loadedCredentials, credentialErr = creds, nil
+	return nil
 }
 
 func UpdateCreds() error {
@@ -279,7 +287,7 @@ func UpdateCreds() error {
 
 	credMu.Lock()
 	defer credMu.Unlock()
-	return writeCreds()
+	return writeCreds(loadedCredentials)
 }
 
 func PurgeCredentials() error {

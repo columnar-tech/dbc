@@ -102,7 +102,135 @@ LD_LIBRARY_PATH=/opt/dbc/lib ./target/debug/my-app
 The crate does not configure the runtime loader path. Other platforms need
 their corresponding shared library and loader-path configuration.
 
-## Private registries
+## Registry configuration
 
-`Client::new()` uses credentials stored by `dbc auth login`. To inject a
-token at runtime instead, use `Client::with_config` with a `Credential`.
+`Client::new()` and `ClientConfig::default()` honor the user's global dbc
+`config.toml`, just like the CLI. This is a change from earlier bindings,
+which ignored that file. If it is missing, dbc uses its built-in registries.
+An unreadable or invalid global file is a construction error, not a warning.
+The locations are:
+
+| Platform | Global registry configuration |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME/columnar/dbc/config.toml`, or `~/.config/columnar/dbc/config.toml` |
+| macOS | `~/Library/Application Support/Columnar/dbc/config.toml` |
+| Windows | `%APPDATA%\Columnar\dbc\config.toml` |
+
+Use the non-exhaustive `ClientConfig`'s builder methods to choose options:
+
+```rust
+use columnar_dbc::{Client, ClientConfig, CredentialStore, Registry, RegistryConfig};
+
+let config = ClientConfig::default()
+    .registry_config(RegistryConfig::None)
+    .credential_store(CredentialStore::None)
+    .registries(vec![
+        Registry::new("https://registry.example.com").name("company"),
+        Registry::new("https://another.example.com"),
+    ]);
+let client = Client::with_config(&config)?;
+# Ok::<(), columnar_dbc::Error>(())
+```
+
+Registry precedence is explicit:
+
+- `base_url(url)` selects one registry. A nonempty `registries(vec![...])`
+  selects that exact list, in order. These options are mutually exclusive:
+  setting both is an error. Invalid registry URLs are errors.
+- Either explicit option bypasses global and project configuration
+  entirely: files are not read, even if missing or malformed.
+- Otherwise, `registry_config(RegistryConfig::Default)` loads the global
+  file. `RegistryConfig::None` skips only that file; it does not disable
+  an explicitly selected project file or dbc's built-in registries.
+- `project_file(path)` reads `registries` and `replace_defaults` from that
+  project's `dbc.toml`. Project files are never discovered automatically.
+  A missing, unreadable, or invalid selected file is an error.
+- Project registries come first, then global registries, then built-in
+  registries, with duplicate URLs removed. A project's `replace_defaults`
+  value overrides the global value; omitting it inherits the global value.
+  `true` removes the built-in registries, not the global entries. A
+  configuration that leaves no registries is an error.
+
+An empty `registries` vector is the default, not a request for zero
+registries. To load a project's configuration without the global file:
+
+```rust
+use columnar_dbc::{Client, ClientConfig, RegistryConfig};
+
+let config = ClientConfig::default()
+    .registry_config(RegistryConfig::None)
+    .project_file("dbc.toml");
+let client = Client::with_config(&config)?;
+# Ok::<(), columnar_dbc::Error>(())
+```
+
+## Credentials
+
+`CredentialStore::Default` uses credentials saved by `dbc auth login` or
+the free `login(&Credential) -> Result<()>` function. `login` stores a token
+credential, replacing any entry for the same registry host; it does not
+perform browser-based or interactive authentication. Optional
+`refresh_token` and `client_id` values are saved too.
+
+To inject a credential into one client instead of storing it:
+
+```rust
+use columnar_dbc::{Client, ClientConfig, Credential};
+
+let credential = Credential {
+    registry_url: "https://registry.example.com".into(),
+    auth_uri: "https://auth.example.com/oauth/token".into(),
+    token: Some(std::env::var("DBC_REGISTRY_TOKEN")?),
+    ..Default::default()
+};
+let config = ClientConfig::default()
+    .base_url("https://registry.example.com")
+    .credential(credential);
+let client = Client::with_config(&config)?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+An injected credential replaces the stored credential **only for its
+registry host**. Other hosts fall back to the store by default. With
+`credential_store(CredentialStore::None)`, stored credentials are never
+used to authenticate; refreshing an injected credential can still update
+dbc's credential/license files.
+
+`logout(registry_url: &str) -> Result<()>` removes the credential for the
+URL's host, independent of its path. It returns an error if that host has
+no stored credential. `login` and `logout` operate on the shared persistent
+store regardless of any client's `CredentialStore` setting.
+Cached lookups may miss external store changes until the process restarts,
+even if a new `Client` is created.
+
+## Licenses
+
+```rust,no_run
+use columnar_dbc::{install_license, license_path};
+use std::path::Path;
+
+let destination = license_path()?;
+println!("license destination: {}", destination.display());
+install_license(Path::new("/path/to/columnar.lic"), false)?;
+# Ok::<(), columnar_dbc::Error>(())
+```
+
+`license_path() -> Result<PathBuf>` returns the `columnar.lic` path beside
+dbc's credential store, even if no license exists. It does not install a
+license. `install_license(src_path: &Path, force: bool) -> Result<()>`
+copies the source there. With `force = false`, the source must be named
+`columnar.lic` and an existing license is not overwritten. `force = true`
+allows another source filename and replaces an existing license. Filename
+and overwrite errors refer to `force`, not the CLI's `--force` flag.
+
+The credential and license directory is `$XDG_DATA_HOME/dbc/credentials`
+when `XDG_DATA_HOME` is set. Otherwise it is
+`~/.local/share/dbc/credentials` on Linux,
+`~/Library/Application Support/Columnar/dbc/credentials` on macOS, or
+`%LOCALAPPDATA%\dbc\credentials` on Windows.
+
+The ordinary Rust roundtrip tests spawn child processes with isolated user
+configuration and data directories before the Go runtime initializes.
+They never write the user's credential store or license. The separate
+user/system driver-level tests still require `DBC_TEST_LEVEL_USER` or
+`DBC_TEST_LEVEL_SYSTEM` opt-in because they exercise real install locations.

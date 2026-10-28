@@ -414,6 +414,38 @@ func TestAddCredential(t *testing.T) {
 	})
 }
 
+func TestAddCredential_UsesLatestDiskSnapshot(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+
+	require.NoError(t, LoadCredentials())
+	staleSnapshot := loadedCredentials
+	first := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "first.example.com"}),
+		ApiKey:      "first-key",
+	}
+	second := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "second.example.com"}),
+		ApiKey:      "second-key",
+	}
+
+	require.NoError(t, AddCredential(first, false))
+	// Simulate another runtime that loaded its snapshot before the first write.
+	credMu.Lock()
+	loadedCredentials = staleSnapshot
+	credMu.Unlock()
+	require.NoError(t, AddCredential(second, false))
+
+	creds, err := loadCreds()
+	require.NoError(t, err)
+	assert.Equal(t, []Credential{first, second}, creds)
+	cached, err := GetCredentials((*url.URL)(&first.RegistryURL))
+	require.NoError(t, err)
+	assert.Equal(t, &first, cached)
+}
+
 func TestRemoveCredential(t *testing.T) {
 	resetCredState(t)
 
@@ -465,6 +497,39 @@ func TestRemoveCredential(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no credentials found")
 	})
+}
+
+func TestRemoveCredential_UsesLatestDiskSnapshot(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+
+	removed := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "removed.example.com"}),
+		ApiKey:      "removed-key",
+	}
+	retained := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "retained.example.com"}),
+		ApiKey:      "retained-key",
+	}
+	require.NoError(t, AddCredential(removed, false))
+	require.NoError(t, LoadCredentials())
+	staleSnapshot := append([]Credential(nil), loadedCredentials...)
+
+	require.NoError(t, AddCredential(retained, false))
+	// Simulate another runtime that loaded its snapshot before the latest write.
+	credMu.Lock()
+	loadedCredentials = staleSnapshot
+	credMu.Unlock()
+	require.NoError(t, RemoveCredential(removed.RegistryURL))
+
+	creds, err := loadCreds()
+	require.NoError(t, err)
+	assert.Equal(t, []Credential{retained}, creds)
+	cached, err := GetCredentials((*url.URL)(&retained.RegistryURL))
+	require.NoError(t, err)
+	assert.Equal(t, &retained, cached)
 }
 
 func TestUpdateCreds(t *testing.T) {

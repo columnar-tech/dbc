@@ -18,6 +18,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"syscall/js"
 
 	"github.com/columnar-tech/dbc/internal/api"
@@ -27,6 +29,10 @@ func registerNodeOps() {
 	js.Global().Set("dbcInstall", promisify(jsInstall))
 	js.Global().Set("dbcList", promisify(jsList))
 	js.Global().Set("dbcUninstall", promisify(jsUninstall))
+	js.Global().Set("dbcLogin", promisify(jsLogin))
+	js.Global().Set("dbcLogout", promisify(jsLogout))
+	js.Global().Set("dbcLicensePath", promisify(jsLicensePath))
+	js.Global().Set("dbcInstallLicense", promisify(jsInstallLicense))
 }
 
 // The npm API takes a directory only; config levels are not exposed to JS.
@@ -64,6 +70,47 @@ func jsUninstall(args []js.Value) func() (any, error) {
 	target := api.Target{Location: args[1].String()}
 	return func() (any, error) {
 		if err := api.Uninstall(name, target); err != nil {
+			return nil, err
+		}
+		return "ok", nil
+	}
+}
+
+func jsLogin(args []js.Value) func() (any, error) {
+	credJSON := args[0].String()
+	return func() (any, error) {
+		var cred api.Credential
+		if err := json.Unmarshal([]byte(credJSON), &cred); err != nil {
+			return nil, fmt.Errorf("invalid credential: %w", err)
+		}
+		if err := api.Login(cred); err != nil {
+			return nil, err
+		}
+		return "ok", nil
+	}
+}
+
+func jsLogout(args []js.Value) func() (any, error) {
+	registryURL := args[0].String()
+	return func() (any, error) {
+		if err := api.Logout(registryURL); err != nil {
+			return nil, err
+		}
+		return "ok", nil
+	}
+}
+
+func jsLicensePath(_ []js.Value) func() (any, error) {
+	return func() (any, error) {
+		return api.LicensePath()
+	}
+}
+
+func jsInstallLicense(args []js.Value) func() (any, error) {
+	srcPath := args[0].String()
+	force := len(args) > 1 && args[1].Truthy()
+	return func() (any, error) {
+		if err := api.InstallLicense(srcPath, force); err != nil {
 			return nil, err
 		}
 		return "ok", nil

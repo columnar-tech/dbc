@@ -51,6 +51,17 @@ function normalizeLocation(loc) {
   return p;
 }
 
+function clientConfig(opts) {
+  return JSON.stringify({
+    baseURL: opts.baseURL || "",
+    registries: opts.registries,
+    registryConfig: opts.registryConfig,
+    projectFile: opts.projectFile ? normalizeLocation(opts.projectFile) : "",
+    credential: opts.credential || null,
+    credentialStore: opts.credentialStore,
+  });
+}
+
 let runtimePromise;
 
 function ensureRuntime() {
@@ -154,8 +165,7 @@ async function loadDbcWorker(opts) {
   try {
     await ready;
     await call("dbcSetPlatform", [opts.platform || hostPlatformTuple()]);
-    const cfg = JSON.stringify({ baseURL: opts.baseURL || "", credential: opts.credential || null });
-    handle = await call("dbcNewClient", [cfg]);
+    handle = await call("dbcNewClient", [clientConfig(opts)]);
   } catch (e) {
     // Initialization failed after the Worker was created (unsupported host
     // platform, rejected dbcNewClient, or a worker fatal/error/exit). Terminate
@@ -189,18 +199,27 @@ function buildClient({ call, handle, hasInstall, close }) {
     verifySignature: (lib, sig) => call("dbcVerify", [lib, sig]),
     close,
   };
-  // install/uninstall/listInstalled require a filesystem-capable build; both
+  // Driver, credential, and license filesystem operations are Node-only; both
   // backends feature-detect identically so the surface is symmetric.
   if (hasInstall) {
-    // dbcInstall takes the client handle (it needs the instance's registry
-    // config); dbcUninstall/dbcList are pure filesystem ops and intentionally
-    // do not — per-instance config does not apply to them.
+    // Only dbcInstall needs the instance's registry config. The other Node
+    // operations act on an explicit location or the user's shared store.
     api.install = (name, location, options = {}) =>
       parse("dbcInstall", [handle, name, normalizeLocation(location), Boolean(options.allowUnsigned)]);
     api.uninstall = async (name, location) => {
       await call("dbcUninstall", [name, normalizeLocation(location)]);
     };
     api.listInstalled = (location) => parse("dbcList", [normalizeLocation(location)]);
+    api.login = async (credential) => {
+      await call("dbcLogin", [JSON.stringify(credential)]);
+    };
+    api.logout = async (registryURL) => {
+      await call("dbcLogout", [registryURL]);
+    };
+    api.licensePath = () => call("dbcLicensePath", []);
+    api.installLicense = async (sourcePath, options = {}) => {
+      await call("dbcInstallLicense", [normalizeLocation(sourcePath), Boolean(options.force)]);
+    };
   }
   return api;
 }
@@ -212,12 +231,9 @@ async function loadDbc(opts = {}) {
   // platform is a process-global host constant; only override when explicit.
   if (opts.platform) globalThis.dbcSetPlatform(opts.platform);
 
-  // Each instance gets its own Go-side client handle, so baseURL/credentials are
-  // isolated between instances and refreshed tokens persist across calls.
-  const cfg = JSON.stringify({
-    baseURL: opts.baseURL || "",
-    credential: opts.credential || null,
-  });
+  // Each instance gets its own registry/credential config and Go-side client
+  // handle, so injected and refreshed credentials persist across its calls.
+  const cfg = clientConfig(opts);
   let handle;
   try {
     handle = await globalThis.dbcNewClient(cfg);

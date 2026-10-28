@@ -16,8 +16,10 @@ use columnar_dbc_sys as sys;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
-pub(crate) fn cstring(s: &str) -> Result<CString> {
-    CString::new(s).map_err(|_| Error::InvalidArgument(format!("{s:?} contains a NUL byte")))
+pub(crate) fn cstring(s: impl Into<Vec<u8>>) -> Result<CString> {
+    CString::new(s).map_err(|err| {
+        Error::InvalidArgument(format!("{:?} contains a NUL byte", String::from_utf8_lossy(&err.into_vec())))
+    })
 }
 
 /// A C input pointer for an optional string. The C API only reads inputs;
