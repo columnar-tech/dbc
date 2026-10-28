@@ -36,32 +36,65 @@ fn fixture(name: &str) -> Vec<u8> {
     fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cmd/dbc/testdata").join(name)).unwrap()
 }
 
-/// Serves the fixture registry until the test process exits.
-pub fn serve() -> String {
-    let (index, valid, tampered) = (index(), fixture("test-driver-1.tar.gz"), fixture("test-driver-tampered.tar.gz"));
-    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
-    let base = format!("http://{}", server.server_addr().to_ip().unwrap());
+/// A request as seen by an [`http_serve`] handler.
+pub struct Request {
+    /// The path, without the query string dbc may append.
+    pub path: String,
+}
+
+/// Serves GET requests on 127.0.0.1 until the test process exits, answering
+/// each with `handler`'s (status, body) and `Connection: close`. Each
+/// connection gets its own thread, so a client dropping a connection, as Go's
+/// HTTP transport does with surplus ones, ends only that thread.
+pub fn http_serve(handler: impl Fn(&Request) -> (u16, Vec<u8>) + Send + Sync + 'static) -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let handler = std::sync::Arc::new(handler);
     std::thread::spawn(move || {
-        for req in server.incoming_requests() {
-            // dbc may append query parameters; route on the path alone.
-            let url = req.url().split('?').next().unwrap_or_default().to_string();
-            let body = if url.starts_with("/index.yaml") {
-                Some(index.as_bytes().to_vec())
-            } else if url.starts_with("/test-driver-tampered/") {
-                Some(tampered.clone())
-            } else if url.ends_with(".tar.gz") {
-                Some(valid.clone())
-            } else {
-                None
-            };
-            let resp = match body {
-                Some(body) => tiny_http::Response::from_data(body),
-                None => tiny_http::Response::from_data(b"not found".to_vec()).with_status_code(404),
-            };
-            let _ = req.respond(resp);
+        for stream in listener.incoming().flatten() {
+            let handler = handler.clone();
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(&stream);
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    return;
+                }
+                let target = line.split_whitespace().nth(1).unwrap_or_default();
+                let path = target.split('?').next().unwrap_or_default().to_string();
+                // Skip the headers; requests carry no body.
+                loop {
+                    let mut header = String::new();
+                    match reader.read_line(&mut header) {
+                        Ok(0) | Err(_) => return,
+                        Ok(_) if header.trim_end().is_empty() => break,
+                        Ok(_) => {}
+                    }
+                }
+                let (status, body) = handler(&Request { path });
+                let head = format!("HTTP/1.1 {status} \r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                let mut stream = &stream;
+                let _ = stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(&body));
+            });
         }
     });
     base
+}
+
+/// Serves the fixture registry until the test process exits.
+pub fn serve() -> String {
+    let (index, valid, tampered) = (index(), fixture("test-driver-1.tar.gz"), fixture("test-driver-tampered.tar.gz"));
+    http_serve(move |req| {
+        if req.path.starts_with("/index.yaml") {
+            (200, index.as_bytes().to_vec())
+        } else if req.path.starts_with("/test-driver-tampered/") {
+            (200, tampered.clone())
+        } else if req.path.ends_with(".tar.gz") {
+            (200, valid.clone())
+        } else {
+            (404, b"not found".to_vec())
+        }
+    })
 }
 
 /// A client for a fresh fixture registry.
