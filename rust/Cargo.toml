@@ -1,0 +1,36 @@
+# Copyright 2026 Columnar Technologies Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[workspace]
+resolver = "2"
+members = ["columnar-dbc", "columnar-dbc-sys", "platforms/*"]
+
+[workspace.package]
+# Placeholder: scripts/publish_crates.py stamps the release version here and
+# in the pins below while packaging/publishing. Every crate ships with the
+# dbc release version.
+version = "0.0.0-dev"
+edition = "2021"
+rust-version = "1.82"
+license = "Apache-2.0"
+repository = "https://github.com/columnar-tech/dbc"
+homepage = "https://columnar.tech/dbc"
+
+[workspace.dependencies]
+columnar-dbc-sys = { path = "columnar-dbc-sys", version = "=0.0.0-dev" }
+columnar-dbc-sys-linux-x64 = { path = "platforms/linux-x64", version = "=0.0.0-dev" }
+columnar-dbc-sys-linux-arm64 = { path = "platforms/linux-arm64", version = "=0.0.0-dev" }
+columnar-dbc-sys-darwin-x64 = { path = "platforms/darwin-x64", version = "=0.0.0-dev" }
+columnar-dbc-sys-darwin-arm64 = { path = "platforms/darwin-arm64", version = "=0.0.0-dev" }
+columnar-dbc-sys-windows-x64 = { path = "platforms/windows-x64", version = "=0.0.0-dev" }
