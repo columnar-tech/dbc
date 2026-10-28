@@ -23,12 +23,12 @@ fn main() {
             | ("linux", "aarch64", "gnu")
             | ("macos", "x86_64", _)
             | ("macos", "aarch64", _)
-            | ("windows", "x86_64", _)
+            | ("windows", "x86_64", "gnu")
     );
     if !supported {
         panic!(
             "columnar-dbc-sys: no prebuilt dbc library for target `{}`. Supported: \
-             x86_64/aarch64 Linux (glibc), x86_64/aarch64 macOS, x86_64 Windows.",
+             x86_64/aarch64 Linux (glibc), x86_64/aarch64 macOS, x86_64 Windows (GNU).",
             env::var("TARGET").unwrap_or_default()
         );
     }

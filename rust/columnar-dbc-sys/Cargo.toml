@@ -37,5 +37,5 @@ columnar-dbc-sys-darwin-x64 = { workspace = true }
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 columnar-dbc-sys-darwin-arm64 = { workspace = true }
 
-[target.'cfg(all(target_os = "windows", target_arch = "x86_64"))'.dependencies]
+[target.'cfg(all(target_os = "windows", target_arch = "x86_64", target_env = "gnu"))'.dependencies]
 columnar-dbc-sys-windows-x64 = { workspace = true }
