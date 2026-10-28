@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -184,4 +185,56 @@ func TestClientsHandles(t *testing.T) {
 	_, err = reg.Get(h)
 	require.EqualError(t, err, fmt.Sprintf("invalid client handle %d", h))
 	assert.NotEqual(t, h, reg.Add(c), "handles must never be reused")
+}
+
+func TestSearchPartialFailureNoMatches(t *testing.T) {
+	down := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(down.Close)
+	var regs []dbc.Registry
+	for _, u := range []string{fixtureServer(t), down.URL} {
+		base, err := url.Parse(u)
+		require.NoError(t, err)
+		regs = append(regs, dbc.Registry{BaseURL: base})
+	}
+	c, err := dbc.NewClient(dbc.WithRegistries(regs))
+	require.NoError(t, err)
+
+	res, err := api.Search(t.Context(), c, "no-such-driver")
+	require.NoError(t, err)
+	assert.Empty(t, res.Drivers)
+	assert.NotEmpty(t, res.Warning)
+}
+
+// latest must be the newest stable version available for the platform, even
+// when a newer stable version exists only for other platforms.
+func TestResolveLatestForPlatform(t *testing.T) {
+	const index = `drivers:
+  - name: Test Driver
+    path: test-driver
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+            url: test-driver/1.0.0/linux.tar.gz
+      - version: v2.0.0
+        packages:
+          - platform: windows_amd64
+            url: test-driver/2.0.0/windows.tar.gz
+`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/index.yaml" {
+			w.Write([]byte(index))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := api.NewClient(api.ClientConfig{BaseURL: srv.URL}, nil)
+	require.NoError(t, err)
+
+	res, err := api.Resolve(t.Context(), c, "test-driver", "linux_amd64")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1.0.0"}, res.Versions)
+	require.NotNil(t, res.Latest)
+	assert.Equal(t, "1.0.0", res.Latest.Version)
 }
