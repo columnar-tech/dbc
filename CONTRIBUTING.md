@@ -30,6 +30,28 @@ and you can run the tests by running,
 go test -v ./...
 ```
 
+### C API and Rust crates
+
+`./capi` is dbc's C API. cgo generates its header, `libdbc.h`, from the
+preamble and `//export` functions in `capi/exports.go`, so that file is the
+only place the API is declared. The Rust crates in `rust/` link a static
+build of it. Building needs a C compiler (cgo) as well as Go and Rust. Build
+the archive for your platform (`linux-x64`, `linux-arm64`, `darwin-x64`,
+`darwin-arm64`, or `windows-x64`) into its platform crate, then run the tests:
+
+```sh
+CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o rust/platforms/linux-x64/native/libdbc.a ./capi
+cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
+```
+
+After changing anything in `capi/exports.go`, regenerate the Rust bindings
+with bindgen-cli 0.73.2 (CI fails if they are stale):
+
+```sh
+cargo install bindgen-cli --version 0.73.2 --locked
+python3 scripts/gen_rust_bindings.py rust/platforms/linux-x64/native/libdbc.h
+```
+
 ## Debugging
 
 Debugging dbc can be done similarly to any Golang project and editor setups like VSCode with the official Go extension should work out of the box.

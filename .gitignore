@@ -49,3 +49,7 @@ cdn-dev
 .claude
 
 __pycache__
+
+# Rust crates (rust/); native/ holds libdbc.a/libdbc.h (local go build or GoReleaser's stage_capi.py)
+rust/target/
+rust/platforms/*/native/
