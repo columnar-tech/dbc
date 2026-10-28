@@ -102,12 +102,19 @@ type InstalledDriver struct {
 }
 
 func Search(ctx context.Context, c *dbc.Client, pattern string) (SearchResult, error) {
-	drivers, searchErr := c.Search(ctx, pattern)
+	// Fetch unfiltered so a partial outage with no matches is distinguishable
+	// from every registry failing; filter the same way dbc.Client.Search does.
+	drivers, searchErr := c.Search(ctx, "")
 	if searchErr != nil && len(drivers) == 0 {
 		return SearchResult{}, searchErr
 	}
-	out := SearchResult{Drivers: make([]Driver, 0, len(drivers))}
+	lowerPattern := strings.ToLower(pattern)
+	out := SearchResult{Drivers: []Driver{}}
 	for _, d := range drivers {
+		if !strings.Contains(strings.ToLower(d.Path), lowerPattern) &&
+			!strings.Contains(strings.ToLower(d.Title), lowerPattern) {
+			continue
+		}
 		out.Drivers = append(out.Drivers, Driver{Path: d.Path, Title: d.Title, License: d.License, Description: d.Desc})
 	}
 	if searchErr != nil {
@@ -131,11 +138,19 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 			continue
 		}
 		out := ResolveResult{Path: d.Path, Platform: platform, Versions: []string{}}
-		for _, v := range d.Versions(platform) {
+		versions := d.Versions(platform)
+		for _, v := range versions {
 			out.Versions = append(out.Versions, v.String())
 		}
-		if pkg, err := d.GetPackage(nil, platform, false); err == nil && pkg.Path != nil {
-			out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
+		// Newest stable version that has a package for platform.
+		for i := len(versions) - 1; i >= 0; i-- {
+			if versions[i].Prerelease() != "" {
+				continue
+			}
+			if pkg, err := d.GetPackage(versions[i], platform, false); err == nil && pkg.Path != nil {
+				out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
+			}
+			break
 		}
 		return out, nil
 	}
