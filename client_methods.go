@@ -259,7 +259,8 @@ func AllowUnsigned() InstallOption {
 
 // Install installs a driver with the given name to the specified
 // configuration and verifies its signature (see VerifyManifestSignature)
-// unless AllowUnsigned is given. A driver that fails verification is removed.
+// unless AllowUnsigned is given. Verification happens on a staged copy, so a
+// driver that fails it never touches cfg's location (or an existing install).
 func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string, opts ...InstallOption) (*config.Manifest, error) {
 	var o installOptions
 	for _, opt := range opts {
@@ -296,15 +297,19 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
+	if !o.allowUnsigned {
+		if err := verifyStaged(driverName, f); err != nil {
+			return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
+		}
+		// Staging closed f; reopen the same download for the real install.
+		if f, err = os.Open(f.Name()); err != nil {
+			return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
+		}
+	}
+
 	manifest, err := config.InstallDriver(cfg, driverName, f)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
-	}
-	if !o.allowUnsigned {
-		if err := VerifyManifestSignature(manifest); err != nil {
-			_ = os.RemoveAll(filepath.Dir(manifest.Driver.Shared.Get(config.PlatformTuple())))
-			return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
-		}
 	}
 
 	if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
@@ -312,6 +317,22 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 
 	return &manifest, nil
+}
+
+// verifyStaged extracts the downloaded package f into a temporary directory
+// and checks its signature there.
+func verifyStaged(driverName string, f *os.File) error {
+	stage, err := os.MkdirTemp("", "dbc-verify-*")
+	if err != nil {
+		return fmt.Errorf("failed to create staging dir: %w", err)
+	}
+	defer os.RemoveAll(stage)
+
+	staged, err := config.InstallDriver(config.Config{Level: config.ConfigEnv, Location: stage}, driverName, f)
+	if err != nil {
+		return err
+	}
+	return VerifyManifestSignature(staged)
 }
 
 // Uninstall uninstalls a driver with the given name from the specified configuration.

@@ -23,6 +23,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+# The integration tests read fixtures from the dbc repo (cmd/dbc/testdata),
+# so they only run in-repo; keep them out of the published crate.
+include = ["src/**", "README.md"]
 
 [dependencies]
 columnar-dbc-sys = { workspace = true }

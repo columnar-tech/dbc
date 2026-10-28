@@ -54,6 +54,10 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 		opts = append(opts, dbc.WithHTTPClient(hc))
 	}
 	if cfg.BaseURL != "" {
+		// dbc.WithBaseURL panics on a malformed URL; report it as an error.
+		if _, err := url.Parse(cfg.BaseURL); err != nil {
+			return nil, fmt.Errorf("invalid baseURL: %w", err)
+		}
 		opts = append(opts, dbc.WithBaseURL(cfg.BaseURL))
 	}
 	if cfg.UserAgentSuffix != "" {

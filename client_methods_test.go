@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/columnar-tech/dbc"
@@ -177,6 +178,60 @@ func TestClientInstallVerifiesSignature(t *testing.T) {
 		require.NoError(t, err)
 		assert.FileExists(t, m.Driver.Shared.Get(config.PlatformTuple()))
 	})
+}
+
+// A failed reinstall must not damage an existing, valid install of the same
+// package: the tampered tarball extracts to the same directory name.
+func TestClientInstallFailedVerificationKeepsExistingInstall(t *testing.T) {
+	testdata := filepath.Join("cmd", "dbc", "testdata")
+	valid, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	tampered, err := os.ReadFile(filepath.Join(testdata, "test-driver-tampered.tar.gz"))
+	require.NoError(t, err)
+	index := fmt.Sprintf(`drivers:
+  - name: Test Driver 1
+    description: Test driver
+    license: MIT
+    path: test-driver-1
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: %s
+            url: test-driver-1/1.0.0/test-driver-1.tar.gz
+`, config.PlatformTuple())
+	var serveTampered atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/index.yaml":
+			w.Write([]byte(index))
+		case strings.HasSuffix(r.URL.Path, ".tar.gz") && serveTampered.Load():
+			w.Write(tampered)
+		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
+			w.Write(valid)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := newTestClientForServer(t, srv.URL)
+	cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+
+	m, err := c.Install(t.Context(), cfg, "test-driver-1")
+	require.NoError(t, err)
+	driverPath := m.Driver.Shared.Get(config.PlatformTuple())
+	good, err := os.ReadFile(driverPath)
+	require.NoError(t, err)
+
+	serveTampered.Store(true)
+	_, err = c.Install(t.Context(), cfg, "test-driver-1")
+	require.ErrorContains(t, err, "signature verification failed")
+
+	after, err := os.ReadFile(driverPath)
+	require.NoError(t, err, "the existing driver must survive a failed reinstall")
+	assert.Equal(t, good, after, "the existing driver must not be overwritten")
+	di, err := config.GetDriver(cfg, "test-driver-1")
+	require.NoError(t, err)
+	assert.FileExists(t, di.Driver.Shared.Get(config.PlatformTuple()))
 }
 
 func TestClientUninstall(t *testing.T) {

@@ -60,6 +60,13 @@ func newClient(t *testing.T) *dbc.Client {
 	return c
 }
 
+// A malformed baseURL must be an error, not a panic that takes down the
+// JS or C host.
+func TestNewClientRejectsInvalidBaseURL(t *testing.T) {
+	_, err := api.NewClient(api.ClientConfig{BaseURL: "http://\x00"}, nil)
+	require.ErrorContains(t, err, "invalid baseURL")
+}
+
 func TestNewClientRejectsInvalidCredentialURL(t *testing.T) {
 	_, err := api.NewClient(api.ClientConfig{Credential: &api.Credential{
 		RegistryURL: "http://\x00",
