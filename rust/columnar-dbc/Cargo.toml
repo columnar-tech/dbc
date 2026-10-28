@@ -32,4 +32,3 @@ columnar-dbc-sys = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
-tiny_http = "0.12"
