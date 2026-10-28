@@ -17,19 +17,19 @@ fn main() {
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
-    let supported = matches!(
-        (os.as_str(), arch.as_str(), target_env.as_str()),
-        ("linux", "x86_64", "gnu")
-            | ("linux", "aarch64", "gnu")
-            | ("macos", "x86_64", _)
-            | ("macos", "aarch64", _)
-            | ("windows", "x86_64", _)
-    );
+    let target = env::var("TARGET").unwrap_or_default();
+    let supported = match os.as_str() {
+        "linux" => matches!((arch.as_str(), target_env.as_str()), ("x86_64" | "aarch64", "gnu")),
+        "macos" => matches!(arch.as_str(), "x86_64" | "aarch64"),
+        // Only the triples CI links and tests; e.g. -gnullvm and -uwp-* are not.
+        "windows" => matches!(target.as_str(), "x86_64-pc-windows-msvc" | "x86_64-pc-windows-gnu"),
+        _ => false,
+    };
     if !supported {
         panic!(
-            "columnar-dbc-sys: no prebuilt dbc library for target `{}`. Supported: \
-             x86_64/aarch64 Linux (glibc), x86_64/aarch64 macOS, x86_64 Windows.",
-            env::var("TARGET").unwrap_or_default()
+            "columnar-dbc-sys: no prebuilt dbc library for target `{target}`. Supported: \
+             x86_64/aarch64 Linux (glibc), x86_64/aarch64 macOS, \
+             x86_64-pc-windows-msvc, x86_64-pc-windows-gnu."
         );
     }
 }
