@@ -20,7 +20,7 @@ import (
 	"context"
 	"syscall/js"
 
-	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/api"
 )
 
 func registerNodeOps() {
@@ -29,73 +29,41 @@ func registerNodeOps() {
 	js.Global().Set("dbcUninstall", promisify(jsUninstall))
 }
 
-type manifestDTO struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-	Source     string `json:"source"`
-	DriverPath string `json:"driverPath"`
-}
-
+// The npm API takes a directory only; config levels are not exposed to JS.
 func jsInstall(args []js.Value) func() (any, error) {
-	handle := args[0].Int()
+	handle := uint64(args[0].Int())
 	name := args[1].String()
-	location := args[2].String()
+	target := api.Target{Location: args[2].String()}
+	opts := api.InstallOptions{AllowUnsigned: len(args) > 3 && args[3].Truthy()}
 	return func() (any, error) {
-		c, err := clientByHandle(handle)
+		c, err := clients.Get(handle)
 		if err != nil {
 			return nil, err
 		}
-		m, err := c.Install(context.Background(), config.Config{Level: config.ConfigEnv, Location: location}, name)
+		m, err := api.Install(context.Background(), c, name, target, opts)
 		if err != nil {
 			return nil, err
 		}
-		version := ""
-		if m.DriverInfo.Version != nil {
-			version = m.DriverInfo.Version.String()
-		}
-		return toJSONValue(manifestDTO{
-			ID:         m.DriverInfo.ID,
-			Name:       m.DriverInfo.Name,
-			Version:    version,
-			Source:     m.DriverInfo.Source,
-			DriverPath: m.DriverInfo.Driver.Shared.Get(config.PlatformTuple()),
-		})
+		return toJSONValue(m)
 	}
 }
 
-type driverInfoDTO struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Version  string `json:"version"`
-	FilePath string `json:"filePath"`
-}
-
 func jsList(args []js.Value) func() (any, error) {
-	location := args[0].String()
+	target := api.Target{Location: args[0].String()}
 	return func() (any, error) {
-		drivers := config.FindDriverConfigsIn(location)
-		out := make([]driverInfoDTO, 0, len(drivers))
-		for _, d := range drivers {
-			version := ""
-			if d.Version != nil {
-				version = d.Version.String()
-			}
-			out = append(out, driverInfoDTO{ID: d.ID, Name: d.Name, Version: version, FilePath: d.FilePath})
+		drivers, err := api.ListInstalled(target)
+		if err != nil {
+			return nil, err
 		}
-		return toJSONValue(out)
+		return toJSONValue(drivers)
 	}
 }
 
 func jsUninstall(args []js.Value) func() (any, error) {
 	name := args[0].String()
-	location := args[1].String()
+	target := api.Target{Location: args[1].String()}
 	return func() (any, error) {
-		c, err := clientFromConfig("")
-		if err != nil {
-			return nil, err
-		}
-		if err := c.Uninstall(config.Config{Level: config.ConfigEnv, Location: location}, name); err != nil {
+		if err := api.Uninstall(name, target); err != nil {
 			return nil, err
 		}
 		return "ok", nil

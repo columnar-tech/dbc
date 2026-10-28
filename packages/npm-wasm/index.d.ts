@@ -112,13 +112,18 @@ export interface Dbc {
   /**
    * Node-only (requires a filesystem).
    *
+   * `install` verifies the driver's signature with Columnar's key; a driver
+   * that fails verification is removed and the call rejects. `allowUnsigned`
+   * skips verification (like the CLI's `--no-verify`); use it only for
+   * drivers from a trusted private registry.
+   *
    * NOTE: `install`/`listInstalled` resolve the package via the **process-global**
    * platform (see `DbcOptions.platform`) and have no per-call platform override.
    * Concurrent in-process clients pinned to different platforms can therefore
    * install or list the wrong platform's artifact; use the worker backend for
    * multi-platform concurrency.
    */
-  install?(name: string, location: string): Promise<Manifest>;
+  install?(name: string, location: string, options?: { allowUnsigned?: boolean }): Promise<Manifest>;
   uninstall?(name: string, location: string): Promise<void>;
   listInstalled?(location: string): Promise<InstalledDriver[]>;
 }
