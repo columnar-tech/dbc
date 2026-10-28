@@ -27,7 +27,7 @@ extern crate columnar_dbc_sys_linux_arm64 as _;
 extern crate columnar_dbc_sys_darwin_x64 as _;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 extern crate columnar_dbc_sys_darwin_arm64 as _;
-#[cfg(all(target_os = "windows", target_arch = "x86_64", target_env = "gnu"))]
+#[cfg(all(target_os = "windows", target_arch = "x86_64"))]
 extern crate columnar_dbc_sys_windows_x64 as _;
 
 #[allow(non_camel_case_types)]

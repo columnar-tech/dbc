@@ -38,7 +38,7 @@ network and filesystem I/O; from async code, use `spawn_blocking`. `Client` is
 |---|---|
 | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | glibc 2.28+ |
 | `x86_64-apple-darwin`, `aarch64-apple-darwin` | macOS 12+ |
-| `x86_64-pc-windows-gnu` | MinGW-w64 (MSVC is not supported) |
+| Windows x86_64 | see below |
 
 Other targets fail at build time with a list of supported targets.
 Each target downloads one `columnar-dbc-sys-<platform>` crate (~4 MB)

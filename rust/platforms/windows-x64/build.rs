@@ -14,13 +14,6 @@
 use std::{env, path::PathBuf};
 
 fn main() {
-    // The archive is built with a MinGW toolchain and references the MinGW
-    // CRT, so it cannot be linked by MSVC.
-    assert_eq!(
-        env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default(),
-        "gnu",
-        "columnar-dbc-sys-windows-x64 only supports x86_64-pc-windows-gnu"
-    );
     let native = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("native");
     let archive = native.join("libdbc.a");
     println!("cargo:rerun-if-changed={}", archive.display());
@@ -32,9 +25,4 @@ fn main() {
     );
     println!("cargo:rustc-link-search=native={}", native.display());
     println!("cargo:rustc-link-lib=static:+verbatim=libdbc.a");
-    // Emitted after the archive so the linker resolves its imports: the Go
-    // runtime imports kernel32 directly, and cgo needs the MinGW CRT.
-    for lib in ["kernel32", "mingwex", "mingw32", "msvcrt"] {
-        println!("cargo:rustc-link-lib=dylib={lib}");
-    }
 }
