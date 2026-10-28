@@ -231,9 +231,10 @@ func TestSearchPartialFailureEmptyIndex(t *testing.T) {
 	assert.NotEmpty(t, res.Warning)
 }
 
-// latest must be the newest stable version available for the platform, even
-// when a newer stable version exists only for other platforms.
-func TestResolveLatestForPlatform(t *testing.T) {
+// latest is the package Install would fetch: the newest stable version
+// overall. When that version has no package for the platform, Install fails,
+// so latest is absent even though an older version lists the platform.
+func TestResolveLatestMatchesInstall(t *testing.T) {
 	const index = `drivers:
   - name: Test Driver
     path: test-driver
@@ -261,6 +262,5 @@ func TestResolveLatestForPlatform(t *testing.T) {
 	res, err := api.Resolve(t.Context(), c, "test-driver", "linux_amd64")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1.0.0"}, res.Versions)
-	require.NotNil(t, res.Latest)
-	assert.Equal(t, "1.0.0", res.Latest.Version)
+	assert.Nil(t, res.Latest)
 }
