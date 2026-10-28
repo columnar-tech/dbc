@@ -44,6 +44,10 @@ CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o rust/platfor
 cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
 ```
 
+That build is for development only. Release archives are built by the `capi`
+build in `.goreleaser.yaml`, which cross-compiles every target with Zig, and
+the PR snapshot runs the Rust tests on those exact archives.
+
 After changing anything in `capi/exports.go`, regenerate the Rust bindings
 with bindgen-cli 0.73.2 (CI fails if they are stale):
 
