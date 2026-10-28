@@ -25,4 +25,11 @@ fn main() {
     );
     println!("cargo:rustc-link-search=native={}", native.display());
     println!("cargo:rustc-link-lib=static:+verbatim=libdbc.a");
+    // One archive serves both x86_64-pc-windows-msvc and -gnu. It is built by
+    // Zig against UCRT and imports only kernel32 plus standard C runtime
+    // functions (malloc/free/fwrite/abort/__acrt_iob_func). There are no
+    // .drectve default-lib entries and no MinGW/libgcc helpers. Rust's std
+    // already links kernel32 and a CRT on both targets: UCRT for MSVC, and
+    // mingw-w64's libmsvcrt for GNU, which provides an __acrt_iob_func
+    // compatibility shim. Go loads every other DLL at runtime with LoadLibrary.
 }
