@@ -141,19 +141,13 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 			continue
 		}
 		out := ResolveResult{Path: d.Path, Platform: platform, Versions: []string{}}
-		versions := d.Versions(platform)
-		for _, v := range versions {
+		for _, v := range d.Versions(platform) {
 			out.Versions = append(out.Versions, v.String())
 		}
-		// Newest stable version that has a package for platform.
-		for i := len(versions) - 1; i >= 0; i-- {
-			if versions[i].Prerelease() != "" {
-				continue
-			}
-			if pkg, err := d.GetPackage(versions[i], platform, false); err == nil && pkg.Path != nil {
-				out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
-			}
-			break
+		// Same selection as Client.Install and `dbc install`, so latest is
+		// never a version install would not fetch.
+		if pkg, err := d.GetPackage(nil, platform, false); err == nil && pkg.Path != nil {
+			out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
 		}
 		return out, nil
 	}
