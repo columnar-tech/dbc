@@ -18,8 +18,6 @@
 //
 //	CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o <dir>/libdbc.a ./capi
 //
-// Releases build it with GoReleaser (the `capi` build in .goreleaser.yaml).
-//
 // cgo generates <dir>/libdbc.h from the preamble and //export functions in
 // exports.go; that header is the API's only declaration. It backs the
 // columnar-dbc Rust crates, whose bindings bindgen generates from the header.
