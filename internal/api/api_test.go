@@ -350,6 +350,27 @@ func TestNewClientExplicitRegistries(t *testing.T) {
 	assert.ErrorContains(t, err, "registries")
 }
 
+// Explicit registries follow the same URL rules as config-file registries, so
+// a bad URL fails at construction rather than on the first request.
+func TestNewClientRejectsInvalidExplicitRegistryURLs(t *testing.T) {
+	isolateUserState(t)
+	for url, want := range map[string]string{
+		"":                      "empty url",
+		"ftp://example.test":    "scheme must be http or https",
+		"https:///missing-host": "missing host",
+		"relative/path":         "missing host",
+	} {
+		t.Run(url, func(t *testing.T) {
+			_, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{
+				{URL: "https://ok.test"},
+				{URL: url},
+			}}, nil)
+			require.ErrorContains(t, err, "registries[1].url")
+			assert.ErrorContains(t, err, want)
+		})
+	}
+}
+
 func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 	const globalTOML = "[[registries]]\nurl = \"https://global.test\"\nname = \"Global\"\n"
 	const projectTOML = "[[registries]]\nurl = \"https://project.test\"\nname = \"Project\"\n"

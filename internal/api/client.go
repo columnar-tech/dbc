@@ -83,7 +83,7 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 	case cfg.Registries != nil:
 		registries := make([]dbc.Registry, len(cfg.Registries))
 		for i, r := range cfg.Registries {
-			u, err := url.Parse(r.URL)
+			u, err := parseRegistryURL(r.URL)
 			if err != nil {
 				return nil, fmt.Errorf("invalid registries[%d].url: %w", i, err)
 			}
@@ -210,4 +210,23 @@ func (r *Clients) Remove(h uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.m, h)
+}
+
+// parseRegistryURL applies the rules dbc enforces for config-file registries
+// (validateRegistryEntry in the root package) to an explicit registry.
+func parseRegistryURL(raw string) (*url.URL, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("empty url")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, err
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("%q: missing host", raw)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("%q: scheme must be http or https", raw)
+	}
+	return u, nil
 }

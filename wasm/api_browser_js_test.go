@@ -67,6 +67,9 @@ func TestBrowserClientRejectsExplicitFileConfig(t *testing.T) {
 		{"project", `{"projectFile":"missing.toml"}`, "Node"},
 		{"project with none", `{"registryConfig":"none","projectFile":"missing.toml"}`, "Node"},
 		{"unknown mode", `{"registryConfig":"invalid"}`, "registryConfig"},
+		{"credential store", `{"credentialStore":"default"}`, "Node"},
+		{"credential store with registries", `{"registries":[{"url":"https://example.test"}],"credentialStore":"default"}`, "Node"},
+		{"unknown credential store", `{"credentialStore":"invalid"}`, "credentialStore"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := newFetchClient(tc.cfg)

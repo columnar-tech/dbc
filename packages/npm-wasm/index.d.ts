@@ -117,7 +117,8 @@ export interface DbcOptions {
    */
   credential?: OAuthCredential;
   /**
-   * Omitted or "default" reads dbc's stored credentials.
+   * Omitted or "default" reads dbc's stored credentials (Node-only; the browser
+   * build has no store, treats omission as "none", and rejects "default").
    * Shares the native CLI's host store, including an absolute XDG_DATA_HOME
    * override. Set path environment variables before the runtime starts.
    * Other running runtimes may cache stale lookups: recreate workers or restart

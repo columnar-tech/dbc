@@ -70,6 +70,13 @@ func newFetchClient(cfgJSON string) (*dbc.Client, error) {
 		}
 		cfg.RegistryConfig = "none"
 		cfg.ProjectFile = ""
+		// There is no credential store in the browser, whatever the registries.
+		switch cfg.CredentialStore {
+		case "", "none":
+			cfg.CredentialStore = "none"
+		case "default":
+			return nil, fmt.Errorf("credentialStore \"default\" is Node-only")
+		}
 	}
 	return api.NewClient(cfg, &http.Client{Transport: fetchRoundTripper{}})
 }
