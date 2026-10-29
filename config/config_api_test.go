@@ -267,6 +267,20 @@ func TestCreateManifest(t *testing.T) {
 
 		assert.FileExists(t, filepath.Join(newDir, "newdriver.toml"))
 	})
+
+	t.Run("overwrites_malformed_existing_registration", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		manifestPath := filepath.Join(tmpDir, "mydriver.toml")
+		require.NoError(t, os.WriteFile(manifestPath, []byte("[[[ invalid"), 0o644))
+
+		cfg := config.Config{Level: config.ConfigEnv, Location: tmpDir}
+		driver := makeTestDriverInfo("mydriver", tmpDir)
+		require.NoError(t, config.CreateManifest(cfg, driver))
+
+		loaded, err := config.GetDriver(cfg, "mydriver")
+		require.NoError(t, err)
+		assert.Equal(t, driver.Name, loaded.Name)
+	})
 }
 
 func TestFindDriverConfigs(t *testing.T) {
@@ -309,62 +323,5 @@ func TestFindDriverConfigs(t *testing.T) {
 
 		drivers := config.FindDriverConfigs(config.ConfigEnv)
 		assert.Empty(t, drivers)
-	})
-}
-
-func TestUninstallDriverShared(t *testing.T) {
-	t.Run("dbc_source_removes_driver_dir", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		driverDir := filepath.Join(tmpDir, "test-driver-1_linux_amd64_v1.0.0")
-		require.NoError(t, os.MkdirAll(driverDir, 0755))
-
-		driverPath := filepath.Join(driverDir, "driver.so")
-		require.NoError(t, os.WriteFile(driverPath, []byte("fake so"), 0644))
-
-		di := config.DriverInfo{
-			ID:       "test-driver-1",
-			FilePath: tmpDir,
-			Source:   "dbc",
-		}
-		di.Driver.Shared.Set("linux_amd64", driverPath)
-
-		err := config.UninstallDriverShared(di)
-		require.NoError(t, err)
-
-		assert.NoDirExists(t, driverDir)
-	})
-
-	t.Run("non_dbc_source_removes_file_only", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		driverPath := filepath.Join(tmpDir, "driver.so")
-		require.NoError(t, os.WriteFile(driverPath, []byte("fake so"), 0644))
-
-		di := config.DriverInfo{
-			ID:       "external-driver",
-			FilePath: tmpDir,
-			Source:   "external",
-		}
-		di.Driver.Shared.Set("linux_amd64", driverPath)
-
-		err := config.UninstallDriverShared(di)
-		require.NoError(t, err)
-
-		assert.NoFileExists(t, driverPath)
-	})
-
-	t.Run("missing_file_is_tolerated_for_non_dbc", func(t *testing.T) {
-		tmpDir := t.TempDir()
-
-		di := config.DriverInfo{
-			ID:       "missing-driver",
-			FilePath: tmpDir,
-			Source:   "external",
-		}
-		di.Driver.Shared.Set("linux_amd64", filepath.Join(tmpDir, "nonexistent.so"))
-
-		err := config.UninstallDriverShared(di)
-		assert.NoError(t, err)
 	})
 }

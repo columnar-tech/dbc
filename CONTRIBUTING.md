@@ -54,9 +54,9 @@ Then in another shell, run `dlv connect` and debug with dlv as you normally woul
 ```console
 $ dlv connect 127.0.0.1:2345
 Type 'help' for list of commands.
-(dlv) b install.go:58
+(dlv) b main.verifySignatureInStaging
 (dlv) c
-> [Breakpoint 1] main.verifySignature() /Users/user/src/columnar-tech/dbc/cmd/dbc/install.go:58 (hits goroutine(99):1 total:1) (PC: 0x105201f88)
+> [Breakpoint 1] main.verifySignatureInStaging() /Users/user/src/columnar-tech/dbc/cmd/dbc/install.go (hits goroutine(99):1 total:1) (PC: 0x105201f88)
 ```
 
 When you're done, exiting the client should cause the server to exit automatically.

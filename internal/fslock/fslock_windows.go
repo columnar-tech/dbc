@@ -17,6 +17,7 @@
 package fslock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -25,9 +26,10 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Acquire acquires an exclusive advisory lock on the file at path, retrying
-// until timeout elapses. Returns an error if the lock cannot be acquired.
-func Acquire(path string, timeout time.Duration) (Lock, error) {
+func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
+	if err := ctx.Err(); err != nil {
+		return Lock{}, err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
@@ -36,19 +38,38 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 	ol := new(windows.Overlapped)
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			f.Close()
+			return Lock{}, err
+		}
 		err = windows.LockFileEx(windows.Handle(f.Fd()),
 			windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY,
 			0, 1, 0, ol)
 		if err == nil {
 			return Lock{f: f, path: path}, nil
 		}
-		if time.Now().After(deadline) {
+		if !isLockContention(err) {
+			f.Close()
+			return Lock{}, fmt.Errorf("fslock: lock %s: %w", path, err)
+		}
+		if !time.Now().Before(deadline) {
 			f.Close()
 			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
 				path, timeout, err, ErrLockContended)
 		}
-		time.Sleep(50 * time.Millisecond)
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			f.Close()
+			return Lock{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
+}
+
+func isLockContention(err error) bool {
+	return errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }
 
 // Release releases the lock and removes the lock file. On Windows, Go opens

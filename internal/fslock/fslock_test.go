@@ -12,12 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build !js
+
 package fslock_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -51,20 +55,34 @@ func TestAcquireTwiceSequential(t *testing.T) {
 	lock2.Release()
 }
 
-func TestReleaseRemovesFile(t *testing.T) {
+func TestReleaseLockFileLifecycle(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.lock")
 	lock, err := fslock.Acquire(path, 5*time.Second)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	if _, err := os.Stat(path); err != nil {
+	before, err := os.Stat(path)
+	if err != nil {
 		t.Fatalf("lock file missing while held: %v", err)
 	}
 	if err := lock.Release(); err != nil {
 		t.Fatalf("Release: %v", err)
 	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("lock file still on disk after Release: stat err=%v", err)
+	after, err := os.Stat(path)
+	if runtime.GOOS == "windows" {
+		if !os.IsNotExist(err) {
+			t.Fatalf("Windows lock file still exists after Release: stat err=%v", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("persistent Unix lock file missing after Release: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatal("Unix Release replaced or unlinked the persistent lock file")
+	}
+	if after.Size() != 0 {
+		t.Fatalf("persistent lock file size = %d, want 0", after.Size())
 	}
 }
 
@@ -120,6 +138,32 @@ func TestAcquireTimeout(t *testing.T) {
 	// Verify the error type is ErrLockContended
 	if !errors.Is(err, fslock.ErrLockContended) {
 		t.Fatalf("timeout error must wrap ErrLockContended, got: %v", err)
+	}
+}
+
+func TestAcquireContextCancellationWhileWaiting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	held, err := fslock.Acquire(path, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := fslock.AcquireContext(ctx, path, 5*time.Second)
+		done <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("AcquireContext error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AcquireContext did not return after cancellation")
 	}
 }
 

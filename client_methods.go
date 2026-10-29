@@ -278,19 +278,17 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	manifest, err := config.InstallDriver(cfg, driverName, f)
+	manifest, err := config.InstallPackage(ctx, cfg, driverName, f, config.InstallPackageOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)
-	}
-
-	if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
-		return nil, fmt.Errorf("failed to create manifest for driver %s: %w", driverName, err)
 	}
 
 	return &manifest, nil
 }
 
-// Uninstall uninstalls a driver with the given name from the specified configuration.
+// Uninstall removes a driver's runtime registration from the specified
+// configuration. For external registrations, the shared library remains in
+// place because dbc does not own it.
 func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 	di, err := config.GetDriver(cfg, driverName)
 	if err != nil {

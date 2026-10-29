@@ -21,10 +21,12 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
-	"github.com/pelletier/go-toml/v2"
 )
 
 func (suite *SubcommandTestSuite) TestUninstallNotFound() {
@@ -36,7 +38,7 @@ func (suite *SubcommandTestSuite) TestUninstallNotFound() {
 	suite.validateOutput("\r ", "\nError: failed to find driver `notfound` in order to uninstall it: searched "+suite.tempdir, suite.runCmdErr(m))
 }
 
-func (suite *SubcommandTestSuite) TestUninstallManifestOnly() {
+func (suite *SubcommandTestSuite) TestUninstallExternalRuntimeRegistration() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
@@ -55,7 +57,7 @@ version = "1.0.0"
 	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!", suite.runCmd(m))
 }
 
-func (suite *SubcommandTestSuite) TestUninstallDriverAndManifest() {
+func (suite *SubcommandTestSuite) TestUninstallExternalRegistrationPreservesSharedLibrary() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
@@ -75,6 +77,8 @@ version = "1.0.0"
 
 	m := UninstallCmd{Driver: "found", Level: config.ConfigEnv}.GetModel()
 	suite.validateOutput("\r ", "Driver `found` uninstalled successfully!", suite.runCmd(m))
+	suite.NoFileExists(path.Join(suite.tempdir, "found.toml"))
+	suite.FileExists(path.Join(pkgdir, "some.dll"))
 }
 
 // Test what happens when a user installs a driver in multiple locations
@@ -166,76 +170,36 @@ func (suite *SubcommandTestSuite) TestUninstallMultipleLocationsNonDefault() {
 	suite.NoFileExists(filepath.Join(installModel.cfg.Location, "test-driver-1.toml"))
 }
 
-func (suite *SubcommandTestSuite) TestUninstallManifestOnlyDriver() {
-	m := InstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
-		GetModelCustom(testBaseModel())
-
-	suite.validateOutput("\r[✓] searching\r\n[✓] downloading\r\n[✓] installing\r\n[✓] verifying signature\r\n",
-		"\nInstalled test-driver-manifest-only 1.0.0 to "+suite.Dir()+
-			"\n\nMust have libtest_driver installed to load this driver", suite.runCmd(m))
-	suite.driverIsInstalled("test-driver-manifest-only", false)
-
-	// Verify the sidecar folder exists before we uninstall
-	new_sidecar_path := fmt.Sprintf("test-driver-manifest-only_%s_v1.0.0", config.PlatformTuple())
-	err := os.Rename(filepath.Join(suite.Dir(), "test-driver-manifest-only"), filepath.Join(suite.Dir(), new_sidecar_path))
-	if err != nil {
-		suite.Fail(fmt.Sprintf("Failed to rename sidecar folder. Something is wrong with this test: %v", err))
-	}
-	suite.DirExists(filepath.Join(suite.Dir(), new_sidecar_path))
-
-	// Now uninstall and verify we clean up
-	m = UninstallCmd{Driver: "test-driver-manifest-only", Level: suite.configLevel}.
-		GetModelCustom(testBaseModel())
-	suite.validateOutput("\r ", "Driver `test-driver-manifest-only` uninstalled successfully!", suite.runCmd(m))
-	suite.driverIsNotInstalled("test-driver-manifest-only")
-	suite.NoDirExists(filepath.Join(suite.Dir(), new_sidecar_path))
-}
-
-// See https://github.com/columnar-tech/dbc/issues/37
-func (suite *SubcommandTestSuite) TestUninstallInvalidManifest() {
+func (suite *SubcommandTestSuite) TestUninstallLegacyPackageRemovesExactPayloadAndPreservesExternalFiles() {
 	if runtime.GOOS == "windows" {
 		suite.T().Skip()
 	}
 
-	m := InstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.
-		GetModelCustom(testBaseModel())
-	suite.runCmd(m)
-	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
+	suite.Require().NoError(os.MkdirAll(suite.Dir(), 0o755))
+	packageDir := filepath.Join(suite.Dir(), "legacy-test-driver-install")
+	suite.Require().NoError(os.Mkdir(packageDir, 0o755))
+	legacyLibrary := filepath.Join(packageDir, "libadbc_driver_invalid_manifest.so")
+	suite.Require().NoError(os.WriteFile(legacyLibrary, []byte("legacy package library"), 0o644))
+	externalLibrary := filepath.Join(suite.Dir(), "libadbc_driver_invalid_manifest.so")
+	suite.Require().NoError(os.WriteFile(externalLibrary, []byte("external library"), 0o644))
+	info := config.DriverInfo{
+		ID:      "test-driver-invalid-manifest",
+		Name:    "Legacy Test Driver",
+		Version: semver.MustParse("1.0.0"),
+		Source:  "dbc",
+	}
+	info.Driver.Shared.Set(config.PlatformTuple(), legacyLibrary)
+	suite.Require().NoError(config.CreateManifest(config.Config{Level: suite.configLevel, Location: suite.Dir()}, info))
 
-	// The installed manifest should have a Driver.shared set to a folder, not the .so
-	// We only need a partial struct definition to read in the Driver.shared table
-	type partialManifest struct {
-		Driver struct {
-			Shared map[string]string `toml:"shared"`
-		}
-	}
-	var invalidManifest partialManifest
-	f, err := os.Open(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-	if err != nil {
-		suite.Error(err)
-	}
-	err = toml.NewDecoder(f).Decode(&invalidManifest)
-	if err != nil {
-		suite.Error(err)
-	}
-	value := invalidManifest.Driver.Shared[config.PlatformTuple()]
-	// Assert that it's a folder
-	suite.DirExists(value)
-	// and continue
-
-	m = UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
+	m := UninstallCmd{Driver: "test-driver-invalid-manifest", Level: suite.configLevel}.GetModel()
 	output := suite.runCmd(m)
 
 	suite.validateOutput("\r ", "Driver `test-driver-invalid-manifest` uninstalled successfully!", output)
 
-	// Ensure we don't nuke the installation directory which is the original (major) issue
 	suite.DirExists(suite.Dir())
-
-	// We do remove the manifest
 	suite.NoFileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest.toml"))
-	// But we don't remove the driver shared folder in this edge case, so we assert
-	// they're still around
-	suite.FileExists(filepath.Join(suite.Dir(), "test-driver-invalid-manifest", "libadbc_driver_invalid_manifest.so"))
+	suite.NoDirExists(packageDir)
+	suite.FileExists(externalLibrary)
 }
 
 func (suite *SubcommandTestSuite) TestUninstallRemovesSymlink() {
@@ -286,4 +250,21 @@ func (suite *SubcommandTestSuite) TestUninstall_JSON() {
 	suite.Require().NoError(json.Unmarshal(env.Payload, &status))
 	suite.Equal("success", status.Status)
 	suite.Equal("test-driver-1", status.Driver)
+}
+
+func TestUninstallCleanupErrorShowsRetainedGenerationPath(t *testing.T) {
+	generation := filepath.Join(t.TempDir(), ".dbc-package-g-6-driver-abc123")
+	cleanupErr := fmt.Errorf("driver registration was removed, but package cleanup failed; package files may remain under %s: remove package generation payload %s: permission denied",
+		filepath.Dir(generation), generation)
+	model := uninstallModel{}
+	updated, _ := model.Update(fmt.Errorf("failed to uninstall driver: %v", cleanupErr))
+
+	status, ok := updated.(HasStatus)
+	if !ok || status.Status() != 1 {
+		t.Fatalf("uninstall model status = %v, want failure", updated)
+	}
+	visibleError := formatErr(status.Err())
+	if !strings.Contains(visibleError, generation) {
+		t.Fatalf("user-visible uninstall error %q does not include retained generation path %q", visibleError, generation)
+	}
 }

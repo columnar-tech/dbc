@@ -15,12 +15,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -244,7 +244,6 @@ func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
 }
 
 type installedDrvMsg struct {
-	removed     *config.DriverInfo
 	info        config.DriverInfo
 	postInstall []string
 }
@@ -256,9 +255,6 @@ type alreadyInstalledDrvMsg struct {
 
 func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	return func() tea.Msg {
-		// TODO: Factor this out into config package, remove duplication with
-		// config.InstallDriver
-		var removedDriver *config.DriverInfo
 		if cfg.Exists {
 			// is driver installed already?
 			if drv, ok := cfg.Drivers[item.Driver.Path]; ok {
@@ -278,11 +274,6 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 					}
 
 					return alreadyInstalledDrvMsg{info: drv, item: item}
-				} else {
-					if err := config.UninstallDriver(cfg, drv); err != nil {
-						return fmt.Errorf("failed when deleting driver %s-%s: %w", drv.ID, drv.Version, err)
-					}
-					removedDriver = &drv
 				}
 			}
 		}
@@ -295,45 +286,30 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				return
 			}
 
-			var loc string
-			if loc, err = config.EnsureLocation(cfg); err != nil {
-				prog.Send(fmt.Errorf("failed to ensure config location: %w", err))
+			if _, err := output.Seek(0, io.SeekStart); err != nil {
+				_ = output.Close()
+				prog.Send(fmt.Errorf("failed to seek downloaded driver archive: %w", err))
 				return
 			}
 
-			base := strings.TrimSuffix(path.Base(item.Package.Path.Path), ".tar.gz")
-			finalDir := filepath.Join(loc, base)
-			if err := os.MkdirAll(finalDir, 0o755); err != nil {
-				prog.Send(fmt.Errorf("failed to create driver directory %s: %w", finalDir, err))
-				return
-			}
-
-			output.Seek(0, io.SeekStart)
-			manifest, err := config.InflateTarball(output, finalDir)
+			verificationFailed := false
+			manifest, err := config.InstallPackage(context.Background(), cfg, item.Driver.Path, output, config.InstallPackageOptions{
+				Verifier: func(stagingDir string, manifest config.Manifest) error {
+					err := verifySignatureInStaging(stagingDir, manifest, s.NoVerify)
+					verificationFailed = err != nil
+					return err
+				},
+			})
 			if err != nil {
-				prog.Send(fmt.Errorf("failed to extract tarball: %w", err))
-				return
-			}
-
-			driverPath := filepath.Join(finalDir, manifest.Files.Driver)
-
-			manifest.DriverInfo.ID = item.Driver.Path
-			manifest.DriverInfo.Source = "dbc"
-			manifest.DriverInfo.Driver.Shared.Set(config.PlatformTuple(), driverPath)
-
-			if err := verifySignature(manifest, s.NoVerify); err != nil {
-				_ = os.RemoveAll(finalDir)
-				prog.Send(fmt.Errorf("failed to verify signature: %w", err))
-				return
-			}
-
-			if err := config.CreateManifest(cfg, manifest.DriverInfo); err != nil {
-				prog.Send(fmt.Errorf("failed to create driver manifest: %w", err))
+				if verificationFailed {
+					prog.Send(fmt.Errorf("failed to verify signature: %w", err))
+					return
+				}
+				prog.Send(fmt.Errorf("failed to install driver package: %w", err))
 				return
 			}
 
 			prog.Send(installedDrvMsg{
-				removed:     removedDriver,
 				info:        manifest.DriverInfo,
 				postInstall: manifest.PostInstall.Messages,
 			})
@@ -504,12 +480,6 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var printCmd tea.Cmd
 		if !s.jsonOutput {
 			printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
-			if msg.removed != nil {
-				printCmd = tea.Sequence(
-					printCmd,
-					tea.Printf("%s   removed %s-%s", checkMark, msg.removed.ID, msg.removed.Version),
-				)
-			}
 
 			if len(msg.postInstall) > 0 {
 				for _, m := range msg.postInstall {

@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
+//go:build !windows && !js
 
 package fslock
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -24,25 +25,30 @@ import (
 	"time"
 )
 
-// Acquire acquires an exclusive advisory lock on the file at path, retrying
-// until timeout elapses. Returns an error if the lock cannot be acquired.
-func Acquire(path string, timeout time.Duration) (Lock, error) {
+func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
 	deadline := time.Now().Add(timeout)
 	for {
+		if err := ctx.Err(); err != nil {
+			return Lock{}, err
+		}
+		// Mode 0600 means only same-user coordination is supported.
+		// TODO: Define cross-user permissions and interrupted-writer recovery.
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
 			return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
 		}
 
-		lock, err := lockFile(f, path, deadline)
+		lock, err := lockFile(ctx, f, path, deadline)
 		if err == nil {
 			return lock, nil
 		}
 		f.Close()
 		if errors.Is(err, errStaleInode) {
 			if time.Now().Before(deadline) {
-				// Previous holder unlinked the file between our open and
-				// our flock; the path now refers to a different inode.
+				// Defensive: Release never unlinks, but the file may be removed
+				// externally. The path was replaced between our open and flock; the
+				// acquired lock would protect a different inode from callers
+				// that open the current path, so retry against that inode.
 				// Reopen and try again within the remaining budget.
 				continue
 			}
@@ -57,13 +63,15 @@ func Acquire(path string, timeout time.Duration) (Lock, error) {
 // unlinked (or replaced) since we opened it — we need to reopen and retry.
 var errStaleInode = errors.New("fslock: stale inode")
 
-func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
+func lockFile(ctx context.Context, f *os.File, path string, deadline time.Time) (Lock, error) {
 	for {
+		if err := ctx.Err(); err != nil {
+			return Lock{}, err
+		}
 		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			// Confirm the path still points at our inode. If the previous
-			// holder unlinked it (or it was replaced), the lock we just took
-			// is on a dead inode and a new caller could lock the new file.
+			// Confirm the path still points at our inode. If it was replaced,
+			// the lock we just took would not protect callers opening the path.
 			if stale, serr := inodeIsStale(f, path); serr != nil {
 				syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 				return Lock{}, fmt.Errorf("fslock: stat %s: %w", path, serr)
@@ -73,12 +81,25 @@ func lockFile(f *os.File, path string, deadline time.Time) (Lock, error) {
 			}
 			return Lock{f: f, path: path}, nil
 		}
-		if time.Now().After(deadline) {
+		if !isLockContention(err) {
+			return Lock{}, fmt.Errorf("fslock: lock %s: %w", path, err)
+		}
+		if !time.Now().Before(deadline) {
 			return Lock{}, fmt.Errorf("fslock: could not acquire lock on %s (%v): %w",
 				path, err, ErrLockContended)
 		}
-		time.Sleep(50 * time.Millisecond)
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return Lock{}, ctx.Err()
+		case <-timer.C:
+		}
 	}
+}
+
+func isLockContention(err error) bool {
+	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
 
 func inodeIsStale(f *os.File, path string) (bool, error) {
@@ -96,22 +117,13 @@ func inodeIsStale(f *os.File, path string) (bool, error) {
 	return fdStat.Ino != pathStat.Ino || fdStat.Dev != pathStat.Dev, nil
 }
 
-// Release unlinks the lock file and releases the lock. Unlinking before
-// closing ensures no new caller can open the same inode and take the lock
-// while we still hold it; combined with the inode recheck in Acquire, this
-// guarantees that a fresh file at the same path is never raced against a
-// soon-to-be-deleted one.
+// Release closes the lock file descriptor, releasing the advisory lock.
+// The lock file is intentionally left in place: unlinking it would let a new
+// caller create a different inode while another waiter still holds or is
+// about to lock the old one. Leftover lock files are therefore expected.
 func (l Lock) Release() error {
 	if l.f == nil {
 		return nil
 	}
-	rmErr := os.Remove(l.path)
-	closeErr := l.f.Close()
-	if closeErr != nil {
-		return closeErr
-	}
-	if rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
-		return rmErr
-	}
-	return nil
+	return l.f.Close()
 }
