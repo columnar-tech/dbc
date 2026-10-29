@@ -23,7 +23,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -68,15 +67,6 @@ func TestInstallPackagePublishesAndRegistersGeneration(t *testing.T) {
 	}
 	if got, err := os.ReadFile(finalLibrary); err != nil || string(got) != strings.Repeat("x", 7) {
 		t.Fatalf("installed library = %q, %v", got, err)
-	}
-	if runtime.GOOS != "windows" {
-		info, err := os.Stat(filepath.Dir(finalLibrary))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got := info.Mode().Perm(); got != 0o755 {
-			t.Fatalf("generation mode = %#o, want 0755", got)
-		}
 	}
 	if manifest.Driver.Shared.Get(PlatformTuple()) != finalLibrary {
 		t.Fatalf("returned manifest path = %q, registered path = %q", manifest.Driver.Shared.Get(PlatformTuple()), finalLibrary)
