@@ -17,10 +17,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,32 +118,7 @@ func verifySignatureInStaging(path string, m config.Manifest, noVerify bool) err
 	if noVerify {
 		return nil
 	}
-
-	lib, err := os.Open(filepath.Join(path, m.Files.Driver))
-	if err != nil {
-		return fmt.Errorf("could not open driver file: %w", err)
-	}
-	defer lib.Close()
-
-	sigFile := m.Files.Signature
-	if sigFile == "" {
-		sigFile = m.Files.Driver + ".sig"
-	}
-
-	sig, err := os.Open(filepath.Join(path, sigFile))
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
-		}
-		return fmt.Errorf("failed to open signature file: %w", err)
-	}
-	defer sig.Close()
-
-	if err := dbc.SignedByColumnar(lib, sig); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return nil
+	return dbc.VerifyPackageSignature(path, m)
 }
 
 type packageInstallResultMsg struct {
