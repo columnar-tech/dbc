@@ -129,7 +129,6 @@ jobs:
             dist/*.snap
             dist/*.deb
             dist/*.rpm
-            dist/*.apk
             dist/msi/**/*.msi
             dist/python/*
             packages/npm/packages/*/
