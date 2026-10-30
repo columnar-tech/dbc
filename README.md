@@ -19,6 +19,7 @@ limitations under the License.
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/columnar-tech/dbc)](https://github.com/columnar-tech/dbc/releases)
 [![Release dbc](https://github.com/columnar-tech/dbc/actions/workflows/release.yml/badge.svg)](https://github.com/columnar-tech/dbc/actions/workflows/release.yml)
+[![deb/rpm Hosting by Cloudsmith](https://img.shields.io/badge/OSS%20hosting%20by-cloudsmith-blue?logo=cloudsmith)](https://cloudsmith.com)
 
 **dbc is the command-line tool for installing and managing [ADBC](https://arrow.apache.org/adbc) drivers.**
 
@@ -115,3 +116,7 @@ For more details, see the [dbc documentation](https://docs.columnar.tech/dbc) an
 ## Code of Conduct
 
 By contributing to dbc, you agree to follow our [Code of Conduct](https://github.com/columnar-tech/.github/blob/main/CODE_OF_CONDUCT.md).
+
+## Acknowledgements
+
+deb and rpm hosting repository hosting is graciously provided by [Cloudsmith](https://cloudsmith.com).
