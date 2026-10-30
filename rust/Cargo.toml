@@ -28,7 +28,7 @@ repository = "https://github.com/columnar-tech/dbc"
 homepage = "https://columnar.tech/dbc"
 
 [workspace.dependencies]
-columnar-dbc-sys = { path = "columnar-dbc-sys", version = "=0.0.0-dev" }
+columnar-dbc-sys = { path = "columnar-dbc-sys", version = "=0.0.0-dev", default-features = false }
 columnar-dbc-sys-linux-x64 = { path = "platforms/linux-x64", version = "=0.0.0-dev" }
 columnar-dbc-sys-linux-arm64 = { path = "platforms/linux-arm64", version = "=0.0.0-dev" }
 columnar-dbc-sys-darwin-x64 = { path = "platforms/darwin-x64", version = "=0.0.0-dev" }

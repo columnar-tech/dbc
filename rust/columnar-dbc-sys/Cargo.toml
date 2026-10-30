@@ -13,7 +13,7 @@
 # limitations under the License.
 [package]
 name = "columnar-dbc-sys"
-description = "Raw FFI bindings to dbc's statically linked C ABI. Use columnar-dbc instead."
+description = "Raw FFI bindings to dbc's C ABI with bundled or system linking. Use columnar-dbc instead."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -25,17 +25,31 @@ homepage.workspace = true
 links = "columnar_dbc"
 build = "build.rs"
 
+[features]
+default = ["bundled"]
+bundled = [
+    "dep:columnar-dbc-sys-linux-x64",
+    "dep:columnar-dbc-sys-linux-arm64",
+    "dep:columnar-dbc-sys-darwin-x64",
+    "dep:columnar-dbc-sys-darwin-arm64",
+    "dep:columnar-dbc-sys-windows-x64",
+]
+pkg-config = []
+
+[build-dependencies]
+pkg-config = "0.3"
+
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))'.dependencies]
-columnar-dbc-sys-linux-x64 = { workspace = true }
+columnar-dbc-sys-linux-x64 = { workspace = true, optional = true }
 
 [target.'cfg(all(target_os = "linux", target_arch = "aarch64", target_env = "gnu"))'.dependencies]
-columnar-dbc-sys-linux-arm64 = { workspace = true }
+columnar-dbc-sys-linux-arm64 = { workspace = true, optional = true }
 
 [target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
-columnar-dbc-sys-darwin-x64 = { workspace = true }
+columnar-dbc-sys-darwin-x64 = { workspace = true, optional = true }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-columnar-dbc-sys-darwin-arm64 = { workspace = true }
+columnar-dbc-sys-darwin-arm64 = { workspace = true, optional = true }
 
 [target.'cfg(all(target_os = "windows", target_arch = "x86_64"))'.dependencies]
-columnar-dbc-sys-windows-x64 = { workspace = true }
+columnar-dbc-sys-windows-x64 = { workspace = true, optional = true }

@@ -14,10 +14,23 @@
 //! Rust bindings for [dbc](https://columnar.tech/dbc): search, resolve, and
 //! install ADBC drivers.
 //!
-//! dbc is statically linked through `columnar-dbc-sys`; no `dbc` executable
-//! or Go toolchain is needed to build or run. Every call blocks the calling
-//! thread on network/filesystem I/O; from async code, run it on a blocking
-//! thread (e.g. `tokio::task::spawn_blocking`).
+//! By default, dbc is statically linked through `columnar-dbc-sys`; no `dbc`
+//! executable or Go toolchain is needed to build or run. Every call blocks the
+//! calling thread on network/filesystem I/O; from async code, run it on a
+//! blocking thread (e.g. `tokio::task::spawn_blocking`).
+//!
+//! # Linking a system libdbc
+//!
+//! Disable default features and enable `pkg-config` to link an installed
+//! libdbc without downloading the bundled platform crates. Alternatively, set
+//! `DBC_SYS_LIB_DIR` to a custom library directory or `DBC_SYS_USE_PKG_CONFIG`
+//! to use pkg-config even with default features. Source precedence is custom
+//! directory, then pkg-config, then bundled. System/custom linking is static
+//! unless `DBC_DYNAMIC` is present; dynamic linking requires the shared
+//! library on the runtime loader's search path.
+//!
+//! See the [`columnar_dbc_sys`] crate documentation for development packages,
+//! configuration examples, and the full linking conventions.
 
 mod ffi;
 mod types;
