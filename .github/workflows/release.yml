@@ -129,6 +129,7 @@ jobs:
             dist/*.snap
             dist/*.deb
             dist/*.rpm
+            dist/*.apk
             dist/msi/**/*.msi
             dist/python/*
             packages/npm/packages/*/
@@ -258,6 +259,7 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           DBC_TAP_GITHUB_PAT: ${{ secrets.DBC_TAP_GITHUB_PAT }}
           DBC_WINGET_GITHUB_PAT: ${{ secrets.DBC_WINGET_GITHUB_PAT }}
+          CLOUDSMITH_TOKEN: ${{ secrets.CLOUDSMITH_TOKEN }}
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # 1.14.2

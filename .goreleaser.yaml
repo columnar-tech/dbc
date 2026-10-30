@@ -221,6 +221,7 @@ nfpms:
     formats:
       - deb
       - rpm
+      - apk
     meta: false
     priority: extra
     contents:
@@ -232,6 +233,24 @@ nfpms:
 
       - src: cmd/dbc/completions/dbc.fish
         dst: /usr/share/fish/vendor_completions.d/dbc.fish
+
+cloudsmiths:
+  - organization: columnar
+    repository: dbc
+    ids:
+      - pkgs
+    formats:
+      - apk
+      - deb
+      - rpm
+    # dbc is a static binary, so publish distro-agnostic packages
+    distributions:
+      deb: "any-distro/any-version"
+      rpm: "any-distro/any-version"
+      alpine: "alpine/any-version"
+    component: main
+    # skip prereleases, matching homebrew/winget skip_upload: auto
+    disable: '{{ ne .Prerelease "" }}'
 
 
 snapcrafts:
