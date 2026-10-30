@@ -103,6 +103,36 @@ builds:
       post:
         - cmd: python3 scripts/stage_capi.py "{{ .Path }}" {{ .Os }} {{ .Arch }}
           output: true
+  # Linux shared library for the development packages.
+  - id: capi-shared
+    main: ./capi
+    binary: libdbc
+    buildmode: c-shared
+    flags:
+      - -trimpath
+    tags:
+      - netgo
+      - osusergo
+    ldflags:
+      - -s -w
+      - -extldflags=-Wl,-soname,libdbc.so
+    targets:
+      - linux_amd64_v1
+      - linux_arm64_v8.0
+    overrides:
+      - goos: linux
+        goarch: amd64
+        goamd64: v1
+        env: [CGO_ENABLED=1, "CC=zig cc -target x86_64-linux-gnu.2.28"]
+      - goos: linux
+        goarch: arm64
+        goarm64: v8.0
+        env: [CGO_ENABLED=1, "CC=zig cc -target aarch64-linux-gnu.2.28"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    hooks:
+      post:
+        - cmd: python3 scripts/stage_devel.py "{{ .Path }}" {{ .Arch }} {{ .Version }}
+          output: true
 
 archives:
   - id: archives
@@ -144,6 +174,8 @@ blobs:
       - archives
       - msi
       - pkgs
+      - devel-deb
+      - devel-rpm
     provider: s3
     if: '{{ not (contains .ArtifactName ".msi.sig" )}}'
     region: us-east-2
@@ -294,6 +326,54 @@ nfpms:
       - src: cmd/dbc/completions/dbc.fish
         dst: /usr/share/fish/vendor_completions.d/dbc.fish
 
+  # Only capi supplies automatic artifacts: adding capi-shared would duplicate
+  # libdbc.h, which nfpm does not deduplicate. Stage the shared library explicitly.
+  - id: devel-deb
+    ids: [capi]
+    package_name: libdbc-dev
+    file_name_template: "{{ .ConventionalFileName }}"
+    if: '{{ eq .Os "linux" }}'
+    vendor: Columnar Technologies Inc.
+    homepage: "https://columnar.tech/dbc"
+    license: Apache-2.0
+    maintainer: "Columnar <hello@columnar.tech>"
+    description: >-
+      Development libraries and headers for the C API of dbc, the ADBC driver installer
+    formats: [deb]
+    libdirs:
+      header: /usr/include
+      carchive: '/usr/lib/{{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu'
+    contents:
+      - src: dist/devel/linux_{{ .Arch }}/libdbc.so
+        dst: '/usr/lib/{{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu/libdbc.so'
+      - src: dist/devel/linux_{{ .Arch }}/dbc.deb.pc
+        dst: '/usr/lib/{{ if eq .Arch "amd64" }}x86_64{{ else }}aarch64{{ end }}-linux-gnu/pkgconfig/dbc.pc'
+        file_info:
+          mode: 0644
+
+  - id: devel-rpm
+    ids: [capi]
+    package_name: libdbc-devel
+    file_name_template: "{{ .ConventionalFileName }}"
+    if: '{{ eq .Os "linux" }}'
+    vendor: Columnar Technologies Inc.
+    homepage: "https://columnar.tech/dbc"
+    license: Apache-2.0
+    maintainer: "Columnar <hello@columnar.tech>"
+    description: >-
+      Development libraries and headers for the C API of dbc, the ADBC driver installer
+    formats: [rpm]
+    libdirs:
+      header: /usr/include
+      carchive: /usr/lib64
+    contents:
+      - src: dist/devel/linux_{{ .Arch }}/libdbc.so
+        dst: /usr/lib64/libdbc.so
+      - src: dist/devel/linux_{{ .Arch }}/dbc.rpm.pc
+        dst: /usr/lib64/pkgconfig/dbc.pc
+        file_info:
+          mode: 0644
+
 
 snapcrafts:
   - id: snaps
@@ -442,6 +522,8 @@ release:
     - msi
     - snaps
     - pkgs
+    - devel-deb
+    - devel-rpm
   prerelease: auto
   extra_files:
     - glob: ./dist/*.whl

@@ -48,7 +48,11 @@ cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
 
 That build is for development only. Release archives are built by the `capi`
 build in `.goreleaser.yaml`, which cross-compiles every target with Zig, and
-the PR snapshot runs the Rust tests on those exact archives.
+the PR snapshot runs the Rust tests on those exact archives. The Linux-only
+`capi-shared` build also produces `libdbc.so` with SONAME `libdbc.so`.
+The `libdbc-dev` Debian and `libdbc-devel` RPM packages contain both libraries,
+the generated header, and `dbc.pc`; they are separate from the `dbc` CLI
+packages.
 
 #### Linking a system libdbc
 
@@ -90,6 +94,30 @@ Dynamic linking requires `libdbc.so` on the runtime loader's search path;
 the crate does not configure it. See the
 [Rust crate README](rust/columnar-dbc/README.md#linking-a-system-libdbc)
 for dependency configuration.
+
+#### Testing snapshot development packages
+
+The release workflow uploads the Debian and RPM packages as the
+`devel-packages` artifact. Download it from the snapshot run and install only
+the package matching your architecture (`amd64`/`arm64` for Debian or
+`x86_64`/`aarch64` for RPM). Debian libraries and `pkgconfig/dbc.pc` live in
+`/usr/lib/x86_64-linux-gnu` or `/usr/lib/aarch64-linux-gnu`; RPM uses
+`/usr/lib64` on both architectures. Both install `/usr/include/libdbc.h`.
+
+The `devel_packages` job tests these exact packages on x64 and arm64 Ubuntu
+runners, without staging any bundled platform archives. It checks the Debian
+paths and shared-library SONAME, runs the Rust suite with static and dynamic
+`pkg-config` linking, and tests `DBC_SYS_LIB_DIR` with default features
+disabled. Each mode gets a fresh Cargo target directory; linkage checks use
+the `roundtrip` test executable reported by that Cargo invocation rather than
+searching for an arbitrary existing binary.
+
+The same job installs the RPM in a native Fedora container and compiles and
+runs a C client-creation smoke program in both link modes. `pkg-config
+--static` adds private dependencies but does not itself select `libdbc.a`,
+so the static smoke build explicitly selects that archive while allowing
+private system libraries to remain dynamic. Both the Rust and C tests use
+`ldd` to require `libdbc.so` for dynamic mode and reject it for static mode.
 
 #### Regenerating Rust bindings
 
