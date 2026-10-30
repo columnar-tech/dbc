@@ -18,9 +18,12 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +35,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func flightsqlLocalRegistryIndexYAML() string {
+	platforms := []string{
+		"linux_amd64", "linux_arm64",
+		"macos_amd64", "macos_arm64",
+		"windows_amd64", "windows_arm64",
+	}
+	var b strings.Builder
+	b.WriteString("drivers:\n  - name: Flight SQL\n    description: test\n    license: MIT\n    path: flightsql\n    pkginfo:\n")
+	for _, ver := range []string{"1.8.0", "1.9.0", "1.10.0"} {
+		b.WriteString("      - version: v" + ver + "\n        packages:\n")
+		for _, plat := range platforms {
+			b.WriteString("          - platform: " + plat + "\n            url: flightsql/" + ver + "/x.tar.gz\n")
+		}
+	}
+	return b.String()
+}
+
+func setupLocalFlightsqlRegistry(t *testing.T) string {
+	t.Helper()
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal := globalRegistryConfig
+	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+	globalRegistryConfig = nil
+
+	index := flightsqlLocalRegistryIndexYAML()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
+			w.Header().Set("Content-Type", "application/yaml")
+			w.Write([]byte(index))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
 func TestUnmarshalDriverList(t *testing.T) {
+	registryURL := setupLocalFlightsqlRegistry(t)
+	registryHeader := "replace_defaults = true\n\n[[registries]]\nurl = '" + registryURL + "'\n\n"
+
 	tests := []struct {
 		name     string
 		contents string
@@ -54,7 +98,7 @@ func TestUnmarshalDriverList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpdir := t.TempDir()
 			driverListPath := filepath.Join(tmpdir, "dbc.toml")
-			require.NoError(t, os.WriteFile(driverListPath, []byte(tt.contents), 0644))
+			require.NoError(t, os.WriteFile(driverListPath, []byte(registryHeader+tt.contents), 0644))
 
 			pkgs, err := GetDriverList(driverListPath)
 			if tt.err != nil {
