@@ -59,10 +59,10 @@ console.log("normalizeLocation: POSIX passthrough + Windows transform passed");
 // vars it reads, so a large host env can't overflow wasm_exec.js's argv/env cap;
 // Windows %USERPROFILE%/%TEMP% map to $HOME/$TMPDIR (forward-slashed) because
 // GOOS=js os.TempDir() reads only $TMPDIR (else /tmp, which is missing on Windows).
-const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"];
+const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "AppData", "LocalAppData"];
 
 // Windows: USERPROFILE -> HOME, TEMP -> TMPDIR, backslashes -> slashes, and
-// arbitrary host vars (PATH/FOO/APPDATA) are dropped to bound the env size.
+// arbitrary host vars (PATH/FOO) are dropped to bound the env size.
 {
   const win = curateGoEnv(
     {
@@ -72,12 +72,21 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
       PATH: "x".repeat(40000),
       FOO: "bar",
       APPDATA: "C:\\AppData",
+      LOCALAPPDATA: "C:\\LocalAppData",
+      XDG_CONFIG_HOME: "X:\\config",
+      XDG_DATA_HOME: "X:\\data",
+      XDG_CACHE_HOME: "X:\\cache",
     },
     "win32"
   );
   assert.strictEqual(win.HOME, "C:/Users/me", "win HOME from USERPROFILE");
   assert.strictEqual(win.TMPDIR, "C:/Users/me/AppData/Local/Temp", "win TMPDIR from TEMP");
-  assert.deepStrictEqual(Object.keys(win).sort(), ["HOME", "TMPDIR"], "win env limited to mapped vars");
+  assert.strictEqual(win.AppData, "C:/AppData", "win roaming app data");
+  assert.strictEqual(win.LocalAppData, "C:/LocalAppData", "win local app data");
+  assert.strictEqual(win.XDG_CONFIG_HOME, "X:/config", "win XDG config normalized");
+  assert.strictEqual(win.XDG_DATA_HOME, "X:/data", "win XDG data normalized");
+  assert.strictEqual(win.XDG_CACHE_HOME, "X:/cache", "win XDG cache normalized");
+  assert.deepStrictEqual(Object.keys(win).sort(), ALLOWED_ENV_KEYS.slice().sort(), "win env limited to mapped vars");
   for (const k of Object.keys(win)) assert(ALLOWED_ENV_KEYS.includes(k), `win unexpected key ${k}`);
 }
 
@@ -86,6 +95,25 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
   const win = curateGoEnv({ TMPDIR: "X:\\explicit", TEMP: "C:\\temp" }, "win32");
   assert.strictEqual(win.TMPDIR, "X:/explicit", "win TMPDIR precedence");
 }
+
+// Match native Windows home precedence, including workers' case-sensitive env.
+assert.strictEqual(
+  curateGoEnv({ HOME: "X:\\other", USERPROFILE: "C:\\Users\\me" }, "win32").HOME,
+  "C:/Users/me",
+  "win USERPROFILE takes precedence over HOME"
+);
+assert.deepStrictEqual(
+  curateGoEnv({ aPpDaTa: "C:\\Roaming", lOcAlApPdAtA: "C:\\Local" }, "win32"),
+  { AppData: "C:/Roaming", LocalAppData: "C:/Local" },
+  "win app data names are case-insensitive"
+);
+
+// Preserve UNC roots through Go's Unix filepath.Join/Dir, which collapse //.
+assert.strictEqual(
+  curateGoEnv({ XDG_DATA_HOME: "\\\\server\\share\\data" }, "win32").XDG_DATA_HOME,
+  "\\\\server/share/data",
+  "win UNC root survives wasm filepath cleaning"
+);
 
 // POSIX: HOME wins over USERPROFILE; XDG_* forwarded; PATH dropped; backslashes
 // are NOT rewritten (legal filename chars on POSIX).
@@ -109,6 +137,11 @@ const ALLOWED_ENV_KEYS = ["HOME", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", 
 
 // POSIX backslash passthrough: a home path containing a backslash is not mangled.
 assert.strictEqual(curateGoEnv({ HOME: "/home/a\\b" }, "linux").HOME, "/home/a\\b", "posix backslash passthrough");
+assert.deepStrictEqual(
+  curateGoEnv({ AppData: "/ignored", LocalAppData: "/ignored", XDG_DATA_HOME: "/home/a\\b/data" }, "darwin"),
+  { XDG_DATA_HOME: "/home/a\\b/data" },
+  "non-Windows app data is ignored and XDG backslashes pass through"
+);
 
 console.log("curateGoEnv: Windows TMPDIR/HOME mapping + POSIX passthrough + env bounded passed");
 

@@ -21,6 +21,8 @@ const http = require("http");
 const os = require("os");
 const path = require("path");
 
+const { isolateEnvironment, testAuthRegistries } = require("./auth-registries.cjs");
+const isolatedRoot = isolateEnvironment("worker");
 const { loadDbc } = require("..");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -58,6 +60,7 @@ const server = http.createServer((req, res) => {
 });
 
 async function main() {
+  await testAuthRegistries(loadDbc, isolatedRoot, true);
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
 

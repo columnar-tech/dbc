@@ -23,6 +23,7 @@ pub const DBC_TARGET_DIRECTORY: i32 = 0;
 pub const DBC_TARGET_USER: i32 = 1;
 pub const DBC_TARGET_SYSTEM: i32 = 2;
 pub const DBC_INSTALL_ALLOW_UNSIGNED: i32 = 1;
+pub const DBC_LICENSE_FORCE: i32 = 1;
 pub const DBC_FIELD_ID: i32 = 0;
 pub const DBC_FIELD_NAME: i32 = 1;
 pub const DBC_FIELD_LICENSE: i32 = 2;
@@ -53,6 +54,7 @@ pub struct dbc_list {
 pub type dbc_status = i32;
 pub type dbc_target_kind = i32;
 pub type dbc_install_flags = i32;
+pub type dbc_license_flags = i32;
 pub type dbc_field = i32;
 unsafe extern "C" {
     pub fn dbc_error_message(e: *mut dbc_error) -> *mut ::core::ffi::c_char;
@@ -113,6 +115,32 @@ unsafe extern "C" {
         kind: dbc_target_kind,
         directory: *mut ::core::ffi::c_char,
         out: *mut *mut dbc_list,
+        err_out: *mut *mut dbc_error,
+    ) -> dbc_status;
+}
+unsafe extern "C" {
+    pub fn dbc_login(
+        registry_url: *mut ::core::ffi::c_char,
+        auth_uri: *mut ::core::ffi::c_char,
+        token: *mut ::core::ffi::c_char,
+        refresh_token: *mut ::core::ffi::c_char,
+        client_id: *mut ::core::ffi::c_char,
+        err_out: *mut *mut dbc_error,
+    ) -> dbc_status;
+}
+unsafe extern "C" {
+    pub fn dbc_logout(
+        registry_url: *mut ::core::ffi::c_char,
+        err_out: *mut *mut dbc_error,
+    ) -> dbc_status;
+}
+unsafe extern "C" {
+    pub fn dbc_license_path(out: *mut *mut dbc_list, err_out: *mut *mut dbc_error) -> dbc_status;
+}
+unsafe extern "C" {
+    pub fn dbc_install_license(
+        src_path: *mut ::core::ffi::c_char,
+        flags: dbc_license_flags,
         err_out: *mut *mut dbc_error,
     ) -> dbc_status;
 }

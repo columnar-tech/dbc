@@ -19,20 +19,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // Directory for dbc config, uuid/machine-ids but only for credentials on macOS.
 // See GetCredentialPath for credentials behavior.
 func GetUserConfigPath() (string, error) {
-	userdir, err := os.UserConfigDir()
+	userdir, err := UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user config directory %v", err)
 	}
 
 	// Capitalize Columnar on Windows and macOS for consistent style
 	dirname := "columnar"
-	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+	if platform := storageHostOS(); platform == "windows" || platform == "darwin" {
 		dirname = "Columnar"
 	}
 
@@ -46,7 +45,7 @@ func GetUserConfigPath() (string, error) {
 func GetCredentialPath() (string, error) {
 	dir := os.Getenv("XDG_DATA_HOME")
 	if dir == "" {
-		switch runtime.GOOS {
+		switch storageHostOS() {
 		case "windows":
 			dir = os.Getenv("LocalAppData")
 			if dir == "" {
@@ -66,7 +65,7 @@ func GetCredentialPath() (string, error) {
 			}
 			dir = filepath.Join(home, ".local", "share")
 		}
-	} else if !filepath.IsAbs(dir) {
+	} else if !isAbsPath(dir) {
 		return "", errors.New("path in $XDG_DATA_HOME is relative")
 	}
 

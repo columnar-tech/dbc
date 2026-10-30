@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use columnar_dbc::{Client, ClientConfig};
+use columnar_dbc::{Client, ClientConfig, CredentialStore};
 use std::fs;
 use std::path::Path;
 
@@ -40,6 +40,7 @@ fn fixture(name: &str) -> Vec<u8> {
 pub struct Request {
     /// The path, without the query string dbc may append.
     pub path: String,
+    pub headers: Vec<(String, String)>,
 }
 
 /// Serves GET requests on 127.0.0.1 until the test process exits, answering
@@ -62,16 +63,20 @@ pub fn http_serve(handler: impl Fn(&Request) -> (u16, Vec<u8>) + Send + Sync + '
                 }
                 let target = line.split_whitespace().nth(1).unwrap_or_default();
                 let path = target.split('?').next().unwrap_or_default().to_string();
-                // Skip the headers; requests carry no body.
+                let mut headers = Vec::new();
                 loop {
                     let mut header = String::new();
                     match reader.read_line(&mut header) {
                         Ok(0) | Err(_) => return,
                         Ok(_) if header.trim_end().is_empty() => break,
-                        Ok(_) => {}
+                        Ok(_) => {
+                            if let Some((name, value)) = header.trim_end().split_once(':') {
+                                headers.push((name.trim().to_string(), value.trim().to_string()));
+                            }
+                        }
                     }
                 }
-                let (status, body) = handler(&Request { path });
+                let (status, body) = handler(&Request { path, headers });
                 let head = format!("HTTP/1.1 {status} \r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
                 let mut stream = &stream;
                 let _ = stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(&body));
@@ -83,8 +88,21 @@ pub fn http_serve(handler: impl Fn(&Request) -> (u16, Vec<u8>) + Send + Sync + '
 
 /// Serves the fixture registry until the test process exits.
 pub fn serve() -> String {
-    let (index, valid, tampered) = (index(), fixture("test-driver-1.tar.gz"), fixture("test-driver-tampered.tar.gz"));
+    serve_with(index(), None)
+}
+
+/// Serves a custom index, optionally requiring an Authorization header.
+pub fn serve_with(index: String, authorization: Option<&str>) -> String {
+    let authorization = authorization.map(str::to_owned);
+    let (valid, tampered) = (fixture("test-driver-1.tar.gz"), fixture("test-driver-tampered.tar.gz"));
     http_serve(move |req| {
+        if let Some(expected) = &authorization {
+            let authorized =
+                req.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("Authorization") && value == expected);
+            if !authorized {
+                return (403, b"forbidden".to_vec());
+            }
+        }
         if req.path.starts_with("/index.yaml") {
             (200, index.as_bytes().to_vec())
         } else if req.path.starts_with("/test-driver-tampered/") {
@@ -99,5 +117,5 @@ pub fn serve() -> String {
 
 /// A client for a fresh fixture registry.
 pub fn client() -> Client {
-    Client::with_config(&ClientConfig { base_url: Some(serve()), ..Default::default() }).unwrap()
+    Client::with_config(&ClientConfig::default().base_url(serve()).credential_store(CredentialStore::None)).unwrap()
 }

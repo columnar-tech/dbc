@@ -52,6 +52,11 @@ export interface InstalledDriver {
   filePath: string;
 }
 
+export interface Registry {
+  url: string;
+  name?: string;
+}
+
 export interface OAuthCredential {
   registryURL: string;
   authURI: string;
@@ -62,13 +67,41 @@ export interface OAuthCredential {
 
 export interface DbcOptions {
   /**
-   * Driver registry base URL. Per-instance: isolated between `loadDbc` calls.
-   * Defaults to Columnar's public driver CDN (`https://dbc-cdn.columnar.tech`)
-   * when omitted; set it to point at a private or self-hosted registry instead.
+   * Use one explicit registry, ignoring registryConfig and projectFile without
+   * reading either file. Mutually exclusive with registries (including []).
+   * Without either explicit option, Node honors the user's global config.toml
+   * and optional projectFile, with the built-in registries as defaults.
    */
   baseURL?: string;
   /**
-   * Host platform tuple (e.g. "linux_amd64"). Defaults to the detected Node host.
+   * Explicit registry list, used verbatim rather than merged with config files.
+   * An empty list disables all registries. Mutually exclusive with baseURL.
+   * Per-instance, like baseURL; registryConfig and projectFile are ignored.
+   */
+  registries?: Registry[];
+  /**
+   * Node: omitted or "default" honors the user's global dbc config.toml.
+   * Uses the native CLI's host paths: AppData/Columnar/dbc on Windows,
+   * HOME/Library/Application Support/Columnar/dbc on macOS (both ignore
+   * XDG_CONFIG_HOME), and XDG_CONFIG_HOME/columnar/dbc or
+   * HOME/.config/columnar/dbc on Unix.
+   * A missing global file is allowed; other load errors reject loadDbc.
+   * "none" skips the global file, but does not disable an explicit projectFile.
+   *
+   * The experimental browser build defaults to "none"; explicitly requesting
+   * "default" is Node-only and rejects unless baseURL/registries takes precedence.
+   */
+  registryConfig?: "default" | "none";
+  /**
+   * Node-only path to a project dbc.toml. Reads registries and replace_defaults;
+   * a missing file rejects loadDbc. Ignored when baseURL/registries is supplied.
+   * The experimental browser build rejects it unless an explicit registry
+   * option takes precedence.
+   */
+  projectFile?: string;
+  /**
+   * Driver installation target (e.g. "linux_amd64"), defaulting to the Node host.
+   * Does not change the host OS used for config, credential, or license paths.
    *
    * NOTE: unlike `baseURL`/`credential`, the in-process backend applies this
    * **process-globally** (it is the last value passed to any `loadDbc` wins).
@@ -77,8 +110,25 @@ export interface DbcOptions {
    * takes precedence over this global default.
    */
   platform?: string;
-  /** Credentials for a private registry, injected at runtime. Per-instance. */
+  /**
+   * Inject a credential for its registry host, replacing that host's stored
+   * credential. Other hosts still use the store unless credentialStore is "none".
+   * Per-instance; refreshed tokens are retained for subsequent calls.
+   */
   credential?: OAuthCredential;
+  /**
+   * Omitted or "default" reads dbc's stored credentials (Node-only; the browser
+   * build has no store, treats omission as "none", and rejects "default").
+   * Shares the native CLI's host store, including an absolute XDG_DATA_HOME
+   * override. Set path environment variables before the runtime starts.
+   * Other running runtimes may cache stale lookups: recreate workers or restart
+   * the in-process host; creating another in-process client does not reload them.
+   * "none": stored credentials are never used to authenticate; refreshing an
+   * injected credential can still update dbc's credential/license files.
+   * Injected credentials still work with "none"; other hosts have no fallback.
+   * This does not disable explicit login/logout/license operations.
+   */
+  credentialStore?: "default" | "none";
   /** Run the wasm runtime in a Node worker_threads Worker so heavy
    *  install/PGP work stays off the host event loop. Node-only.
    *  When `true`, `close()` is **mandatory** — the worker thread is not GC-managed,
@@ -126,6 +176,26 @@ export interface Dbc {
   install?(name: string, location: string, options?: { allowUnsigned?: boolean }): Promise<Manifest>;
   uninstall?(name: string, location: string): Promise<void>;
   listInstalled?(location: string): Promise<InstalledDriver[]>;
+
+  /**
+   * Node-only: persist a token credential, overwriting any credential for the
+   * same registry host. Does not perform an interactive OAuth/device login.
+   * The user store is shared, not scoped to this client or credentialStore.
+   */
+  login?(credential: OAuthCredential): Promise<void>;
+  /**
+   * Node-only: remove the stored credential for registryURL's host.
+   * Rejects if no credential is stored for that host.
+   */
+  logout?(registryURL: string): Promise<void>;
+  /** Node-only: return the user's columnar.lic path without creating a file. */
+  licensePath?(): Promise<string>;
+  /**
+   * Node-only: copy a local license into the shared user store. The source must
+   * be named columnar.lic and the destination must not exist unless force is true.
+   * Copies the bytes as supplied; this does not validate license contents.
+   */
+  installLicense?(path: string, options?: { force?: boolean }): Promise<void>;
 }
 
 /** Alias for {@link Dbc} that better signals the handle/lifecycle this object owns. */
@@ -138,12 +208,12 @@ export function loadDbc(opts?: DbcOptions): Promise<Dbc>;
  */
 export function hostPlatformTuple(): string;
 /**
- * Low-level path normalizer applied internally to every `location` argument.
+ * Low-level path normalizer applied internally to filesystem path arguments.
  * On non-Windows hosts it is the identity function; on Windows it converts
  * backslashes to forward slashes and makes drive-relative paths absolute.
  *
- * Exposed only for tooling/tests — do NOT pre-normalize a `location` before
- * passing it to `install`/`uninstall`/`listInstalled`, as those already
- * normalize internally (double-normalizing is harmless but pointless).
+ * Exposed only for tooling/tests — do NOT pre-normalize paths passed to
+ * install/uninstall/listInstalled/installLicense or projectFile, as those
+ * already normalize internally (double-normalizing is harmless but pointless).
  */
 export function normalizeLocation(loc: string): string;

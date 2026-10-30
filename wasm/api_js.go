@@ -26,6 +26,7 @@ import (
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/columnar-tech/dbc/internal/api"
 )
 
@@ -42,13 +43,39 @@ func init() {
 // isolated and each keeps its refreshed credential across calls.
 var clients api.Clients
 
-// newFetchClient builds a client from loadDbc's JSON config ({baseURL,
-// credential}); an empty string yields a default client.
+// newFetchClient builds a client from loadDbc's JSON config. An empty string
+// uses the host defaults; browser builds never read registry configuration files.
 func newFetchClient(cfgJSON string) (*dbc.Client, error) {
 	var cfg api.ClientConfig
 	if cfgJSON != "" {
 		if err := json.Unmarshal([]byte(cfgJSON), &cfg); err != nil {
 			return nil, fmt.Errorf("invalid client config: %w", err)
+		}
+	}
+	if !filesystemAvailable {
+		// Explicit registries take precedence over all file configuration, even
+		// unsupported selectors. Otherwise reject an explicit filesystem request
+		// instead of silently treating it as the browser's filesystem-free default.
+		if cfg.BaseURL == "" && cfg.Registries == nil {
+			switch cfg.RegistryConfig {
+			case "", "none":
+			case "default":
+				return nil, fmt.Errorf("registryConfig \"default\" is Node-only")
+			default:
+				return nil, fmt.Errorf("invalid registryConfig %q: expected \"default\" or \"none\"", cfg.RegistryConfig)
+			}
+			if cfg.ProjectFile != "" {
+				return nil, fmt.Errorf("projectFile is Node-only")
+			}
+		}
+		cfg.RegistryConfig = "none"
+		cfg.ProjectFile = ""
+		// There is no credential store in the browser, whatever the registries.
+		switch cfg.CredentialStore {
+		case "", "none":
+			cfg.CredentialStore = "none"
+		case "default":
+			return nil, fmt.Errorf("credentialStore \"default\" is Node-only")
 		}
 	}
 	return api.NewClient(cfg, &http.Client{Transport: fetchRoundTripper{}})
@@ -152,7 +179,7 @@ func jsVerify(args []js.Value) func() (any, error) {
 
 func jsDebugPaths(_ []js.Value) func() (any, error) {
 	return func() (any, error) {
-		ucd, ucdErr := os.UserConfigDir()
+		ucd, ucdErr := internal.UserConfigDir()
 		home, homeErr := os.UserHomeDir()
 		return toJSONValue(map[string]any{
 			"userConfigDir":    ucd,

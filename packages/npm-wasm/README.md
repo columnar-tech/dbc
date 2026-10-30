@@ -18,8 +18,8 @@ limitations under the License.
 
 A WebAssembly build of [dbc](https://github.com/columnar-tech/dbc) that runs
 in **Node.js** as an importable library — search registries, resolve versions,
-install/uninstall ADBC drivers to disk, and verify signatures, without spawning
-a subprocess.
+install/uninstall ADBC drivers to disk, manage stored tokens and licenses, and
+verify signatures, without spawning a subprocess.
 
 > For the command-line tool, use [`@columnar-tech/dbc`](https://www.npmjs.com/package/@columnar-tech/dbc) instead.
 
@@ -35,6 +35,12 @@ supported**: Bun's WebAssembly ↔ `node:fs` bridge mishandles the values Go's
 (`install`/`uninstall`) fail with `ERR_OUT_OF_RANGE`. This is an upstream Bun bug
 ([oven-sh/bun#32505](https://github.com/oven-sh/bun/issues/32505)), not a
 limitation of this package; read-only `search`/`resolve` may still work.
+
+The browser WASM target is experimental and has no published npm entrypoint or
+loader. It exposes search/resolve/signature verification, not filesystem
+operations. Its implicit `registryConfig` is always `"none"`; explicit
+`registryConfig: "default"` and `projectFile` reject as Node-only, unless an
+explicit `baseURL` or `registries` overrides those options entirely.
 
 ## Platform support
 
@@ -86,9 +92,12 @@ const { loadDbc } = require("@columnar-tech/dbc-wasm");
 
 ```js
 await loadDbc({
-  baseURL: "https://my-registry.example.com", // override the default registries
-  platform: "linux_amd64",                    // defaults to the detected Node host
-  credential: {                               // private-registry auth (OAuth refresh)
+  registries: [                               // used verbatim; do not also set baseURL
+    { url: "https://my-registry.example.com", name: "private" },
+  ],
+  platform: "linux_amd64",                     // defaults to the detected Node host
+  credentialStore: "default",                 // use stored credentials for other hosts
+  credential: {                              // injected private-registry auth
     registryURL: "https://my-registry.example.com",
     authURI: "https://my-registry.example.com",
     token: "...",
@@ -99,12 +108,12 @@ await loadDbc({
 });
 ```
 
-`baseURL` and `credential` are **per-instance**: separate `loadDbc()` clients are
-isolated and don't share registry config. `platform`, however, is applied
-**process-globally** by the in-process backend (the last `loadDbc({ platform })`
-wins), so concurrent in-process clients can't each pin a different default
-platform. For per-call platform behavior, pass `platform` to `resolve(name,
-platform)`, which takes precedence over the load-time default.
+Registry configuration and injected credentials are **per-instance**.
+`platform`, however, is applied **process-globally** by the in-process backend
+(the last `loadDbc({ platform })` wins), so concurrent in-process clients can't
+each pin a different default platform. For per-call platform behavior, pass
+`platform` to `resolve(name, platform)`, which takes precedence over the
+load-time default.
 
 Pass `worker: true` to run the runtime in a Node `worker_threads` Worker, so large
 installs and signature verification stay off your app's event loop. **Always
@@ -113,9 +122,98 @@ garbage-collected, so a missing `close()` leaks the thread and keeps the Node
 process alive. (In the default in-process backend `close()` is optional; the
 handle is also released on GC.)
 
-For OAuth device-flow login, run the native `@columnar-tech/dbc` CLI
-(`dbc auth login`) once; the WASM build reads and refreshes the stored
-credentials, or you can inject a token via the `credential` option above.
+### Registry configuration
+
+**By default, Node clients now honor the user's global dbc `config.toml`.**
+Omitting `registryConfig` (or setting `"default"`) loads it; a missing global
+file is allowed, but malformed or unreadable files reject `loadDbc()`. This is
+an intentional change from always using only the built-in registries.
+
+```js
+const dbc = await loadDbc({
+  registryConfig: "default",
+  projectFile: "/workspace/dbc.toml", // optional, Node-only; missing file is an error
+});
+```
+
+The project file contributes only `registries` and `replace_defaults`, using
+the CLI's project → global → built-in registry precedence. Set
+`registryConfig: "none"` to skip the global file; it does not disable an explicit
+`projectFile`.
+
+Alternatively, set `baseURL` for one registry, or `registries` for an ordered list
+of `{ url, name? }` entries. These two options are mutually exclusive. An explicit
+list is used verbatim, including `[]` to disable all registries. Either explicit
+option ignores `registryConfig` and `projectFile`, without reading their files.
+Unrecognized `registryConfig` strings are ignored in this case; malformed JSON
+field types are still rejected.
+
+### Stored credentials and licenses (Node-only)
+
+Omitting `credentialStore` or setting `"default"` uses dbc's stored credentials.
+An injected `credential` replaces the stored credential for its registry host;
+requests to other hosts still fall back to the store.
+`credentialStore: "none"`: stored credentials are never used to authenticate;
+refreshing an injected credential can still update dbc's credential/license
+files. Injected credentials still work with `"none"`, but other hosts have no
+stored-credential fallback.
+
+Other already-running runtimes may retain cached credential lookups after the
+store changes. Recreate a worker to refresh its cache; the in-process backend
+requires restarting the process, not just creating another `loadDbc()` client.
+
+The following methods are available in both direct and worker mode:
+
+```js
+const dbc = await loadDbc({ registryConfig: "none" });
+try {
+  // Save an existing token; this does not start an OAuth/device login flow.
+  // Any credential for this registry host is overwritten.
+  await dbc.login({
+    registryURL: "https://my-registry.example.com",
+    authURI: "https://my-registry.example.com",
+    token: "...",
+    refreshToken: "...", // optional
+    clientID: "...",     // optional
+  });
+
+  const destination = await dbc.licensePath(); // no file is created
+  await dbc.installLicense("/downloads/columnar.lic");
+  // force allows a different source filename and/or overwriting the destination.
+  await dbc.installLicense("/downloads/renewed.lic", { force: true });
+  await dbc.logout("https://my-registry.example.com");
+} finally {
+  await dbc.close();
+}
+```
+
+`login`/`logout` and license operations act on the shared user store, regardless
+of the client's `credentialStore` setting. `logout` rejects if no credential
+exists for that host. `installLicense` copies bytes without validating license
+contents; without `force`, the source must be named `columnar.lic` and an existing
+license is not overwritten. All failures reject with the `dbc-wasm:` prefix.
+
+Node uses the same default config and credential/license locations as the native
+CLI, based on the actual host OS, not the `platform` installation-target option:
+
+| Host | Registry config directory | Credential/license directory |
+| --- | --- | --- |
+| Linux/Unix | `$XDG_CONFIG_HOME/columnar/dbc`, or `$HOME/.config/columnar/dbc` | `$HOME/.local/share/dbc/credentials` |
+| macOS | `$HOME/Library/Application Support/Columnar/dbc` | The config directory's `credentials` subdirectory |
+| Windows | `%AppData%\Columnar\dbc` | `%LocalAppData%\dbc\credentials` |
+
+On every host, a nonempty `XDG_DATA_HOME` overrides the credential/license base
+with `XDG_DATA_HOME/dbc/credentials` and must be absolute. macOS and Windows ignore
+`XDG_CONFIG_HOME`, matching the native CLI. Windows paths are normalized only at
+the WASM boundary.
+
+The runtime captures its bounded path environment when it starts. Set these
+variables before the first `loadDbc()` (or worker creation) to select a particular
+store or isolate tests.
+
+For interactive OAuth device-flow login, use the native `@columnar-tech/dbc`
+CLI (`dbc auth login`); the Node runtime shares that host's store by default.
+Alternatively, inject the resulting token through `credential`.
 
 ## Build
 

@@ -69,6 +69,35 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	return &cfg, nil
 }
 
+// LoadProjectRegistries reads only registries and replace_defaults from a
+// project's dbc.toml, leaving driver specifications to the caller. A nil
+// replacement flag inherits the global config; an explicit false restores
+// built-in defaults. Missing files and malformed entries are errors.
+//
+// Pass the result to WithProjectRegistries. Whether the resulting registry
+// list is empty is checked by NewClient after merging global/project config.
+func LoadProjectRegistries(path string) ([]RegistryEntry, *bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open %s: %w", path, err)
+	}
+	defer f.Close()
+
+	var cfg struct {
+		Registries      []RegistryEntry `toml:"registries"`
+		ReplaceDefaults *bool           `toml:"replace_defaults"`
+	}
+	if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
+		return nil, nil, fmt.Errorf("invalid %s: %w", path, err)
+	}
+	for _, entry := range cfg.Registries {
+		if err := validateRegistryEntry(entry); err != nil {
+			return nil, nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return cfg.Registries, cfg.ReplaceDefaults, nil
+}
+
 func validateRegistryEntry(e RegistryEntry) error {
 	if e.URL == "" {
 		return errors.New("registry entry has empty url")

@@ -25,10 +25,10 @@ package main
 // github.com/columnar-tech/dbc; do not edit it.
 //
 // Conventions:
-//  - Functions returning dbc_status return DBC_OK and write their result to
-//    `out`, or return DBC_ERROR, leave `out` untouched, and, when `err` is
-//    non-NULL, store a dbc_error that the caller frees with dbc_error_free.
-//    `out` must not be NULL.
+//  - Functions returning dbc_status return DBC_OK, or return DBC_ERROR and,
+//    when `err` is non-NULL, store a dbc_error that the caller frees with
+//    dbc_error_free. Functions with `out` write the result on success and
+//    leave it untouched on error; `out` must not be NULL.
 //  - Objects returned through `out` are owned by the caller and released with
 //    the matching *_free function; *_free(NULL) is a no-op.
 //  - Strings returned by dbc_list_get, dbc_list_info, and dbc_error_message
@@ -38,13 +38,32 @@ package main
 //  - Objects are not synchronized: use each from one thread at a time.
 //
 // dbc_client_new options (keys and values are strings; unknown keys fail):
-//   base_url                   registry URL (default: Columnar's public CDN)
+//   base_url                   one explicit registry URL
+//   registry.<n>.url           explicit registry URL at index n (0, 1, ...)
+//   registry.<n>.name          optional name for that registry
+//   registry_config            "default" (or empty) loads the user's global
+//                                config.toml; "none" skips it
+//   project_file               path to dbc.toml (registries/replace_defaults)
+//   credential_store           "default" (or empty) reads stored credentials;
+//                                "none" never uses stored credentials to authenticate
 //   user_agent_suffix          appended to the HTTP User-Agent
 //   credential.registry_url    token credential for one private registry,
 //   credential.auth_uri          replacing the credentials stored by
 //   credential.token             `dbc auth login` for that registry's host
-//   credential.refresh_token
-//   credential.client_id
+//   credential.refresh_token   optional
+//   credential.client_id       optional
+//
+// Registry indexes must be contiguous from zero, with exactly one nonempty
+// URL each; duplicate URL/name options and names without URLs fail.
+// base_url and registry.<n> are mutually exclusive. Either explicit form
+// ignores registry_config and project_file entirely and uses only the supplied
+// registries. Otherwise global and project registries follow CLI precedence,
+// falling back to Columnar's public CDN. Loading a config file can fail client
+// creation; unlike the CLI, bindings have no construction warning channel.
+// Credentials for hosts other than an injected credential's host fall back to
+// the credential store unless credential_store is "none".
+// With "none", refreshing an injected credential can still update dbc's
+// credential/license files.
 //
 // Every operation that returns data returns a dbc_list: rows read with
 // dbc_list_get, list-level values read with dbc_list_info. A field that
@@ -55,6 +74,16 @@ package main
 //   dbc_resolve         VERSION, per available version          ID PLATFORM LATEST_VERSION LATEST_URL
 //   dbc_install         one row: ID NAME VERSION SOURCE DRIVER_PATH
 //   dbc_list_installed  ID NAME VERSION LOCATION, per driver
+//   dbc_license_path    no rows                                 LOCATION
+//
+// Status-only operations:
+//   dbc_uninstall       removes an installed driver from a target
+//   dbc_login           stores/replaces a token credential for registry_url;
+//                         auth_uri/token required; refresh_token/client_id may be NULL
+//   dbc_logout          removes a stored credential (missing credentials fail)
+//   dbc_install_license copies a license file to dbc_license_path; an existing
+//                         license or source not named columnar.lic requires
+//                         flags = DBC_LICENSE_FORCE
 
 typedef struct dbc_error dbc_error;
 typedef struct dbc_client dbc_client;
@@ -81,6 +110,10 @@ typedef int32_t dbc_install_flags;
 // from a trusted private registry.
 #define DBC_INSTALL_ALLOW_UNSIGNED 1
 
+// dbc_install_license flags (bitwise OR; 0 preserves an existing license).
+typedef int32_t dbc_license_flags;
+#define DBC_LICENSE_FORCE 1
+
 // Fields of a dbc_list (see the table above). New fields may be added.
 typedef int32_t dbc_field;
 #define DBC_FIELD_ID 0
@@ -102,6 +135,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/columnar-tech/dbc/internal/api"
@@ -113,6 +147,7 @@ const (
 	targetSystem    = int32(C.DBC_TARGET_SYSTEM)
 
 	installAllowUnsigned = int32(C.DBC_INSTALL_ALLOW_UNSIGNED)
+	licenseForce         = int32(C.DBC_LICENSE_FORCE)
 
 	fieldID            = int32(C.DBC_FIELD_ID)
 	fieldName          = int32(C.DBC_FIELD_NAME)
@@ -300,6 +335,65 @@ func dbc_list_installed(kind C.dbc_target_kind, directory *C.char, out **C.dbc_l
 		return fail(err_out, err)
 	}
 	return returnList(out, installedList(drivers))
+}
+
+// dbc_login stores a token credential, replacing any stored credential for the
+// registry host. refresh_token and client_id may be NULL.
+//
+//export dbc_login
+func dbc_login(registry_url, auth_uri, token, refresh_token, client_id *C.char, err_out **C.dbc_error) (status C.dbc_status) {
+	defer recoverInto(err_out, &status)
+	if err := api.Login(api.Credential{
+		RegistryURL:  C.GoString(registry_url),
+		AuthURI:      C.GoString(auth_uri),
+		Token:        C.GoString(token),
+		RefreshToken: C.GoString(refresh_token),
+		ClientID:     C.GoString(client_id),
+	}); err != nil {
+		return fail(err_out, err)
+	}
+	return C.DBC_OK
+}
+
+//export dbc_logout
+func dbc_logout(registry_url *C.char, err_out **C.dbc_error) (status C.dbc_status) {
+	defer recoverInto(err_out, &status)
+	if err := api.Logout(C.GoString(registry_url)); err != nil {
+		return fail(err_out, err)
+	}
+	return C.DBC_OK
+}
+
+// dbc_license_path returns the license path in DBC_FIELD_LOCATION at list level.
+// Paths that cannot be represented as UTF-8 return DBC_ERROR.
+//
+//export dbc_license_path
+func dbc_license_path(out **C.dbc_list, err_out **C.dbc_error) (status C.dbc_status) {
+	defer recoverInto(err_out, &status)
+	if out == nil {
+		return fail(err_out, errNullOut)
+	}
+	path, err := api.LicensePath()
+	if err != nil {
+		return fail(err_out, err)
+	}
+	if !utf8.ValidString(path) {
+		return fail(err_out, errors.New("dbc: license path is not valid UTF-8"))
+	}
+	return returnList(out, &listObj{info: record{fieldLocation: C.CString(path)}})
+}
+
+//export dbc_install_license
+func dbc_install_license(src_path *C.char, flags C.dbc_license_flags, err_out **C.dbc_error) (status C.dbc_status) {
+	defer recoverInto(err_out, &status)
+	force, err := licenseOptions(int32(flags))
+	if err != nil {
+		return fail(err_out, err)
+	}
+	if err := api.InstallLicense(C.GoString(src_path), force); err != nil {
+		return fail(err_out, err)
+	}
+	return C.DBC_OK
 }
 
 //export dbc_list_count
