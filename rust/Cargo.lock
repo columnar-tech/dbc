@@ -31,6 +31,7 @@ dependencies = [
  "columnar-dbc-sys-linux-arm64",
  "columnar-dbc-sys-linux-x64",
  "columnar-dbc-sys-windows-x64",
+ "pkg-config",
 ]
 
 [[package]]
@@ -97,6 +98,12 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "r-efi"

@@ -15,22 +15,3 @@
 //! Carries the prebuilt dbc static library and its link flags for one
 //! platform. Depend on `columnar-dbc` instead of this crate.
 #![no_std]
-
-/// Starts the Go runtime under the MSVC CRT.
-///
-/// A Go c-archive registers its runtime entry point in `.ctors`. The MinGW CRT
-/// runs that section, but the MSVC CRT does not. Without this, the first dbc
-/// call blocks forever in `_cgo_wait_runtime_init_done`. `.CRT$XCU` is the
-/// MSVC CRT's C++ static-initializer table. rustc emits an undefined reference
-/// to each `#[used]` static, which forces this object out of the rlib and into
-/// the link.
-#[cfg(target_env = "msvc")]
-mod msvc_runtime_init {
-    extern "C" {
-        fn _rt0_amd64_windows_lib();
-    }
-
-    #[used]
-    #[link_section = ".CRT$XCU"]
-    static START_GO_RUNTIME: unsafe extern "C" fn() = _rt0_amd64_windows_lib;
-}

@@ -13,7 +13,7 @@
 # limitations under the License.
 [package]
 name = "columnar-dbc"
-description = "Search, resolve, install, and verify ADBC drivers from Rust with dbc, statically linked."
+description = "Search, resolve, install, and verify ADBC drivers from Rust with dbc."
 readme = "README.md"
 keywords = ["adbc", "arrow", "database", "drivers"]
 categories = ["database", "api-bindings"]
@@ -26,6 +26,11 @@ homepage.workspace = true
 # The integration tests read fixtures from the dbc repo (cmd/dbc/testdata),
 # so they only run in-repo; keep them out of the published crate.
 include = ["src/**", "README.md"]
+
+[features]
+default = ["bundled"]
+bundled = ["columnar-dbc-sys/bundled"]
+pkg-config = ["columnar-dbc-sys/pkg-config"]
 
 [dependencies]
 columnar-dbc-sys = { workspace = true }
