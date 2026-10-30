@@ -251,6 +251,7 @@ cloudsmiths:
     component: main
     # skip prereleases, matching homebrew/winget skip_upload: auto
     disable: '{{ ne .Prerelease "" }}'
+    republish: true
 
 
 snapcrafts:
