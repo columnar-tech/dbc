@@ -34,6 +34,47 @@ $ git push --tags
 
 The automation will take over from the tag being pushed.
 
+## Linux development packages
+
+Releases publish `libdbc-dev_*.deb` and `libdbc-devel*.rpm` alongside the CLI
+packages, both on the GitHub release and in the versioned distribution bucket.
+These are development-only packages, separate from the `dbc` CLI package; there
+is no separate runtime package.
+
+Each package includes `libdbc.a`, `libdbc.so` (SONAME `libdbc.so`),
+`/usr/include/libdbc.h`, and the `dbc` pkg-config module. The libraries and
+`pkgconfig/dbc.pc` are installed under:
+
+| Package | Architecture | Library directory |
+| --- | --- | --- |
+| `libdbc-dev` (Debian) | `amd64` | `/usr/lib/x86_64-linux-gnu` |
+| `libdbc-dev` (Debian) | `arm64` | `/usr/lib/aarch64-linux-gnu` |
+| `libdbc-devel` (RPM) | `x86_64`, `aarch64` | `/usr/lib64` |
+
+Install the package for your architecture, for example:
+
+```shell
+sudo apt install ./libdbc-dev_*_amd64.deb pkg-config
+# Or, on an RPM-based distribution:
+sudo dnf install ./libdbc-devel*.x86_64.rpm pkgconf-pkg-config
+pkg-config --modversion dbc
+```
+
+The `capi` build supplies the static archive and header. The Linux-only
+`capi-shared` build uses the same Zig targets (glibc 2.28) and stages its shared
+library and format-specific pkg-config files with `scripts/stage_devel.py` under
+`dist/devel/linux_<goarch>/`. The `devel-deb` and `devel-rpm` nFPM entries combine
+these artifacts without duplicating the generated header. Snapshot CI uploads
+both package formats as the `devel-packages` artifact and tests the installed
+packages on Linux amd64 and arm64.
+
+Rust consumers can disable default features and enable `pkg-config` to use these
+packages instead of the bundled platform crates. Static linking is the default;
+setting `DBC_DYNAMIC` selects the shared library, which must remain on the
+runtime loader's search path. See
+[Linking a system libdbc](rust/columnar-dbc/README.md#linking-a-system-libdbc)
+for the feature and environment-variable options.
+
 ## Release Pre-Flight Checklist
 
 Before creating and pushing the tags, please consult the following
@@ -51,6 +92,13 @@ checklist of steps:
       manually tested?
 - [ ] After pushing the tag, you will need to approve the deployment
       on the Actions tab of the repo.
+- [ ] *(One time)* The `production` environment has a `CARGO_REGISTRY_TOKEN`
+      secret for a crates.io account that owns the `columnar-dbc*` crates.
+      GoReleaser publishes them, with the release's version, in its final
+      `after` hook; a failure there happens after the GitHub release is out.
+      To recover, rerun `goreleaser build --clean --id capi` (needs Zig 0.17.0
+      and `GORELEASER_KEY`) at the tag, then
+      `python3 scripts/publish_crates.py --version <version>`.
 
 Once the above checklist is completed, just push the new tag to
 kick off the release process.

@@ -76,6 +76,15 @@ jobs:
       - name: Install Wheel
         run: pip install wheel
 
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+          use-cache: false
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
@@ -133,6 +142,22 @@ jobs:
             dist/python/*
             packages/npm/packages/*/
             packages/npm/wrapper/
+
+      - name: Upload capi archives for the Rust tests
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: capi-native
+          path: rust/platforms/*/native/
+          if-no-files-found: error
+
+      - name: Upload development packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devel-packages
+          path: |
+            dist/libdbc-dev_*.deb
+            dist/libdbc-devel*.rpm
+          if-no-files-found: error
 
   production_deploy:
     runs-on: ubuntu-latest
@@ -198,6 +223,15 @@ jobs:
       - name: Install Wheel
         run: pip install wheel
 
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+          use-cache: false
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
       - name: Login to Docker Hub
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -228,11 +262,13 @@ jobs:
           echo "PKCS11_CONFIG=${PKCS11_CONFIG}" >> "$GITHUB_ENV"
           SM_TOOLS_DIR=$(dirname "$(realpath "${PKCS11_CONFIG}")")
           echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 -d > "${SM_TOOLS_DIR}/Certificate_pkcs12.p12"
-          echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV"
-          echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV"
-          echo "SM_CLIENT_CERT_FILE=${SM_TOOLS_DIR}/Certificate_pkcs12.p12" >> "$GITHUB_ENV"
-          echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "SM_KEYPAIR_ALIAS=${{ secrets.SM_KEYPAIR_ALIAS }}" >> "$GITHUB_ENV"
+          {
+            echo "SM_HOST=${{ secrets.SM_HOST }}"
+            echo "SM_API_KEY=${{ secrets.SM_API_KEY }}"
+            echo "SM_CLIENT_CERT_FILE=${SM_TOOLS_DIR}/Certificate_pkcs12.p12"
+            echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}"
+            echo "SM_KEYPAIR_ALIAS=${{ secrets.SM_KEYPAIR_ALIAS }}"
+          } >> "$GITHUB_ENV"
 
           # clean up
           git clean -xdf
@@ -258,6 +294,7 @@ jobs:
           MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           DBC_TAP_GITHUB_PAT: ${{ secrets.DBC_TAP_GITHUB_PAT }}
           DBC_WINGET_GITHUB_PAT: ${{ secrets.DBC_WINGET_GITHUB_PAT }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # 1.14.2
@@ -270,7 +307,7 @@ jobs:
           ETAG=$(aws cloudfront-keyvaluestore describe-key-value-store \
             --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} | jq -r '.ETag')
           aws cloudfront-keyvaluestore put-key \
-            --if-match=$ETAG \
+            --if-match="$ETAG" \
             --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} \
             --key=latest \
             --value="${RELEASE_VERSION}"
@@ -320,3 +357,244 @@ jobs:
           npm publish packages/npm/wrapper --provenance --access public --tag "$NPM_TAG"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  rust_test:
+    name: rust ${{ matrix.target }}
+    needs: snapshot
+    runs-on: ${{ matrix.os }}
+    # A Go c-archive whose runtime never starts blocks forever on the first
+    # call, so a hang must fail the job, not hold the runner for six hours.
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: linux-x64, os: ubuntu-latest, target: x86_64-unknown-linux-gnu, python: python3 }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, python: python3 }
+          - { platform: darwin-arm64, os: macos-latest, target: aarch64-apple-darwin, python: python3 }
+          - { platform: darwin-x64, os: macos-15-intel, target: x86_64-apple-darwin, python: python3 }
+          - { platform: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, python: python }
+          - { platform: windows-x64, os: windows-latest, target: x86_64-pc-windows-gnu, python: python }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the snapshot's capi archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: capi-native
+          path: rust/platforms
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+      - name: Install bindgen
+        shell: bash
+        run: cargo install bindgen-cli --version 0.73.2 --locked
+      - name: Bindings match the generated header
+        shell: bash
+        run: |
+          ${{ matrix.python }} scripts/gen_rust_bindings.py rust/platforms/${{ matrix.platform }}/native/libdbc.h
+          git diff --exit-code rust/columnar-dbc-sys/src/bindings.rs
+      - name: Test
+        shell: bash
+        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }}
+      - name: Test at the user level
+        shell: bash
+        env:
+          DBC_TEST_LEVEL_USER: "1"
+        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }} --test levels
+      - name: Test at the system level (Unixlike)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: >-
+          sudo -E env "PATH=$PATH" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}"
+          DBC_TEST_LEVEL_SYSTEM=1
+          cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }} --test levels
+      - name: Test at the system level (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          DBC_TEST_LEVEL_SYSTEM: "1"
+        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }} --test levels
+
+  devel_packages:
+    name: devel packages ${{ matrix.debarch }}
+    needs: snapshot
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, debarch: amd64, triplet: x86_64-linux-gnu, rpmarch: x86_64, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, debarch: arm64, triplet: aarch64-linux-gnu, rpmarch: aarch64, target: aarch64-unknown-linux-gnu }
+    defaults:
+      run:
+        shell: bash
+    env:
+      DEB_ARCH: ${{ matrix.debarch }}
+      DEB_TRIPLET: ${{ matrix.triplet }}
+      RPM_ARCH: ${{ matrix.rpmarch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the snapshot's development packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: devel-packages
+          path: ${{ runner.temp }}/devel-packages
+      - name: Install and inspect the Debian package
+        run: |
+          shopt -s nullglob
+          packages=("$RUNNER_TEMP"/devel-packages/libdbc-dev_*_"$DEB_ARCH".deb)
+          test "${#packages[@]}" -eq 1
+          sudo apt-get update
+          sudo apt-get install -y "${packages[0]}" pkg-config
+          pkg-config --modversion dbc
+          libdir="/usr/lib/$DEB_TRIPLET"
+          test "$(pkg-config --variable=libdir dbc)" = "$libdir"
+          for path in "$libdir/libdbc.a" "$libdir/libdbc.so" "$libdir/pkgconfig/dbc.pc" /usr/include/libdbc.h; do
+            test -f "$path"
+          done
+          dynamic_section=$(readelf -d "$libdir/libdbc.so")
+          printf '%s\n' "$dynamic_section"
+          grep -Eq '\(SONAME\).*\[libdbc\.so\]' <<< "$dynamic_section"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+      - name: Test Rust against the installed library
+        run: |
+          build_root=$(mktemp -d "$RUNNER_TEMP/dbc-devel.XXXXXX")
+          for mode in pkg-config-static pkg-config-dynamic custom-static; do
+            unset DBC_DYNAMIC DBC_SYS_LIB_DIR DBC_SYS_USE_PKG_CONFIG
+            features=()
+            case "$mode" in
+              pkg-config-static) features=(--features pkg-config) ;;
+              pkg-config-dynamic)
+                features=(--features pkg-config)
+                export DBC_DYNAMIC=1
+                ;;
+              custom-static)
+                DBC_SYS_LIB_DIR=$(pkg-config --variable=libdir dbc)
+                export DBC_SYS_LIB_DIR
+                ;;
+            esac
+            # Separate, fresh target dirs prevent stale binaries from passing
+            # the linkage assertions. No bundled archives are staged here.
+            cargo test --manifest-path rust/Cargo.toml -p columnar-dbc \
+              --no-default-features "${features[@]}" \
+              --target-dir "$build_root/$mode" --message-format=json \
+              | tee "$build_root/$mode.log"
+            executable=$(python3 - "$build_root/$mode.log" <<'PY'
+          import json
+          import sys
+
+          executables = set()
+          with open(sys.argv[1]) as log:
+              for line in log:
+                  try:
+                      message = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue  # The test harness also writes non-JSON output.
+                  if (message.get("reason") == "compiler-artifact"
+                          and message["target"]["name"] == "roundtrip"
+                          and message["profile"]["test"]
+                          and message.get("executable")):
+                      executables.add(message["executable"])
+          if len(executables) != 1:
+              sys.exit(f"Expected one roundtrip test executable, got {executables}")
+          print(executables.pop())
+          PY
+            )
+            test -x "$executable"
+            linkage=$(ldd "$executable")
+            printf '%s: %s\n%s\n' "$mode" "$executable" "$linkage"
+            if grep -Fq 'not found' <<< "$linkage"; then
+              echo "Unresolved runtime dependency" >&2
+              exit 1
+            fi
+            if [ "$mode" = pkg-config-dynamic ]; then
+              grep -Fq 'libdbc.so' <<< "$linkage"
+            elif grep -Fq 'libdbc.so' <<< "$linkage"; then
+              echo "Static mode linked libdbc.so" >&2
+              exit 1
+            fi
+          done
+      - name: Install and test the RPM in Fedora
+        run: |
+          docker run --rm -i \
+            --mount "type=bind,source=$RUNNER_TEMP/devel-packages,target=/packages,readonly" \
+            --env RPM_ARCH \
+            fedora:latest bash -s <<'FEDORA'
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(/packages/libdbc-devel*."$RPM_ARCH".rpm)
+          test "${#packages[@]}" -eq 1
+          dnf install -y "${packages[0]}" gcc pkgconf binutils
+          pkg-config --modversion dbc
+          test "$(pkg-config --variable=libdir dbc)" = /usr/lib64
+          for path in /usr/lib64/libdbc.a /usr/lib64/libdbc.so /usr/lib64/pkgconfig/dbc.pc /usr/include/libdbc.h; do
+            test -f "$path"
+          done
+          ldconfig
+          cd "$(mktemp -d)"
+          cat > smoke.c <<'C'
+          #include <stddef.h>
+          #include <stdio.h>
+          #include <libdbc.h>
+
+          int main(void) {
+              dbc_client *client = NULL;
+              dbc_error *error = NULL;
+              if (dbc_client_new(NULL, NULL, 0, &client, &error) != DBC_OK) {
+                  fprintf(stderr, "%s\n", dbc_error_message(error));
+                  dbc_error_free(error);
+                  return 1;
+              }
+              if (client == NULL) {
+                  return 1;
+              }
+              dbc_client_free(client);
+              return 0;
+          }
+          C
+          dynamic_flags=$(pkg-config --cflags --libs dbc)
+          read -r -a dynamic_flags <<< "$dynamic_flags"
+          gcc smoke.c -o smoke-dynamic "${dynamic_flags[@]}"
+          static_flags=$(pkg-config --static --cflags --libs dbc)
+          read -r -a static_flags <<< "$static_flags"
+          # --static includes private libs, but does not force archive linkage.
+          # Select libdbc.a explicitly while leaving private system libs dynamic.
+          archive_selected=false
+          for i in "${!static_flags[@]}"; do
+            if [ "${static_flags[i]}" = -ldbc ]; then
+              static_flags[i]=-l:libdbc.a
+              archive_selected=true
+            fi
+          done
+          test "$archive_selected" = true
+          gcc smoke.c -o smoke-static "${static_flags[@]}"
+          for mode in dynamic static; do
+            linkage=$(ldd "./smoke-$mode")
+            printf '%s\n%s\n' "$mode" "$linkage"
+            if grep -Fq 'not found' <<< "$linkage"; then
+              echo "Unresolved runtime dependency" >&2
+              exit 1
+            fi
+            if [ "$mode" = dynamic ]; then
+              grep -Fq 'libdbc.so' <<< "$linkage"
+            elif grep -Fq 'libdbc.so' <<< "$linkage"; then
+              echo "Static smoke program linked libdbc.so" >&2
+              exit 1
+            fi
+            "./smoke-$mode"
+          done
+          FEDORA
