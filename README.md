@@ -119,4 +119,4 @@ By contributing to dbc, you agree to follow our [Code of Conduct](https://github
 
 ## Acknowledgements
 
-deb and rpm hosting repository hosting is graciously provided by [Cloudsmith](https://cloudsmith.com).
+Repository hosting is graciously provided by [Cloudsmith](https://cloudsmith.com).
