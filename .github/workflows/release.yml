@@ -402,25 +402,25 @@ jobs:
           git diff --exit-code rust/columnar-dbc-sys/src/bindings.rs
       - name: Test
         shell: bash
-        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }}
+        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled --target ${{ matrix.target }}
       - name: Test at the user level
         shell: bash
         env:
           DBC_TEST_LEVEL_USER: "1"
-        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }} --test levels
+        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled --target ${{ matrix.target }} --test levels
       - name: Test at the system level (Unixlike)
         if: runner.os != 'Windows'
         shell: bash
         run: >-
           sudo -E env "PATH=$PATH" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}"
           DBC_TEST_LEVEL_SYSTEM=1
-          cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }} --test levels
+          cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled --target ${{ matrix.target }} --test levels
       - name: Test at the system level (Windows)
         if: runner.os == 'Windows'
         shell: bash
         env:
           DBC_TEST_LEVEL_SYSTEM: "1"
-        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }} --test levels
+        run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled --target ${{ matrix.target }} --test levels
 
   devel_packages:
     name: devel packages ${{ matrix.debarch }}
@@ -476,13 +476,9 @@ jobs:
           build_root=$(mktemp -d "$RUNNER_TEMP/dbc-devel.XXXXXX")
           for mode in pkg-config-static pkg-config-dynamic custom-static; do
             unset DBC_DYNAMIC DBC_SYS_LIB_DIR DBC_SYS_USE_PKG_CONFIG
-            features=()
             case "$mode" in
-              pkg-config-static) features=(--features pkg-config) ;;
-              pkg-config-dynamic)
-                features=(--features pkg-config)
-                export DBC_DYNAMIC=1
-                ;;
+              pkg-config-static) ;;
+              pkg-config-dynamic) export DBC_DYNAMIC=1 ;;
               custom-static)
                 DBC_SYS_LIB_DIR=$(pkg-config --variable=libdir dbc)
                 export DBC_SYS_LIB_DIR
@@ -491,7 +487,6 @@ jobs:
             # Separate, fresh target dirs prevent stale binaries from passing
             # the linkage assertions. No bundled archives are staged here.
             cargo test --manifest-path rust/Cargo.toml -p columnar-dbc \
-              --no-default-features "${features[@]}" \
               --target-dir "$build_root/$mode" --message-format=json \
               | tee "$build_root/$mode.log"
             executable=$(python3 - "$build_root/$mode.log" <<'PY'

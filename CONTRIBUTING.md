@@ -106,10 +106,10 @@ the package matching your architecture (`amd64`/`arm64` for Debian or
 The `devel_packages` job tests these exact packages on x64 and arm64 Ubuntu
 runners, without staging any bundled platform archives. It checks the Debian
 paths and shared-library SONAME, runs the Rust suite with static and dynamic
-`pkg-config` linking, and tests `DBC_SYS_LIB_DIR` with default features
-disabled. Each mode gets a fresh Cargo target directory; linkage checks use
-the `roundtrip` test executable reported by that Cargo invocation rather than
-searching for an arbitrary existing binary.
+`pkg-config` linking (the default), and tests `DBC_SYS_LIB_DIR`. Each mode
+gets a fresh Cargo target directory; linkage checks use the `roundtrip` test
+executable reported by that Cargo invocation rather than searching for an
+arbitrary existing binary.
 
 The same job installs the RPM in a native Fedora container and compiles and
 runs a C client-creation smoke program in both link modes. `pkg-config

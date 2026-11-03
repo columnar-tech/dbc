@@ -68,11 +68,11 @@ these artifacts without duplicating the generated header. Snapshot CI uploads
 both package formats as the `devel-packages` artifact and tests the installed
 packages on Linux amd64 and arm64.
 
-Rust consumers can disable default features and enable `pkg-config` to use these
-packages instead of the bundled platform crates. Static linking is the default;
-setting `DBC_DYNAMIC` selects the shared library, which must remain on the
-runtime loader's search path. See
-[Linking a system libdbc](rust/columnar-dbc/README.md#linking-a-system-libdbc)
+Rust consumers link these packages through pkg-config by default; the
+`bundled` feature selects the prebuilt platform crates instead. Static linking
+is the default; setting `DBC_DYNAMIC` selects the shared library, which must
+remain on the runtime loader's search path. See
+[Linking libdbc](rust/columnar-dbc/README.md#linking-libdbc)
 for the feature and environment-variable options.
 
 ## Release Pre-Flight Checklist
