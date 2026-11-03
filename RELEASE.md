@@ -77,6 +77,20 @@ remain on the runtime loader's search path. See
 [Linking libdbc](rust/columnar-dbc/README.md#linking-libdbc)
 for the feature and environment-variable options.
 
+## macOS and Windows development archives
+
+The `libdbc-dev` archive in `.goreleaser.yaml` packages the `capi` static
+library for macOS (`libdbc-dev_<version>_darwin_<arch>.tar.gz`) and Windows
+(`libdbc-dev_<version>_windows_amd64.zip`) with `libdbc.h`, `LICENSE`, and a
+relocatable `dbc.pc` written by `scripts/stage_capi.py`. They are attached to
+the GitHub release and the distribution bucket. Stable releases also:
+
+- update the `libdbc` Homebrew formula in `columnar-tech/homebrew-tap` (the
+  `brews` publisher, with `DBC_TAP_GITHUB_PAT`);
+- upload the Windows zip to Cloudsmith as the raw package
+  `libdbc-dev-windows-x64` (the `cloudsmith-raw` custom publisher, running
+  `scripts/publish_cloudsmith_raw.py` with `CLOUDSMITH_TOKEN`).
+
 ## Release Pre-Flight Checklist
 
 Before creating and pushing the tags, please consult the following

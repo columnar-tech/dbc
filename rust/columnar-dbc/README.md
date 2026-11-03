@@ -45,13 +45,13 @@ Calls block on network and filesystem I/O; from async code, use
 ## Linking libdbc
 
 By default, the crate links an installed libdbc located through pkg-config.
-Install the `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel` (Fedora/RHEL and
-other RPM-based) development package, which provides `libdbc.a`, `libdbc.so`,
-`libdbc.h`, and the `dbc.pc` pkg-config file. Also install the `pkg-config`
-executable (`pkg-config` on Debian/Ubuntu, `pkgconf-pkg-config` on Fedora/RHEL),
-which is a separate package. The packages support x86_64 and aarch64 Linux
-with glibc 2.28+.
-They can be installed either way:
+On Linux, install the `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel`
+(Fedora/RHEL and other RPM-based) development package, which provides
+`libdbc.a`, `libdbc.so`, `libdbc.h`, and the `dbc.pc` pkg-config file. Also
+install the `pkg-config` executable (`pkg-config` on Debian/Ubuntu,
+`pkgconf-pkg-config` on Fedora/RHEL), which is a separate package. The packages
+support x86_64 and aarch64 Linux with glibc 2.28+. They can be installed either
+way:
 
 - **From the package repository.** Every stable release is published to the
   Cloudsmith-hosted `columnar/dbc` apt/dnf repository
@@ -81,6 +81,30 @@ sudo dnf install libdbc-devel pkgconf-pkg-config
 
 # Or, with a package downloaded from GitHub Releases
 sudo dnf install ./libdbc-devel-*.x86_64.rpm pkgconf-pkg-config
+```
+
+macOS (x86_64 and arm64, macOS 12+), with the `libdbc` Homebrew formula from
+the `columnar-tech/tap` tap, which installs `libdbc.a`, `libdbc.h`, and
+`dbc.pc`:
+
+```sh
+brew install pkgconf columnar-tech/tap/libdbc
+
+# Or, with the archive downloaded from GitHub Releases
+tar xzf libdbc-dev_*_darwin_arm64.tar.gz
+export PKG_CONFIG_PATH="$PWD/$(echo libdbc-dev_*_darwin_arm64)"
+```
+
+Windows (x86_64, MSVC or GNU): download `libdbc-dev_<version>_windows_amd64.zip`
+from GitHub Releases or from the Cloudsmith repository, unpack it, and point
+`DBC_SYS_LIB_DIR` at the directory containing `libdbc.lib` (pkg-config is not
+used on Windows):
+
+```powershell
+$v = "<version>"
+Invoke-WebRequest -OutFile libdbc-dev.zip "https://dl.cloudsmith.io/public/columnar/dbc/raw/names/libdbc-dev-windows-x64/versions/$v/libdbc-dev_${v}_windows_amd64.zip"
+Expand-Archive libdbc-dev.zip -DestinationPath .
+$env:DBC_SYS_LIB_DIR = "$PWD\libdbc-dev_${v}_windows_amd64"
 ```
 
 To add the repository without the setup script, see
@@ -137,7 +161,7 @@ The library source is selected in this order:
 `DBC_SYS_USE_PKG_CONFIG` is a presence flag: even an empty value enables it.
 
 System/custom linking is **static by default**. A custom directory must
-contain `libdbc.a`; for example, `DBC_SYS_LIB_DIR=/opt/dbc/lib cargo build`.
+contain `libdbc.a` (on Windows, `libdbc.a` or the zip's `libdbc.lib`); for example, `DBC_SYS_LIB_DIR=/opt/dbc/lib cargo build`.
 The build can't check the version of a custom directory's library, so it must come
 from the same dbc release as the crate.
 Static pkg-config linking also selects `libdbc.a`, even under a system

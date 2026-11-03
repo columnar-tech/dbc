@@ -70,6 +70,8 @@ winget install Columnar.dbc
 Add the Cloudsmith-hosted package repository, then `apt install dbc` or
 `dnf install dbc`. See [Linux package repositories](docs/getting_started/installation.md#linux-package-repositories-debrpm)
 for setup instructions and the `libdbc-dev`/`libdbc-devel` development packages.
+For the macOS (Homebrew) and Windows development libraries, see
+[libdbc development libraries](docs/getting_started/installation.md#libdbc-development-libraries-macos-and-windows).
 
 For more installation options, see the [installation docs](docs/getting_started/installation.md).
 

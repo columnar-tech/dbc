@@ -16,11 +16,15 @@
 """Check a GoReleaser-built capi archive and stage it into its Rust platform crate.
 
 Run by the post hook of the `capi` build in .goreleaser.yaml:
-  python3 scripts/stage_capi.py <archive> <goos> <goarch>
+  python3 scripts/stage_capi.py <archive> <goos> <goarch> <version>
 
 Fails if the gzipped archive would push the platform crate past crates.io's
 10 MiB limit. Copies the archive to rust/platforms/<platform>/native/libdbc.a
 (GoReleaser names the Windows one libdbc.lib) and the cgo header next to it.
+
+For macOS and Windows, also writes dist/devel/<goos>_<goarch>/dbc.pc for the
+libdbc-dev archive. It is relocatable: the archive keeps the library, header,
+and dbc.pc in one directory, so set PKG_CONFIG_PATH to wherever it is unpacked.
 """
 
 import gzip
@@ -38,10 +42,16 @@ PLATFORMS = {
     ("darwin", "arm64"): "darwin-arm64",
     ("windows", "amd64"): "windows-x64",
 }
+# Libs.private for the static library; Linux packages use stage_devel.py.
+ARCHIVE_PRIVATE_LIBS = {
+    # crypto/x509 resolves system roots through the Security framework.
+    "darwin": "-framework CoreFoundation -framework Security",
+    "windows": "",
+}
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         print(__doc__, file=sys.stderr)
         return 2
     archive = pathlib.Path(sys.argv[1])
@@ -63,6 +73,26 @@ def main() -> int:
     shutil.copyfile(archive, native / "libdbc.a")
     shutil.copyfile(archive.with_suffix(".h"), native / "libdbc.h")
     print(f"staged into {native}")
+
+    goos, goarch, version = sys.argv[2], sys.argv[3], sys.argv[4]
+    if goos in ARCHIVE_PRIVATE_LIBS:
+        devel = REPO / "dist" / "devel" / f"{goos}_{goarch}"
+        devel.mkdir(parents=True, exist_ok=True)
+        (devel / "dbc.pc").write_text(
+            "prefix=${pcfiledir}\n"
+            "libdir=${prefix}\n"
+            "includedir=${prefix}\n"
+            "\n"
+            "Name: dbc\n"
+            "Description: C API of dbc, the ADBC driver installer\n"
+            "URL: https://columnar.tech/dbc\n"
+            f"Version: {version}\n"
+            f"Libs: -L${{libdir}} -l{'dbc' if goos == 'darwin' else ':' + archive.name}\n"
+            f"Libs.private: {ARCHIVE_PRIVATE_LIBS[goos]}\n"
+            "Cflags: -I${includedir}\n",
+            encoding="utf-8",
+        )
+        print(f"wrote {devel / 'dbc.pc'}")
     return 0
 
 

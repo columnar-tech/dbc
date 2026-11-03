@@ -176,6 +176,45 @@ To install a downloaded package from GitHub Releases instead, pass the file
 to the package manager, e.g. `sudo apt install ./libdbc-dev_*_amd64.deb` or
 `sudo dnf install ./libdbc-devel-*.x86_64.rpm`.
 
+## libdbc Development Libraries (macOS and Windows)
+
+dbc's C library, used for example by the
+[`columnar-dbc`](https://crates.io/crates/columnar-dbc) Rust crate, is also
+released as a static library for macOS and Windows. Each
+`libdbc-dev_<version>_<os>_<arch>` archive on
+[GitHub Releases](https://github.com/columnar-tech/dbc/releases) contains
+`libdbc.a` (`libdbc.lib` on Windows), the `libdbc.h` header, and a relocatable
+`dbc.pc` pkg-config file.
+
+=== "macOS (Homebrew)"
+
+    The `libdbc` formula in the `columnar-tech/tap` tap supports x86_64 and
+    arm64 on macOS 12 or newer, and installs the library, header, and `dbc.pc`
+    into Homebrew's prefix:
+
+    ```console
+    $ brew install pkgconf columnar-tech/tap/libdbc
+    $ pkg-config --modversion dbc
+    ```
+
+    To use a downloaded archive instead, unpack it and set `PKG_CONFIG_PATH` to
+    the unpacked directory.
+
+=== "Windows"
+
+    The Windows x64 zip is published to the Cloudsmith repository as the raw
+    package [`libdbc-dev-windows-x64`](https://cloudsmith.io/~columnar/repos/dbc/packages/)
+    for every stable release, and attached to each GitHub release:
+
+    ```powershell
+    $v = "<version>"
+    Invoke-WebRequest -OutFile libdbc-dev.zip "https://dl.cloudsmith.io/public/columnar/dbc/raw/names/libdbc-dev-windows-x64/versions/$v/libdbc-dev_${v}_windows_amd64.zip"
+    Expand-Archive libdbc-dev.zip -DestinationPath .
+    ```
+
+    For the Rust crate, set `DBC_SYS_LIB_DIR` to the unpacked
+    `libdbc-dev_<version>_windows_amd64` directory.
+
 ## GitHub Releases
 
 All dbc release artifacts are can be found at [GitHub Releases](https://github.com/columnar-tech/dbc/releases).

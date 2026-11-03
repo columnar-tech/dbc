@@ -120,6 +120,13 @@ archive while allowing private system libraries to remain dynamic. Both the
 Rust and C tests use `ldd` to require `libdbc.so` for dynamic mode and reject
 it for static mode.
 
+The `devel_archives` job tests the macOS and Windows `libdbc-dev` archives
+from the same snapshot. On macOS it installs the generated `libdbc` Homebrew
+formula from a local tap (pointing it at the downloaded archives), runs
+`brew test`, and runs the Rust suite with the default pkg-config build. On
+Windows it runs the Rust suite with `DBC_SYS_LIB_DIR` set to the unpacked zip,
+for both the MSVC and GNU targets.
+
 #### Regenerating Rust bindings
 
 After changing anything in `capi/exports.go`, regenerate the Rust bindings

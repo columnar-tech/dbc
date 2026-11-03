@@ -159,6 +159,16 @@ jobs:
             dist/libdbc-devel*.rpm
           if-no-files-found: error
 
+      - name: Upload macOS/Windows libdbc-dev archives and Homebrew formula
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devel-archives
+          path: |
+            dist/libdbc-dev_*.tar.gz
+            dist/libdbc-dev_*.zip
+            dist/homebrew/Formula/libdbc.rb
+          if-no-files-found: error
+
   production_deploy:
     runs-on: ubuntu-latest
     environment: production
@@ -421,6 +431,69 @@ jobs:
         env:
           DBC_TEST_LEVEL_SYSTEM: "1"
         run: cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled --target ${{ matrix.target }} --test levels
+
+  devel_archives:
+    name: devel archive ${{ matrix.target }}
+    needs: snapshot
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-15-intel, target: x86_64-apple-darwin }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: windows-latest, target: x86_64-pc-windows-gnu }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download the snapshot's libdbc-dev archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: devel-archives
+          path: ${{ runner.temp }}/devel-archives
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --target ${{ matrix.target }}
+          rustup default stable
+      - name: Install the Homebrew formula from the snapshot archives
+        if: runner.os == 'macOS'
+        run: |
+          archives="$RUNNER_TEMP/devel-archives"
+          # Point the formula at the downloaded archives instead of a release.
+          tap=$(brew --repository)/Library/Taps/local/homebrew-libdbc
+          mkdir -p "$tap/Formula"
+          sed -E "s#https://github.com/columnar-tech/dbc/releases/download/[^/]+/#file://$archives/#" \
+            "$archives/homebrew/Formula/libdbc.rb" > "$tap/Formula/libdbc.rb"
+          brew install pkgconf local/libdbc/libdbc
+          brew test local/libdbc/libdbc
+          pkg-config --modversion dbc
+          test -f "$(pkg-config --variable=libdir dbc)/libdbc.a"
+      - name: Test Rust with the default (pkg-config) build
+        if: runner.os == 'macOS'
+        run: |
+          cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }}
+          # Only the static library is installed, but check the result anyway.
+          for test in rust/target/${{ matrix.target }}/debug/deps/roundtrip-*; do
+            [ -x "$test" ] || continue
+            ! otool -L "$test" | grep -F libdbc
+          done
+      - name: Test Rust against the unpacked zip with DBC_SYS_LIB_DIR
+        if: runner.os == 'Windows'
+        run: |
+          dir="$RUNNER_TEMP/libdbc"
+          mkdir -p "$dir"
+          unzip -q "$RUNNER_TEMP"/devel-archives/libdbc-dev_*_windows_amd64.zip -d "$dir"
+          lib_dir=$(cd "$dir"/libdbc-dev_*_windows_amd64 && pwd -W)
+          test -f "$lib_dir/libdbc.lib" && test -f "$lib_dir/libdbc.h"
+          DBC_SYS_LIB_DIR="$lib_dir" cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --target ${{ matrix.target }}
 
   devel_packages:
     name: devel packages ${{ matrix.debarch }}

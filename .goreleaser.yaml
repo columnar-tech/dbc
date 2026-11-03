@@ -101,7 +101,7 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     hooks:
       post:
-        - cmd: python3 scripts/stage_capi.py "{{ .Path }}" {{ .Os }} {{ .Arch }}
+        - cmd: python3 scripts/stage_capi.py "{{ .Path }}" {{ .Os }} {{ .Arch }} {{ .Version }}
           output: true
   # Linux shared library for the development packages.
   - id: capi-shared
@@ -169,9 +169,31 @@ archives:
             {{- else }}{{ .Arch }}{{ end }}
             {{- if .Arm }}v{{ .Arm }}{{ end }}-{{ .Version }}{{ if eq .Os "windows" }}.zip{{ else }}.tar.gz{{ end }}
 
+  # Static libdbc for macOS and Windows: libdbc.a (libdbc.lib on Windows),
+  # libdbc.h, and on macOS a relocatable dbc.pc. Linux ships as deb/rpm instead.
+  - id: libdbc-dev
+    ids:
+      - capi
+    name_template: "libdbc-dev_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: true
+    formats: [tar.gz]
+    format_overrides:
+      - goos: linux
+        formats: [none]
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      # GoReleaser archives the c-archive but not its cgo header.
+      - src: "dist/capi_{{ .Os }}_{{ .Arch }}_*/libdbc.h"
+        strip_parent: true
+      - src: "dist/devel/{{ .Os }}_{{ .Arch }}/*.pc"
+        strip_parent: true
+
 blobs:
   - ids:
       - archives
+      - libdbc-dev
       - msi
       - pkgs
       - devel-deb
@@ -508,8 +530,69 @@ homebrew_casks:
       token_type: "github"
       token: "{{ .Env.DBC_TAP_GITHUB_PAT }}" # we'll probably need a dedicated PAT or something?
 
+# Casks can only install apps and binaries, so libdbc uses a formula.
+# GoReleaser deprecated `brews` in v2.10 in favor of casks, but it is still the
+# only Homebrew publisher that can install into lib/ and include/.
+brews:
+  - name: libdbc
+    alternative_names:
+      - libdbc@{{ .Version }}
+      - libdbc@{{ .Major }}.{{ .Minor }}
+    ids:
+      - libdbc-dev
+    url_template: "https://github.com/columnar-tech/dbc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_msg_template: "Brew formula update for libdbc version {{ .Tag }}"
+    directory: Formula
+    homepage: "https://columnar.tech/dbc"
+    description: "Static library and headers for the C API of dbc, the ADBC driver installer"
+    license: Apache-2.0
+    skip_upload: auto # auto skips prereleases
+    install: |
+      lib.install "libdbc.a"
+      include.install "libdbc.h"
+      inreplace "dbc.pc", /^prefix=.*$/, "prefix=#{opt_prefix}"
+      inreplace "dbc.pc", /^libdir=.*$/, "libdir=${prefix}/lib"
+      inreplace "dbc.pc", /^includedir=.*$/, "includedir=${prefix}/include"
+      (lib/"pkgconfig").install "dbc.pc"
+    test: |
+      (testpath/"test.c").write <<~C
+        #include <stddef.h>
+        #include <libdbc.h>
+        int main(void) {
+          dbc_client *client = NULL;
+          dbc_error *error = NULL;
+          if (dbc_client_new(NULL, NULL, 0, &client, &error) != DBC_OK) return 1;
+          dbc_client_free(client);
+          return 0;
+        }
+      C
+      system ENV.cc, "test.c", "-I#{include}", "-L#{lib}", "-ldbc",
+             "-framework", "CoreFoundation", "-framework", "Security", "-o", "test"
+      system "./test"
+    repository:
+      owner: "columnar-tech"
+      name: "homebrew-tap"
+      branch: main
+      token_type: "github"
+      token: "{{ .Env.DBC_TAP_GITHUB_PAT }}"
+
+# The cloudsmiths publisher only handles deb/rpm/apk, so the Windows
+# libdbc-dev zip goes to Cloudsmith as a raw package through a custom publisher.
+publishers:
+  - name: cloudsmith-raw
+    ids:
+      - libdbc-dev
+    if: '{{ eq .Os "windows" }}'
+    cmd: python3 scripts/publish_cloudsmith_raw.py --version {{ .Version }} {{ .ArtifactPath }}
+    env:
+      - CLOUDSMITH_TOKEN={{ .Env.CLOUDSMITH_TOKEN }}
+    # skip prereleases, matching the cloudsmiths publisher
+    disable: '{{ ne .Prerelease "" }}'
+
 winget:
   - name: dbc
+    ids:
+      - archives
     publisher: Columnar
     publisher_url: "https://columnar.tech/"
     publisher_support_url: "https://github.com/columnar-tech/dbc/issues"
@@ -539,6 +622,7 @@ winget:
 release:
   ids:
     - archives
+    - libdbc-dev
     - msi
     - snaps
     - pkgs
