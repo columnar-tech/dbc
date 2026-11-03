@@ -166,7 +166,8 @@ $ dbc search --verbose
     ├── 0.12.6
     ├── 0.12.7
     ├── 0.13.0
-    ╰── 0.16.0
+    ├── 0.16.0
+    ╰── 0.31.0
 • firebolt
    Title: firebolt
    Description: An ADBC driver for Firebolt
@@ -184,7 +185,8 @@ $ dbc search --verbose
     ├── 1.11.0
     ├── 1.12.0
     ├── 1.12.1
-    ╰── 1.12.2
+    ├── 1.12.2
+    ╰── 1.13.0
 • mssql
    Title: Columnar Microsoft SQL Server Driver
    Description: An ADBC driver for Microsoft SQL Server developed by Columnar
@@ -227,7 +229,8 @@ $ dbc search --verbose
     ├── 1.9.0
     ├── 1.10.0
     ├── 1.11.0
-    ╰── 1.12.0
+    ├── 1.12.0
+    ╰── 1.13.0
 • quack
    Title: ADBC Driver for DuckDB Quack
    Description: An ADBC driver for remote DuckDB via Quack
@@ -285,7 +288,8 @@ $ dbc search --verbose
     ├── 1.9.0
     ├── 1.10.0
     ├── 1.11.0
-    ╰── 1.12.0
+    ├── 1.12.0
+    ╰── 1.13.0
 • trino
    Title: ADBC Driver Foundry Driver for Trino
    Description: An ADBC Driver for Trino developed by the ADBC Driver Foundry
