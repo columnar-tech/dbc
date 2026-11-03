@@ -65,6 +65,12 @@ winget install Columnar.dbc
 
 [Download the MSI installer](https://dbc.columnar.tech/latest/dbc-latest-x64.msi)
 
+### apt / dnf (Linux)
+
+Add the Cloudsmith-hosted package repository, then `apt install dbc` or
+`dnf install dbc`. See [Linux package repositories](docs/getting_started/installation.md#linux-package-repositories-debrpm)
+for setup instructions and the `libdbc-dev`/`libdbc-devel` development packages.
+
 For more installation options, see the [installation docs](docs/getting_started/installation.md).
 
 ## Getting Started

@@ -45,14 +45,48 @@ Calls block on network and filesystem I/O; from async code, use
 ## Linking libdbc
 
 By default, the crate links an installed libdbc located through pkg-config.
-Install the `libdbc-dev` package on Debian/Ubuntu or `libdbc-devel` on
-RPM-based systems. These development packages contain `libdbc.a`,
-`libdbc.so`, `libdbc.h`, and `dbc.pc`. For a downloaded Debian package:
+Install the `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel` (Fedora/RHEL and
+other RPM-based) development package, which provides `libdbc.a`, `libdbc.so`,
+`libdbc.h`, and the `dbc.pc` pkg-config file. Also install the `pkg-config`
+executable (`pkg-config` on Debian/Ubuntu, `pkgconf-pkg-config` on Fedora/RHEL),
+which is a separate package. The packages support x86_64 and aarch64 Linux
+with glibc 2.28+.
+They can be installed either way:
+
+- **From the package repository.** Every stable release is published to the
+  Cloudsmith-hosted `columnar/dbc` apt/dnf repository
+  (<https://cloudsmith.io/~columnar/repos/dbc/packages/>). Add the repository
+  once, and the package manager handles upgrades.
+- **From GitHub Releases.** Download the package for your architecture from
+  <https://github.com/columnar-tech/dbc/releases> and install the file
+  directly.
+
+Debian/Ubuntu:
 
 ```sh
-sudo apt install ./libdbc-dev_*.deb
-sudo apt install pkg-config
+# Add the repository (or see the manual steps linked below)
+curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.deb.sh' | sudo -E bash
+sudo apt install libdbc-dev pkg-config
+
+# Or, with a package downloaded from GitHub Releases
+sudo apt install ./libdbc-dev_*_amd64.deb pkg-config
 ```
+
+Fedora/RHEL:
+
+```sh
+# Add the repository (or see the manual steps linked below)
+curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.rpm.sh' | sudo -E bash
+sudo dnf install libdbc-devel pkgconf-pkg-config
+
+# Or, with a package downloaded from GitHub Releases
+sudo dnf install ./libdbc-devel-*.x86_64.rpm pkgconf-pkg-config
+```
+
+To add the repository without the setup script, see
+[Linux package repositories](https://github.com/columnar-tech/dbc/blob/main/docs/getting_started/installation.md#linux-package-repositories-debrpm).
+Set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for a nonstandard
+installation prefix. The source code is at <https://github.com/columnar-tech/dbc>.
 
 Then depend on the crate as usual:
 
@@ -62,8 +96,7 @@ columnar-dbc = "0"
 ```
 
 This mode discovers the `dbc` pkg-config module and does not download the
-bundled platform crates. For a nonstandard installation prefix, set
-`PKG_CONFIG_PATH` to the directory containing `dbc.pc`. It is not limited to
+bundled platform crates. It is not limited to
 the bundled targets below, but requires a libdbc built for your target.
 
 The installed libdbc must match the crate's version: `columnar-dbc` 0.4.x

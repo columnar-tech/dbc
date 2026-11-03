@@ -19,12 +19,54 @@
 //! # Linking libdbc
 //!
 //! By default, the build script locates an installed libdbc through the `dbc`
-//! pkg-config module. Install the `libdbc-dev` (Debian/Ubuntu) or
-//! `libdbc-devel` (RPM) development package, which provides `libdbc.a`,
-//! `libdbc.so`, `libdbc.h`, and `dbc.pc`. For a downloaded Debian package, use
-//! `sudo apt install ./libdbc-dev_*.deb`. The `pkg-config` executable must also
-//! be installed; set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for
-//! a nonstandard prefix.
+//! pkg-config module.
+//!
+//! ## Installing the development package
+//!
+//! Install the `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel` (Fedora/RHEL and
+//! other RPM-based) development package, which provides `libdbc.a`, `libdbc.so`,
+//! `libdbc.h`, and the `dbc.pc` pkg-config file. Also install the `pkg-config`
+//! executable (`pkg-config` on Debian/Ubuntu, `pkgconf-pkg-config` on Fedora/RHEL),
+//! which is a separate package. The packages support x86_64 and aarch64 Linux
+//! with glibc 2.28+.
+//! They can be installed either way:
+//!
+//! - **From the package repository.** Every stable release is published to the
+//!   Cloudsmith-hosted `columnar/dbc` apt/dnf repository
+//!   (<https://cloudsmith.io/~columnar/repos/dbc/packages/>). Add the repository
+//!   once, and the package manager handles upgrades.
+//! - **From GitHub Releases.** Download the package for your architecture from
+//!   <https://github.com/columnar-tech/dbc/releases> and install the file
+//!   directly.
+//!
+//! Debian/Ubuntu:
+//!
+//! ```sh
+//! # Add the repository (or see the manual steps linked below)
+//! curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.deb.sh' | sudo -E bash
+//! sudo apt install libdbc-dev pkg-config
+//!
+//! # Or, with a package downloaded from GitHub Releases
+//! sudo apt install ./libdbc-dev_*_amd64.deb pkg-config
+//! ```
+//!
+//! Fedora/RHEL:
+//!
+//! ```sh
+//! # Add the repository (or see the manual steps linked below)
+//! curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.rpm.sh' | sudo -E bash
+//! sudo dnf install libdbc-devel pkgconf-pkg-config
+//!
+//! # Or, with a package downloaded from GitHub Releases
+//! sudo dnf install ./libdbc-devel-*.x86_64.rpm pkgconf-pkg-config
+//! ```
+//!
+//! To add the repository without the setup script, see
+//! [Linux package repositories](https://github.com/columnar-tech/dbc/blob/main/docs/getting_started/installation.md#linux-package-repositories-debrpm).
+//! Set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for a nonstandard
+//! installation prefix. The source code is at <https://github.com/columnar-tech/dbc>.
+//!
+//! ## Other library sources
 //!
 //! To link a prebuilt static library from a platform crate instead, enable the
 //! `bundled` feature:
