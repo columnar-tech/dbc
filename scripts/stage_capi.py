@@ -22,6 +22,11 @@ Fails if the gzipped archive would push the platform crate past crates.io's
 10 MiB limit. Copies the archive to rust/platforms/<platform>/native/libdbc.a
 (GoReleaser names the Windows one libdbc.lib) and the cgo header next to it.
 
+Rewrites macOS archives in place in Darwin ar format first: Go builds them on
+Linux with GNU ar, whose members are not 8-byte aligned, and Apple's arm64
+linker rejects that ("64-bit mach-o member ... not 8-byte aligned"). The
+GoReleaser libdbc-dev archive then picks up the rewritten file.
+
 For macOS and Windows, also writes dist/devel/<goos>_<goarch>/dbc.pc for the
 libdbc-dev archive. It is relocatable: the archive keeps the library, header,
 and dbc.pc in one directory, so set PKG_CONFIG_PATH to wherever it is unpacked.
@@ -30,7 +35,9 @@ and dbc.pc in one directory, so set PKG_CONFIG_PATH to wherever it is unpacked.
 import gzip
 import pathlib
 import shutil
+import subprocess
 import sys
+import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 # crates.io rejects .crate files over 10 MiB; keep headroom for the rest of the crate.
@@ -50,6 +57,18 @@ ARCHIVE_PRIVATE_LIBS = {
 }
 
 
+def repack_darwin(archive: pathlib.Path) -> None:
+    """Rewrite archive in Darwin format with Zig's llvm-ar, keeping member order."""
+    with tempfile.TemporaryDirectory() as tmp:
+        members = subprocess.run(["zig", "ar", "t", str(archive.resolve())], check=True,
+                                 capture_output=True, text=True).stdout.split()
+        subprocess.run(["zig", "ar", "x", str(archive.resolve())], cwd=tmp, check=True)
+        repacked = pathlib.Path(tmp) / "repacked.a"
+        subprocess.run(["zig", "ar", "--format=darwin", "rcsD", str(repacked), *members],
+                       cwd=tmp, check=True)
+        shutil.copyfile(repacked, archive)
+
+
 def main() -> int:
     if len(sys.argv) != 5:
         print(__doc__, file=sys.stderr)
@@ -59,6 +78,9 @@ def main() -> int:
     if platform is None:
         print(f"error: no Rust platform crate for {sys.argv[2]}/{sys.argv[3]}", file=sys.stderr)
         return 1
+
+    if sys.argv[2] == "darwin":
+        repack_darwin(archive)
 
     raw = archive.read_bytes()
     compressed = len(gzip.compress(raw, compresslevel=9))
