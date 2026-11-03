@@ -34,8 +34,9 @@ go test -v ./...
 
 `./capi` is dbc's C API. cgo generates its header, `libdbc.h`, from the
 preamble and `//export` functions in `capi/exports.go`, so that file is the
-only place the API is declared. The Rust crates in `rust/` link a bundled
-static build by default, or a system/custom library as described below.
+only place the API is declared. The Rust crates in `rust/` link a system
+libdbc found via pkg-config by default, a custom library directory, or, with
+the `bundled` feature, a prebuilt static build, as described below.
 Building libdbc needs a C compiler (cgo) as well as Go; using the Rust crates
 also needs Rust. For bundled linking, build the archive for your platform
 (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, or `windows-x64`)
@@ -43,7 +44,7 @@ into its platform crate, then run the tests:
 
 ```sh
 CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o rust/platforms/linux-x64/native/libdbc.a ./capi
-cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
+cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled
 ```
 
 #### Linking a system libdbc
@@ -53,7 +54,7 @@ To test against a custom static build without staging a platform crate:
 ```sh
 mkdir -p /tmp/dbc-local/lib
 CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o /tmp/dbc-local/lib/libdbc.a ./capi
-DBC_SYS_LIB_DIR=/tmp/dbc-local/lib cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --no-default-features
+DBC_SYS_LIB_DIR=/tmp/dbc-local/lib cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
 ```
 
 Alternatively, install `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel` (RPM),
@@ -63,15 +64,13 @@ These packages provide the static and shared libraries, header, and `dbc.pc`.
 Then run:
 
 ```sh
-cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --no-default-features --features pkg-config
+cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
 ```
 
 Set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` if it is not in
-the system search path. Disabling default features avoids downloading or
-building the bundled platform crates. Source precedence is `DBC_SYS_LIB_DIR`,
-then the `pkg-config` feature or presence of `DBC_SYS_USE_PKG_CONFIG`, then
-the default `bundled` feature; environment overrides also work with default
-features still enabled. With no source selected, the build fails.
+the system search path. Source precedence is `DBC_SYS_LIB_DIR`, then presence
+of `DBC_SYS_USE_PKG_CONFIG`, then the `bundled` feature, then pkg-config (the
+default); environment overrides also work with `bundled` enabled.
 
 System/custom linking defaults to static. Set `DBC_DYNAMIC` (any value,
 including empty) for dynamic linking; bundled linking remains static.
@@ -79,12 +78,12 @@ To test a custom shared build on Linux:
 
 ```sh
 CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-shared -ldflags '-extldflags "-Wl,-soname,libdbc.so"' -o /tmp/dbc-local/lib/libdbc.so ./capi
-DBC_SYS_LIB_DIR=/tmp/dbc-local/lib DBC_DYNAMIC=1 LD_LIBRARY_PATH=/tmp/dbc-local/lib cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --no-default-features
+DBC_SYS_LIB_DIR=/tmp/dbc-local/lib DBC_DYNAMIC=1 LD_LIBRARY_PATH=/tmp/dbc-local/lib cargo test --manifest-path rust/Cargo.toml -p columnar-dbc
 ```
 
 Dynamic linking requires `libdbc.so` on the runtime loader's search path;
 the crate does not configure it. See the
-[Rust crate README](rust/columnar-dbc/README.md#linking-a-system-libdbc)
+[Rust crate README](rust/columnar-dbc/README.md#linking-libdbc)
 for dependency configuration.
 
 #### Regenerating Rust bindings

@@ -23,18 +23,13 @@ fn main() {
     let mut is_static = env::var_os("DBC_DYNAMIC").is_none();
     if let Some(dir) = env::var_os("DBC_SYS_LIB_DIR") {
         link_custom(Path::new(&dir), is_static);
-    } else if env::var_os("CARGO_FEATURE_PKG_CONFIG").is_some()
-        || env::var_os("DBC_SYS_USE_PKG_CONFIG").is_some()
+    } else if env::var_os("DBC_SYS_USE_PKG_CONFIG").is_none()
+        && env::var_os("CARGO_FEATURE_BUNDLED").is_some()
     {
-        link_pkg_config(is_static);
-    } else if env::var_os("CARGO_FEATURE_BUNDLED").is_some() {
         link_bundled();
         is_static = true;
     } else {
-        panic!(
-            "columnar-dbc-sys: no libdbc source: enable the `bundled` feature (default) or \
-             `pkg-config`, or set DBC_SYS_USE_PKG_CONFIG or DBC_SYS_LIB_DIR"
-        );
+        link_pkg_config(is_static);
     }
 
     if is_static && env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
@@ -74,7 +69,12 @@ fn link_pkg_config(is_static: bool) {
         .env_metadata(true)
         .statik(is_static)
         .probe("dbc")
-        .unwrap_or_else(|err| panic!("columnar-dbc-sys: {err}"));
+        .unwrap_or_else(|err| {
+            panic!(
+                "columnar-dbc-sys: {err}\n\nInstall libdbc-dev/libdbc-devel and pkg-config, set \
+                 DBC_SYS_LIB_DIR, or enable the `bundled` feature to link a prebuilt libdbc."
+            )
+        });
     let libdir = pkg_config::get_variable("dbc", "libdir")
         .unwrap_or_else(|err| panic!("columnar-dbc-sys: {err}"));
     for path in &library.link_paths {

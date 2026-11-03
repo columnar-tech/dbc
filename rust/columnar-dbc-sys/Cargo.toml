@@ -13,7 +13,7 @@
 # limitations under the License.
 [package]
 name = "columnar-dbc-sys"
-description = "Raw FFI bindings to dbc's C ABI with bundled or system linking. Use columnar-dbc instead."
+description = "Raw FFI bindings to dbc's C ABI with system or bundled linking. Use columnar-dbc instead."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -26,7 +26,7 @@ links = "columnar_dbc"
 build = "build.rs"
 
 [features]
-default = ["bundled"]
+default = []
 bundled = [
     "dep:columnar-dbc-sys-linux-x64",
     "dep:columnar-dbc-sys-linux-arm64",
@@ -34,7 +34,10 @@ bundled = [
     "dep:columnar-dbc-sys-darwin-arm64",
     "dep:columnar-dbc-sys-windows-x64",
 ]
-pkg-config = []
+
+# docs.rs has no installed libdbc for the default pkg-config build.
+[package.metadata.docs.rs]
+features = ["bundled"]
 
 [build-dependencies]
 pkg-config = "0.3"

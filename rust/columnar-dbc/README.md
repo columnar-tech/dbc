@@ -2,8 +2,10 @@
 
 Rust bindings for [dbc](https://columnar.tech/dbc), the tool for finding,
 installing, and verifying [ADBC](https://arrow.apache.org/adbc/) drivers.
-By default, dbc itself is statically linked from a prebuilt library: there is
-no `dbc` executable to install and no Go toolchain needed at build time.
+dbc itself is linked as a library: by default from an installed libdbc found
+via pkg-config, or from a prebuilt static library with the `bundled` feature.
+There is no `dbc` executable to install and no Go toolchain needed at build
+time.
 
 ```rust
 use columnar_dbc::{list_installed, Client, InstallLocation};
@@ -32,22 +34,9 @@ skips that, like the CLI's `--no-verify`. `InstallLocation::System` matches
 network and filesystem I/O; from async code, use `spawn_blocking`. `Client` is
 `Send` but not `Sync`.
 
-## Supported bundled targets
+## Linking libdbc
 
-| Target | Requirement |
-|---|---|
-| `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | glibc 2.28+ |
-| `x86_64-apple-darwin`, `aarch64-apple-darwin` | macOS 12+ |
-| `x86_64-pc-windows-msvc`, `x86_64-pc-windows-gnu` | Windows 10+ |
-
-The default `bundled` feature supports these targets; other targets fail at
-build time with a list of supported targets. Each target downloads one
-`columnar-dbc-sys-<platform>` crate (~4 MB) containing the prebuilt library,
-and links about 11 MB into your binary. System/custom linking is not limited
-to this list, but requires a libdbc built for your target.
-
-## Linking a system libdbc
-
+By default, the crate links an installed libdbc located through pkg-config.
 Install the `libdbc-dev` package on Debian/Ubuntu or `libdbc-devel` on
 RPM-based systems. These development packages contain `libdbc.a`,
 `libdbc.so`, `libdbc.h`, and `dbc.pc`. For a downloaded Debian package:
@@ -57,29 +46,50 @@ sudo apt install ./libdbc-dev_*.deb
 sudo apt install pkg-config
 ```
 
-Disable default features and enable `pkg-config` in your dependency:
+Then depend on the crate as usual:
 
 ```toml
 [dependencies]
-columnar-dbc = { version = "0", default-features = false, features = ["pkg-config"] }
+columnar-dbc = "0"
 ```
 
 This mode discovers the `dbc` pkg-config module and does not download the
 bundled platform crates. For a nonstandard installation prefix, set
-`PKG_CONFIG_PATH` to the directory containing `dbc.pc`.
+`PKG_CONFIG_PATH` to the directory containing `dbc.pc`. It is not limited to
+the bundled targets below, but requires a libdbc built for your target.
+
+## Bundled prebuilt libraries
+
+To link a prebuilt static library instead of an installed libdbc, enable the
+`bundled` feature:
+
+```toml
+[dependencies]
+columnar-dbc = { version = "0", features = ["bundled"] }
+```
+
+| Target | Requirement |
+|---|---|
+| `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | glibc 2.28+ |
+| `x86_64-apple-darwin`, `aarch64-apple-darwin` | macOS 12+ |
+| `x86_64-pc-windows-msvc`, `x86_64-pc-windows-gnu` | Windows 10+ |
+
+The `bundled` feature supports these targets; other targets fail at build time
+with a list of supported targets. Each target downloads one
+`columnar-dbc-sys-<platform>` crate (~4 MB) containing the prebuilt library,
+and links about 11 MB into your binary.
+
+## Library source selection
 
 The library source is selected in this order:
 
 1. `DBC_SYS_LIB_DIR` selects a custom library directory, without pkg-config.
-2. The `pkg-config` feature or the presence of `DBC_SYS_USE_PKG_CONFIG`
-   selects pkg-config.
+2. The presence of `DBC_SYS_USE_PKG_CONFIG` selects pkg-config, even when the
+   `bundled` feature is enabled.
 3. The `bundled` feature selects the prebuilt platform library.
-4. Without any of these, the build fails with instructions to select a source.
+4. Otherwise, pkg-config is used (the default).
 
-Both environment overrides work even when the default `bundled` feature is
-enabled. Disable default features to avoid downloading/building unused
-platform crates. `DBC_SYS_USE_PKG_CONFIG` is a presence flag: even an empty
-value enables it.
+`DBC_SYS_USE_PKG_CONFIG` is a presence flag: even an empty value enables it.
 
 System/custom linking is **static by default**. A custom directory must
 contain `libdbc.a`; for example, `DBC_SYS_LIB_DIR=/opt/dbc/lib cargo build`.

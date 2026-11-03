@@ -28,9 +28,12 @@ homepage.workspace = true
 include = ["src/**", "README.md"]
 
 [features]
-default = ["bundled"]
+default = []
 bundled = ["columnar-dbc-sys/bundled"]
-pkg-config = ["columnar-dbc-sys/pkg-config"]
+
+# docs.rs has no installed libdbc for the default pkg-config build.
+[package.metadata.docs.rs]
+features = ["bundled"]
 
 [dependencies]
 columnar-dbc-sys = { workspace = true }

@@ -16,32 +16,32 @@
 //! documents ownership and error conventions. Use the `columnar-dbc` crate
 //! instead of calling these directly.
 //!
-//! # Linking a system libdbc
+//! # Linking libdbc
 //!
-//! The default `bundled` feature links a prebuilt static library from a
-//! platform crate. To use an installed libdbc without downloading the platform
-//! crates, disable default features and enable `pkg-config`:
+//! By default, the build script locates an installed libdbc through the `dbc`
+//! pkg-config module. Install the `libdbc-dev` (Debian/Ubuntu) or
+//! `libdbc-devel` (RPM) development package, which provides `libdbc.a`,
+//! `libdbc.so`, `libdbc.h`, and `dbc.pc`. For a downloaded Debian package, use
+//! `sudo apt install ./libdbc-dev_*.deb`. The `pkg-config` executable must also
+//! be installed; set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for
+//! a nonstandard prefix.
+//!
+//! To link a prebuilt static library from a platform crate instead, enable the
+//! `bundled` feature:
 //!
 //! ```toml
 //! [dependencies]
-//! columnar-dbc-sys = { version = "0", default-features = false, features = ["pkg-config"] }
+//! columnar-dbc-sys = { version = "0", features = ["bundled"] }
 //! ```
-//!
-//! Install the `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel` (RPM) development
-//! package, which provides `libdbc.a`, `libdbc.so`, `libdbc.h`, and `dbc.pc`.
-//! For a downloaded Debian package, use `sudo apt install ./libdbc-dev_*.deb`.
-//! The `pkg-config` executable must also be installed; set `PKG_CONFIG_PATH`
-//! to the directory containing `dbc.pc` for a nonstandard prefix.
 //!
 //! The library source is selected in this order:
 //!
 //! 1. `DBC_SYS_LIB_DIR` selects a custom library directory.
-//! 2. The `pkg-config` feature or the presence of `DBC_SYS_USE_PKG_CONFIG`
-//!    selects the `dbc` pkg-config module.
+//! 2. The presence of `DBC_SYS_USE_PKG_CONFIG` selects the `dbc` pkg-config
+//!    module, even when `bundled` is enabled.
 //! 3. The `bundled` feature selects the prebuilt platform library.
-//! 4. With none of these, the build fails.
+//! 4. Otherwise, the `dbc` pkg-config module is used.
 //!
-//! Environment overrides take precedence even when `bundled` is enabled.
 //! System/custom linking is static by default; a custom directory must contain
 //! `libdbc.a`. Set `DBC_DYNAMIC` to any value (including an empty string) to
 //! select dynamic system/custom linking instead. Bundled linking always stays
