@@ -379,10 +379,13 @@ cloudsmiths:
     repository: dbc
     ids:
       - pkgs
+      - devel-deb
+      - devel-rpm
     formats:
       - deb
       - rpm
-    # dbc is a static binary, so publish distro-agnostic packages
+    # dbc is a static binary and libdbc targets glibc 2.28+ in the standard
+    # Debian multiarch/RPM lib64 paths, so publish distro-agnostic packages
     distributions:
       deb: "any-distro/any-version"
       rpm: "any-distro/any-version"

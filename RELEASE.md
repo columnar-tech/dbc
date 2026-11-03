@@ -37,7 +37,9 @@ The automation will take over from the tag being pushed.
 ## Linux development packages
 
 Releases publish `libdbc-dev_*.deb` and `libdbc-devel*.rpm` alongside the CLI
-packages, both on the GitHub release and in the versioned distribution bucket.
+packages, on the GitHub release, in the versioned distribution bucket, and in
+the Cloudsmith `columnar/dbc` repository (stable releases only, like the CLI
+packages).
 These are development-only packages, separate from the `dbc` CLI package; there
 is no separate runtime package.
 
