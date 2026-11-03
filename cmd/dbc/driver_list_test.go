@@ -35,36 +35,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func flightsqlLocalRegistryIndexYAML() string {
-	platforms := []string{
-		"linux_amd64", "linux_arm64",
-		"macos_amd64", "macos_arm64",
-		"windows_amd64", "windows_arm64",
-	}
-	var b strings.Builder
-	b.WriteString("drivers:\n  - name: Flight SQL\n    description: test\n    license: MIT\n    path: flightsql\n    pkginfo:\n")
-	for _, ver := range []string{"1.8.0", "1.9.0", "1.10.0"} {
-		b.WriteString("      - version: v" + ver + "\n        packages:\n")
-		for _, plat := range platforms {
-			b.WriteString("          - platform: " + plat + "\n            url: flightsql/" + ver + "/x.tar.gz\n")
-		}
-	}
-	return b.String()
-}
-
-func setupLocalFlightsqlRegistry(t *testing.T) string {
+func setupTestIndexRegistry(t *testing.T) string {
 	t.Helper()
-	t.Setenv("DBC_BASE_URL", "")
+	installRegistryTestSetup(t)
 
-	savedGlobal := globalRegistryConfig
-	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
-	globalRegistryConfig = nil
+	index, err := os.ReadFile(filepath.Join("testdata", "test_index.yaml"))
+	require.NoError(t, err)
 
-	index := flightsqlLocalRegistryIndexYAML()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
 			w.Header().Set("Content-Type", "application/yaml")
-			w.Write([]byte(index))
+			w.Write(index)
 			return
 		}
 		http.NotFound(w, r)
@@ -74,7 +55,7 @@ func setupLocalFlightsqlRegistry(t *testing.T) string {
 }
 
 func TestUnmarshalDriverList(t *testing.T) {
-	registryURL := setupLocalFlightsqlRegistry(t)
+	registryURL := setupTestIndexRegistry(t)
 	registryHeader := "replace_defaults = true\n\n[[registries]]\nurl = '" + registryURL + "'\n\n"
 
 	tests := []struct {
@@ -83,14 +64,14 @@ func TestUnmarshalDriverList(t *testing.T) {
 		expected []dbc.PkgInfo
 		err      error
 	}{
-		{"basic", "[drivers]\nflightsql = {version = '1.8.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
+		{"basic", "[drivers]\ntest-driver-2 = {version = '2.0.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "test-driver-2"}, Version: semver.MustParse("2.0.0")},
 		}, nil},
-		{"less", "[drivers]\nflightsql = {version = '<=1.8.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.8.0")},
+		{"less", "[drivers]\ntest-driver-2 = {version = '<=2.0.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "test-driver-2"}, Version: semver.MustParse("2.0.0")},
 		}, nil},
-		{"greater", "[drivers]\nflightsql = {version = '>=1.8.0, <=1.10.0'}", []dbc.PkgInfo{
-			{Driver: dbc.Driver{Path: "flightsql"}, Version: semver.MustParse("1.10.0")},
+		{"greater", "[drivers]\ntest-driver-2 = {version = '>=2.0.0, <=2.1.0'}", []dbc.PkgInfo{
+			{Driver: dbc.Driver{Path: "test-driver-2"}, Version: semver.MustParse("2.1.0")},
 		}, nil},
 	}
 
