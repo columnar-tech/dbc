@@ -184,9 +184,6 @@ archives:
         formats: [zip]
     files:
       - LICENSE
-      # GoReleaser archives the c-archive but not its cgo header.
-      - src: "dist/capi_{{ .Os }}_{{ .Arch }}_*/libdbc.h"
-        strip_parent: true
       - src: "dist/devel/{{ .Os }}_{{ .Arch }}/*.pc"
         strip_parent: true
 
