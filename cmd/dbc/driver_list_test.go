@@ -37,11 +37,7 @@ import (
 
 func setupTestIndexRegistry(t *testing.T) string {
 	t.Helper()
-	t.Setenv("DBC_BASE_URL", "")
-
-	savedGlobal := globalRegistryConfig
-	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
-	globalRegistryConfig = nil
+	installRegistryTestSetup(t)
 
 	index, err := os.ReadFile(filepath.Join("testdata", "test_index.yaml"))
 	require.NoError(t, err)
