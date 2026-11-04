@@ -48,6 +48,7 @@ pub(crate) fn check(call: impl FnOnce(*mut *mut sys::dbc_error) -> sys::dbc_stat
     // message is copied before the error is freed.
     let message = unsafe { opt_string(sys::dbc_error_message(err)) };
     unsafe { sys::dbc_error_free(err) };
+    debug_assert!(message.is_some());
     Err(Error::Dbc(message.unwrap_or_default()))
 }
 
