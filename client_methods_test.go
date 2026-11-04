@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -132,6 +133,106 @@ func TestClientInstall(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "nonexistent-driver")
 	})
+}
+
+func TestClientInstallVerifiesSignature(t *testing.T) {
+	// The fixture is test-driver-1.tar.gz with one byte of the library
+	// flipped, so its bundled signature no longer matches.
+	tampered, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-tampered.tar.gz"))
+	require.NoError(t, err)
+	index := fmt.Sprintf(`drivers:
+  - name: Tampered Driver
+    description: Library modified after signing
+    license: MIT
+    path: test-driver-tampered
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: %s
+            url: test-driver-tampered/1.0.0/tampered.tar.gz
+`, config.PlatformTuple())
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/index.yaml":
+			w.Write([]byte(index))
+		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
+			w.Write(tampered)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := newTestClientForServer(t, srv.URL)
+
+	t.Run("rejects the driver and registers nothing", func(t *testing.T) {
+		cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+		_, err := c.Install(t.Context(), cfg, "test-driver-tampered")
+		require.ErrorContains(t, err, "signature verification failed")
+		_, err = config.GetDriver(cfg, "test-driver-tampered")
+		assert.Error(t, err)
+		assert.NoFileExists(t, filepath.Join(cfg.Location, "test-driver-tampered.toml"))
+	})
+
+	t.Run("AllowUnsigned installs it anyway", func(t *testing.T) {
+		cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+		m, err := c.Install(t.Context(), cfg, "test-driver-tampered", dbc.AllowUnsigned())
+		require.NoError(t, err)
+		assert.FileExists(t, m.Driver.Shared.Get(config.PlatformTuple()))
+	})
+}
+
+// A failed reinstall must not damage an existing, valid install of the same
+// driver.
+func TestClientInstallFailedVerificationKeepsExistingInstall(t *testing.T) {
+	testdata := filepath.Join("cmd", "dbc", "testdata")
+	valid, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	tampered, err := os.ReadFile(filepath.Join(testdata, "test-driver-tampered.tar.gz"))
+	require.NoError(t, err)
+	index := fmt.Sprintf(`drivers:
+  - name: Test Driver 1
+    description: Test driver
+    license: MIT
+    path: test-driver-1
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: %s
+            url: test-driver-1/1.0.0/test-driver-1.tar.gz
+`, config.PlatformTuple())
+	var serveTampered atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/index.yaml":
+			w.Write([]byte(index))
+		case strings.HasSuffix(r.URL.Path, ".tar.gz") && serveTampered.Load():
+			w.Write(tampered)
+		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
+			w.Write(valid)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := newTestClientForServer(t, srv.URL)
+	cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+
+	m, err := c.Install(t.Context(), cfg, "test-driver-1")
+	require.NoError(t, err)
+	driverPath := m.Driver.Shared.Get(config.PlatformTuple())
+	good, err := os.ReadFile(driverPath)
+	require.NoError(t, err)
+
+	serveTampered.Store(true)
+	_, err = c.Install(t.Context(), cfg, "test-driver-1")
+	require.ErrorContains(t, err, "signature verification failed")
+
+	di, err := config.GetDriver(cfg, "test-driver-1")
+	require.NoError(t, err)
+	assert.Equal(t, driverPath, di.Driver.Shared.Get(config.PlatformTuple()), "the registration must still point at the existing driver")
+	after, err := os.ReadFile(driverPath)
+	require.NoError(t, err, "the existing driver must survive a failed reinstall")
+	assert.Equal(t, good, after, "the existing driver must not be overwritten")
 }
 
 func TestClientUninstall(t *testing.T) {
