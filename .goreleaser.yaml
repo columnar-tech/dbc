@@ -276,7 +276,10 @@ changelog:
 # tag is always pushed; the others skip prereleases, as skip_push: auto did.
 # A snapshot build loads one image per platform instead (<tag>-amd64, ...).
 dockers_v2:
-  - disable: '{{ isEnvSet "DBC_RELEASE_DRY_RUN" }}'
+  # A snapshot builds its images in the split, and only the Linux split has
+  # Linux binaries (and, on its runner, Docker); a release builds and pushes
+  # them in the merge, where GGOOS is unset.
+  - disable: '{{ or (isEnvSet "DBC_RELEASE_DRY_RUN") (and (isEnvSet "GGOOS") (ne .Env.GGOOS "linux")) }}'
     ids:
       - dbc # the CLI build only, not the libdbc builds
     dockerfile: Dockerfile
