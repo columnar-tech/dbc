@@ -60,6 +60,8 @@ builds:
   # dbc's C API as a static library for the columnar-dbc Rust crates. cgo is
   # cross-compiled on this one runner with Zig as the C compiler; the Zig
   # targets set the glibc (2.28) and macOS (12.0) floors the crates document.
+  # check_glibc_floor.py enforces the glibc floor on every Linux build, before
+  # anything is packaged or published.
   - id: capi
     main: ./capi
     binary: libdbc
@@ -101,6 +103,9 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     hooks:
       post:
+        - if: '{{ eq .Os "linux" }}'
+          cmd: python3 scripts/check_glibc_floor.py "{{ .Path }}" {{ .Arch }}
+          output: true
         - cmd: python3 scripts/stage_capi.py "{{ .Path }}" {{ .Os }} {{ .Arch }} {{ .Version }}
           output: true
   # Linux shared library for the development packages.
@@ -133,6 +138,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     hooks:
       post:
+        - cmd: python3 scripts/check_glibc_floor.py "{{ .Path }}" {{ .Arch }}
+          output: true
         - cmd: python3 scripts/stage_devel.py "{{ .Path }}" {{ .Arch }} {{ .Version }} {{ .CommitDate }}
           output: true
 
