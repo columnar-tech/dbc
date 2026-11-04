@@ -19,165 +19,37 @@ on:
     tags:
       - "v*"
   pull_request:
+  # A dry run of a production release: the full split and merge, including
+  # signing and notarizing, with every publisher disabled (DBC_RELEASE_DRY_RUN
+  # in .goreleaser.yaml) and no PyPI, npm, crates.io, or CloudFront updates.
+  workflow_dispatch:
 
 permissions: {}
 
+# Releases are split by OS (.goreleaser.yaml `partial`): each `split` job
+# builds, packages, and signs its OS's binaries, macOS on a macOS runner so the
+# shared libdbc can link against Apple's frameworks. `snapshot` (pull requests)
+# or `release` (tags and dry runs) then merges them: archive signatures,
+# checksums, Docker images, and publishing.
 jobs:
-  snapshot:
-    runs-on: ubuntu-latest
-    environment: snapshot
-    if: github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]'
+  split:
+    name: split ${{ matrix.goos }}
+    runs-on: ${{ matrix.os }}
+    environment: ${{ github.event_name == 'pull_request' && 'snapshot' || 'production' }}
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]')
     permissions:
       contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: './go.mod'
-
-      # pull more recent version of wixl than in the ubuntu repos
-      # needed for Path Env update support
-      - name: Install wixl
-        run: |
-          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
-          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
-          sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
-          rm ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
-
-      - name: install nfpm
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-
-      - name: Install Snapcraft
-        uses: samuelmeuli/action-snapcraft@fceeb3c308e76f3487e72ef608618de625fb7fe8 # v3
-
-      - name: Import signing GPG key
-        env:
-          COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
-        run: |
-          echo "$COLUMNAR_GPG_KEY" | gpg --batch --import
-          KEY_ID=$(gpg -K | sed -n '/^\s/s/\s*//p')
-          printf "trust\n5\ny\nquit\n" | gpg --batch --no-tty --command-fd 0 --edit-key "$KEY_ID"
-          echo "default-cache-ttl 46000" >> ~/.gnupg/gpg-agent.conf
-          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
-          gpg-connect-agent "RELOADAGENT" /bye
-          KEYGRIP=$(gpg -K --with-keygrip | grep -m 1 "Keygrip =" | awk '{print $3}')
-          gpg-connect-agent "PRESET_PASSPHRASE $KEYGRIP -1 $(echo -n '${{ secrets.SIGNING_PASSWORD }}' | od -An -t x1 | tr -d ' ')"
-
-      - name: "Set up Python"
-        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-
-      - name: Install Wheel
-        run: pip install wheel
-
-      - name: Set up Zig
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.17.0
-          # No caching in this workflow, which builds release artifacts: a
-          # poisoned cache would reach them (zizmor cache-poisoning; see #366).
-          use-cache: false
-
-      - name: Install Rust
-        run: rustup toolchain install stable --profile minimal && rustup default stable
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      - name: Run GoReleaser Snapshot
-        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        id: gorelease-snapshot
-        with:
-          distribution: goreleaser-pro
-          version: "~> v2"
-          args: release -p 20 --clean --snapshot
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.x'
-
-      - name: Create and verify npm packages
-        run: |
-          VERSION="${{ fromJSON(steps.gorelease-snapshot.outputs.metadata).version }}"
-          for platform in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
-            node packages/npm/scripts/create_packages.js \
-              --version "$VERSION" \
-              --platform "$platform" \
-              --archive "dist/dbc-${platform}-${VERSION}.tar.gz"
-          done
-          node packages/npm/scripts/create_packages.js \
-            --version "$VERSION" \
-            --platform windows-amd64 \
-            --archive "dist/dbc-windows-amd64-${VERSION}.zip"
-
-          # Verify we can install
-          cd packages/npm/wrapper
-          npm install ../packages/dbc-linux-x64
-          npm install
-          node bin/dbc.js --version
-
-      - name: Upload Snapshot Artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: snapshot-artifacts
-          path: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/*.sig
-            dist/*.snap
-            dist/*.deb
-            dist/*.rpm
-            dist/msi/**/*.msi
-            dist/python/*
-            packages/npm/packages/*/
-            packages/npm/wrapper/
-
-      - name: Upload capi archives for the Rust tests
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: capi-native
-          path: rust/platforms/*/native/
-          if-no-files-found: error
-
-      - name: Upload development packages
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: devel-packages
-          path: |
-            dist/libdbc-dev_*.deb
-            dist/libdbc-devel*.rpm
-          if-no-files-found: error
-
-      - name: Upload macOS/Windows libdbc-dev archives and Homebrew formula
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: devel-archives
-          path: |
-            dist/libdbc-dev_*.tar.gz
-            dist/libdbc-dev_*.zip
-            dist/homebrew/Formula/libdbc.rb
-          if-no-files-found: error
-
-  production_deploy:
-    runs-on: ubuntu-latest
-    environment: production
-    if: github.event_name == 'push'
-    permissions:
-      contents: write
-      id-token: write # For AWS auth
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, os: ubuntu-latest }
+          - { goos: windows, os: ubuntu-latest }
+          - { goos: darwin, os: macos-latest }
+    env:
+      GGOOS: ${{ matrix.goos }}
+      PRODUCTION: ${{ github.event_name != 'pull_request' && '1' || '' }}
+      DBC_RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -192,6 +64,7 @@ jobs:
       # pull more recent version of wixl than in the ubuntu repos
       # needed for Path Env update support
       - name: Install wixl
+        if: matrix.goos == 'windows'
         run: |
           wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
           wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
@@ -199,30 +72,21 @@ jobs:
           rm ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
 
       - name: install nfpm
+        if: matrix.goos == 'linux'
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
 
       - name: Install Snapcraft
+        if: matrix.goos == 'linux'
         uses: samuelmeuli/action-snapcraft@fceeb3c308e76f3487e72ef608618de625fb7fe8 # v3
 
+      # binary_signs: detached signatures for the Linux and macOS binaries,
+      # which the archives include. Windows binaries are signed in place.
       - name: Import signing GPG key
+        if: matrix.goos != 'windows'
         env:
           COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
-        run: |
-          echo "$COLUMNAR_GPG_KEY" | gpg --batch --import
-          KEY_ID=$(gpg -K | sed -n '/^\s/s/\s*//p')
-          printf "trust\n5\ny\nquit\n" | gpg --batch --no-tty --command-fd 0 --edit-key "$KEY_ID"
-          echo "default-cache-ttl 46000" >> ~/.gnupg/gpg-agent.conf
-          echo "allow-preset-passphrase" >> ~/.gnupg/gpg-agent.conf
-          gpg-connect-agent "RELOADAGENT" /bye
-          KEYGRIP=$(gpg -K --with-keygrip | grep -m 1 "Keygrip =" | awk '{print $3}')
-          gpg-connect-agent "PRESET_PASSPHRASE $KEYGRIP -1 $(echo -n '${{ secrets.SIGNING_PASSWORD }}' | od -An -t x1 | tr -d ' ')"
-
-      - name: AWS Login
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE }}
-          role-session-name: deploy-production-${{ github.run_id }}-${{ github.run_attempt }}
-          aws-region: ${{ vars.AWS_REGION }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: scripts/import_signing_key.sh
 
       - name: "Set up Python"
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -243,14 +107,102 @@ jobs:
           # poisoned cache would reach them (zizmor cache-poisoning; see #366).
           use-cache: false
 
+      # macOS notarization/signing (production only; skipped without secrets)
+      - name: Install anchore/quill
+        if: matrix.goos == 'darwin' && env.PRODUCTION
+        run: |
+          curl -sSfL https://get.anchore.io/quill | sudo sh -s -- -b /usr/local/bin
+
+      # setup digicert signing for the Windows binaries (smctl build hook)
+      - uses: digicert/ssm-code-signing@1d820463733701cf1484c7eb5d7d24a15ca2c454  # v1.2.1
+        if: matrix.goos == 'windows' && env.PRODUCTION
+        id: digicert
+
+      - name: Setup Certificate and Env
+        if: matrix.goos == 'windows' && env.PRODUCTION
+        run: |
+          echo "PKCS11_CONFIG=${PKCS11_CONFIG}" >> "$GITHUB_ENV"
+          SM_TOOLS_DIR=$(dirname "$(realpath "${PKCS11_CONFIG}")")
+          echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 -d > "${SM_TOOLS_DIR}/Certificate_pkcs12.p12"
+          {
+            echo "SM_HOST=${{ secrets.SM_HOST }}"
+            echo "SM_API_KEY=${{ secrets.SM_API_KEY }}"
+            echo "SM_CLIENT_CERT_FILE=${SM_TOOLS_DIR}/Certificate_pkcs12.p12"
+            echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}"
+            echo "SM_KEYPAIR_ALIAS=${{ secrets.SM_KEYPAIR_ALIAS }}"
+          } >> "$GITHUB_ENV"
+
+          # clean up
+          git clean -xdf
+        env:
+          PKCS11_CONFIG: ${{ steps.digicert.outputs.PKCS11_CONFIG }}
+
+      # A dry run builds the latest tag's version at this commit: skip the
+      # check that HEAD is that tag.
+      - name: Run GoReleaser (split)
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: >-
+            release -p 20 --clean --split
+            ${{ github.event_name == 'pull_request' && '--snapshot' || '' }}
+            ${{ github.event_name == 'workflow_dispatch' && '--skip=validate' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          MACOS_SIGN_P12: ${{ env.PRODUCTION && secrets.MACOS_SIGN_P12 || '' }}
+          MACOS_SIGN_PASSWORD: ${{ env.PRODUCTION && secrets.MACOS_SIGN_PASSWORD || '' }}
+          MACOS_NOTARY_ISSUER_ID: ${{ env.PRODUCTION && secrets.MACOS_NOTARY_ISSUER_ID || '' }}
+          MACOS_NOTARY_KEY: ${{ env.PRODUCTION && secrets.MACOS_NOTARY_KEY || '' }}
+          MACOS_NOTARY_KEY_ID: ${{ env.PRODUCTION && secrets.MACOS_NOTARY_KEY_ID || '' }}
+
+      # The merge job needs this split's GoReleaser state and artifacts, and
+      # the files its hooks produced outside them: wheels and the archives
+      # staged for the columnar-dbc-sys platform crates.
+      - name: Upload the split
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: goreleaser-${{ matrix.goos }}
+          path: dist/${{ matrix.goos }}/
+          if-no-files-found: error
+      - name: Upload the wheels
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wheels-${{ matrix.goos }}
+          path: dist/python/*.whl
+          if-no-files-found: error
+      - name: Upload the staged capi archives
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: capi-native-${{ matrix.goos }}
+          path: rust/platforms/*/native/
+          if-no-files-found: error
+
+  # Merge for pull requests: checksums, archive signatures, and Docker images,
+  # then the artifacts the test jobs below use. Named `snapshot` as before.
+  snapshot:
+    needs: split
+    runs-on: ubuntu-latest
+    environment: snapshot
+    if: github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Import signing GPG key
+        env:
+          COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: scripts/import_signing_key.sh
+
       - name: Install Rust
         run: rustup toolchain install stable --profile minimal && rustup default stable
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          username: "columnar"
-          password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
@@ -258,12 +210,130 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # cross-platform macos notarization/signing
-      - name: Install anchore/quill
+      - name: Download the splits
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: goreleaser-*
+          path: ${{ runner.temp }}/splits
+      - name: Download the wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheels-*
+          path: dist/python
+          merge-multiple: true
+      - name: Download the staged capi archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: capi-native-*
+          path: rust/platforms
+          merge-multiple: true
+      - name: Put the splits in place
         run: |
-          curl -sSfL https://get.anchore.io/quill | sudo sh -s -- -b /usr/local/bin
+          for split in "$RUNNER_TEMP"/splits/goreleaser-*; do
+            mv "$split" "dist/${split##*/goreleaser-}"
+          done
 
-      # setup digicert signing
+      - name: Run GoReleaser (merge)
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser-pro
+          version: "~> v2"
+          args: continue --merge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.x'
+
+      - name: Create and verify npm packages
+        run: |
+          VERSION=$(jq -r .version dist/linux/metadata.json)
+          for platform in darwin-amd64 darwin-arm64 linux-amd64 linux-arm64; do
+            node packages/npm/scripts/create_packages.js \
+              --version "$VERSION" \
+              --platform "$platform" \
+              --archive "dist/${platform%-*}/dbc-${platform}-${VERSION}.tar.gz"
+          done
+          node packages/npm/scripts/create_packages.js \
+            --version "$VERSION" \
+            --platform windows-amd64 \
+            --archive "dist/windows/dbc-windows-amd64-${VERSION}.zip"
+
+          # Verify we can install
+          cd packages/npm/wrapper
+          npm install ../packages/dbc-linux-x64
+          npm install
+          node bin/dbc.js --version
+
+      # The test jobs below expect each artifact's files at its top level, as
+      # the unsplit release produced them.
+      - name: Collect the artifacts for the test jobs
+        run: |
+          mkdir -p "$RUNNER_TEMP"/{snapshot,devel-packages,devel-archives/homebrew/Formula}
+          cp dist/*/*.tar.gz dist/*/*.zip dist/*/*.sig dist/*/*.snap dist/*/*.deb dist/*/*.rpm "$RUNNER_TEMP/snapshot/"
+          find dist -name '*.msi' -exec cp {} "$RUNNER_TEMP/snapshot/" \;
+          cp -r dist/python "$RUNNER_TEMP/snapshot/"
+          cp dist/linux/libdbc-dev_*.deb dist/linux/libdbc-devel*.rpm "$RUNNER_TEMP/devel-packages/"
+          cp dist/darwin/libdbc-dev_*.tar.gz dist/windows/libdbc-dev_*.zip "$RUNNER_TEMP/devel-archives/"
+          cp dist/homebrew/Formula/libdbc.rb "$RUNNER_TEMP/devel-archives/homebrew/Formula/"
+
+      - name: Upload Snapshot Artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: snapshot-artifacts
+          path: |
+            ${{ runner.temp }}/snapshot/
+            packages/npm/packages/*/
+            packages/npm/wrapper/
+
+      - name: Upload capi archives for the Rust tests
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: capi-native
+          path: rust/platforms/*/native/
+          if-no-files-found: error
+
+      - name: Upload development packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devel-packages
+          path: ${{ runner.temp }}/devel-packages/
+          if-no-files-found: error
+
+      - name: Upload macOS/Windows libdbc-dev archives and Homebrew formula
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devel-archives
+          path: ${{ runner.temp }}/devel-archives/
+          if-no-files-found: error
+
+  # Merge for tags (publishing) and dry runs (publishing nothing).
+  release:
+    needs: split
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      id-token: write # For AWS auth and PyPI trusted publishing
+    env:
+      DBC_RELEASE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # signs: detached archive signatures (GPG) and MSI signing (jsign)
+      - name: Import signing GPG key
+        env:
+          COLUMNAR_GPG_KEY: ${{ secrets.SIGNING_PRIVATE_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+        run: scripts/import_signing_key.sh
+
       - uses: digicert/ssm-code-signing@1d820463733701cf1484c7eb5d7d24a15ca2c454  # v1.2.1
         id: digicert
 
@@ -289,35 +359,79 @@ jobs:
         env:
           PKCS11_CONFIG: ${{ steps.digicert.outputs.PKCS11_CONFIG }}
 
-      - name: Run GoReleaser
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          role-session-name: deploy-production-${{ github.run_id }}-${{ github.run_attempt }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: "columnar"
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Download the splits
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: goreleaser-*
+          path: ${{ runner.temp }}/splits
+      - name: Download the wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheels-*
+          path: dist/python
+          merge-multiple: true
+      - name: Download the staged capi archives
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: capi-native-*
+          path: rust/platforms
+          merge-multiple: true
+      - name: Put the splits in place
+        run: |
+          for split in "$RUNNER_TEMP"/splits/goreleaser-*; do
+            mv "$split" "dist/${split##*/goreleaser-}"
+          done
+
+      - name: Run GoReleaser (merge)
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        id: gorelease
         with:
           distribution: goreleaser-pro
           version: "~> v2"
-          args: release -p 20 --clean
+          args: continue --merge
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
           DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN}}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
-          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
-          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
-          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
-          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
-          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
           DBC_TAP_GITHUB_PAT: ${{ secrets.DBC_TAP_GITHUB_PAT }}
           DBC_WINGET_GITHUB_PAT: ${{ secrets.DBC_WINGET_GITHUB_PAT }}
           CLOUDSMITH_TOKEN: ${{ secrets.CLOUDSMITH_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish to PyPI
+        if: ${{ !env.DBC_RELEASE_DRY_RUN }}
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # 1.14.3
         with:
           packages-dir: dist/python/
 
+      - name: Read the release version
+        id: version
+        run: echo "version=$(jq -r .version dist/linux/metadata.json)" >> "$GITHUB_OUTPUT"
+
       - name: Update CF Latest Key
-        if: contains(fromJSON(steps.gorelease.outputs.metadata).version, '-') == false
+        if: ${{ !env.DBC_RELEASE_DRY_RUN && !contains(steps.version.outputs.version, '-') }}
         run: |
           ETAG=$(aws cloudfront-keyvaluestore describe-key-value-store \
             --kvs-arn=${{ secrets.AWS_CF_KVSTORE_ARN }} | jq -r '.ETag')
@@ -327,12 +441,13 @@ jobs:
             --key=latest \
             --value="${RELEASE_VERSION}"
         env:
-          RELEASE_VERSION: ${{ fromJSON(steps.gorelease.outputs.metadata).version }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
 
   publish_npm:
     runs-on: ubuntu-latest
     environment: production
-    needs: production_deploy
+    needs: release
+    # Tags only: a dry run (workflow_dispatch) publishes nothing.
     if: github.event_name == 'push'
     permissions:
       contents: read
