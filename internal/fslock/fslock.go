@@ -13,10 +13,11 @@
 // limitations under the License.
 
 // Package fslock provides advisory file locking for coordinating exclusive
-// access to shared resources. Native platforms use operating-system file locks
-// to coordinate across processes. JavaScript/Wasm uses an exclusive-create
-// marker file, which coordinates Wasm runtimes (Node workers and processes)
-// with each other but not with native processes' operating-system locks.
+// access to shared resources. JavaScript/Wasm, where Node cannot take
+// operating-system file locks, uses an exclusive-create marker file (see
+// marker.go). Native platforms take an operating-system file lock, which
+// orders native processes and is released if the holder dies, and then the
+// same marker, so native and Wasm holders exclude each other.
 package fslock
 
 import (
