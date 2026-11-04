@@ -1182,10 +1182,20 @@ func TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest(t *t
 		siblingDone <- CreateManifest(cfg, sibling)
 	}()
 	<-started
-	deadline := time.Now().Add(time.Second)
+	start := time.Now()
+	deadline := start.Add(time.Second)
+	probes := 0
 	for {
+		select {
+		case err := <-siblingDone:
+			t.Fatalf("DEBUG: sibling CreateManifest returned before taking its lock (after %s, %d probes): %v", time.Since(start), probes, err)
+		default:
+		}
+		probes++
+		probeStart := time.Now()
 		probe, probeErr := acquireDriverInstallLockWith(context.Background(), root, "sibling", 5*time.Millisecond)
 		if errors.Is(probeErr, fslock.ErrLockContended) {
+			t.Logf("DEBUG: contended after %s, %d probes", time.Since(start), probes)
 			break
 		}
 		if probeErr != nil {
@@ -1195,7 +1205,7 @@ func TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest(t *t
 			t.Fatal(err)
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("sibling registration did not acquire its driver lock")
+			t.Fatalf("DEBUG: sibling registration did not acquire its driver lock: %s elapsed, %d probes, last probe took %s", time.Since(start), probes, time.Since(probeStart))
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
