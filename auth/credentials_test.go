@@ -15,11 +15,14 @@
 package auth
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -747,4 +750,76 @@ func TestCredentialWritersWaitForFileLock(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []Credential{cred}, creds)
 	})
+}
+
+// Readers in other processes parse the store without the writers' lock, so a
+// write must never be observable half done.
+func TestCredentialWritesAreNeverObservedPartial(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+	u, err := url.Parse("https://registry.example.test")
+	require.NoError(t, err)
+	cred := func(i int) Credential {
+		// Alternate sizes so a truncated or partly written file can't parse.
+		return Credential{Type: TypeToken, RegistryURL: Uri(*u), AuthURI: Uri(*u), Token: strings.Repeat("t", 1+(i%2)*64*1024)}
+	}
+	require.NoError(t, AddCredential(cred(0), true))
+
+	done := make(chan error, 1)
+	go func() {
+		for i := 1; i <= 200; i++ {
+			if err := AddCredential(cred(i), true); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+			return
+		default:
+		}
+		// loadCreds takes no lock, like LoadCredentials in another process.
+		creds, err := loadCreds()
+		require.NoError(t, err, "a reader observed a partially written credentials file")
+		require.Len(t, creds, 1)
+	}
+}
+
+// Without force, an existing license is never overwritten, even by a racing
+// install: exactly one of several concurrent installs may succeed.
+func TestInstallLicenseWithoutForceNeverOverwrites(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+	const n = 16
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	for i := range n {
+		src := filepath.Join(t.TempDir(), "columnar.lic")
+		require.NoError(t, os.WriteFile(src, []byte(fmt.Sprintf("license-%d", i)), 0o600))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs[i] = InstallLicenseFromFile(src, false)
+		}()
+	}
+	wg.Wait()
+
+	var winners []int
+	for i, err := range errs {
+		if err == nil {
+			winners = append(winners, i)
+		} else {
+			require.ErrorIs(t, err, ErrLicenseAlreadyExists)
+		}
+	}
+	require.Len(t, winners, 1, "exactly one non-force install may succeed")
+	dest, err := LicensePath()
+	require.NoError(t, err)
+	got, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("license-%d", winners[0]), string(got))
 }

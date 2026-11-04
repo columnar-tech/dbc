@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/atomicfile"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pelletier/go-toml/v2"
@@ -302,7 +303,9 @@ func RemoveCredential(host Uri) error {
 	return writeCreds(creds)
 }
 
-// writeCreds persists creds, then updates the lookup cache on success.
+// writeCreds persists creds, then updates the lookup cache on success. The
+// file is replaced atomically: readers, which take no lock, see either the
+// old or the new contents, never a truncated or partial file.
 // Caller must hold credMu.
 func writeCreds(creds []Credential) error {
 	cp, err := getCredPath()
@@ -314,17 +317,15 @@ func writeCreds(creds []Credential) error {
 		return err
 	}
 
-	f, err := os.OpenFile(cp, os.O_CREATE|os.O_TRUNC|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if err := toml.NewEncoder(f).Encode(struct {
+	data, err := toml.Marshal(struct {
 		Credentials []Credential `toml:"credentials"`
 	}{
 		Credentials: creds,
-	}); err != nil {
+	})
+	if err != nil {
+		return err
+	}
+	if err := atomicfile.WriteFilePreservingMode(cp, data, 0o600); err != nil {
 		return err
 	}
 	loadedCredentials, credentialErr = creds, nil
@@ -456,10 +457,29 @@ func InstallLicenseFromFile(srcPath string, force bool) error {
 		return fmt.Errorf("failed to create credentials directory: %w", err)
 	}
 
-	if err := os.WriteFile(destPath, data, 0o600); err != nil {
+	if force {
+		if err := os.WriteFile(destPath, data, 0o600); err != nil {
+			return fmt.Errorf("failed to write license file: %w", err)
+		}
+		return nil
+	}
+	// Without force, never overwrite: another installer may have created the
+	// license since the Stat check above, so create it exclusively.
+	f, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		return ErrLicenseAlreadyExists
+	}
+	if err != nil {
 		return fmt.Errorf("failed to write license file: %w", err)
 	}
-
+	_, err = f.Write(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(destPath)
+		return fmt.Errorf("failed to write license file: %w", err)
+	}
 	return nil
 }
 
