@@ -911,6 +911,7 @@ func TestLogoutRejectsInvalidURLsWithoutRemovingCredential(t *testing.T) {
 		"https:///private",
 		"https:registry.test",
 		"//registry.test/private",
+		"ftp://registry.test/private",
 	} {
 		t.Run(registryURL, func(t *testing.T) {
 			_, path := isolateUserState(t)

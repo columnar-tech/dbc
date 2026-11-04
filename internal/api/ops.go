@@ -20,13 +20,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 )
 
 // Target selects where Install, Uninstall and ListInstalled operate: a driver
@@ -262,15 +262,12 @@ func Login(cred Credential) error {
 }
 
 // Logout removes stored credentials for the registry host. It returns an
-// error when registryURL is not an absolute URL with a nonempty host or when
-// no credential for that host is stored.
+// error when registryURL is not a valid registry URL (http or https with a
+// host, as for Login) or when no credential for that host is stored.
 func Logout(registryURL string) error {
-	u, err := url.Parse(registryURL)
+	u, err := registryurl.Parse(registryURL)
 	if err != nil {
 		return fmt.Errorf("invalid registryURL: %w", err)
-	}
-	if !u.IsAbs() || u.Host == "" {
-		return errors.New("invalid registryURL: must be an absolute URL with a host")
 	}
 	return auth.RemoveCredential(auth.Uri(*u))
 }
