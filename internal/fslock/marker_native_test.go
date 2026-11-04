@@ -94,6 +94,34 @@ func TestNativeLockHoldsAndReleasesItsMarker(t *testing.T) {
 	}
 }
 
+// Lock is a value type, so a holder may release it twice or through a copy.
+// A repeated release must neither panic nor remove the marker of a holder
+// that took the lock since; it reports the closed lock file as before.
+func TestRepeatedReleaseLeavesTheNextHolderAlone(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "test.lock")
+	marker := markerFor(t, lockPath)
+	first, err := Acquire(lockPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := first
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+	next, err := Acquire(lockPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Release()
+
+	if err := stale.Release(); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("repeated Release: err = %v, want os.ErrClosed", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("the next holder's marker after a repeated Release: %v", err)
+	}
+}
+
 // Lock names may already be as long as a file name can be; the marker must
 // still fit.
 func TestMarkerNameFitsForMaximumLengthLockNames(t *testing.T) {

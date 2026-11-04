@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"sync"
 	"syscall"
 	"time"
 
@@ -151,7 +152,10 @@ func removeDeadMarker(marker string, ownerIsDead func([]byte) bool) (bool, error
 	return true, nil
 }
 
-// holdMarker keeps marker fresh until the returned release removes it.
+// holdMarker keeps marker fresh until the returned release removes it. The
+// release runs once: Lock is a value type, so it may be released through a
+// copy, and a repeated release must not remove a marker another holder has
+// created since.
 func holdMarker(marker string) func() error {
 	stop, done := make(chan struct{}), make(chan struct{})
 	go func() {
@@ -167,13 +171,16 @@ func holdMarker(marker string) func() error {
 			}
 		}
 	}()
-	return func() error {
-		close(stop)
-		<-done
-		if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("fslock: remove %s: %w", marker, err)
-		}
-		return nil
+	var once sync.Once
+	return func() (err error) {
+		once.Do(func() {
+			close(stop)
+			<-done
+			if rerr := os.Remove(marker); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+				err = fmt.Errorf("fslock: remove %s: %w", marker, rerr)
+			}
+		})
+		return err
 	}
 }
 
