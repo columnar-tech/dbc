@@ -27,8 +27,6 @@ use std::ptr;
 
 const USER_AGENT_SUFFIX: &str = concat!("columnar-dbc-rust/", env!("CARGO_PKG_VERSION"));
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
 #[derive(Debug)]
 pub enum Error {
     /// dbc reported a failure (network, registry, filesystem, signature, ...).
@@ -60,12 +58,12 @@ unsafe impl Send for Client {}
 
 impl Client {
     /// Client for Columnar's public registry and stored credentials.
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Result<Self, Error> {
         Self::with_config(&ClientConfig::default())
     }
 
-    pub fn with_config(config: &ClientConfig) -> Result<Self> {
-        let mut options: Vec<(&[u8], &str)> = vec![(sys::DBC_OPTION_USER_AGENT_SUFFIX, USER_AGENT_SUFFIX)];
+    pub fn with_config(config: &ClientConfig) -> Result<Self, Error> {
+        let mut options: Vec<(&CStr, &str)> = vec![(sys::DBC_OPTION_USER_AGENT_SUFFIX, USER_AGENT_SUFFIX)];
         if let Some(url) = &config.base_url {
             options.push((sys::DBC_OPTION_BASE_URL, url.as_str()));
         }
@@ -73,7 +71,7 @@ impl Client {
             options.push((sys::DBC_OPTION_CREDENTIAL_REGISTRY_URL, c.registry_url.as_str()));
             options.push((sys::DBC_OPTION_CREDENTIAL_AUTH_URI, c.auth_uri.as_str()));
             for (key, value) in [
-                (&sys::DBC_OPTION_CREDENTIAL_TOKEN[..], &c.token),
+                (sys::DBC_OPTION_CREDENTIAL_TOKEN, &c.token),
                 (sys::DBC_OPTION_CREDENTIAL_REFRESH_TOKEN, &c.refresh_token),
                 (sys::DBC_OPTION_CREDENTIAL_CLIENT_ID, &c.client_id),
             ] {
@@ -82,10 +80,8 @@ impl Client {
                 }
             }
         }
-        // The DBC_OPTION_* keys are NUL-terminated C string literals.
-        let keys = options.iter().map(|(k, _)| CStr::from_bytes_with_nul(k).expect("DBC_OPTION_* is a C string"));
-        let values = options.iter().map(|(_, v)| cstring(v)).collect::<Result<Vec<_>>>()?;
-        let mut key_ptrs: Vec<*mut c_char> = keys.map(|k| k.as_ptr().cast_mut()).collect();
+        let values = options.iter().map(|(_, v)| cstring(v)).collect::<Result<Vec<_>, Error>>()?;
+        let mut key_ptrs: Vec<*mut c_char> = options.iter().map(|(k, _)| k.as_ptr().cast_mut()).collect();
         let mut value_ptrs: Vec<*mut c_char> = values.iter().map(|v| v.as_ptr().cast_mut()).collect();
 
         let mut client = ptr::null_mut();
@@ -98,7 +94,7 @@ impl Client {
     }
 
     /// Drivers whose name matches `pattern` (empty = all) across registries.
-    pub fn search(&self, pattern: &str) -> Result<SearchResult> {
+    pub fn search(&self, pattern: &str) -> Result<SearchResult, Error> {
         let pattern = cstring(pattern)?;
         // SAFETY: live client; the pattern is only read during the call.
         let list = List::from_call(|out, err| unsafe { sys::dbc_search(self.ptr, pattern.as_ptr().cast_mut(), out, err) })?;
@@ -116,7 +112,7 @@ impl Client {
     }
 
     /// Versions of `name` for `platform` (`None` = host, e.g. `linux_amd64`).
-    pub fn resolve(&self, name: &str, platform: Option<&str>) -> Result<ResolveResult> {
+    pub fn resolve(&self, name: &str, platform: Option<&str>) -> Result<ResolveResult, Error> {
         let name = cstring(name)?;
         let platform = platform.map(cstring).transpose()?;
         // SAFETY: as in `search`; a NULL platform means the host.
@@ -138,18 +134,18 @@ impl Client {
     /// Installs `name` where `dbc install` would without `-l` (see
     /// [`InstallLocation::Default`]), verifying its signature with Columnar's
     /// key; a driver that fails verification is removed and an error returned.
-    pub fn install(&self, name: &str) -> Result<Manifest> {
+    pub fn install(&self, name: &str) -> Result<Manifest, Error> {
         self.install_at(name, &InstallLocation::Default)
     }
 
     /// [`install`](Self::install) into `location`.
-    pub fn install_at(&self, name: &str, location: &InstallLocation) -> Result<Manifest> {
+    pub fn install_at(&self, name: &str, location: &InstallLocation) -> Result<Manifest, Error> {
         self.install_with(name, location, &InstallOptions::default())
     }
 
     /// [`install_at`](Self::install_at) with options, e.g. to allow unsigned
     /// drivers.
-    pub fn install_with(&self, name: &str, location: &InstallLocation, options: &InstallOptions) -> Result<Manifest> {
+    pub fn install_with(&self, name: &str, location: &InstallLocation, options: &InstallOptions) -> Result<Manifest, Error> {
         let name = cstring(name)?;
         let target = Target::new(location)?;
         let flags = if options.allow_unsigned { sys::DBC_INSTALL_ALLOW_UNSIGNED } else { 0 };
@@ -175,7 +171,7 @@ impl Drop for Client {
 }
 
 /// Removes driver `name` from `location`.
-pub fn uninstall(name: &str, location: &InstallLocation) -> Result<()> {
+pub fn uninstall(name: &str, location: &InstallLocation) -> Result<(), Error> {
     let name = cstring(name)?;
     let target = Target::new(location)?;
     // SAFETY: inputs are only read during the call.
@@ -183,7 +179,7 @@ pub fn uninstall(name: &str, location: &InstallLocation) -> Result<()> {
 }
 
 /// Drivers installed at `location`, sorted by id.
-pub fn list_installed(location: &InstallLocation) -> Result<Vec<InstalledDriver>> {
+pub fn list_installed(location: &InstallLocation) -> Result<Vec<InstalledDriver>, Error> {
     let target = Target::new(location)?;
     // SAFETY: inputs are only read during the call.
     let list = List::from_call(|out, err| unsafe { sys::dbc_list_installed(target.kind, target.directory(), out, err) })?;
@@ -204,7 +200,7 @@ struct Target {
 }
 
 impl Target {
-    fn new(location: &InstallLocation) -> Result<Self> {
+    fn new(location: &InstallLocation) -> Result<Self, Error> {
         Ok(match location {
             InstallLocation::Default => Self { kind: sys::DBC_TARGET_DEFAULT, directory: None },
             InstallLocation::User => Self { kind: sys::DBC_TARGET_USER, directory: None },
@@ -220,7 +216,7 @@ impl Target {
     }
 }
 
-fn path_str(path: &Path) -> Result<&str> {
+fn path_str(path: &Path) -> Result<&str, Error> {
     path.to_str()
         .ok_or_else(|| Error::InvalidArgument(format!("path is not valid UTF-8: {}", path.display())))
 }

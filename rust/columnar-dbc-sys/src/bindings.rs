@@ -19,13 +19,13 @@
 
 pub const DBC_OK: i32 = 0;
 pub const DBC_ERROR: i32 = 1;
-pub const DBC_OPTION_BASE_URL: &[u8; 9] = b"base_url\0";
-pub const DBC_OPTION_USER_AGENT_SUFFIX: &[u8; 18] = b"user_agent_suffix\0";
-pub const DBC_OPTION_CREDENTIAL_REGISTRY_URL: &[u8; 24] = b"credential.registry_url\0";
-pub const DBC_OPTION_CREDENTIAL_AUTH_URI: &[u8; 20] = b"credential.auth_uri\0";
-pub const DBC_OPTION_CREDENTIAL_TOKEN: &[u8; 17] = b"credential.token\0";
-pub const DBC_OPTION_CREDENTIAL_REFRESH_TOKEN: &[u8; 25] = b"credential.refresh_token\0";
-pub const DBC_OPTION_CREDENTIAL_CLIENT_ID: &[u8; 21] = b"credential.client_id\0";
+pub const DBC_OPTION_BASE_URL: &::core::ffi::CStr = c"base_url";
+pub const DBC_OPTION_USER_AGENT_SUFFIX: &::core::ffi::CStr = c"user_agent_suffix";
+pub const DBC_OPTION_CREDENTIAL_REGISTRY_URL: &::core::ffi::CStr = c"credential.registry_url";
+pub const DBC_OPTION_CREDENTIAL_AUTH_URI: &::core::ffi::CStr = c"credential.auth_uri";
+pub const DBC_OPTION_CREDENTIAL_TOKEN: &::core::ffi::CStr = c"credential.token";
+pub const DBC_OPTION_CREDENTIAL_REFRESH_TOKEN: &::core::ffi::CStr = c"credential.refresh_token";
+pub const DBC_OPTION_CREDENTIAL_CLIENT_ID: &::core::ffi::CStr = c"credential.client_id";
 pub const DBC_TARGET_DEFAULT: i32 = 0;
 pub const DBC_TARGET_SYSTEM: i32 = 1;
 pub const DBC_TARGET_USER: i32 = 2;

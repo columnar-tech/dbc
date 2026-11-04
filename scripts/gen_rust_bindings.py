@@ -37,6 +37,9 @@ ARGS = [
     # dbc_status/dbc_target_kind are int32_t; keep their constants i32 too.
     "--default-macro-constant-type", "signed",
     "--use-core",
+    # DBC_OPTION_* keys as `&CStr` (`c"..."` literals, Rust 1.77+), so callers
+    # pass them without a runtime NUL check.
+    "--generate-cstr",
     "--no-layout-tests",
     "--rust-target", "1.82",
 ]

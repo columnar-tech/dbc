@@ -11,12 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use crate::{Error, Result};
+use crate::Error;
 use columnar_dbc_sys as sys;
 use std::ffi::{c_char, CStr, CString};
 use std::ptr;
 
-pub(crate) fn cstring(s: &str) -> Result<CString> {
+pub(crate) fn cstring(s: &str) -> Result<CString, Error> {
     CString::new(s).map_err(|_| Error::InvalidArgument(format!("{s:?} contains a NUL byte")))
 }
 
@@ -36,7 +36,7 @@ unsafe fn opt_string(p: *const c_char) -> Option<String> {
 
 /// Runs a C call that reports failure through a `dbc_error**` and converts
 /// the error into [`Error::Dbc`].
-pub(crate) fn check(call: impl FnOnce(*mut *mut sys::dbc_error) -> sys::dbc_status) -> Result<()> {
+pub(crate) fn check(call: impl FnOnce(*mut *mut sys::dbc_error) -> sys::dbc_status) -> Result<(), Error> {
     let mut err: *mut sys::dbc_error = ptr::null_mut();
     if call(&mut err) == sys::DBC_OK {
         return Ok(());
@@ -59,7 +59,7 @@ impl List {
     /// Runs an operation that returns a `dbc_list` through `out`.
     pub(crate) fn from_call(
         call: impl FnOnce(*mut *mut sys::dbc_list, *mut *mut sys::dbc_error) -> sys::dbc_status,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let mut out = ptr::null_mut();
         check(|err| call(&mut out, err))?;
         Ok(Self(out))
