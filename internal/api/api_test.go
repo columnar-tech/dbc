@@ -39,11 +39,15 @@ func fixtureServer(t *testing.T) string {
 	require.NoError(t, err)
 	tarball, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.tar.gz"))
 	require.NoError(t, err)
+	unsigned, err := os.ReadFile(filepath.Join(testdata, "test-driver-no-sig.tar.gz"))
+	require.NoError(t, err)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/index.yaml":
 			w.Write(index)
+		case strings.Contains(r.URL.Path, "test-driver-no-sig"):
+			w.Write(unsigned)
 		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
 			w.Write(tarball)
 		default:
@@ -143,6 +147,25 @@ func TestInstallListUninstall(t *testing.T) {
 	listed, err = api.ListInstalled(target)
 	require.NoError(t, err)
 	assert.Empty(t, listed)
+}
+
+// The bindings expose AllowUnsigned as their --no-verify. Without it an
+// unsigned driver must be refused and leave nothing behind; with it, the
+// same driver installs.
+func TestInstallAllowUnsigned(t *testing.T) {
+	c := newClient(t)
+	target := api.Target{Location: t.TempDir()}
+
+	_, err := api.Install(t.Context(), c, "test-driver-no-sig", target, api.InstallOptions{})
+	require.ErrorContains(t, err, "signature file 'test-driver-1-not-valid.so.sig' for driver is missing")
+	listed, err := api.ListInstalled(target)
+	require.NoError(t, err)
+	assert.Empty(t, listed)
+
+	m, err := api.Install(t.Context(), c, "test-driver-no-sig", target, api.InstallOptions{AllowUnsigned: true})
+	require.NoError(t, err)
+	assert.Equal(t, "test-driver-no-sig", m.ID)
+	assert.FileExists(t, m.DriverPath)
 }
 
 // Resolution only: writing to the real levels here would race with the CLI's
