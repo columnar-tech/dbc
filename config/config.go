@@ -115,6 +115,17 @@ func (c *ConfigLevel) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// Default is the configuration `dbc install` uses without -l: the env level
+// when ADBC_DRIVER_PATH, VIRTUAL_ENV, or CONDA_PREFIX names a location,
+// otherwise the user level.
+func Default() Config {
+	cfgs := Get()
+	if env := cfgs[ConfigEnv]; env.Location != "" {
+		return env
+	}
+	return cfgs[ConfigUser]
+}
+
 func EnsureLocation(cfg Config) (string, error) {
 	loc := cfg.PrimaryLocation()
 	if cfg.Level == ConfigEnv && loc == "" {

@@ -188,13 +188,28 @@ func TestTarget(t *testing.T) {
 		}
 	})
 
+	t.Run("empty target is the CLI default", func(t *testing.T) {
+		for _, v := range []string{"ADBC_DRIVER_PATH", "VIRTUAL_ENV", "CONDA_PREFIX"} {
+			t.Setenv(v, "")
+		}
+		cfg, err := api.Target{}.Config()
+		require.NoError(t, err)
+		assert.Equal(t, config.ConfigUser, cfg.Level)
+
+		dir := t.TempDir()
+		t.Setenv("ADBC_DRIVER_PATH", dir)
+		cfg, err = api.Target{}.Config()
+		require.NoError(t, err)
+		assert.Equal(t, config.ConfigEnv, cfg.Level)
+		assert.Equal(t, dir, cfg.PrimaryLocation())
+	})
+
 	for _, tc := range []struct {
 		name   string
 		target api.Target
 		want   string
 	}{
 		{"both", api.Target{Level: "user", Location: "/tmp/x"}, "set either level or location, not both"},
-		{"neither", api.Target{}, "either level or location is required"},
 		{"unknown level", api.Target{Level: "env"}, `unknown config level "env", valid values are: user, system`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
