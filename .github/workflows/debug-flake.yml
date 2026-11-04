@@ -22,13 +22,13 @@ jobs:
       - name: Repro
         shell: bash
         run: |
-          set +e
           go test -c -o config.test.exe ./config
           if [ "${{ matrix.load }}" = with-auth-load ]; then
             go test -c -o auth.test.exe ./auth
             ( for i in 1 2 3 4 5 6; do ./auth.test.exe -test.count=1 >/dev/null 2>&1; done ) &
           fi
-          ./config.test.exe -test.run '^TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest$' -test.count=300 -test.v > out.txt 2>&1; rc=$?
+          rc=0
+          ./config.test.exe -test.run '^TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest$' -test.count=300 -test.v > out.txt 2>&1 || rc=$?
           echo "exit=$rc"
           echo "passes: $(grep -c -- '--- PASS' out.txt)  fails: $(grep -c -- '--- FAIL' out.txt)"
           grep 'DEBUG:' out.txt | sed -E 's/after [0-9.]+[µm]?s/after T/; s/[0-9]+ probes/N probes/' | sort | uniq -c | sort -rn | head -20
