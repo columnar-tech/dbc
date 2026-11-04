@@ -16,6 +16,7 @@ package atomicfile
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -45,6 +46,43 @@ func TestReplaceWaitsForReaderToClose(t *testing.T) {
 
 	if err := WriteFilePreservingMode(destination, []byte("new"), 0o600); err != nil {
 		t.Fatalf("replace while a reader had the file open: %v", err)
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("destination = %q, want %q", got, "new")
+	}
+}
+
+// A reader opened with Open must not block a writer: a reader that reopens in
+// a loop could otherwise keep it out past any retry window. The replacement
+// succeeds at once, and the open reader still sees the old contents.
+func TestReplaceSucceedsWhileOpenHandleIsHeld(t *testing.T) {
+	destination := filepath.Join(t.TempDir(), "destination")
+	if err := os.WriteFile(destination, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := Open(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	start := time.Now()
+	if err := WriteFilePreservingMode(destination, []byte("new"), 0o600); err != nil {
+		t.Fatalf("replace while an Open handle was held: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > transientFor/4 {
+		t.Fatalf("replace took %s; an Open handle must not block it", elapsed)
+	}
+	old, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(old) != "old" {
+		t.Fatalf("open reader read %q, want the old contents %q", old, "old")
 	}
 	got, err := os.ReadFile(destination)
 	if err != nil {

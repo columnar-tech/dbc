@@ -17,10 +17,10 @@ package atomicfile
 import "os"
 
 // Open opens a file that WriteFilePreservingMode may be replacing
-// concurrently, possibly from another process. On Windows, the replacement
-// briefly holds the file exclusively, so Open retries the resulting sharing
-// errors for a short time; elsewhere it is os.Open. A missing file is
-// reported at once, as by os.Open.
+// concurrently, possibly from another process. On Windows, the open handle
+// does not block a replacement (it keeps reading the old contents), and Open
+// retries the sharing errors from a replacement in progress for a short time;
+// elsewhere it is os.Open. A missing file is reported at once, as by os.Open.
 func Open(path string) (*os.File, error) {
 	return openForRead(path)
 }

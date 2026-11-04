@@ -30,6 +30,8 @@ const transientFor = 2 * time.Second
 // replace renames source over destination. Windows refuses to replace a file
 // while another handle without FILE_SHARE_DELETE has it open, which includes
 // every os.Open, failing with ERROR_ACCESS_DENIED or ERROR_SHARING_VIOLATION.
+// openForRead's handles share delete access and don't block it; replace waits
+// out any others.
 func replace(source, destination string) error {
 	src, err := windows.UTF16PtrFromString(source)
 	if err != nil {
@@ -44,15 +46,29 @@ func replace(source, destination string) error {
 	})
 }
 
-// openForRead opens path, waiting out a concurrent replace, which briefly holds
-// the file exclusively (ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED while
-// the replaced file is pending deletion).
-func openForRead(path string) (f *os.File, err error) {
-	err = retryTransient(func() error {
-		f, err = os.Open(path)
+// openForRead opens path for reading with every share mode, including
+// FILE_SHARE_DELETE, so a concurrent replace can rename over the file while it
+// is open; the handle keeps reading the old contents, as on POSIX. With
+// os.Open a reader that reopens in a loop could keep a writer out for good.
+// It waits out a replace that briefly holds the file exclusively
+// (ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED while the replaced file is
+// pending deletion).
+func openForRead(path string) (*os.File, error) {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	var h windows.Handle
+	err = retryTransient(func() (err error) {
+		h, err = windows.CreateFile(name, windows.GENERIC_READ,
+			windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+			nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
 		return err
 	})
-	return f, err
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	return os.NewFile(uintptr(h), path), nil
 }
 
 // retryTransient calls op until it succeeds, fails with a non-transient error,
