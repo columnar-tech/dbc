@@ -16,10 +16,12 @@
 """Stage a GoReleaser-built shared library for Linux development packages.
 
 Run by the post hook of the `capi-shared` build in .goreleaser.yaml:
-  python3 scripts/stage_devel.py <libdbc.so> <goarch> <version>
+  python3 scripts/stage_devel.py <libdbc.so> <goarch> <version> <commit-date>
 
-Copies the library to dist/devel/linux_<goarch>/libdbc.so and writes dbc.deb.pc
-and dbc.rpm.pc with the library directories used by each package format.
+Copies the library to dist/devel/linux_<goarch>/libdbc.so, writes dbc.deb.pc
+and dbc.rpm.pc with the library directories used by each package format, and
+writes dist/devel/changelog.yml, the one-entry chglog file nfpm turns into the
+packages' changelogs (lintian and rpmlint require one).
 """
 
 import pathlib
@@ -34,12 +36,13 @@ DEB_LIBDIRS = {
 
 
 def main() -> int:
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         print(__doc__, file=sys.stderr)
         return 2
     library = pathlib.Path(sys.argv[1])
     goarch = sys.argv[2]
     version = sys.argv[3]
+    commit_date = sys.argv[4]
     deb_libdir = DEB_LIBDIRS.get(goarch)
     if deb_libdir is None:
         print(f"error: no development package for linux/{goarch}", file=sys.stderr)
@@ -63,6 +66,20 @@ def main() -> int:
             "Cflags: -I${includedir}\n",
             encoding="utf-8",
         )
+    # nfpm writes a prerelease (0.3.1-rc1) as 0.3.1~rc1 and the packages use
+    # release 1, so the changelog entry must be 0.3.1~rc1-1 to match.
+    package_version = version.replace("-", "~", 1)
+    (REPO / "dist" / "devel" / "changelog.yml").write_text(
+        f"- semver: {package_version}-1\n"
+        f"  date: {commit_date}\n"
+        "  packager: Columnar <hello@columnar.tech>\n"
+        "  deb:\n"
+        "    urgency: medium\n"
+        "    distributions: [stable]\n"
+        "  changes:\n"
+        f"    - note: See https://github.com/columnar-tech/dbc/releases/tag/v{version}\n",
+        encoding="utf-8",
+    )
     print(f"staged into {staged}")
     return 0
 

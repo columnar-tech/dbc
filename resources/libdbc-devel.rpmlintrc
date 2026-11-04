@@ -1,0 +1,7 @@
+# rpmlint filters for libdbc-devel (scripts/lint_devel_packages.sh).
+# libdbc.so has the unversioned SONAME libdbc.so on purpose: it ships only in
+# the development package, with no runtime package to version.
+addFilter("invalid-soname")
+# GoReleaser packages build artifacts (libdbc.a, libdbc.h) with mode 0755 and
+# has no setting to change it.
+addFilter("spurious-executable-perm")

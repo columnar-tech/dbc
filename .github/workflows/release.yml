@@ -80,6 +80,8 @@ jobs:
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.17.0
+          # No caching in this workflow, which builds release artifacts: a
+          # poisoned cache would reach them (zizmor cache-poisoning; see #366).
           use-cache: false
 
       - name: Install Rust
@@ -237,6 +239,8 @@ jobs:
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
           version: 0.17.0
+          # No caching in this workflow, which builds release artifacts: a
+          # poisoned cache would reach them (zizmor cache-poisoning; see #366).
           use-cache: false
 
       - name: Install Rust
@@ -373,8 +377,11 @@ jobs:
     name: rust ${{ matrix.target }}
     needs: snapshot
     runs-on: ${{ matrix.os }}
-    # A Go c-archive whose runtime never starts blocks forever on the first
-    # call, so a hang must fail the job, not hold the runner for six hours.
+    # The Go runtime in a c-archive starts from a static initializer. On
+    # MSVC targets it is only registered by the .CRT$XCU entry columnar-dbc-sys
+    # adds (MSVC's CRT ignores the .ctors section Go uses); if that breaks, the
+    # first dbc call waits forever for a runtime that never started. Fail
+    # such a hang after 30 minutes instead of GitHub's 6-hour default.
     timeout-minutes: 30
     permissions:
       contents: read
@@ -465,11 +472,14 @@ jobs:
           rustup default stable
       - name: Install the Homebrew formula from the snapshot archives
         if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
           archives="$RUNNER_TEMP/devel-archives"
           # Point the formula at the downloaded archives instead of a release.
-          tap=$(brew --repository)/Library/Taps/local/homebrew-libdbc
-          mkdir -p "$tap/Formula"
+          brew tap-new --no-git local/libdbc
+          tap=$(brew --repository local/libdbc)
           sed -E "s#https://github.com/columnar-tech/dbc/releases/download/[^/]+/#file://$archives/#" \
             "$archives/homebrew/Formula/libdbc.rb" > "$tap/Formula/libdbc.rb"
           brew install pkgconf local/libdbc/libdbc
@@ -524,6 +534,10 @@ jobs:
         with:
           name: devel-packages
           path: ${{ runner.temp }}/devel-packages
+      # Both architectures' packages are in the artifact; lint them once.
+      - name: Lint the packages with lintian and rpmlint
+        if: matrix.debarch == 'amd64'
+        run: scripts/lint_devel_packages.sh "$RUNNER_TEMP/devel-packages"
       - name: Install and inspect the Debian package
         run: |
           shopt -s nullglob

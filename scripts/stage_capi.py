@@ -82,6 +82,12 @@ def main() -> int:
     if sys.argv[2] == "darwin":
         repack_darwin(archive)
 
+    # The linker leaves the archive and header executable; the libdbc-dev
+    # archives and the Rust platform crates should ship them 0644. (The Linux
+    # packages can't: GoReleaser packages build artifacts with mode 0755.)
+    archive.chmod(0o644)
+    archive.with_suffix(".h").chmod(0o644)
+
     raw = archive.read_bytes()
     compressed = len(gzip.compress(raw, compresslevel=9))
     print(f"{archive}: {len(raw):,} bytes, {compressed:,} gzipped")
