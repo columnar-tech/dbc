@@ -42,14 +42,21 @@ fn main() {
 }
 
 fn link_custom(dir: &Path, is_static: bool) {
-    if is_static {
-        let archive = dir.join("libdbc.a");
-        println!("cargo:rerun-if-changed={}", archive.display());
-        assert!(archive.is_file(), "columnar-dbc-sys: {} is missing", archive.display());
-    }
     println!("cargo:rustc-link-search=native={}", dir.display());
     if is_static {
-        println!("cargo:rustc-link-lib=static:+verbatim=libdbc.a");
+        // The Windows libdbc-dev zip names the archive libdbc.lib.
+        let names: &[&str] = if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+            &["libdbc.a", "libdbc.lib"]
+        } else {
+            &["libdbc.a"]
+        };
+        for name in names {
+            println!("cargo:rerun-if-changed={}", dir.join(name).display());
+        }
+        let name = names.iter().find(|name| dir.join(name).is_file()).unwrap_or_else(|| {
+            panic!("columnar-dbc-sys: {} is missing in {}", names.join(" or "), dir.display())
+        });
+        println!("cargo:rustc-link-lib=static:+verbatim={name}");
         match env::var("CARGO_CFG_TARGET_OS").as_deref() {
             Ok("linux") => println!("cargo:rustc-link-lib=dylib=pthread"),
             Ok("macos") => {

@@ -34,6 +34,63 @@ $ git push --tags
 
 The automation will take over from the tag being pushed.
 
+## Linux development packages
+
+Releases publish `libdbc-dev_*.deb` and `libdbc-devel*.rpm` alongside the CLI
+packages, on the GitHub release, in the versioned distribution bucket, and in
+the Cloudsmith `columnar/dbc` repository (stable releases only, like the CLI
+packages).
+These are development-only packages, separate from the `dbc` CLI package; there
+is no separate runtime package.
+
+Each package includes `libdbc.a`, `libdbc.so` (SONAME `libdbc.so`),
+`/usr/include/libdbc.h`, and the `dbc` pkg-config module. The libraries and
+`pkgconfig/dbc.pc` are installed under:
+
+| Package | Architecture | Library directory |
+| --- | --- | --- |
+| `libdbc-dev` (Debian) | `amd64` | `/usr/lib/x86_64-linux-gnu` |
+| `libdbc-dev` (Debian) | `arm64` | `/usr/lib/aarch64-linux-gnu` |
+| `libdbc-devel` (RPM) | `x86_64`, `aarch64` | `/usr/lib64` |
+
+Install the package for your architecture, for example:
+
+```shell
+sudo apt install ./libdbc-dev_*_amd64.deb pkg-config
+# Or, on an RPM-based distribution:
+sudo dnf install ./libdbc-devel*.x86_64.rpm pkgconf-pkg-config
+pkg-config --modversion dbc
+```
+
+The `capi` build supplies the static archive and header. The Linux-only
+`capi-shared` build uses the same Zig targets (glibc 2.28) and stages its shared
+library and format-specific pkg-config files with `scripts/stage_devel.py` under
+`dist/devel/linux_<goarch>/`. The `devel-deb` and `devel-rpm` nFPM entries combine
+these artifacts without duplicating the generated header. Snapshot CI uploads
+both package formats as the `devel-packages` artifact and tests the installed
+packages on Linux amd64 and arm64.
+
+Rust consumers link these packages through pkg-config by default; the
+`bundled` feature selects the prebuilt platform crates instead. Static linking
+is the default; setting `DBC_DYNAMIC` selects the shared library, which must
+remain on the runtime loader's search path. See
+[Linking libdbc](rust/columnar-dbc/README.md#linking-libdbc)
+for the feature and environment-variable options.
+
+## macOS and Windows development archives
+
+The `libdbc-dev` archive in `.goreleaser.yaml` packages the `capi` static
+library for macOS (`libdbc-dev_<version>_darwin_<arch>.tar.gz`) and Windows
+(`libdbc-dev_<version>_windows_amd64.zip`) with `libdbc.h`, `LICENSE`, and a
+relocatable `dbc.pc` written by `scripts/stage_capi.py`. They are attached to
+the GitHub release and the distribution bucket. Stable releases also:
+
+- update the `libdbc` Homebrew formula in `columnar-tech/homebrew-tap` (the
+  `brews` publisher, with `DBC_TAP_GITHUB_PAT`);
+- upload the Windows zip to Cloudsmith as the raw package
+  `libdbc-dev-windows-x64` (the `cloudsmith-raw` custom publisher, running
+  `scripts/publish_cloudsmith_raw.py` with `CLOUDSMITH_TOKEN`).
+
 ## Release Pre-Flight Checklist
 
 Before creating and pushing the tags, please consult the following
@@ -51,6 +108,13 @@ checklist of steps:
       manually tested?
 - [ ] After pushing the tag, you will need to approve the deployment
       on the Actions tab of the repo.
+- [ ] *(One time)* The `production` environment has a `CARGO_REGISTRY_TOKEN`
+      secret for a crates.io account that owns the `columnar-dbc*` crates.
+      GoReleaser publishes them, with the release's version, in its final
+      `after` hook; a failure there happens after the GitHub release is out.
+      To recover, rerun `goreleaser build --clean --id capi` (needs Zig 0.17.0
+      and `GORELEASER_KEY`) at the tag, then
+      `python3 scripts/publish_crates.py --version <version>`.
 
 Once the above checklist is completed, just push the new tag to
 kick off the release process.

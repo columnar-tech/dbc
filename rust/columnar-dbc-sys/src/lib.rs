@@ -19,12 +19,76 @@
 //! # Linking libdbc
 //!
 //! By default, the build script locates an installed libdbc through the `dbc`
-//! pkg-config module. Install the `libdbc-dev` (Debian/Ubuntu) or
-//! `libdbc-devel` (RPM) development package, which provides `libdbc.a`,
-//! `libdbc.so`, `libdbc.h`, and `dbc.pc`. For a downloaded Debian package, use
-//! `sudo apt install ./libdbc-dev_*.deb`. The `pkg-config` executable must also
-//! be installed; set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for
-//! a nonstandard prefix.
+//! pkg-config module.
+//!
+//! ## Installing the development package
+//!
+//! On Linux, install the `libdbc-dev` (Debian/Ubuntu) or `libdbc-devel`
+//! (Fedora/RHEL and other RPM-based) development package, which provides
+//! `libdbc.a`, `libdbc.so`, `libdbc.h`, and the `dbc.pc` pkg-config file. Also
+//! install the `pkg-config` executable (`pkg-config` on Debian/Ubuntu,
+//! `pkgconf-pkg-config` on Fedora/RHEL), which is a separate package. The
+//! packages support x86_64 and aarch64 Linux with glibc 2.28+. They can be
+//! installed either way:
+//!
+//! - **From the package repository.** Every stable release is published to the
+//!   Cloudsmith-hosted `columnar/dbc` apt/dnf repository
+//!   (<https://cloudsmith.io/~columnar/repos/dbc/packages/>). Add the repository
+//!   once, and the package manager handles upgrades.
+//! - **From GitHub Releases.** Download the package for your architecture from
+//!   <https://github.com/columnar-tech/dbc/releases> and install the file
+//!   directly.
+//!
+//! Debian/Ubuntu:
+//!
+//! ```sh
+//! # Add the repository (or see the manual steps linked below)
+//! curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.deb.sh' | sudo -E bash
+//! sudo apt install libdbc-dev pkg-config
+//!
+//! # Or, with a package downloaded from GitHub Releases
+//! sudo apt install ./libdbc-dev_*_amd64.deb pkg-config
+//! ```
+//!
+//! Fedora/RHEL:
+//!
+//! ```sh
+//! # Add the repository (or see the manual steps linked below)
+//! curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.rpm.sh' | sudo -E bash
+//! sudo dnf install libdbc-devel pkgconf-pkg-config
+//!
+//! # Or, with a package downloaded from GitHub Releases
+//! sudo dnf install ./libdbc-devel-*.x86_64.rpm pkgconf-pkg-config
+//! ```
+//!
+//! macOS (x86_64 and arm64, macOS 12+), with the `libdbc` Homebrew formula from
+//! the `columnar-tech/tap` tap, which installs `libdbc.a`, `libdbc.h`, and
+//! `dbc.pc`:
+//!
+//! ```sh
+//! brew install pkgconf columnar-tech/tap/libdbc
+//!
+//! # Or, with the archive downloaded from GitHub Releases
+//! tar xzf libdbc-dev_*_darwin_arm64.tar.gz
+//! export PKG_CONFIG_PATH="$PWD/$(echo libdbc-dev_*_darwin_arm64)"
+//! ```
+//!
+//! Windows (x86_64, MSVC or GNU): download `libdbc-dev_<version>_windows_amd64.zip`
+//! from GitHub Releases or from the Cloudsmith repository, unpack it, and point
+//! `DBC_SYS_LIB_DIR` at the directory containing `libdbc.lib` (pkg-config is not
+//! used on Windows):
+//!
+//! ```powershell
+//! $v = "<version>"
+//! Invoke-WebRequest -OutFile libdbc-dev.zip "https://dl.cloudsmith.io/public/columnar/dbc/raw/names/libdbc-dev-windows-x64/versions/$v/libdbc-dev_${v}_windows_amd64.zip"
+//! Expand-Archive libdbc-dev.zip -DestinationPath .
+//! $env:DBC_SYS_LIB_DIR = "$PWD\libdbc-dev_${v}_windows_amd64"
+//! ```
+//!
+//! Set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for a nonstandard
+//! installation prefix. The source code is at <https://github.com/columnar-tech/dbc>.
+//!
+//! ## Other library sources
 //!
 //! To link a prebuilt static library from a platform crate instead, enable the
 //! `bundled` feature:
@@ -43,7 +107,8 @@
 //! 4. Otherwise, the `dbc` pkg-config module is used.
 //!
 //! System/custom linking is static by default; a custom directory must contain
-//! `libdbc.a`. Set `DBC_DYNAMIC` to any value (including an empty string) to
+//! `libdbc.a` (or, on Windows, `libdbc.lib` as shipped in the libdbc-dev zip).
+//! Set `DBC_DYNAMIC` to any value (including an empty string) to
 //! select dynamic system/custom linking instead. Bundled linking always stays
 //! static. Dynamic linking requires the shared library (`libdbc.so` on Linux)
 //! on the runtime loader's search path, for example via `LD_LIBRARY_PATH`;

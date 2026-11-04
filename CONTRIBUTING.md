@@ -47,6 +47,14 @@ CGO_ENABLED=1 go build -tags netgo,osusergo -buildmode=c-archive -o rust/platfor
 cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled
 ```
 
+That build is for development only. Release archives are built by the `capi`
+build in `.goreleaser.yaml`, which cross-compiles every target with Zig, and
+the PR snapshot runs the Rust tests on those exact archives. The Linux-only
+`capi-shared` build also produces `libdbc.so` with SONAME `libdbc.so`.
+The `libdbc-dev` Debian and `libdbc-devel` RPM packages contain both libraries,
+the generated header, and `dbc.pc`; they are separate from the `dbc` CLI
+packages.
+
 #### Linking a system libdbc
 
 To test against a custom static build without staging a platform crate:
@@ -85,6 +93,39 @@ Dynamic linking requires `libdbc.so` on the runtime loader's search path;
 the crate does not configure it. See the
 [Rust crate README](rust/columnar-dbc/README.md#linking-libdbc)
 for dependency configuration.
+
+#### Testing snapshot development packages
+
+The release workflow uploads the Debian and RPM packages as the
+`devel-packages` artifact. Download it from the snapshot run and install only
+the package matching your architecture (`amd64`/`arm64` for Debian or
+`x86_64`/`aarch64` for RPM). Debian libraries and `pkgconfig/dbc.pc` live in
+`/usr/lib/x86_64-linux-gnu` or `/usr/lib/aarch64-linux-gnu`; RPM uses
+`/usr/lib64` on both architectures. Both install `/usr/include/libdbc.h`.
+
+The `devel_packages` job tests these exact packages on x64 and arm64, without
+staging any bundled platform archives. On Ubuntu runners it installs
+`libdbc-dev` and checks the Debian paths and shared-library SONAME; in a native
+Fedora container it installs `libdbc-devel`. Against each package,
+`scripts/test_devel_rust.sh` runs the Rust suite with the default build
+(`pkg-config`, static and dynamic) and with `DBC_SYS_LIB_DIR`. Each mode gets a
+fresh Cargo target directory; linkage checks use the `roundtrip` test
+executable reported by that Cargo invocation rather than searching for an
+arbitrary existing binary.
+
+The Fedora container also compiles and runs a C client-creation smoke program
+in both link modes. `pkg-config --static` adds private dependencies but does
+not itself select `libdbc.a`, so the static smoke build explicitly selects that
+archive while allowing private system libraries to remain dynamic. Both the
+Rust and C tests use `ldd` to require `libdbc.so` for dynamic mode and reject
+it for static mode.
+
+The `devel_archives` job tests the macOS and Windows `libdbc-dev` archives
+from the same snapshot. On macOS it installs the generated `libdbc` Homebrew
+formula from a local tap (pointing it at the downloaded archives), runs
+`brew test`, and runs the Rust suite with the default pkg-config build. On
+Windows it runs the Rust suite with `DBC_SYS_LIB_DIR` set to the unpacked zip,
+for both the MSVC and GNU targets.
 
 #### Regenerating Rust bindings
 
