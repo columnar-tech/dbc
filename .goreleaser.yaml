@@ -451,6 +451,9 @@ cloudsmiths:
 
 snapcrafts:
   - id: snaps
+    # Snaps package Linux binaries, and the pipe requires snapcraft even when
+    # there are none: only the Linux split (or an unsplit run) builds them.
+    disable: '{{ and (isEnvSet "GGOOS") (ne .Env.GGOOS "linux") }}'
     ids:
       - dbc
     name: dbc
