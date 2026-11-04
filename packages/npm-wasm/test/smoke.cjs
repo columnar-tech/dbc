@@ -88,6 +88,28 @@ async function main() {
     "receipt hash does not match the installed library"
   );
 
+  // The Node API has no default location: install/uninstall/listInstalled
+  // without one must fail, not use the CLI's default levels or a directory
+  // named "undefined" in the working directory.
+  const emptyCwd = fs.mkdtempSync(path.join(os.tmpdir(), "dbc-wasm-cwd-"));
+  const previousCwd = process.cwd();
+  process.chdir(emptyCwd);
+  try {
+    for (const location of [undefined, null, ""]) {
+      for (const [op, run] of [
+        ["install", () => dbc.install("test-driver-1", location)],
+        ["uninstall", () => dbc.uninstall("test-driver-1", location)],
+        ["listInstalled", () => dbc.listInstalled(location)],
+      ]) {
+        await assert.rejects(run, /^Error: dbc-wasm: .*location is required/, `${op}(${JSON.stringify(location)}) should reject`);
+      }
+    }
+    assert.deepStrictEqual(fs.readdirSync(emptyCwd), [], "an operation without a location wrote to the working directory");
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(emptyCwd, { recursive: true, force: true });
+  }
+
   const entriesBeforeManifestOnlyInstall = listEntries(installDir);
   await assert.rejects(
     dbc.install("test-driver-manifest-only", installDir),

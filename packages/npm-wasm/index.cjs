@@ -45,8 +45,11 @@ function normalizeLocation(loc) {
   // locations must pass through untouched. On Windows, convert backslashes to
   // forward slashes (Go's js/wasm filepath uses Unix semantics; Node fs accepts
   // forward-slash drive paths) and make a drive-relative path absolute.
-  if (process.platform !== "win32") return String(loc);
-  let p = String(loc).replace(/\\/g, "/");
+  // A missing location (undefined, null) passes through for the Go side to
+  // reject; String() would turn it into a directory named "undefined".
+  if (typeof loc !== "string") return loc;
+  if (process.platform !== "win32") return loc;
+  let p = loc.replace(/\\/g, "/");
   p = p.replace(/^([A-Za-z]:)(?![/])/, "$1/");
   return p;
 }

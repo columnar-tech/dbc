@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"syscall/js"
 
 	"github.com/columnar-tech/dbc/internal/api"
@@ -30,12 +31,29 @@ func registerNodeOps() {
 }
 
 // The npm API takes a directory only; config levels are not exposed to JS.
+// An empty api.Target means the CLI's default location, so a missing
+// location must be an error here, as it always was for the npm package.
+var errLocationRequired = errors.New("location is required: the npm API installs to an explicit directory")
+
+// locationTarget is the target for a JS location argument, which must be a
+// non-empty string; js.Value.String() would turn undefined into a relative
+// directory name.
+func locationTarget(v js.Value) (api.Target, error) {
+	if v.Type() != js.TypeString || v.String() == "" {
+		return api.Target{}, errLocationRequired
+	}
+	return api.Target{Location: v.String()}, nil
+}
+
 func jsInstall(args []js.Value) func() (any, error) {
 	handle := uint64(args[0].Int())
 	name := args[1].String()
-	target := api.Target{Location: args[2].String()}
+	target, targetErr := locationTarget(args[2])
 	opts := api.InstallOptions{AllowUnsigned: len(args) > 3 && args[3].Truthy()}
 	return func() (any, error) {
+		if targetErr != nil {
+			return nil, targetErr
+		}
 		c, err := clients.Get(handle)
 		if err != nil {
 			return nil, err
@@ -49,8 +67,11 @@ func jsInstall(args []js.Value) func() (any, error) {
 }
 
 func jsList(args []js.Value) func() (any, error) {
-	target := api.Target{Location: args[0].String()}
+	target, targetErr := locationTarget(args[0])
 	return func() (any, error) {
+		if targetErr != nil {
+			return nil, targetErr
+		}
 		drivers, err := api.ListInstalled(target)
 		if err != nil {
 			return nil, err
@@ -61,8 +82,11 @@ func jsList(args []js.Value) func() (any, error) {
 
 func jsUninstall(args []js.Value) func() (any, error) {
 	name := args[0].String()
-	target := api.Target{Location: args[1].String()}
+	target, targetErr := locationTarget(args[1])
 	return func() (any, error) {
+		if targetErr != nil {
+			return nil, targetErr
+		}
 		if err := api.Uninstall(name, target); err != nil {
 			return nil, err
 		}
