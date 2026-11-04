@@ -160,11 +160,14 @@ func acquireMarker(ctx context.Context, marker, path string, timeout time.Durati
 		}
 		if info, statErr := os.Stat(marker); statErr == nil && time.Since(info.ModTime()) > markerStaleAfter {
 			// Re-check right before removing, to narrow the window in which a
-			// new holder's marker could be mistaken for the stale one.
+			// new holder's marker could be mistaken for the stale one. If it
+			// was refreshed meanwhile, wait like for any live holder.
 			if again, err := os.Stat(marker); err == nil && again.ModTime().Equal(info.ModTime()) {
-				os.Remove(marker)
+				if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					return nil, fmt.Errorf("fslock: remove stale lock marker %s: %w", marker, err)
+				}
+				continue
 			}
-			continue
 		}
 		if timeout <= 0 || time.Now().After(deadline) {
 			return nil, fmt.Errorf("fslock: could not acquire lock on %s within %s: %w", path, timeout, ErrLockContended)

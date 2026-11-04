@@ -212,3 +212,42 @@ func TestAcquireContextRecoversStaleMarker(t *testing.T) {
 	}
 	lock.Release()
 }
+
+// A stale marker that can't be removed (here: its directory is read-only)
+// must end acquisition with an error, not retry forever.
+func TestAcquireContextNonRemovableStaleMarkerIsBounded(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.lock")
+	marker := path + ".js"
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(marker, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	if err := os.Remove(marker); err == nil {
+		t.Skip("directory permissions are not enforced here (running as root?)")
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		lock, err := fslock.AcquireContext(context.Background(), path, 50*time.Millisecond)
+		if err == nil {
+			lock.Release()
+		}
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("AcquireContext succeeded although the stale marker could not be removed")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("AcquireContext did not return; it retried a non-removable stale marker forever")
+	}
+}
