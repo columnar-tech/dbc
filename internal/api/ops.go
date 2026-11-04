@@ -24,7 +24,9 @@ import (
 	"strings"
 
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 )
 
 // Target selects where Install, Uninstall and ListInstalled operate: a driver
@@ -242,4 +244,50 @@ func ListInstalled(t Target) ([]InstalledDriver, error) {
 // Verify checks sig as a detached signature of lib by Columnar's signing key.
 func Verify(lib, sig []byte) error {
 	return dbc.SignedByColumnar(bytes.NewReader(lib), bytes.NewReader(sig))
+}
+
+// Login stores a token credential, replacing any credential for the same
+// registry host. RegistryURL and AuthURI must be absolute URLs with nonempty
+// hosts, and Token must be nonempty. RefreshToken and ClientID are optional.
+// It does not perform an interactive authorization flow.
+func Login(cred Credential) error {
+	c, err := tokenCredential(cred)
+	if err != nil {
+		return err
+	}
+	if c.Token == "" {
+		return errors.New("credential token must not be empty")
+	}
+	return auth.AddCredential(c, true)
+}
+
+// Logout removes stored credentials for the registry host. It returns an
+// error when registryURL is not a valid registry URL (http or https with a
+// host, as for Login) or when no credential for that host is stored.
+func Logout(registryURL string) error {
+	u, err := registryurl.Parse(registryURL)
+	if err != nil {
+		return fmt.Errorf("invalid registryURL: %w", err)
+	}
+	return auth.RemoveCredential(auth.Uri(*u))
+}
+
+// LicensePath returns the license file path beside the credential store.
+// The file need not exist.
+func LicensePath() (string, error) {
+	return auth.LicensePath()
+}
+
+// InstallLicense copies srcPath into the credential directory. Without force,
+// the source must be named columnar.lic and an existing license is preserved.
+func InstallLicense(srcPath string, force bool) error {
+	err := auth.InstallLicenseFromFile(srcPath, force)
+	switch {
+	case errors.Is(err, auth.ErrLicenseWrongFilename):
+		return errors.New("source file is not named columnar.lic (set force to override)")
+	case errors.Is(err, auth.ErrLicenseAlreadyExists):
+		return errors.New("license already exists (set force to overwrite)")
+	default:
+		return err
+	}
 }

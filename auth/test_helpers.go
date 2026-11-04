@@ -31,6 +31,7 @@ func SetCredPathForTesting(path string) (restore func()) {
 func ResetCredentialsForTesting() {
 	loaded = sync.Once{}
 	loadedCredentials = nil
+	storeIssued.Clear()
 	credentialErr = nil
 }
 
@@ -49,6 +50,7 @@ func resetCredState(t *testing.T) {
 	})
 	loaded = sync.Once{}
 	loadedCredentials = nil
+	storeIssued.Clear()
 	credentialErr = nil
 }
 

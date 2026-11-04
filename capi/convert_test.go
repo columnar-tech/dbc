@@ -85,6 +85,107 @@ func TestClientConfig(t *testing.T) {
 		_, err := clientConfig([]string{"base-url"}, []string{"x"})
 		require.EqualError(t, err, `dbc: unknown client option "base-url"`)
 	})
+
+	t.Run("registry configuration keys", func(t *testing.T) {
+		cfg, err := clientConfig(
+			[]string{"registry.1.name", "registry.0.url", "registry.1.url", "registry_config", "project_file", "credential_store"},
+			[]string{"Private", "https://first.test", "https://second.test", "none", "/tmp/dbc.toml", "none"},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, api.ClientConfig{
+			Registries: []api.Registry{
+				{URL: "https://first.test"},
+				{URL: "https://second.test", Name: "Private"},
+			},
+			RegistryConfig:  "none",
+			ProjectFile:     "/tmp/dbc.toml",
+			CredentialStore: "none",
+		}, cfg)
+	})
+
+	t.Run("empty registry url", func(t *testing.T) {
+		_, err := clientConfig([]string{"registry.0.url"}, []string{""})
+		require.ErrorContains(t, err, "registry.0.url is required")
+	})
+
+	for _, tc := range []struct {
+		name string
+		keys []string
+	}{
+		{"duplicate url", []string{"registry.0.url", "registry.0.url"}},
+		{"duplicate name", []string{"registry.0.url", "registry.0.name", "registry.0.name"}},
+		{"gap", []string{"registry.0.url", "registry.2.url"}},
+		{"starts at one", []string{"registry.1.url"}},
+		{"name without url", []string{"registry.0.name"}},
+		{"negative index", []string{"registry.-1.url"}},
+		{"non numeric index", []string{"registry.x.url"}},
+		{"leading zero", []string{"registry.00.url"}},
+		{"unknown registry field", []string{"registry.0.title"}},
+		{"oversized index", []string{"registry.999999999999999999999999999.url"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			values := make([]string, len(tc.keys))
+			for i := range values {
+				values[i] = "https://registry.test"
+			}
+			_, err := clientConfig(tc.keys, values)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestClientConfigRegistryCount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		keys []string
+		vals []string
+		want []api.Registry
+	}{
+		{"omitted", nil, nil, nil},
+		{"zero", []string{"registry.count"}, []string{"0"}, []api.Registry{}},
+		{
+			"two entries", []string{"registry.count", "registry.1.name", "registry.0.url", "registry.1.url"},
+			[]string{"2", "Second", "https://first.test", "https://second.test"},
+			[]api.Registry{{URL: "https://first.test"}, {URL: "https://second.test", Name: "Second"}},
+		},
+		{
+			"count after entries", []string{"registry.0.url", "registry.count"},
+			[]string{"https://first.test", "1"}, []api.Registry{{URL: "https://first.test"}},
+		},
+		{"leading zeros are decimal", []string{"registry.count"}, []string{"00"}, []api.Registry{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := clientConfig(tc.keys, tc.vals)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, cfg.Registries)
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		keys []string
+		vals []string
+	}{
+		{"too few entries", []string{"registry.count", "registry.0.url"}, []string{"2", "https://first.test"}},
+		{"too many entries", []string{"registry.count", "registry.0.url", "registry.1.url"}, []string{"1", "https://first.test", "https://second.test"}},
+		{"zero with an entry", []string{"registry.count", "registry.0.url"}, []string{"0", "https://first.test"}},
+		{"index outside count", []string{"registry.count", "registry.1.url"}, []string{"1", "https://first.test"}},
+		{"missing url", []string{"registry.count", "registry.0.name"}, []string{"1", "First"}},
+		{"empty url", []string{"registry.count", "registry.0.url"}, []string{"1", ""}},
+		{"large count without entries", []string{"registry.count"}, []string{"2147483647"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := clientConfig(tc.keys, tc.vals)
+			require.Error(t, err)
+		})
+	}
+
+	for _, value := range []string{"", "-1", "-0", "+1", " 1", "1 ", "1.0", "1e2", "0x1", "1_0", "one", "999999999999999999999999999"} {
+		t.Run("invalid count "+value, func(t *testing.T) {
+			_, err := clientConfig([]string{"registry.count"}, []string{value})
+			require.ErrorContains(t, err, "registry.count")
+		})
+	}
 }
 
 func TestInstallOptions(t *testing.T) {
@@ -98,4 +199,17 @@ func TestInstallOptions(t *testing.T) {
 
 	_, err = installOptions(installAllowUnsigned | 0x4)
 	require.EqualError(t, err, "dbc: unknown install flags 0x4")
+}
+
+func TestLicenseOptions(t *testing.T) {
+	force, err := licenseOptions(0)
+	require.NoError(t, err)
+	assert.False(t, force, "existing licenses are preserved by default")
+
+	force, err = licenseOptions(licenseForce)
+	require.NoError(t, err)
+	assert.True(t, force)
+
+	_, err = licenseOptions(licenseForce | 0x4)
+	require.EqualError(t, err, "dbc: unknown license flags 0x4")
 }

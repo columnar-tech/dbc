@@ -23,6 +23,7 @@ For detailed guides on using dbc, see the following pages:
 - [Using a Driver List](./driver_list.md)
 - [Installing a Driver Manager](./driver_manager.md)
 - [Python Notebooks](./python_notebooks.md)
+- [Go Library](./go_library.md)
 - [Private Drivers](./private_drivers.md)
 - [Continuous Integration](./continuous_integration.md)
 - [Version Control](./version_control.md)

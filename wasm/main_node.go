@@ -18,6 +18,8 @@ package main
 
 import "syscall/js"
 
+const filesystemAvailable = true
+
 func main() {
 	registerCommon()
 	registerNodeOps()

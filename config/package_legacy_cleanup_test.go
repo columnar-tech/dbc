@@ -24,6 +24,7 @@ import (
 )
 
 func TestUninstallLegacyInstallRemovesOnlyArchiveNamedPayload(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	archive := writeCustomPackageArchive(t, "name = \"Legacy\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", "legacy"))
@@ -73,6 +74,7 @@ func TestUninstallLegacyInstallRemovesOnlyArchiveNamedPayload(t *testing.T) {
 }
 
 func TestLegacyCleanupPinsVerifiedDirectoryAcrossSymlinkSwap(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	outside := t.TempDir()
 	probeDirectorySymlinkCapability(t, root, outside)

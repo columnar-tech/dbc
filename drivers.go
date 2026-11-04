@@ -201,7 +201,7 @@ func makereq(u string) (resp *http.Response, err error) {
 
 	if resp.StatusCode == http.StatusUnauthorized && cred != nil {
 		resp.Body.Close()
-		if err := cred.Refresh(context.Background()); err != nil {
+		if err := cred.RefreshAndPersist(context.Background()); err != nil {
 			return nil, fmt.Errorf("failed to refresh auth token: %w", err)
 		}
 		retryReq, retryErr := buildLegacyReq(cred.GetAuthToken(context.Background()))

@@ -46,7 +46,60 @@ func assertParentTraversalReferenceResolvesOnUnix(t *testing.T, path string) {
 	}
 }
 
+// requirePinnedCleanup skips tests of generation removal on targets where
+// cleanup deliberately retains generations (see supportsPinnedCleanup);
+// TestUninstallRetainsGenerationWithoutPinnedCleanup covers those.
+func requirePinnedCleanup(t *testing.T) {
+	t.Helper()
+	if !supportsPinnedCleanup() {
+		t.Skip("this target retains package generations instead of removing them")
+	}
+}
+
+// requireLocationLists skips tests of multi-root Location lists on js, whose
+// API takes a single location (see splitConfigList).
+func requireLocationLists(t *testing.T) {
+	t.Helper()
+	if len(splitConfigList("a"+string(filepath.ListSeparator)+"b")) < 2 {
+		t.Skip("this target takes a single location, not a list")
+	}
+}
+
+// Without pinned cleanup (js), uninstall must still remove the registration,
+// and must leave the generation's files alone rather than delete by a pathname
+// that may have changed.
+func TestUninstallRetainsGenerationWithoutPinnedCleanup(t *testing.T) {
+	if supportsPinnedCleanup() {
+		t.Skip("this target removes package generations")
+	}
+	root := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: root}
+	archive := writeCustomPackageArchive(t, "name = \"Retained\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n", packageFile("driver.so", "owned library"))
+	if _, err := InstallPackage(context.Background(), cfg, "retained", archive, InstallPackageOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	selected, err := GetDriver(cfg, "retained")
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := selected.Driver.Shared.Get(PlatformTuple())
+	before, err := os.ReadFile(library)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UninstallDriver(cfg, selected); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "retained.toml")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("registration remains: %v", err)
+	}
+	if after, err := os.ReadFile(library); err != nil || string(after) != string(before) {
+		t.Fatalf("retained library = %q, %v; want it untouched (%q)", after, err, before)
+	}
+}
+
 func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, externalInsideRoot := range []bool{true, false} {
 		name := "external-outside-root"
 		if externalInsideRoot {
@@ -99,6 +152,7 @@ func TestUninstallDriverCleansOwnedGenerationAndPreservesExternalFiles(t *testin
 }
 
 func TestUninstallReportsGenerationStatFailureAndRetainsPayload(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -136,6 +190,7 @@ func TestUninstallReportsGenerationStatFailureAndRetainsPayload(t *testing.T) {
 }
 
 func TestCleanupGenerationHandleSurvivesSymlinkSwaps(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, stage := range []string{"before open", "after lstat", "after generation open", "after receipt", "after enumerate", "during payload", "before final remove"} {
 		t.Run(stage, func(t *testing.T) {
 			root := t.TempDir()
@@ -281,6 +336,7 @@ func TestCleanupGenerationHandleSurvivesRootPathSwap(t *testing.T) {
 }
 
 func TestCleanupGenerationChildSymlinkCannotEscape(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -452,6 +508,7 @@ func TestUninstallPreservesUnsupportedReceiptShapesAndDoesNotFallBackToLegacyCle
 }
 
 func TestCleanupIsolatesRegistrationScopesInOnePayloadRoot(t *testing.T) {
+	requirePinnedCleanup(t)
 	levels := []ConfigLevel{ConfigEnv, ConfigUser, ConfigSystem}
 	seen := make(map[packageRegistrationScope]struct{})
 	for _, level := range levels {
@@ -744,6 +801,7 @@ func TestUninstallRegistrationFailurePreservesPackage(t *testing.T) {
 }
 
 func TestUninstallPayloadFailureAfterCommitLeavesReceipt(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -777,6 +835,7 @@ func TestUninstallPayloadFailureAfterCommitLeavesReceipt(t *testing.T) {
 }
 
 func TestUninstallRetriesStaleReceiptGenerationsBestEffort(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -1082,6 +1141,7 @@ func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 }
 
 func TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -1196,6 +1256,7 @@ func TestUncertainSiblingRegistrationSkipsPayloadCleanupButAllowsUninstall(t *te
 }
 
 func TestInstallPackageCleansRollbackCandidateOnLaterSuccess(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	archive := testPackageArchive(t, "candidate")
@@ -1222,6 +1283,7 @@ func TestInstallPackageCleansRollbackCandidateOnLaterSuccess(t *testing.T) {
 }
 
 func TestLegacyPackageCleanupRemovesOnlyExactRegisteredFile(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, basename := range []string{"driver_" + PlatformTuple() + "_v1.2.3", "unknown-layout"} {
 		for _, hasUnrelatedFile := range []bool{false, true} {
 			name := basename + "/only registered file"
@@ -1400,6 +1462,7 @@ func TestTransactionEvidenceBlocksLegacyFallback(t *testing.T) {
 }
 
 func TestUninstallUsesSelectedConfigEnvRootOnly(t *testing.T) {
+	requireLocationLists(t)
 	primary := filepath.Join(t.TempDir(), "primary")
 	secondary := filepath.Join(t.TempDir(), "secondary")
 	for _, root := range []string{primary, secondary} {
@@ -1436,6 +1499,7 @@ func TestUninstallUsesSelectedConfigEnvRootOnly(t *testing.T) {
 }
 
 func TestInstallPackageCleansStrictLegacyGenerationOnlyAfterCommit(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, failure := range []string{"", "verify", "register"} {
 		name := "success"
 		if failure != "" {
@@ -1526,6 +1590,7 @@ func TestInstallPackageLegacyCleanupFailureDoesNotFailCommit(t *testing.T) {
 }
 
 func TestInstallPackageRetainsUnprovenLegacyCandidates(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, mode := range []string{"malformed registration", "symlink registration", "arbitrary basename", "corrupt legacy receipt", "missing transaction receipt", "corrupt transaction receipt"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
@@ -1694,6 +1759,7 @@ func TestInstallPackageLegacyCleanupPreservesExternalLibraryAndUnknownFiles(t *t
 }
 
 func TestInstallPackageLegacyCleanupUsesPrimaryRootOnly(t *testing.T) {
+	requireLocationLists(t)
 	primary, secondary := t.TempDir(), t.TempDir()
 	primaryCfg := Config{Level: ConfigEnv, Location: primary}
 	secondaryCfg := Config{Level: ConfigEnv, Location: secondary}
@@ -1712,6 +1778,7 @@ func TestInstallPackageLegacyCleanupUsesPrimaryRootOnly(t *testing.T) {
 }
 
 func TestInstallPackageStageRuntimeIDUsesSeparateNamespace(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, preexistingEvidence := range []bool{false, true} {
 		name := "staging entry uses separate namespace"
 		if preexistingEvidence {

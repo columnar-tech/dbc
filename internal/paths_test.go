@@ -17,7 +17,6 @@ package internal
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,10 +29,10 @@ func TestGetUserConfigPath(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEmpty(t, path)
 
-		userConfigDir, err := os.UserConfigDir()
+		userConfigDir, err := UserConfigDir()
 		require.NoError(t, err)
 
-		switch runtime.GOOS {
+		switch storageHostOS() {
 		case "windows":
 			expected := filepath.Join(userConfigDir, "Columnar", "dbc")
 			assert.Equal(t, expected, path)
@@ -73,7 +72,7 @@ func TestGetCredentialPath(t *testing.T) {
 	})
 
 	t.Run("default behavior for each platform", func(t *testing.T) {
-		switch runtime.GOOS {
+		switch storageHostOS() {
 		case "windows":
 			appData := os.Getenv("LocalAppData")
 			if appData == "" {
@@ -106,7 +105,7 @@ func TestGetCredentialPath(t *testing.T) {
 	})
 
 	t.Run("macOS uses GetUserConfigPath internally", func(t *testing.T) {
-		if runtime.GOOS != "darwin" {
+		if storageHostOS() != "darwin" {
 			t.Skip("macOS-specific test")
 		}
 
