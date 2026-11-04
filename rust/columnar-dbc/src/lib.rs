@@ -222,5 +222,5 @@ impl Target {
 
 fn path_str(path: &Path) -> Result<&str> {
     path.to_str()
-        .ok_or_else(|| Error::InvalidArgument(format!("path {} is not valid UTF-8", path.display())))
+        .ok_or_else(|| Error::InvalidArgument(format!("path is not valid UTF-8: {}", path.display())))
 }
