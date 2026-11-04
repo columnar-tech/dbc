@@ -143,8 +143,7 @@ pub struct Credential {
 pub enum InstallLocation {
     /// The location `dbc install` uses without `-l`: the first of
     /// `ADBC_DRIVER_PATH`, `$VIRTUAL_ENV`, or `$CONDA_PREFIX` that is set,
-    /// otherwise the user level. dbc reads these variables when the process
-    /// starts.
+    /// otherwise the user level. The variables are read at each call.
     #[default]
     Default,
     /// dbc's user-level location, as `dbc install -l user`.

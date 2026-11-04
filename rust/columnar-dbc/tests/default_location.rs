@@ -12,36 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //! `Client::install` without a location follows ADBC_DRIVER_PATH, like
-//! `dbc install` without -l. dbc reads the environment when the process
-//! starts, so the test re-runs itself with the variable set.
+//! `dbc install` without -l, as it is when the call is made: changes after
+//! libdbc has started still apply. This file holds a single test because it
+//! changes the process environment.
 mod common;
 
 use columnar_dbc::{list_installed, InstallLocation};
+use std::env;
 use std::path::Path;
-use std::process::Command;
-
-const CHILD: &str = "COLUMNAR_DBC_TEST_DEFAULT_CHILD";
 
 #[test]
-fn install_defaults_to_adbc_driver_path() {
-    if std::env::var_os(CHILD).is_some() {
-        let dir = std::env::var_os("ADBC_DRIVER_PATH").unwrap();
-        let manifest = common::client().install("test-driver-1").unwrap();
-        assert!(Path::new(&manifest.driver_path).starts_with(&dir), "{manifest:?}");
-        let installed = list_installed(&InstallLocation::Default).unwrap();
-        assert_eq!(installed.len(), 1, "{installed:?}");
-        assert_eq!(list_installed(&InstallLocation::Directory(dir.into())).unwrap().len(), 1);
-        return;
-    }
+fn install_follows_adbc_driver_path_set_after_startup() {
+    env::remove_var("VIRTUAL_ENV");
+    env::remove_var("CONDA_PREFIX");
+    env::remove_var("ADBC_DRIVER_PATH");
+    let client = common::client(); // libdbc and its Go runtime are running now
 
     let dir = tempfile::tempdir().unwrap();
-    let status = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "install_defaults_to_adbc_driver_path", "--nocapture"])
-        .env(CHILD, "1")
-        .env("ADBC_DRIVER_PATH", dir.path())
-        .env_remove("VIRTUAL_ENV")
-        .env_remove("CONDA_PREFIX")
-        .status()
-        .unwrap();
-    assert!(status.success());
+    env::set_var("ADBC_DRIVER_PATH", dir.path());
+    let manifest = client.install("test-driver-1").unwrap();
+    assert!(Path::new(&manifest.driver_path).starts_with(dir.path()), "{manifest:?}");
+    assert_eq!(list_installed(&InstallLocation::Default).unwrap().len(), 1);
+
+    // Unsetting it applies too: Default is the user level again.
+    env::remove_var("ADBC_DRIVER_PATH");
+    let default = list_installed(&InstallLocation::Default).unwrap();
+    assert!(
+        default.iter().all(|d| !Path::new(&d.file_path).starts_with(dir.path())),
+        "{default:?}"
+    );
 }

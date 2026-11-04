@@ -37,8 +37,9 @@ private registry,
 skips that, like the CLI's `--no-verify`. `InstallLocation::User` and
 `InstallLocation::System` match `dbc install -l user|system`; the system level
 usually needs elevated privileges. dbc reads `ADBC_DRIVER_PATH`,
-`VIRTUAL_ENV`, and `CONDA_PREFIX` when the process starts, so changing them
-later from Rust has no effect; use `InstallLocation::Directory` instead.
+`VIRTUAL_ENV`, and `CONDA_PREFIX` at each call, so changes made with
+`std::env::set_var` apply to the next call. As with any library that reads the
+environment, don't change it on one thread while a dbc call runs on another.
 Calls block on network and filesystem I/O; from async code, use
 `spawn_blocking`. `Client` is `Send` but not `Sync`.
 

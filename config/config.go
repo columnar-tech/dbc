@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/columnar-tech/dbc/internal/hostenv"
 	"github.com/columnar-tech/dbc/internal/hostpath"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -212,12 +213,12 @@ func FindDriverConfigsIn(location string) []DriverInfo {
 }
 
 func getEnvConfigDir() string {
-	envConfigLoc := splitConfigList(os.Getenv(adbcEnvVar))
-	if venv := os.Getenv("VIRTUAL_ENV"); venv != "" {
+	envConfigLoc := splitConfigList(hostenv.Getenv(adbcEnvVar))
+	if venv := hostenv.Getenv("VIRTUAL_ENV"); venv != "" {
 		envConfigLoc = append(envConfigLoc, hostpath.Join(venv, "etc", "adbc", "drivers"))
 	}
 
-	if conda := os.Getenv("CONDA_PREFIX"); conda != "" {
+	if conda := hostenv.Getenv("CONDA_PREFIX"); conda != "" {
 		envConfigLoc = append(envConfigLoc, hostpath.Join(conda, "etc", "adbc", "drivers"))
 	}
 
