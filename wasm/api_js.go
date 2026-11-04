@@ -30,12 +30,12 @@ import (
 )
 
 func init() {
-	// Route auth-internal HTTP (oauth/api-key refresh, license fetch use
-	// http.DefaultClient directly) through the JS fetch transport, since Go's
-	// default network is disabled under Node js/wasm.
-	client := &http.Client{Transport: fetchRoundTripper{}}
-	http.DefaultClient = client
-	dbc.DefaultClient = client
+	// The auth package calls http.DefaultClient directly (OAuth and API-key
+	// token refresh, license fetch), and Go's own network is disabled under
+	// Node js/wasm, so route it through the JS fetch transport. dbc.Client
+	// requests don't need this: each client gets its own fetch-backed
+	// http.Client in newFetchClient.
+	http.DefaultClient = &http.Client{Transport: fetchRoundTripper{}}
 }
 
 // clients holds one dbc.Client per loadDbc instance, so instances stay
