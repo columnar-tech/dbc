@@ -27,9 +27,10 @@ import (
 	"github.com/columnar-tech/dbc/config"
 )
 
-// Target selects where Install, Uninstall and ListInstalled operate: exactly
-// one of Location (a driver directory) or Level ("user" or "system", the same
-// locations as `dbc install -l`).
+// Target selects where Install, Uninstall and ListInstalled operate: a driver
+// directory (Location), a level ("user" or "system", the same locations as
+// `dbc install -l`), or neither for the location `dbc install` uses without
+// -l (see config.Default).
 type Target struct {
 	Level    string `json:"level,omitempty"`
 	Location string `json:"location,omitempty"`
@@ -44,18 +45,21 @@ func (t Target) Config() (config.Config, error) {
 	case t.Location != "":
 		return config.Config{Level: config.ConfigEnv, Location: t.Location}, nil
 	case t.Level == "":
-		return config.Config{}, errors.New("either level or location is required")
+		return checked(config.Default(), "default")
 	}
 	var lvl config.ConfigLevel
 	if err := lvl.UnmarshalText([]byte(t.Level)); err != nil {
 		return config.Config{}, err
 	}
-	cfg, ok := config.Get()[lvl]
-	if !ok {
-		return config.Config{}, fmt.Errorf("%s config level is unavailable: no user configuration directory", lvl)
+	return checked(config.Get()[lvl], lvl.String())
+}
+
+func checked(cfg config.Config, name string) (config.Config, error) {
+	if cfg.Level == config.ConfigUnknown {
+		return config.Config{}, fmt.Errorf("%s config level is unavailable: no user configuration directory", name)
 	}
 	if cfg.Err != nil {
-		return config.Config{}, fmt.Errorf("failed to load %s config: %w", lvl, cfg.Err)
+		return config.Config{}, fmt.Errorf("failed to load %s config: %w", name, cfg.Err)
 	}
 	return cfg, nil
 }
@@ -65,6 +69,10 @@ type Driver struct {
 	Title       string `json:"title"`
 	License     string `json:"license"`
 	Description string `json:"description"`
+	DocsURL     string `json:"docsURL,omitempty"`
+	// Registry is the base URL of the registry the driver came from, which
+	// disambiguates drivers with the same path on several registries.
+	Registry string `json:"registry"`
 }
 
 type SearchResult struct {
@@ -108,7 +116,11 @@ func Search(ctx context.Context, c *dbc.Client, pattern string) (SearchResult, e
 	}
 	out := SearchResult{Drivers: make([]Driver, 0, len(drivers))}
 	for _, d := range drivers {
-		out.Drivers = append(out.Drivers, Driver{Path: d.Path, Title: d.Title, License: d.License, Description: d.Desc})
+		drv := Driver{Path: d.Path, Title: d.Title, License: d.License, Description: d.Desc, DocsURL: d.DocsURL}
+		if d.Registry != nil && d.Registry.BaseURL != nil {
+			drv.Registry = d.Registry.BaseURL.String()
+		}
+		out.Drivers = append(out.Drivers, drv)
 	}
 	if searchErr != nil {
 		out.Warning = searchErr.Error()

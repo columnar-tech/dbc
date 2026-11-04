@@ -32,26 +32,29 @@ package main
 //  - Objects returned through `out` are owned by the caller and released with
 //    the matching *_free function; *_free(NULL) is a no-op.
 //  - Strings returned by dbc_list_get, dbc_list_info, and dbc_error_message
-//    are UTF-8, owned by their object, and valid until it is freed.
-//  - Input strings are UTF-8 and only read during the call (`char*` rather
-//    than `const char*` only because cgo cannot express const).
+//    are NUL-terminated UTF-8, owned by their object, and valid until it is
+//    freed. Input strings must be NUL-terminated UTF-8 too.
+//  - Input strings are only read during the call (`char*` rather than
+//    `const char*` only because cgo cannot express const).
 //  - Objects are not synchronized: use each from one thread at a time.
 //
-// dbc_client_new options (keys and values are strings; unknown keys fail):
-//   base_url                   registry URL (default: Columnar's public CDN)
-//   user_agent_suffix          appended to the HTTP User-Agent
-//   credential.registry_url    token credential for one private registry,
-//   credential.auth_uri          replacing the credentials stored by
-//   credential.token             `dbc auth login` for that registry's host
-//   credential.refresh_token
-//   credential.client_id
+// dbc_client_new options (keys and values are strings; unknown keys fail).
+// Pass the DBC_OPTION_* macros below as keys:
+//   DBC_OPTION_BASE_URL                    registry URL (default: Columnar's public CDN)
+//   DBC_OPTION_USER_AGENT_SUFFIX           appended to the HTTP User-Agent
+//   DBC_OPTION_CREDENTIAL_REGISTRY_URL     token credential for one private registry,
+//   DBC_OPTION_CREDENTIAL_AUTH_URI         replacing the credentials stored by
+//   DBC_OPTION_CREDENTIAL_TOKEN            `dbc auth login` for that registry's host
+//   DBC_OPTION_CREDENTIAL_REFRESH_TOKEN
+//   DBC_OPTION_CREDENTIAL_CLIENT_ID
 //
 // Every operation that returns data returns a dbc_list: rows read with
 // dbc_list_get, list-level values read with dbc_list_info. A field that
 // doesn't apply to the operation reads as NULL.
 //
 //   operation           rows (dbc_list_get)                     list-level (dbc_list_info)
-//   dbc_search          ID NAME LICENSE DESCRIPTION, per driver  WARNING (partial result)
+//   dbc_search          ID NAME LICENSE DESCRIPTION REGISTRY     WARNING (partial result)
+//                       DOCS_URL (NULL if none), per driver
 //   dbc_resolve         VERSION, per available version          ID PLATFORM LATEST_VERSION LATEST_URL
 //   dbc_install         one row: ID NAME VERSION SOURCE DRIVER_PATH
 //   dbc_list_installed  ID NAME VERSION LOCATION, per driver
@@ -66,13 +69,26 @@ typedef int32_t dbc_status;
 #define DBC_OK 0
 #define DBC_ERROR 1
 
-// Where install, uninstall, and list operate. DBC_TARGET_DIRECTORY requires a
-// directory argument; the user and system levels (the same locations as
-// `dbc install -l user|system`) require NULL.
+// dbc_client_new option keys (see above).
+#define DBC_OPTION_BASE_URL "base_url"
+#define DBC_OPTION_USER_AGENT_SUFFIX "user_agent_suffix"
+#define DBC_OPTION_CREDENTIAL_REGISTRY_URL "credential.registry_url"
+#define DBC_OPTION_CREDENTIAL_AUTH_URI "credential.auth_uri"
+#define DBC_OPTION_CREDENTIAL_TOKEN "credential.token"
+#define DBC_OPTION_CREDENTIAL_REFRESH_TOKEN "credential.refresh_token"
+#define DBC_OPTION_CREDENTIAL_CLIENT_ID "credential.client_id"
+
+// Where install, uninstall, and list operate. The values match dbc's config
+// levels. DBC_TARGET_DEFAULT is the location `dbc install` uses without -l:
+// the first of ADBC_DRIVER_PATH, $VIRTUAL_ENV, or $CONDA_PREFIX that is set,
+// otherwise the user level. DBC_TARGET_SYSTEM and DBC_TARGET_USER are the
+// locations of `dbc install -l system|user`. DBC_TARGET_DIRECTORY requires a
+// directory argument; the other kinds require NULL.
 typedef int32_t dbc_target_kind;
-#define DBC_TARGET_DIRECTORY 0
-#define DBC_TARGET_USER 1
-#define DBC_TARGET_SYSTEM 2
+#define DBC_TARGET_DEFAULT 0
+#define DBC_TARGET_SYSTEM 1
+#define DBC_TARGET_USER 2
+#define DBC_TARGET_DIRECTORY 3
 
 // dbc_install flags (bitwise OR; 0 for none). By default dbc_install verifies
 // the driver's signature with Columnar's key and removes it on failure.
@@ -95,6 +111,8 @@ typedef int32_t dbc_field;
 #define DBC_FIELD_PLATFORM 9
 #define DBC_FIELD_LATEST_VERSION 10
 #define DBC_FIELD_LATEST_URL 11
+#define DBC_FIELD_REGISTRY 12
+#define DBC_FIELD_DOCS_URL 13
 */
 import "C"
 
@@ -108,11 +126,20 @@ import (
 )
 
 const (
-	targetDirectory = int32(C.DBC_TARGET_DIRECTORY)
-	targetUser      = int32(C.DBC_TARGET_USER)
+	targetDefault   = int32(C.DBC_TARGET_DEFAULT)
 	targetSystem    = int32(C.DBC_TARGET_SYSTEM)
+	targetUser      = int32(C.DBC_TARGET_USER)
+	targetDirectory = int32(C.DBC_TARGET_DIRECTORY)
 
 	installAllowUnsigned = int32(C.DBC_INSTALL_ALLOW_UNSIGNED)
+
+	optBaseURL                = C.DBC_OPTION_BASE_URL
+	optUserAgentSuffix        = C.DBC_OPTION_USER_AGENT_SUFFIX
+	optCredentialRegistryURL  = C.DBC_OPTION_CREDENTIAL_REGISTRY_URL
+	optCredentialAuthURI      = C.DBC_OPTION_CREDENTIAL_AUTH_URI
+	optCredentialToken        = C.DBC_OPTION_CREDENTIAL_TOKEN
+	optCredentialRefreshToken = C.DBC_OPTION_CREDENTIAL_REFRESH_TOKEN
+	optCredentialClientID     = C.DBC_OPTION_CREDENTIAL_CLIENT_ID
 
 	fieldID            = int32(C.DBC_FIELD_ID)
 	fieldName          = int32(C.DBC_FIELD_NAME)
@@ -126,6 +153,8 @@ const (
 	fieldPlatform      = int32(C.DBC_FIELD_PLATFORM)
 	fieldLatestVersion = int32(C.DBC_FIELD_LATEST_VERSION)
 	fieldLatestURL     = int32(C.DBC_FIELD_LATEST_URL)
+	fieldRegistry      = int32(C.DBC_FIELD_REGISTRY)
+	fieldDocsURL       = int32(C.DBC_FIELD_DOCS_URL)
 )
 
 var (

@@ -32,14 +32,17 @@ func targetFor(kind int32, dir *string) (api.Target, error) {
 			return api.Target{}, errors.New("dbc: DBC_TARGET_DIRECTORY requires a directory")
 		}
 		return api.Target{Location: *dir}, nil
-	case targetUser, targetSystem:
+	case targetDefault, targetSystem, targetUser:
 		if dir != nil {
-			return api.Target{}, errors.New("dbc: directory must be NULL for DBC_TARGET_USER and DBC_TARGET_SYSTEM")
+			return api.Target{}, errors.New("dbc: directory must be NULL unless the target is DBC_TARGET_DIRECTORY")
 		}
-		if kind == targetUser {
+		switch kind {
+		case targetSystem:
+			return api.Target{Level: "system"}, nil
+		case targetUser:
 			return api.Target{Level: "user"}, nil
 		}
-		return api.Target{Level: "system"}, nil
+		return api.Target{}, nil
 	}
 	return api.Target{}, fmt.Errorf("dbc: unknown target kind %d", kind)
 }
@@ -52,19 +55,19 @@ func clientConfig(keys, values []string) (api.ClientConfig, error) {
 	for i, key := range keys {
 		value := values[i]
 		switch key {
-		case "base_url":
+		case optBaseURL:
 			cfg.BaseURL = value
-		case "user_agent_suffix":
+		case optUserAgentSuffix:
 			cfg.UserAgentSuffix = value
-		case "credential.registry_url":
+		case optCredentialRegistryURL:
 			cred.RegistryURL = value
-		case "credential.auth_uri":
+		case optCredentialAuthURI:
 			cred.AuthURI = value
-		case "credential.token":
+		case optCredentialToken:
 			cred.Token = value
-		case "credential.refresh_token":
+		case optCredentialRefreshToken:
 			cred.RefreshToken = value
-		case "credential.client_id":
+		case optCredentialClientID:
 			cred.ClientID = value
 		default:
 			return api.ClientConfig{}, fmt.Errorf("dbc: unknown client option %q", key)

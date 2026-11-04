@@ -103,12 +103,17 @@ func searchList(r api.SearchResult) *listObj {
 		l.info[fieldWarning] = C.CString(r.Warning)
 	}
 	for _, d := range r.Drivers {
-		l.rows = append(l.rows, record{
+		row := record{
 			fieldID:          C.CString(d.Path),
 			fieldName:        C.CString(d.Title),
 			fieldLicense:     C.CString(d.License),
 			fieldDescription: C.CString(d.Description),
-		})
+			fieldRegistry:    C.CString(d.Registry),
+		}
+		if d.DocsURL != "" {
+			row[fieldDocsURL] = C.CString(d.DocsURL)
+		}
+		l.rows = append(l.rows, row)
 	}
 	return l
 }

@@ -218,11 +218,7 @@ func getConfig(c config.ConfigLevel) config.Config {
 	case config.ConfigSystem, config.ConfigUser:
 		return config.Get()[c]
 	default:
-		cfg := config.Get()[config.ConfigEnv]
-		if cfg.Location != "" {
-			return cfg
-		}
-		return config.Get()[config.ConfigUser]
+		return config.Default()
 	}
 }
 

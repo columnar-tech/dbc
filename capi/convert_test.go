@@ -33,12 +33,14 @@ func TestTargetFor(t *testing.T) {
 		want api.Target
 		err  string
 	}{
+		{"default", targetDefault, nil, api.Target{}, ""},
 		{"directory", targetDirectory, &dir, api.Target{Location: dir}, ""},
 		{"user", targetUser, nil, api.Target{Level: "user"}, ""},
 		{"system", targetSystem, nil, api.Target{Level: "system"}, ""},
 		{"directory without path", targetDirectory, nil, api.Target{}, "dbc: DBC_TARGET_DIRECTORY requires a directory"},
 		{"directory with empty path", targetDirectory, &empty, api.Target{}, "dbc: DBC_TARGET_DIRECTORY requires a directory"},
-		{"level with path", targetUser, &dir, api.Target{}, "dbc: directory must be NULL for DBC_TARGET_USER and DBC_TARGET_SYSTEM"},
+		{"level with path", targetUser, &dir, api.Target{}, "dbc: directory must be NULL unless the target is DBC_TARGET_DIRECTORY"},
+		{"default with path", targetDefault, &dir, api.Target{}, "dbc: directory must be NULL unless the target is DBC_TARGET_DIRECTORY"},
 		{"unknown kind", 7, nil, api.Target{}, "dbc: unknown target kind 7"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
