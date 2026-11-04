@@ -26,10 +26,10 @@ jobs:
           git show HEAD~1:internal/fslock/fslock_windows.go > /tmp/fixed.go && cp internal/fslock/fslock_windows.go /tmp/fixed.go
           echo '--- new tests against the UNFIXED fslock_windows.go:'
           git show HEAD~1:internal/fslock/fslock_windows.go > internal/fslock/fslock_windows.go
-          go test -count=1 -run 'TestAcquire(WaitsOut|ReportsThe)' ./internal/fslock 2>&1 | tail -4 || true
+          go test -count=1 -run 'TestAcquire(WaitsOut|Reports)' ./internal/fslock 2>&1 | tail -4 || true
           cp /tmp/fixed.go internal/fslock/fslock_windows.go
           echo '--- new tests against the FIXED fslock_windows.go:'
-          go test -count=1 -v -run 'TestAcquire(WaitsOut|ReportsThe)' ./internal/fslock 2>&1 | grep -E '^(--- |ok|FAIL)' || true
+          go test -count=1 -v -run 'TestAcquire(WaitsOut|Reports)' ./internal/fslock 2>&1 | grep -E '^(--- |ok|FAIL)' || true
           go test -c -o config.test.exe ./config
           if [ "${{ matrix.load }}" = with-auth-load ]; then
             go test -c -o auth.test.exe ./auth

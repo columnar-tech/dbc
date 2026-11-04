@@ -79,3 +79,22 @@ func TestAcquireReportsTheOpenErrorAfterTheTimeout(t *testing.T) {
 		t.Fatalf("Acquire with timeout 0 took %s", elapsed)
 	}
 }
+
+// A lasting ERROR_ACCESS_DENIED is a permission failure, not a release in
+// progress: it must be reported promptly even with a long lock timeout.
+// Windows denies opening a directory for writing, which makes it lasting.
+func TestAcquireReportsALastingAccessDeniedPromptly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	_, err := Acquire(path, 10*time.Second)
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		t.Fatalf("Acquire of a lock path that is a directory: err = %v, want ERROR_ACCESS_DENIED", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("a lasting access denial took %s to report; the lock timeout was 10s", elapsed)
+	}
+}

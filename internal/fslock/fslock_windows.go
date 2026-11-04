@@ -68,18 +68,39 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	}
 }
 
-// openLockFile opens the lock file, waiting until deadline while another
-// process's Release is deleting it: during the delete, Windows fails opens
-// with ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED once the file is
-// pending deletion. Past the deadline the open error is returned as is;
-// ERROR_ACCESS_DENIED can also be a real permission failure.
+// accessDeniedRetryFor bounds how long an open failing with
+// ERROR_ACCESS_DENIED is retried. A file pending deletion fails that way only
+// until the deleting process closes its handle, moments later; a lasting
+// ERROR_ACCESS_DENIED is a permission failure and must be reported promptly,
+// not after the whole lock timeout.
+const accessDeniedRetryFor = 250 * time.Millisecond
+
+// openLockFile opens the lock file, waiting while another process's Release
+// is deleting it: during the delete, Windows fails opens with
+// ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED once the file is pending
+// deletion. Sharing violations are retried until deadline, access denials
+// for at most accessDeniedRetryFor; then the open error is returned as is.
 func openLockFile(ctx context.Context, path string, deadline time.Time) (*os.File, error) {
+	accessDeniedUntil := time.Time{}
 	for {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
 		if err == nil {
 			return f, nil
 		}
-		if !isTransientOpenError(err) || !time.Now().Before(deadline) {
+		retryUntil := deadline
+		switch {
+		case errors.Is(err, windows.ERROR_SHARING_VIOLATION):
+		case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+			if accessDeniedUntil.IsZero() {
+				accessDeniedUntil = time.Now().Add(accessDeniedRetryFor)
+			}
+			if accessDeniedUntil.Before(retryUntil) {
+				retryUntil = accessDeniedUntil
+			}
+		default:
+			retryUntil = time.Time{}
+		}
+		if !time.Now().Before(retryUntil) {
 			return nil, fmt.Errorf("fslock: open %s: %w", path, err)
 		}
 		timer := time.NewTimer(10 * time.Millisecond)
@@ -90,10 +111,6 @@ func openLockFile(ctx context.Context, path string, deadline time.Time) (*os.Fil
 		case <-timer.C:
 		}
 	}
-}
-
-func isTransientOpenError(err error) bool {
-	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
 }
 
 func isLockContention(err error) bool {
