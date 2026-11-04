@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -30,6 +29,7 @@ import (
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal"
 	"github.com/columnar-tech/dbc/internal/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,14 +43,10 @@ func isolateUserState(t *testing.T) (configDir, credPath string) {
 	for _, key := range []string{"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME", "XDG_DATA_HOME"} {
 		t.Setenv(key, dir)
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		configDir = filepath.Join(dir, "Library", "Application Support", "Columnar", "dbc")
-	case "windows":
-		configDir = filepath.Join(dir, "Columnar", "dbc")
-	default:
-		configDir = filepath.Join(dir, "columnar", "dbc")
-	}
+	// Where the client looks for the global registry config. Under js with
+	// dbcnode that follows the native host's layout, not runtime.GOOS.
+	configDir, err := internal.GetUserConfigPath()
+	require.NoError(t, err)
 	credPath = filepath.Join(dir, "credentials", "credentials.toml")
 	restore := auth.SetCredPathForTesting(credPath)
 	auth.ResetCredentialsForTesting()
