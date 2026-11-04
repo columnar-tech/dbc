@@ -27,6 +27,7 @@ import (
 )
 
 func TestCleanupVerifiesOwnedLibraryIntegrityBeforeRemoval(t *testing.T) {
+	requirePinnedCleanup(t)
 	for _, mode := range []string{"valid", "mismatch", "missing", "nonregular", "read error"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
@@ -89,6 +90,7 @@ func TestCleanupVerifiesOwnedLibraryIntegrityBeforeRemoval(t *testing.T) {
 }
 
 func TestCleanupRetriesAfterOwnedLibraryWasRemoved(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)
@@ -163,6 +165,7 @@ func TestStaleCleanupRetainsOwnedLibraryHashMismatch(t *testing.T) {
 }
 
 func TestOwnedLibraryIntegrityIsCheckedOnceBeforeRemoval(t *testing.T) {
+	requirePinnedCleanup(t)
 	root := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: root}
 	installInitialPackage(t, cfg)

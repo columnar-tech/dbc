@@ -19,6 +19,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -58,6 +59,9 @@ func TestProxyEnvHelper(t *testing.T) {
 }
 
 func TestProxyEnv(t *testing.T) {
+	if runtime.GOOS == "js" {
+		t.Skip("runs itself as a subprocess, which js/wasm cannot start")
+	}
 	const (
 		httpTarget  = "http://dbc-proxy-test.invalid/index.yaml"
 		httpsTarget = "https://dbc-proxy-test.invalid/index.yaml"

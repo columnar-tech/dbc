@@ -26,6 +26,7 @@ import (
 )
 
 func TestCollectRegistrationSharedMapsAcrossConfigEnvRoots(t *testing.T) {
+	requireLocationLists(t)
 	primary := t.TempDir()
 	secondary := t.TempDir()
 	cfg := Config{Level: ConfigEnv, Location: primary + string(filepath.ListSeparator) + secondary}
@@ -234,6 +235,7 @@ func TestInstallPackageGCProtectsGenerationReferencedFromSecondaryRoot(t *testin
 }
 
 func TestUninstallCountsLowerPriorityRegistrationWithSameID(t *testing.T) {
+	requireLocationLists(t)
 	primary := t.TempDir()
 	secondary := t.TempDir()
 	primaryCfg := Config{Level: ConfigEnv, Location: primary}

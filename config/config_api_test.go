@@ -22,6 +22,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -218,6 +219,9 @@ func TestGetDriver(t *testing.T) {
 	})
 
 	t.Run("multi_path_env_finds_first_match", func(t *testing.T) {
+		if runtime.GOOS == "js" {
+			t.Skip("js takes a single location, not a list")
+		}
 		dir1 := t.TempDir()
 		dir2 := t.TempDir()
 		require.NoError(t, os.WriteFile(

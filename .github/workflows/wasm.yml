@@ -70,6 +70,16 @@ jobs:
         run: node --version
       - name: Build @columnar-tech/dbc-wasm
         run: node packages/npm-wasm/scripts/build.js
+      # The Go tests of the packages in the wasm build, under GOOS=js in Node,
+      # as the browser build and as the Node (dbcnode) build. Not on Windows:
+      # Go's js runner is a shell script, and Windows paths there need the
+      # host path adapter that boot.cjs installs, which go test does not.
+      - name: Go tests (js/wasm, browser build)
+        if: runner.os != 'Windows'
+        run: scripts/test_go_js.sh
+      - name: Go tests (js/wasm, Node build)
+        if: runner.os != 'Windows'
+        run: scripts/test_go_js.sh dbcnode
       - name: Node loader unit tests
         run: node packages/npm-wasm/test/normalize.test.cjs
       - name: Node smoke test
