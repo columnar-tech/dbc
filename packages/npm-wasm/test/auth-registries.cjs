@@ -214,6 +214,18 @@ async function testAuthRegistries(loadDbc, root, worker) {
       stored = fs.readFileSync(credentialFile, "utf8");
       assert(!stored.includes("other-host-token"), "second logout must remove its own token");
       assert(!stored.includes("updated-first-host-token"), "stale runtimes must not resurrect removed hosts");
+
+      // Concurrent mutations from two runtimes (Node workers in worker mode)
+      // must serialize through a lock both can see, or one runtime's
+      // read-modify-write drops the other's entries.
+      const hosts = (prefix) => Array.from({ length: 25 }, (_, i) => `https://${prefix}-${i}.example.test`);
+      const loginAll = (client, urls) => Promise.all(urls.map((registryURL) =>
+        client.login({ registryURL, authURI: registryURL, token: `token-${new URL(registryURL).hostname}` })));
+      const [firstHosts, secondHosts] = [hosts("first"), hosts("second")];
+      await Promise.all([loginAll(first, firstHosts), loginAll(second, secondHosts)]);
+      stored = fs.readFileSync(credentialFile, "utf8");
+      const missing = [...firstHosts, ...secondHosts].filter((url) => !stored.includes(`token-${new URL(url).hostname}`));
+      assert.deepStrictEqual(missing, [], "concurrent logins from two runtimes must all persist");
     } finally {
       await first.close();
       if (second) await second.close();

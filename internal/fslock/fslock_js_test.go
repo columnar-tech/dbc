@@ -163,3 +163,52 @@ func TestAcquireContextTimeout(t *testing.T) {
 		t.Fatalf("AcquireContext error = %v, want ErrLockContended", err)
 	}
 }
+
+// Another Go/Wasm runtime holds the lock only through its marker file, so
+// creating the marker directly stands in for that runtime.
+func TestAcquireContextWaitsForAnotherRuntimesMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	marker := path + ".js"
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fslock.AcquireContext(context.Background(), path, 50*time.Millisecond); !errors.Is(err, fslock.ErrLockContended) {
+		t.Fatalf("AcquireContext with a live marker: error = %v, want ErrLockContended", err)
+	}
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		os.Remove(marker)
+	}()
+	lock, err := fslock.AcquireContext(context.Background(), path, 5*time.Second)
+	if err != nil {
+		t.Fatalf("AcquireContext after the other runtime released: %v", err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("holder must own a marker: %v", err)
+	}
+	if err := lock.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Release must remove the marker, stat error = %v", err)
+	}
+}
+
+// A marker whose heartbeat stopped belongs to a runtime that died holding the
+// lock; it must not block everyone forever.
+func TestAcquireContextRecoversStaleMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.lock")
+	marker := path + ".js"
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(marker, old, old); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := fslock.AcquireContext(context.Background(), path, time.Second)
+	if err != nil {
+		t.Fatalf("AcquireContext with a stale marker: %v", err)
+	}
+	lock.Release()
+}

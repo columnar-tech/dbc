@@ -18,8 +18,12 @@ package fslock
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/hostpath"
@@ -30,8 +34,8 @@ type runtimeLock struct {
 	refs  int
 }
 
-// runtimeLocks coordinates callers that share this Go/Wasm runtime only.
-// Separate Wasm instances and Node workers have independent registries.
+// runtimeLocks orders callers that share this Go/Wasm runtime; the marker
+// file (acquireMarker) orders separate runtimes.
 var runtimeLocks = struct {
 	sync.Mutex
 	byPath map[string]*runtimeLock
@@ -105,19 +109,102 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		dropRuntimeLockRef(entry, canonicalPath)
 		return Lock{}, err
 	}
+	release, err := acquireMarker(ctx, canonicalPath+markerSuffix, path, timeout)
+	if err != nil {
+		entry.token <- struct{}{}
+		dropRuntimeLockRef(entry, canonicalPath)
+		return Lock{}, err
+	}
 
 	var once sync.Once
 	return Lock{releaseFn: func() error {
+		var err error
 		once.Do(func() {
+			err = release()
 			entry.token <- struct{}{}
 			dropRuntimeLockRef(entry, canonicalPath)
 		})
-		return nil
+		return err
 	}}, nil
 }
 
-// Release releases a lock local to this Go/Wasm runtime. It does not coordinate
-// separate Wasm instances or Node workers.
+// The runtime token only orders callers within one Go/Wasm runtime. Separate
+// runtimes (Node workers, other Node processes) share nothing but the
+// filesystem, so the holder also creates a marker file with O_EXCL. While the
+// lock is held a heartbeat refreshes the marker's mtime; a marker untouched for
+// markerStaleAfter belongs to a runtime that died holding the lock and is
+// removed. Native dbc locks with flock/LockFileEx, which Node cannot take, so
+// this does not exclude the native CLI.
+const (
+	markerSuffix     = ".js"
+	markerStaleAfter = 30 * time.Second
+	markerHeartbeat  = markerStaleAfter / 3
+	markerPollEvery  = 10 * time.Millisecond
+)
+
+func acquireMarker(ctx context.Context, marker, path string, timeout time.Duration) (release func() error, err error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
+			f.Close()
+			return holdMarker(marker), nil
+		}
+		if errors.Is(err, syscall.ENOSYS) {
+			// No filesystem (the browser build): nothing outside this runtime
+			// can contend, so the runtime token is the whole lock.
+			return func() error { return nil }, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
+		}
+		if info, statErr := os.Stat(marker); statErr == nil && time.Since(info.ModTime()) > markerStaleAfter {
+			// Re-check right before removing, to narrow the window in which a
+			// new holder's marker could be mistaken for the stale one.
+			if again, err := os.Stat(marker); err == nil && again.ModTime().Equal(info.ModTime()) {
+				os.Remove(marker)
+			}
+			continue
+		}
+		if timeout <= 0 || time.Now().After(deadline) {
+			return nil, fmt.Errorf("fslock: could not acquire lock on %s within %s: %w", path, timeout, ErrLockContended)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(markerPollEvery):
+		}
+	}
+}
+
+// holdMarker keeps marker fresh until the returned release removes it.
+func holdMarker(marker string) func() error {
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(markerHeartbeat)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case now := <-ticker.C:
+				os.Chtimes(marker, now, now)
+			}
+		}
+	}()
+	return func() error {
+		close(stop)
+		<-done
+		if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("fslock: remove %s: %w", marker, err)
+		}
+		return nil
+	}
+}
+
+// Release releases the lock: the runtime token and, where there is a
+// filesystem, the marker file other Go/Wasm runtimes wait on.
 func (l Lock) Release() error {
 	if l.releaseFn == nil {
 		return nil
