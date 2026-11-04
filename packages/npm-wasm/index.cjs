@@ -195,7 +195,8 @@ function buildClient({ call, handle, hasInstall, close }) {
     // dbcInstall takes the client handle (it needs the instance's registry
     // config); dbcUninstall/dbcList are pure filesystem ops and intentionally
     // do not — per-instance config does not apply to them.
-    api.install = (name, location) => parse("dbcInstall", [handle, name, normalizeLocation(location)]);
+    api.install = (name, location, options = {}) =>
+      parse("dbcInstall", [handle, name, normalizeLocation(location), Boolean(options.allowUnsigned)]);
     api.uninstall = async (name, location) => {
       await call("dbcUninstall", [name, normalizeLocation(location)]);
     };
