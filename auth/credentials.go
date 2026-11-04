@@ -120,16 +120,66 @@ func (t *Credential) Refresh(ctx context.Context) error {
 }
 
 // RefreshAndPersist refreshes t and, if t came from the credential store,
-// writes the refreshed credential back (see persistRefreshed). Persisting is
-// best effort: the refreshed token is used even if the write fails.
-// Must not be called while credMu is held.
+// writes the refreshed credential back. Must not be called while credMu is
+// held.
+//
+// For a stored credential, the decision to refresh is made under the store's
+// cross-process lock, from a read made while holding it: processes that need
+// the same credential at once refresh it once, and the rest use the token
+// the first one stored. Holding the lock is bounded: the refresh under it
+// gets credentialLockTimeout, and a process that cannot get the lock within
+// that refreshes on its own without writing, so a stuck holder costs an extra
+// refresh rather than a hang. Persisting is best effort: the refreshed token
+// is used even if the write fails.
 func (t *Credential) RefreshAndPersist(ctx context.Context) error {
+	if _, fromStore := storeIssued.Load(t); !fromStore {
+		return t.Refresh(ctx)
+	}
+	// Captured before waiting for the lock: a token that appears in the store
+	// meanwhile is newer than the one this call set out to replace.
 	before := *t
-	if err := t.Refresh(ctx); err != nil {
+	release, err := lockCredentialFile()
+	if err != nil {
+		return t.Refresh(ctx)
+	}
+	defer release()
+
+	stored, err := storedCredential(t.RegistryURL.Host)
+	if err != nil {
+		return t.Refresh(ctx) // an unreadable store must not block the refresh
+	}
+	if stored != nil {
+		if stored.Token != "" && stored.Token != before.Token {
+			*t = *stored // refreshed (or logged in again) by another process
+			return nil
+		}
+		// Refresh what the store holds now, e.g. a newer login's API key.
+		before = *stored
+		*t = *stored
+	}
+	refreshCtx, cancel := context.WithTimeout(ctx, credentialLockTimeout)
+	defer cancel()
+	if err := t.Refresh(refreshCtx); err != nil {
 		return err
 	}
 	_ = persistRefreshed(before, t)
 	return nil
+}
+
+// storedCredential returns the credential file's current entry for host, or
+// nil if it has none.
+func storedCredential(host string) (*Credential, error) {
+	credMu.Lock()
+	creds, err := loadCreds()
+	credMu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	idx := slices.IndexFunc(creds, func(c Credential) bool { return c.RegistryURL.Host == host })
+	if idx == -1 {
+		return nil, nil
+	}
+	return &creds[idx], nil
 }
 
 // GetAuthToken returns the current token, refreshing if needed.
@@ -349,22 +399,18 @@ func UpdateCreds() error {
 	return writeCreds(loadedCredentials)
 }
 
-// persistRefreshed writes cred, refreshed from before, back to the store. It
-// merges by host into the latest file contents, so other processes' changes
-// survive: it skips credentials not from the store (e.g. injected by a
-// binding), hosts removed since, and hosts whose stored entry no longer
-// matches before because another process logged in again.
+// persistRefreshed writes cred, refreshed from before, back to the store. The
+// caller holds the credential file lock. It merges by host into the latest
+// file contents, so other processes' changes survive: it skips credentials
+// not from the store (e.g. injected by a binding), hosts removed since, and
+// hosts whose stored entry no longer matches before because another process
+// logged in again.
 func persistRefreshed(before Credential, cred *Credential) error {
 	// Checked first so injected credentials never load or touch the store.
 	if _, fromStore := storeIssued.Load(cred); !fromStore {
 		return nil
 	}
 
-	release, err := lockCredentialFile()
-	if err != nil {
-		return err
-	}
-	defer release()
 	credMu.Lock()
 	defer credMu.Unlock()
 
