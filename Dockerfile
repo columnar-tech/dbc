@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM alpine:latest AS base
+# Only architecture-independent files come from this stage, so it runs on the
+# build platform: building the arm64 image needs no emulation.
+FROM --platform=$BUILDPLATFORM alpine:latest AS base
 
 # Notes
 # 1. `ca-certificates` is so we can use TLS (i.e., so dbc search works)
@@ -22,7 +24,9 @@ RUN apk --update add ca-certificates && \
   chmod 1777 /tmp
 
 FROM scratch
+# GoReleaser's dockers_v2 puts each platform's binary in <os>/<arch>/.
+ARG TARGETPLATFORM
 COPY --from=base /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=base /tmp /tmp
 ENTRYPOINT ["/dbc"]
-COPY dbc /
+COPY $TARGETPLATFORM/dbc /

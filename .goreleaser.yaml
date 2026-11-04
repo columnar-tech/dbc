@@ -238,77 +238,24 @@ changelog:
       - "^docs:"
       - "^test:"
 
-dockers:
-  - image_templates:
-    - "columnar/dbc:{{ .Version }}-amd64"
-    ids:
-      - dbc
-    use: buildx
+# One multi-platform image, built and pushed in the publish phase. The version
+# tag is always pushed; the others skip prereleases, as skip_push: auto did.
+# A snapshot build loads one image per platform instead (<tag>-amd64, ...).
+dockers_v2:
+  - ids:
+      - dbc # the CLI build only, not the libdbc builds
     dockerfile: Dockerfile
-    skip_push: false
-    build_flag_templates:
-      - "--platform=linux/amd64"
-  - image_templates:
-    - "columnar/dbc:{{ .Tag }}-amd64"
-    - "columnar/dbc:v{{ .Major }}-amd64"
-    - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-amd64"
-    - "columnar/dbc:latest-amd64"
-    ids:
-      - dbc
-    use: buildx
-    dockerfile: Dockerfile
-    skip_push: auto
-    build_flag_templates:
-      - "--platform=linux/amd64"
-  - image_templates:
-    - "columnar/dbc:{{ .Version }}-arm64v8"
-    ids:
-      - dbc
-    use: buildx
-    goarch: arm64
-    dockerfile: Dockerfile
-    skip_push: false
-    build_flag_templates:
-      - "--platform=linux/arm64/v8"
-  - image_templates:
-    - "columnar/dbc:{{ .Tag }}-arm64v8"
-    - "columnar/dbc:v{{ .Major }}-arm64v8"
-    - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
-    - "columnar/dbc:latest-arm64v8"
-    ids:
-      - dbc
-    use: buildx
-    goarch: arm64
-    dockerfile: Dockerfile
-    skip_push: auto
-    build_flag_templates:
-      - "--platform=linux/arm64/v8"
-
-docker_manifests:
-  - name_template: "columnar/dbc:{{ .Version }}"
-    image_templates:
-      - "columnar/dbc:{{ .Version }}-amd64"
-      - "columnar/dbc:{{ .Version }}-arm64v8"
-  - name_template: "columnar/dbc:v{{ .Major }}"
-    skip_push: auto
-    image_templates:
-      - "columnar/dbc:v{{ .Major }}-amd64"
-      - "columnar/dbc:v{{ .Major }}-arm64v8"
-  - name_template: "columnar/dbc:v{{ .Major }}.{{ .Minor }}"
-    skip_push: auto
-    image_templates:
-      - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-amd64"
-      - "columnar/dbc:v{{ .Major }}.{{ .Minor }}-arm64v8"
-  - name_template: "columnar/dbc:{{ .Tag }}"
-    skip_push: auto
-    image_templates:
-      - "columnar/dbc:{{ .Tag }}-amd64"
-      - "columnar/dbc:{{ .Tag }}-arm64v8"
-  - name_template: "columnar/dbc:latest"
-    skip_push: auto
-    image_templates:
-      - "columnar/dbc:latest-amd64"
-      - "columnar/dbc:latest-arm64v8"
+    images:
+      - columnar/dbc
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}{{ .Tag }}{{ end }}"
+      - "{{ if not .Prerelease }}v{{ .Major }}{{ end }}"
+      - "{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
 
 # dockerhub:
 #   - username: "columnar"
@@ -562,7 +509,6 @@ homebrew_casks:
       - archives
     url:
       template: "https://github.com/columnar-tech/dbc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-      verified: "github.com/columnar-tech/dbc/"
       cookies:
         license: "accept-backup"
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
