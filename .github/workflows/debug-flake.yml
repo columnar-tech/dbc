@@ -29,6 +29,8 @@ jobs:
           fi
           rc=0
           ./config.test.exe -test.run '^TestRegistrationNamespaceLockSerializesInstallCleanupAndCreateManifest$' -test.count=300 -test.v > out.txt 2>&1 || rc=$?
+          # Diagnostics only from here: greps that match nothing must not fail the step.
+          set +e +o pipefail
           echo "exit=$rc"
           echo "passes: $(grep -c -- '--- PASS' out.txt)  fails: $(grep -c -- '--- FAIL' out.txt)"
           grep 'DEBUG:' out.txt | sed -E 's/after [0-9.]+[µm]?s/after T/; s/[0-9]+ probes/N probes/' | sort | uniq -c | sort -rn | head -20
