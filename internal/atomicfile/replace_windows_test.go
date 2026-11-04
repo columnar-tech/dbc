@@ -15,10 +15,14 @@
 package atomicfile
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 // os.Open does not share delete access, so on Windows a reader that has the
@@ -48,5 +52,46 @@ func TestReplaceWaitsForReaderToClose(t *testing.T) {
 	}
 	if string(got) != "new" {
 		t.Fatalf("destination = %q, want %q", got, "new")
+	}
+}
+
+// A replacement briefly holds the destination exclusively, so a reader must
+// wait for it instead of failing with a sharing violation.
+func TestOpenWaitsForExclusiveHolder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Share mode 0: no other handle may open the file while this one is open.
+	h, err := windows.CreateFile(name, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, windows.FILE_ATTRIBUTE_NORMAL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		windows.CloseHandle(h)
+	}()
+
+	f, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open while another handle held the file exclusively: %v", err)
+	}
+	f.Close()
+}
+
+// A missing file is the normal "nothing written yet" case for callers, so it
+// must not wait out the retry window.
+func TestOpenMissingFileFailsImmediately(t *testing.T) {
+	start := time.Now()
+	_, err := Open(filepath.Join(t.TempDir(), "missing"))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Open of a missing file: error = %v, want ErrNotExist", err)
+	}
+	if elapsed := time.Since(start); elapsed > transientFor/4 {
+		t.Fatalf("Open of a missing file took %s; it must not retry", elapsed)
 	}
 }

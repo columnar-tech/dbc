@@ -16,21 +16,20 @@ package atomicfile
 
 import (
 	"errors"
+	"os"
 	"time"
 
 	"golang.org/x/sys/windows"
 )
 
-// replaceRetryFor bounds how long replace waits for other handles on the
-// destination to close. Readers (os.Open in this or another process) hold it
-// only while reading, so this is generous; cmd/go's robustio uses the same.
-const replaceRetryFor = 2 * time.Second
+// transientFor bounds how long replace and openForRead wait out other
+// handles on the file. Readers and replacements hold it only briefly, so this
+// is generous; cmd/go's robustio uses the same.
+const transientFor = 2 * time.Second
 
 // replace renames source over destination. Windows refuses to replace a file
 // while another handle without FILE_SHARE_DELETE has it open, which includes
 // every os.Open, failing with ERROR_ACCESS_DENIED or ERROR_SHARING_VIOLATION.
-// Retry those with backoff until replaceRetryFor, then return the last error:
-// ERROR_ACCESS_DENIED can also be permanent (a read-only destination).
 func replace(source, destination string) error {
 	src, err := windows.UTF16PtrFromString(source)
 	if err != nil {
@@ -40,16 +39,36 @@ func replace(source, destination string) error {
 	if err != nil {
 		return err
 	}
-	deadline := time.Now().Add(replaceRetryFor)
+	return retryTransient(func() error {
+		return windows.MoveFileEx(src, dst, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+	})
+}
+
+// openForRead opens path, waiting out a concurrent replace, which briefly holds
+// the file exclusively (ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED while
+// the replaced file is pending deletion).
+func openForRead(path string) (f *os.File, err error) {
+	err = retryTransient(func() error {
+		f, err = os.Open(path)
+		return err
+	})
+	return f, err
+}
+
+// retryTransient calls op until it succeeds, fails with a non-transient error,
+// or transientFor passes, backing off up to 100ms between attempts. The last
+// error is returned: ERROR_ACCESS_DENIED can also be permanent.
+func retryTransient(op func() error) error {
+	deadline := time.Now().Add(transientFor)
 	for delay := time.Millisecond; ; delay = min(2*delay, 100*time.Millisecond) {
-		err = windows.MoveFileEx(src, dst, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
-		if err == nil || !isTransientReplaceError(err) || time.Now().After(deadline) {
+		err := op()
+		if err == nil || !isTransient(err) || time.Now().After(deadline) {
 			return err
 		}
 		time.Sleep(delay)
 	}
 }
 
-func isTransientReplaceError(err error) bool {
+func isTransient(err error) bool {
 	return errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_SHARING_VIOLATION)
 }

@@ -178,7 +178,9 @@ func loadCreds() ([]Credential, error) {
 		return nil, fmt.Errorf("failed to get credential path: %w", err)
 	}
 
-	credFile, err := os.Open(cp)
+	// writeCreds replaces the file atomically; atomicfile.Open waits out the
+	// moment a replacement holds it exclusively on Windows.
+	credFile, err := atomicfile.Open(cp)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return []Credential{}, nil
