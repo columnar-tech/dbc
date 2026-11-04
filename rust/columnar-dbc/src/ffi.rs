@@ -71,8 +71,13 @@ impl List {
 
     /// A row field; empty when it doesn't apply to this list.
     pub(crate) fn get(&self, row: usize, field: sys::dbc_field) -> String {
+        self.get_opt(row, field).unwrap_or_default()
+    }
+
+    /// A row field; `None` when absent.
+    pub(crate) fn get_opt(&self, row: usize, field: sys::dbc_field) -> Option<String> {
         // SAFETY: the list is live; the string is copied before it can be freed.
-        unsafe { opt_string(sys::dbc_list_get(self.0, row, field)) }.unwrap_or_default()
+        unsafe { opt_string(sys::dbc_list_get(self.0, row, field)) }
     }
 
     /// A list-level field; `None` when absent.

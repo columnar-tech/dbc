@@ -25,7 +25,7 @@ fn installed(location: &InstallLocation) -> bool {
 }
 
 fn roundtrip(location: InstallLocation) {
-    let manifest = common::client().install("test-driver-1", &location).unwrap();
+    let manifest = common::client().install_at("test-driver-1", &location).unwrap();
     assert!(Path::new(&manifest.driver_path).exists(), "{manifest:?}");
     assert!(installed(&location));
     uninstall("test-driver-1", &location).unwrap();

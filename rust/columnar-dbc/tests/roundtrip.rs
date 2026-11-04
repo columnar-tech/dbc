@@ -30,6 +30,8 @@ fn search_resolve_install_list_uninstall() {
     assert_eq!(search.drivers.len(), 1, "{search:?}");
     assert_eq!(search.drivers[0].path, "test-driver-1");
     assert_eq!(search.drivers[0].title, "Test Driver 1");
+    assert!(search.drivers[0].registry.starts_with("http://127.0.0.1:"), "{search:?}");
+    assert_eq!(search.drivers[0].docs_url.as_deref(), Some("https://example.test/docs"));
     assert_eq!(search.warning, None);
 
     let resolved = client.resolve("test-driver-1", None).unwrap();
@@ -38,7 +40,7 @@ fn search_resolve_install_list_uninstall() {
     assert!(resolved.latest.as_ref().is_some_and(|l| l.url.ends_with(".tar.gz")), "{resolved:?}");
 
     let (_dir, location) = temp_location();
-    let manifest = client.install("test-driver-1", &location).unwrap();
+    let manifest = client.install_at("test-driver-1", &location).unwrap();
     assert_eq!(manifest.id, "test-driver-1");
     assert!(Path::new(&manifest.driver_path).exists(), "{manifest:?}");
 
@@ -55,7 +57,7 @@ fn install_rejects_a_bad_signature_unless_allowed() {
     let client = common::client();
 
     let (_dir, location) = temp_location();
-    match client.install("test-driver-tampered", &location) {
+    match client.install_at("test-driver-tampered", &location) {
         Err(Error::Dbc(msg)) => assert!(msg.contains("signature verification failed"), "{msg}"),
         other => panic!("expected a signature error, got {other:?}"),
     }

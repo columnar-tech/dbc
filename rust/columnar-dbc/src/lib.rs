@@ -11,27 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//! Rust bindings for [dbc](https://columnar.tech/dbc): search, resolve, and
-//! install ADBC drivers.
-//!
-//! dbc is linked as a library through `columnar-dbc-sys`; no `dbc` executable
-//! or Go toolchain is needed to build or run. Every call blocks the
-//! calling thread on network/filesystem I/O; from async code, run it on a
-//! blocking thread (e.g. `tokio::task::spawn_blocking`).
-//!
-//! # Linking libdbc
-//!
-//! By default, an installed libdbc is located through the `dbc` pkg-config
-//! module. Enable the `bundled` feature to link a prebuilt library from a
-//! platform crate instead. Alternatively, set `DBC_SYS_LIB_DIR` to a custom
-//! library directory, or `DBC_SYS_USE_PKG_CONFIG` to use pkg-config even with
-//! `bundled` enabled. Source precedence is custom directory, then the
-//! `DBC_SYS_USE_PKG_CONFIG` override, then bundled, then pkg-config.
-//! System/custom linking is static unless `DBC_DYNAMIC` is present; dynamic
-//! linking requires the shared library on the runtime loader's search path.
-//!
-//! See the [`columnar_dbc_sys`] crate documentation for development packages,
-//! configuration examples, and the full linking conventions.
+#![doc = include_str!("../README.md")]
 
 mod ffi;
 mod types;
@@ -40,7 +20,7 @@ pub use types::*;
 
 use columnar_dbc_sys as sys;
 use ffi::{check, cstring, ptr_or_null, List};
-use std::ffi::{c_char, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::fmt;
 use std::path::Path;
 use std::ptr;
@@ -85,27 +65,27 @@ impl Client {
     }
 
     pub fn with_config(config: &ClientConfig) -> Result<Self> {
-        // Keys are the option names documented in libdbc.h.
-        let mut options: Vec<(&str, &str)> = vec![("user_agent_suffix", USER_AGENT_SUFFIX)];
+        let mut options: Vec<(&[u8], &str)> = vec![(sys::DBC_OPTION_USER_AGENT_SUFFIX, USER_AGENT_SUFFIX)];
         if let Some(url) = &config.base_url {
-            options.push(("base_url", url.as_str()));
+            options.push((sys::DBC_OPTION_BASE_URL, url.as_str()));
         }
         if let Some(c) = &config.credential {
-            options.push(("credential.registry_url", c.registry_url.as_str()));
-            options.push(("credential.auth_uri", c.auth_uri.as_str()));
+            options.push((sys::DBC_OPTION_CREDENTIAL_REGISTRY_URL, c.registry_url.as_str()));
+            options.push((sys::DBC_OPTION_CREDENTIAL_AUTH_URI, c.auth_uri.as_str()));
             for (key, value) in [
-                ("credential.token", &c.token),
-                ("credential.refresh_token", &c.refresh_token),
-                ("credential.client_id", &c.client_id),
+                (&sys::DBC_OPTION_CREDENTIAL_TOKEN[..], &c.token),
+                (sys::DBC_OPTION_CREDENTIAL_REFRESH_TOKEN, &c.refresh_token),
+                (sys::DBC_OPTION_CREDENTIAL_CLIENT_ID, &c.client_id),
             ] {
                 if let Some(value) = value {
                     options.push((key, value.as_str()));
                 }
             }
         }
-        let keys = options.iter().map(|(k, _)| cstring(k)).collect::<Result<Vec<_>>>()?;
+        // The DBC_OPTION_* keys are NUL-terminated C string literals.
+        let keys = options.iter().map(|(k, _)| CStr::from_bytes_with_nul(k).expect("DBC_OPTION_* is a C string"));
         let values = options.iter().map(|(_, v)| cstring(v)).collect::<Result<Vec<_>>>()?;
-        let mut key_ptrs: Vec<*mut c_char> = keys.iter().map(|k| k.as_ptr().cast_mut()).collect();
+        let mut key_ptrs: Vec<*mut c_char> = keys.map(|k| k.as_ptr().cast_mut()).collect();
         let mut value_ptrs: Vec<*mut c_char> = values.iter().map(|v| v.as_ptr().cast_mut()).collect();
 
         let mut client = ptr::null_mut();
@@ -128,6 +108,8 @@ impl Client {
                 title: list.get(i, sys::DBC_FIELD_NAME),
                 license: list.get(i, sys::DBC_FIELD_LICENSE),
                 description: list.get(i, sys::DBC_FIELD_DESCRIPTION),
+                docs_url: list.get_opt(i, sys::DBC_FIELD_DOCS_URL),
+                registry: list.get(i, sys::DBC_FIELD_REGISTRY),
             })
             .collect();
         Ok(SearchResult { drivers, warning: list.info(sys::DBC_FIELD_WARNING) })
@@ -153,13 +135,20 @@ impl Client {
         })
     }
 
-    /// Installs `name` at `location`, verifying its signature with Columnar's
+    /// Installs `name` where `dbc install` would without `-l` (see
+    /// [`InstallLocation::Default`]), verifying its signature with Columnar's
     /// key; a driver that fails verification is removed and an error returned.
-    pub fn install(&self, name: &str, location: &InstallLocation) -> Result<Manifest> {
+    pub fn install(&self, name: &str) -> Result<Manifest> {
+        self.install_at(name, &InstallLocation::Default)
+    }
+
+    /// [`install`](Self::install) into `location`.
+    pub fn install_at(&self, name: &str, location: &InstallLocation) -> Result<Manifest> {
         self.install_with(name, location, &InstallOptions::default())
     }
 
-    /// [`install`](Self::install) with options, e.g. to allow unsigned drivers.
+    /// [`install_at`](Self::install_at) with options, e.g. to allow unsigned
+    /// drivers.
     pub fn install_with(&self, name: &str, location: &InstallLocation, options: &InstallOptions) -> Result<Manifest> {
         let name = cstring(name)?;
         let target = Target::new(location)?;
@@ -217,6 +206,7 @@ struct Target {
 impl Target {
     fn new(location: &InstallLocation) -> Result<Self> {
         Ok(match location {
+            InstallLocation::Default => Self { kind: sys::DBC_TARGET_DEFAULT, directory: None },
             InstallLocation::User => Self { kind: sys::DBC_TARGET_USER, directory: None },
             InstallLocation::System => Self { kind: sys::DBC_TARGET_SYSTEM, directory: None },
             InstallLocation::Directory(dir) => {

@@ -23,7 +23,7 @@ fn index() -> String {
     let mut index = String::from("drivers:\n");
     for (path, title) in [("test-driver-1", "Test Driver 1"), ("test-driver-tampered", "Tampered Driver")] {
         index += &format!(
-            "  - name: {title}\n    description: Test driver\n    license: MIT\n    path: {path}\n    pkginfo:\n      - version: v1.0.0\n        packages:\n"
+            "  - name: {title}\n    description: Test driver\n    license: MIT\n    path: {path}\n    docs_url: https://example.test/docs\n    pkginfo:\n      - version: v1.0.0\n        packages:\n"
         );
         for platform in PLATFORMS {
             index += &format!("          - platform: {platform}\n            url: {path}/1.0.0/{platform}.tar.gz\n");

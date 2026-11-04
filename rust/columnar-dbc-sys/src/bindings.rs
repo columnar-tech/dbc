@@ -19,9 +19,17 @@
 
 pub const DBC_OK: i32 = 0;
 pub const DBC_ERROR: i32 = 1;
-pub const DBC_TARGET_DIRECTORY: i32 = 0;
-pub const DBC_TARGET_USER: i32 = 1;
-pub const DBC_TARGET_SYSTEM: i32 = 2;
+pub const DBC_OPTION_BASE_URL: &[u8; 9] = b"base_url\0";
+pub const DBC_OPTION_USER_AGENT_SUFFIX: &[u8; 18] = b"user_agent_suffix\0";
+pub const DBC_OPTION_CREDENTIAL_REGISTRY_URL: &[u8; 24] = b"credential.registry_url\0";
+pub const DBC_OPTION_CREDENTIAL_AUTH_URI: &[u8; 20] = b"credential.auth_uri\0";
+pub const DBC_OPTION_CREDENTIAL_TOKEN: &[u8; 17] = b"credential.token\0";
+pub const DBC_OPTION_CREDENTIAL_REFRESH_TOKEN: &[u8; 25] = b"credential.refresh_token\0";
+pub const DBC_OPTION_CREDENTIAL_CLIENT_ID: &[u8; 21] = b"credential.client_id\0";
+pub const DBC_TARGET_DEFAULT: i32 = 0;
+pub const DBC_TARGET_SYSTEM: i32 = 1;
+pub const DBC_TARGET_USER: i32 = 2;
+pub const DBC_TARGET_DIRECTORY: i32 = 3;
 pub const DBC_INSTALL_ALLOW_UNSIGNED: i32 = 1;
 pub const DBC_FIELD_ID: i32 = 0;
 pub const DBC_FIELD_NAME: i32 = 1;
@@ -35,6 +43,8 @@ pub const DBC_FIELD_WARNING: i32 = 8;
 pub const DBC_FIELD_PLATFORM: i32 = 9;
 pub const DBC_FIELD_LATEST_VERSION: i32 = 10;
 pub const DBC_FIELD_LATEST_URL: i32 = 11;
+pub const DBC_FIELD_REGISTRY: i32 = 12;
+pub const DBC_FIELD_DOCS_URL: i32 = 13;
 #[repr(C)]
 #[derive(Debug)]
 pub struct dbc_error {

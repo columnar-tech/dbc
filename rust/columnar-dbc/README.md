@@ -7,32 +7,40 @@ via pkg-config, or from a prebuilt static library with the `bundled` feature.
 There is no `dbc` executable to install and no Go toolchain needed at build
 time.
 
-```rust
+```rust,no_run
 use columnar_dbc::{list_installed, Client, InstallLocation};
 
+// First create a Client
 let client = Client::new()?;
+
+// Search for a driver using a pattern
 for d in client.search("postgres")?.drivers {
     println!("{} - {}", d.path, d.description);
 }
 
-// Into dbc's user-level location, like `dbc install -l user` ...
-let manifest = client.install("postgresql", &InstallLocation::User)?;
+// Install a driver where `dbc install` would without -l: ADBC_DRIVER_PATH,
+// $VIRTUAL_ENV, or $CONDA_PREFIX if set, otherwise the user level.
+let manifest = client.install("postgresql")?;
 println!("installed {} {} at {}", manifest.id, manifest.version, manifest.driver_path);
 
-// ... or into an explicit directory.
+// You can also install the driver to a specific level or directory.
 let dir = InstallLocation::Directory("/opt/adbc/drivers".into());
-client.install("postgresql", &dir)?;
+client.install_at("postgresql", &dir)?;
 assert_eq!(list_installed(&dir)?.len(), 1);
 # Ok::<(), columnar_dbc::Error>(())
 ```
 
-`install` verifies each driver's signature with Columnar's key and removes a
-driver that fails. For drivers from a trusted private registry,
+`install` verifies each driver's signature with Columnar's public signing key
+and cleans up a driver that fails verification. For drivers from a trusted
+private registry,
 `install_with(name, &location, &InstallOptions::default().allow_unsigned(true))`
-skips that, like the CLI's `--no-verify`. `InstallLocation::System` matches
-`dbc install -l system` and usually needs elevated privileges. Calls block on
-network and filesystem I/O; from async code, use `spawn_blocking`. `Client` is
-`Send` but not `Sync`.
+skips that, like the CLI's `--no-verify`. `InstallLocation::User` and
+`InstallLocation::System` match `dbc install -l user|system`; the system level
+usually needs elevated privileges. dbc reads `ADBC_DRIVER_PATH`,
+`VIRTUAL_ENV`, and `CONDA_PREFIX` when the process starts, so changing them
+later from Rust has no effect; use `InstallLocation::Directory` instead.
+Calls block on network and filesystem I/O; from async code, use
+`spawn_blocking`. `Client` is `Send` but not `Sync`.
 
 ## Linking libdbc
 

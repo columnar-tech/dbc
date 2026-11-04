@@ -34,8 +34,14 @@ pub struct Credential {
 }
 
 /// Where drivers are installed, uninstalled, and listed.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum InstallLocation {
+    /// The location `dbc install` uses without `-l`: the first of
+    /// `ADBC_DRIVER_PATH`, `$VIRTUAL_ENV`, or `$CONDA_PREFIX` that is set,
+    /// otherwise the user level. dbc reads these variables when the process
+    /// starts.
+    #[default]
+    Default,
     /// dbc's user-level location, as `dbc install -l user`.
     User,
     /// dbc's system-level location, as `dbc install -l system`; usually needs
@@ -69,6 +75,10 @@ pub struct Driver {
     pub title: String,
     pub license: String,
     pub description: String,
+    pub docs_url: Option<String>,
+    /// Base URL of the registry the driver came from; distinguishes drivers
+    /// with the same path on several registries.
+    pub registry: String,
 }
 
 #[derive(Debug, Clone)]
