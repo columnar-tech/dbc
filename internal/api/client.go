@@ -26,6 +26,7 @@ import (
 
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 )
 
 // Credential is a token credential for one private registry, injected by the
@@ -54,9 +55,8 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 		opts = append(opts, dbc.WithHTTPClient(hc))
 	}
 	if cfg.BaseURL != "" {
-		// dbc.WithBaseURL panics on a malformed URL; report it as an error.
-		if _, err := url.Parse(cfg.BaseURL); err != nil {
-			return nil, fmt.Errorf("invalid baseURL: %w", err)
+		if _, err := registryurl.Parse(cfg.BaseURL); err != nil {
+			return nil, fmt.Errorf("invalid baseURL %w", err)
 		}
 		opts = append(opts, dbc.WithBaseURL(cfg.BaseURL))
 	}
@@ -73,17 +73,19 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 	return dbc.NewClient(opts...)
 }
 
-// credentialOption serves c for its registry host only. The *auth.Credential
-// is shared by every request on the client, so a refreshed access token is
-// kept instead of being rebuilt from the original (possibly stale) token.
+// credentialOption serves c for requests to its registry's host, matching how
+// dbc's credential store looks credentials up (auth.GetCredentials compares
+// hosts, not full URLs). The *auth.Credential is shared by every request on
+// the client, so a refreshed access token is kept instead of being rebuilt
+// from the original (possibly stale) token.
 func credentialOption(c Credential) (dbc.Option, error) {
-	regURL, err := url.Parse(c.RegistryURL)
+	regURL, err := registryurl.Parse(c.RegistryURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid credential registryURL: %w", err)
+		return nil, fmt.Errorf("invalid credential registryURL %w", err)
 	}
-	authURI, err := url.Parse(c.AuthURI)
+	authURI, err := registryurl.Parse(c.AuthURI)
 	if err != nil {
-		return nil, fmt.Errorf("invalid credential authURI: %w", err)
+		return nil, fmt.Errorf("invalid credential authURI %w", err)
 	}
 	cred := &auth.Credential{
 		Type:         auth.TypeToken,

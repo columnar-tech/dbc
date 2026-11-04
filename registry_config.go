@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/columnar-tech/dbc/internal/registryurl"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -73,15 +74,8 @@ func validateRegistryEntry(e RegistryEntry) error {
 	if e.URL == "" {
 		return errors.New("registry entry has empty url")
 	}
-	u, err := url.Parse(e.URL)
-	if err != nil {
-		return fmt.Errorf("invalid registry URL %q: %w", e.URL, err)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("invalid registry URL %q: missing host", e.URL)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("invalid registry URL %q: scheme must be http or https", e.URL)
+	if _, err := registryurl.Parse(e.URL); err != nil {
+		return fmt.Errorf("invalid registry URL %w", err)
 	}
 	return nil
 }

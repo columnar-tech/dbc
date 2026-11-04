@@ -62,19 +62,28 @@ func newClient(t *testing.T) *dbc.Client {
 }
 
 // A malformed baseURL must be an error, not a panic that takes down the
-// JS or C host.
+// JS or C host. url.Parse accepts the scheme- and host-less cases.
 func TestNewClientRejectsInvalidBaseURL(t *testing.T) {
-	_, err := api.NewClient(api.ClientConfig{BaseURL: "http://\x00"}, nil)
-	require.ErrorContains(t, err, "invalid baseURL")
+	for _, u := range []string{"http://\x00", "example.com", "ftp://example.com", "https:///path"} {
+		_, err := api.NewClient(api.ClientConfig{BaseURL: u}, nil)
+		require.ErrorContains(t, err, "invalid baseURL", u)
+	}
 }
 
 func TestNewClientRejectsInvalidCredentialURL(t *testing.T) {
 	_, err := api.NewClient(api.ClientConfig{Credential: &api.Credential{
-		RegistryURL: "http://\x00",
+		RegistryURL: "registry.example.test",
 		AuthURI:     "http://example.test",
 		Token:       "t",
 	}}, nil)
 	require.ErrorContains(t, err, "invalid credential registryURL")
+
+	_, err = api.NewClient(api.ClientConfig{Credential: &api.Credential{
+		RegistryURL: "https://registry.example.test",
+		AuthURI:     "auth.example.test",
+		Token:       "t",
+	}}, nil)
+	require.ErrorContains(t, err, "invalid credential authURI")
 }
 
 // The JSON names are consumed by @columnar-tech/dbc-wasm and the columnar-dbc
