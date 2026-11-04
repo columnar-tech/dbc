@@ -22,6 +22,7 @@ jobs:
       - name: Repro
         shell: bash
         run: |
+          set +e
           go test -c -o config.test.exe ./config
           if [ "${{ matrix.load }}" = with-auth-load ]; then
             go test -c -o auth.test.exe ./auth
