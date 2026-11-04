@@ -30,13 +30,13 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	if err := ctx.Err(); err != nil {
 		return Lock{}, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	deadline := time.Now().Add(timeout)
+	f, err := openLockFile(ctx, path, deadline)
 	if err != nil {
-		return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
+		return Lock{}, err
 	}
 
 	ol := new(windows.Overlapped)
-	deadline := time.Now().Add(timeout)
 	for {
 		if err := ctx.Err(); err != nil {
 			f.Close()
@@ -63,6 +63,51 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 			timer.Stop()
 			f.Close()
 			return Lock{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// accessDeniedRetryFor bounds how long an open failing with
+// ERROR_ACCESS_DENIED is retried. A file pending deletion fails that way only
+// until the deleting process closes its handle, moments later; a lasting
+// ERROR_ACCESS_DENIED is a permission failure and must be reported promptly,
+// not after the whole lock timeout.
+const accessDeniedRetryFor = 250 * time.Millisecond
+
+// openLockFile opens the lock file, waiting while another process's Release
+// is deleting it: during the delete, Windows fails opens with
+// ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED once the file is pending
+// deletion. Sharing violations are retried until deadline, access denials
+// for at most accessDeniedRetryFor; then the open error is returned as is.
+func openLockFile(ctx context.Context, path string, deadline time.Time) (*os.File, error) {
+	accessDeniedUntil := time.Time{}
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+		if err == nil {
+			return f, nil
+		}
+		retryUntil := deadline
+		switch {
+		case errors.Is(err, windows.ERROR_SHARING_VIOLATION):
+		case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+			if accessDeniedUntil.IsZero() {
+				accessDeniedUntil = time.Now().Add(accessDeniedRetryFor)
+			}
+			if accessDeniedUntil.Before(retryUntil) {
+				retryUntil = accessDeniedUntil
+			}
+		default:
+			retryUntil = time.Time{}
+		}
+		if !time.Now().Before(retryUntil) {
+			return nil, fmt.Errorf("fslock: open %s: %w", path, err)
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}
