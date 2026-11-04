@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/columnar-tech/dbc/config"
 )
@@ -27,13 +26,21 @@ import (
 // VerifyPackageSignature checks the driver library of a package extracted to
 // stagingDir against its detached signature (m.Files.Signature, by default
 // "<driver>.sig") using Columnar's signing key. It has the shape of a
-// config.PackageVerifier.
+// config.PackageVerifier. Both files are opened through an os.Root, so a
+// manifest path that leaves stagingDir (via "..", an absolute path, or a
+// symlink) is an error rather than verifying a file elsewhere.
 func VerifyPackageSignature(stagingDir string, m config.Manifest) error {
 	if m.Files.Driver == "" {
 		return fmt.Errorf("package manifest does not specify Files.driver")
 	}
 
-	lib, err := os.Open(filepath.Join(stagingDir, m.Files.Driver))
+	root, err := os.OpenRoot(stagingDir)
+	if err != nil {
+		return fmt.Errorf("could not open staging directory: %w", err)
+	}
+	defer root.Close()
+
+	lib, err := root.Open(m.Files.Driver)
 	if err != nil {
 		return fmt.Errorf("could not open driver file: %w", err)
 	}
@@ -44,7 +51,7 @@ func VerifyPackageSignature(stagingDir string, m config.Manifest) error {
 		sigFile = m.Files.Driver + ".sig"
 	}
 
-	sig, err := os.Open(filepath.Join(stagingDir, sigFile))
+	sig, err := root.Open(sigFile)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
