@@ -97,7 +97,7 @@ func TestAcquireReportsALastingAccessDeniedPromptly(t *testing.T) {
 	start := time.Now()
 	_, err := Acquire(path, 10*time.Second)
 	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-		t.Fatalf("Acquire of a lock path that is a directory: err = %v, want ERROR_ACCESS_DENIED", err)
+		t.Fatalf("Acquire of a read-only lock file: err = %v, want ERROR_ACCESS_DENIED", err)
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("a lasting access denial took %s to report; the lock timeout was 10s", elapsed)
