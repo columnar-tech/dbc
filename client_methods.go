@@ -150,18 +150,20 @@ func (c *Client) getDriverListFromIndex(ctx context.Context, index *Registry) ([
 func (c *Client) Search(ctx context.Context, pattern string) ([]Driver, error) {
 	var (
 		allDrivers []Driver
-		totalErr   error
+		errs       []error
 	)
 
 	for i := range c.registries {
 		drivers, err := c.getDriverListFromIndex(ctx, &c.registries[i])
 		if err != nil {
-			totalErr = errors.Join(totalErr, fmt.Errorf("registry %s: %w", c.registries[i].BaseURL, err))
+			errs = append(errs, fmt.Errorf("registry %s: %w", c.registries[i].BaseURL, err))
 			continue
 		}
 		c.registries[i].Drivers = drivers
 		allDrivers = append(allDrivers, drivers...)
 	}
+	// One joined error per failed registry.
+	totalErr := errors.Join(errs...)
 
 	if pattern == "" {
 		return allDrivers, totalErr
