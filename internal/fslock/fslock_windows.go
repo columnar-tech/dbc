@@ -30,13 +30,13 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	if err := ctx.Err(); err != nil {
 		return Lock{}, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	deadline := time.Now().Add(timeout)
+	f, err := openLockFile(ctx, path, deadline)
 	if err != nil {
-		return Lock{}, fmt.Errorf("fslock: open %s: %w", path, err)
+		return Lock{}, err
 	}
 
 	ol := new(windows.Overlapped)
-	deadline := time.Now().Add(timeout)
 	for {
 		if err := ctx.Err(); err != nil {
 			f.Close()
@@ -66,6 +66,34 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 		case <-timer.C:
 		}
 	}
+}
+
+// openLockFile opens the lock file, waiting until deadline while another
+// process's Release is deleting it: during the delete, Windows fails opens
+// with ERROR_SHARING_VIOLATION, or ERROR_ACCESS_DENIED once the file is
+// pending deletion. Past the deadline the open error is returned as is;
+// ERROR_ACCESS_DENIED can also be a real permission failure.
+func openLockFile(ctx context.Context, path string, deadline time.Time) (*os.File, error) {
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+		if err == nil {
+			return f, nil
+		}
+		if !isTransientOpenError(err) || !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("fslock: open %s: %w", path, err)
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func isTransientOpenError(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
 }
 
 func isLockContention(err error) bool {
