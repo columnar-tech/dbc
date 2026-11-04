@@ -138,15 +138,26 @@ func (t *Credential) RefreshAndPersist(ctx context.Context) error {
 	// Captured before waiting for the lock: a token that appears in the store
 	// meanwhile is newer than the one this call set out to replace.
 	before := *t
-	release, err := lockCredentialFile()
+	release, err := lockCredentialFile(ctx)
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return t.Refresh(ctx)
 	}
-	defer release()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 
 	stored, err := storedCredential(t.RegistryURL.Host)
 	if err != nil {
-		return t.Refresh(ctx) // an unreadable store must not block the refresh
+		// An unreadable store must not block the refresh, which then does not
+		// depend on it, so it runs without holding the lock.
+		release()
+		release = nil
+		return t.Refresh(ctx)
 	}
 	if stored != nil {
 		if stored.Token != "" && stored.Token != before.Token {
@@ -283,9 +294,10 @@ func LoadCredentials() error {
 var credentialLockTimeout = 10 * time.Second
 
 // lockCredentialFile takes the cross-process lock for read-modify-write
-// updates of the credentials file. Take it before credMu. On JavaScript/Wasm,
-// fslock excludes other Wasm runtimes but not the native CLI.
-func lockCredentialFile() (release func(), err error) {
+// updates of the credentials file, waiting up to credentialLockTimeout or
+// until ctx is done. Take it before credMu. On JavaScript/Wasm, fslock
+// excludes other Wasm runtimes but not the native CLI.
+func lockCredentialFile(ctx context.Context) (release func(), err error) {
 	cp, err := getCredPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credential path: %w", err)
@@ -293,7 +305,7 @@ func lockCredentialFile() (release func(), err error) {
 	if err := os.MkdirAll(filepath.Dir(cp), 0o700); err != nil {
 		return nil, err
 	}
-	lock, err := fslock.Acquire(cp+".lock", credentialLockTimeout)
+	lock, err := fslock.AcquireContext(ctx, cp+".lock", credentialLockTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to lock credentials file: %w", err)
 	}
@@ -301,7 +313,7 @@ func lockCredentialFile() (release func(), err error) {
 }
 
 func AddCredential(cred Credential, allowOverwrite bool) error {
-	release, err := lockCredentialFile()
+	release, err := lockCredentialFile(context.Background())
 	if err != nil {
 		return err
 	}
@@ -330,7 +342,7 @@ func AddCredential(cred Credential, allowOverwrite bool) error {
 }
 
 func RemoveCredential(host Uri) error {
-	release, err := lockCredentialFile()
+	release, err := lockCredentialFile(context.Background())
 	if err != nil {
 		return err
 	}
@@ -441,7 +453,7 @@ func PurgeCredentials() error {
 
 	prefix := filepath.Dir(cp)
 
-	release, err := lockCredentialFile()
+	release, err := lockCredentialFile(context.Background())
 	if err != nil {
 		return err
 	}

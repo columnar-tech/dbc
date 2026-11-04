@@ -147,3 +147,51 @@ func TestRefreshDoesNotWaitForeverOnAStuckHolder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, creds[0].Token, "wrote a refresh decided without the lock")
 }
+
+// Waiting for another process's lock must stop when the caller's context
+// does, not only after credentialLockTimeout.
+func TestRefreshHonorsContextWhileWaitingForTheLock(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+	orig := credentialLockTimeout
+	credentialLockTimeout = 3 * time.Second
+	t.Cleanup(func() { credentialLockTimeout = orig })
+	srv, hits := tokenServer(t, 0)
+	writeCredFile(t, apiKeyCredential(t, srv.URL))
+	cred, err := GetCredentials(&url.URL{Scheme: "https", Host: "registry.example.test"})
+	require.NoError(t, err)
+	held, err := fslock.Acquire(credPath+".lock", 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = held.Release() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err = cred.RefreshAndPersist(ctx)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), time.Second)
+	assert.Zero(t, hits.Load())
+}
+
+// If the store cannot be read, the refresh does not depend on it, so it must
+// not run while holding the store's lock.
+func TestRefreshOfAnUnreadableStoreDoesNotHoldTheLock(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+	var lockFree atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if probe, err := fslock.Acquire(credPath+".lock", 0); err == nil {
+			lockFree.Store(true)
+			_ = probe.Release()
+		}
+		fmt.Fprint(w, `{"access_token": "token-1"}`)
+	}))
+	t.Cleanup(srv.Close)
+	writeCredFile(t, apiKeyCredential(t, srv.URL))
+	cred, err := GetCredentials(&url.URL{Scheme: "https", Host: "registry.example.test"})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(credPath, []byte("[[broken"), 0o600))
+
+	assert.Equal(t, "token-1", cred.GetAuthToken(context.Background()))
+	assert.True(t, lockFree.Load(), "the store's lock was held during the refresh")
+}
