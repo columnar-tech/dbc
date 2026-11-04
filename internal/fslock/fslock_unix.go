@@ -25,7 +25,7 @@ import (
 	"time"
 )
 
-func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
+func acquireOSLock(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
 	deadline := time.Now().Add(timeout)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -117,11 +117,11 @@ func inodeIsStale(f *os.File, path string) (bool, error) {
 	return fdStat.Ino != pathStat.Ino || fdStat.Dev != pathStat.Dev, nil
 }
 
-// Release closes the lock file descriptor, releasing the advisory lock.
+// releaseOSLock closes the lock file descriptor, releasing the advisory lock.
 // The lock file is intentionally left in place: unlinking it would let a new
 // caller create a different inode while another waiter still holds or is
 // about to lock the old one. Leftover lock files are therefore expected.
-func (l Lock) Release() error {
+func (l Lock) releaseOSLock() error {
 	if l.f == nil {
 		return nil
 	}

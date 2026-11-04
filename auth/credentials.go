@@ -295,8 +295,8 @@ var credentialLockTimeout = 10 * time.Second
 
 // lockCredentialFile takes the cross-process lock for read-modify-write
 // updates of the credentials file, waiting up to credentialLockTimeout or
-// until ctx is done. Take it before credMu. On JavaScript/Wasm, fslock
-// excludes other Wasm runtimes but not the native CLI.
+// until ctx is done. Take it before credMu. fslock excludes native and Wasm
+// holders from each other.
 func lockCredentialFile(ctx context.Context) (release func(), err error) {
 	cp, err := getCredPath()
 	if err != nil {

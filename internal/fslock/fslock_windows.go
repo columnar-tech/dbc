@@ -26,7 +26,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
+func acquireOSLock(ctx context.Context, path string, timeout time.Duration) (Lock, error) {
 	if err := ctx.Err(); err != nil {
 		return Lock{}, err
 	}
@@ -117,13 +117,13 @@ func isLockContention(err error) bool {
 	return errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }
 
-// Release releases the lock and removes the lock file. On Windows, Go opens
-// files without FILE_SHARE_DELETE, so os.Remove returns ERROR_SHARING_VIOLATION
-// if another process still has the file open — making the delete inherently
-// safe. We close first so our own handle doesn't block the remove, then
-// swallow only ERROR_SHARING_VIOLATION (deferred cleanup) and ErrNotExist.
-// Other errors, including ERROR_ACCESS_DENIED, propagate.
-func (l Lock) Release() error {
+// releaseOSLock releases the lock and removes the lock file. On Windows, Go
+// opens files without FILE_SHARE_DELETE, so os.Remove returns
+// ERROR_SHARING_VIOLATION if another process still has the file open — making
+// the delete inherently safe. We close first so our own handle doesn't block
+// the remove, then swallow only ERROR_SHARING_VIOLATION (deferred cleanup) and
+// ErrNotExist. Other errors, including ERROR_ACCESS_DENIED, propagate.
+func (l Lock) releaseOSLock() error {
 	if l.f == nil {
 		return nil
 	}
