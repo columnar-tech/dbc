@@ -28,3 +28,5 @@ By default, dbc is configured to communicate with two driver registries: the pub
     If you access these registries without dbc, please set a user agent. See [Can I download drivers directly from the driver registries?](../getting_started/faq.md#can-i-download-drivers-directly-from-the-driver-registries).
 
 When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available from each configured registry by downloading its `index.yaml` or using a cached copy.
+
+For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).

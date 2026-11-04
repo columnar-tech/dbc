@@ -20,9 +20,10 @@ pub use types::*;
 
 use columnar_dbc_sys as sys;
 use ffi::{check, cstring, ptr_or_null, List};
+use std::borrow::Cow;
 use std::ffi::{c_char, CStr, CString};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 const USER_AGENT_SUFFIX: &str = concat!("columnar-dbc-rust/", env!("CARGO_PKG_VERSION"));
@@ -57,32 +58,74 @@ pub struct Client {
 unsafe impl Send for Client {}
 
 impl Client {
-    /// Client for Columnar's public registry and stored credentials.
+    /// Client using global registry configuration and stored credentials.
+    /// With no global file, uses dbc's built-in registries. Invalid or
+    /// unreadable global configuration is an error.
     pub fn new() -> Result<Self, Error> {
         Self::with_config(&ClientConfig::default())
     }
 
+    /// Creates a client with explicit options. A nonempty `base_url` or explicit
+    /// `registries` list (even empty) overrides global and project files
+    /// without reading them; combining both explicit options is an error.
     pub fn with_config(config: &ClientConfig) -> Result<Self, Error> {
-        let mut options: Vec<(&CStr, &str)> = vec![(sys::DBC_OPTION_USER_AGENT_SUFFIX, USER_AGENT_SUFFIX)];
+        let option_key = |key: &'static CStr| Cow::Borrowed(key);
+        let capacity = 11 + 2 * config.registries.as_ref().map_or(0, Vec::len);
+        let mut options = Vec::with_capacity(capacity);
+        let mut option = |key: Cow<'static, CStr>, value: &str| -> Result<(), Error> {
+            options.push((key, cstring(value)?));
+            Ok(())
+        };
+        option(option_key(sys::DBC_OPTION_USER_AGENT_SUFFIX), USER_AGENT_SUFFIX)?;
+        option(
+            option_key(sys::DBC_OPTION_REGISTRY_CONFIG),
+            match config.registry_config {
+                RegistryConfig::Default => "default",
+                RegistryConfig::None => "none",
+            },
+        )?;
+        option(
+            option_key(sys::DBC_OPTION_CREDENTIAL_STORE),
+            match config.credential_store {
+                CredentialStore::Default => "default",
+                CredentialStore::None => "none",
+            },
+        )?;
         if let Some(url) = &config.base_url {
-            options.push((sys::DBC_OPTION_BASE_URL, url.as_str()));
+            option(option_key(sys::DBC_OPTION_BASE_URL), url)?;
+        }
+        if let Some(registries) = &config.registries {
+            let registry_prefix = sys::DBC_OPTION_REGISTRY_PREFIX.to_str().expect("registry prefix is UTF-8");
+            for (i, registry) in registries.iter().enumerate() {
+                option(cstring(format!("{registry_prefix}{i}.url"))?.into(), &registry.url)?;
+                if let Some(name) = &registry.name {
+                    option(cstring(format!("{registry_prefix}{i}.name"))?.into(), name)?;
+                }
+            }
+        }
+        if config.base_url.as_deref().unwrap_or_default().is_empty() && config.registries.is_none() {
+            if let Some(path) = &config.project_file {
+                option(option_key(sys::DBC_OPTION_PROJECT_FILE), path_str(path)?)?;
+            }
         }
         if let Some(c) = &config.credential {
-            options.push((sys::DBC_OPTION_CREDENTIAL_REGISTRY_URL, c.registry_url.as_str()));
-            options.push((sys::DBC_OPTION_CREDENTIAL_AUTH_URI, c.auth_uri.as_str()));
+            option(option_key(sys::DBC_OPTION_CREDENTIAL_REGISTRY_URL), &c.registry_url)?;
+            option(option_key(sys::DBC_OPTION_CREDENTIAL_AUTH_URI), &c.auth_uri)?;
             for (key, value) in [
                 (sys::DBC_OPTION_CREDENTIAL_TOKEN, &c.token),
                 (sys::DBC_OPTION_CREDENTIAL_REFRESH_TOKEN, &c.refresh_token),
                 (sys::DBC_OPTION_CREDENTIAL_CLIENT_ID, &c.client_id),
             ] {
                 if let Some(value) = value {
-                    options.push((key, value.as_str()));
+                    option(option_key(key), value)?;
                 }
             }
         }
-        let values = options.iter().map(|(_, v)| cstring(v)).collect::<Result<Vec<_>, Error>>()?;
+        if let Some(registries) = &config.registries {
+            options.push((option_key(sys::DBC_OPTION_REGISTRY_COUNT), cstring(registries.len().to_string())?));
+        }
         let mut key_ptrs: Vec<*mut c_char> = options.iter().map(|(k, _)| k.as_ptr().cast_mut()).collect();
-        let mut value_ptrs: Vec<*mut c_char> = values.iter().map(|v| v.as_ptr().cast_mut()).collect();
+        let mut value_ptrs: Vec<*mut c_char> = options.iter().map(|(_, v)| v.as_ptr().cast_mut()).collect();
 
         let mut client = ptr::null_mut();
         // SAFETY: both arrays hold `len` strings that outlive the call and are
@@ -191,6 +234,56 @@ pub fn list_installed(location: &InstallLocation) -> Result<Vec<InstalledDriver>
             file_path: list.get(i, sys::DBC_FIELD_LOCATION),
         })
         .collect())
+}
+
+/// Saves a token credential in dbc's credential store, replacing any entry
+/// for the same registry host. Does not perform an interactive login.
+pub fn login(credential: &Credential) -> Result<(), Error> {
+    let registry_url = cstring(credential.registry_url.as_str())?;
+    let auth_uri = cstring(credential.auth_uri.as_str())?;
+    let token = cstring(credential.token.as_deref().unwrap_or_default())?;
+    let refresh_token = credential.refresh_token.as_deref().map(cstring).transpose()?;
+    let client_id = credential.client_id.as_deref().map(cstring).transpose()?;
+    // SAFETY: every input is read only during the call; optional inputs may
+    // be NULL and all strings remain live until the call returns.
+    check(|err| unsafe {
+        sys::dbc_login(
+            registry_url.as_ptr().cast_mut(),
+            auth_uri.as_ptr().cast_mut(),
+            token.as_ptr().cast_mut(),
+            ptr_or_null(&refresh_token),
+            ptr_or_null(&client_id),
+            err,
+        )
+    })
+}
+
+/// Removes the stored credential for `registry_url`'s host. Returns an error
+/// when no credential exists for that host.
+pub fn logout(registry_url: &str) -> Result<(), Error> {
+    let registry_url = cstring(registry_url)?;
+    // SAFETY: the URL is only read during the call.
+    check(|err| unsafe { sys::dbc_logout(registry_url.as_ptr().cast_mut(), err) })
+}
+
+/// Returns the destination of dbc's `columnar.lic`, beside its credential
+/// store. The license does not have to exist; this does not install one.
+pub fn license_path() -> Result<PathBuf, Error> {
+    // SAFETY: the C API writes the owned result and error through `List`.
+    let list = List::from_call(|out, err| unsafe { sys::dbc_license_path(out, err) })?;
+    list.info(sys::DBC_FIELD_LOCATION)
+        .map(PathBuf::from)
+        .ok_or_else(|| Error::Dbc("dbc did not return a license path".into()))
+}
+
+/// Copies a license to [`license_path`]. Unless `force` is true, `src_path`
+/// must be named `columnar.lic` and the destination must not already exist.
+/// Setting `force` allows a different filename and overwrites a license.
+pub fn install_license(src_path: &Path, force: bool) -> Result<(), Error> {
+    let src_path = cstring(path_str(src_path)?)?;
+    let flags: sys::dbc_license_flags = if force { sys::DBC_LICENSE_FORCE } else { 0 };
+    // SAFETY: the source path is only read during the call.
+    check(|err| unsafe { sys::dbc_install_license(src_path.as_ptr().cast_mut(), flags, err) })
 }
 
 /// An [`InstallLocation`] converted for the C API.

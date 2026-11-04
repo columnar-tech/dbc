@@ -25,10 +25,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -115,15 +118,27 @@ func (t *Credential) Refresh(ctx context.Context) error {
 	return fmt.Errorf("unsupported credential type: %s", t.Type)
 }
 
+// RefreshAndPersist refreshes t and, if t came from the credential store,
+// writes the refreshed credential back (see persistRefreshed). Persisting is
+// best effort: the refreshed token is used even if the write fails.
+// Must not be called while credMu is held.
+func (t *Credential) RefreshAndPersist(ctx context.Context) error {
+	before := *t
+	if err := t.Refresh(ctx); err != nil {
+		return err
+	}
+	_ = persistRefreshed(before, t)
+	return nil
+}
+
 // GetAuthToken returns the current token, refreshing if needed.
-// Must not be called while credMu is held (Refresh may acquire it via UpdateCreds).
+// Must not be called while credMu is held.
 func (t *Credential) GetAuthToken(ctx context.Context) string {
 	if t.Token != "" {
 		return t.Token
 	}
 
-	if err := t.Refresh(ctx); err == nil {
-		_ = UpdateCreds()
+	if err := t.RefreshAndPersist(ctx); err == nil {
 		return t.Token
 	}
 
@@ -132,11 +147,15 @@ func (t *Credential) GetAuthToken(ctx context.Context) string {
 
 var (
 	loadedCredentials []Credential
-	credentialErr     error
-	loaded            sync.Once
-	credPath          string
-	credPathMu        sync.Mutex
-	credMu            sync.RWMutex
+	// storeIssued holds every *Credential GetCredentials has returned. Writes
+	// replace loadedCredentials, so pointer membership in the current slice
+	// cannot tell whether a credential came from the store.
+	storeIssued   sync.Map // *Credential -> struct{}
+	credentialErr error
+	loaded        sync.Once
+	credPath      string
+	credPathMu    sync.Mutex
+	credMu        sync.RWMutex
 )
 
 func getCredPath() (string, error) {
@@ -187,6 +206,7 @@ func GetCredentials(u *url.URL) (*Credential, error) {
 	defer credMu.RUnlock()
 	for i, cred := range loadedCredentials {
 		if cred.RegistryURL.Host == u.Host {
+			storeIssued.Store(&loadedCredentials[i], struct{}{})
 			return &loadedCredentials[i], nil
 		}
 	}
@@ -196,23 +216,52 @@ func GetCredentials(u *url.URL) (*Credential, error) {
 
 func LoadCredentials() error {
 	loaded.Do(func() {
-		creds, err := loadCreds()
 		credMu.Lock()
+		creds, err := loadCreds()
 		loadedCredentials, credentialErr = creds, err
 		credMu.Unlock()
 	})
+	credMu.RLock()
+	defer credMu.RUnlock()
 	return credentialErr
 }
 
+// credentialLockTimeout bounds how long a writer waits for another process.
+var credentialLockTimeout = 10 * time.Second
+
+// lockCredentialFile takes the cross-process lock for read-modify-write
+// updates of the credentials file. Take it before credMu. On JavaScript/Wasm,
+// fslock only excludes callers within one Go/Wasm runtime.
+func lockCredentialFile() (release func(), err error) {
+	cp, err := getCredPath()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get credential path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(cp), 0o700); err != nil {
+		return nil, err
+	}
+	lock, err := fslock.Acquire(cp+".lock", credentialLockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lock credentials file: %w", err)
+	}
+	return func() { _ = lock.Release() }, nil
+}
+
 func AddCredential(cred Credential, allowOverwrite bool) error {
-	if err := LoadCredentials(); err != nil {
+	release, err := lockCredentialFile()
+	if err != nil {
 		return err
 	}
-
+	defer release()
 	credMu.Lock()
 	defer credMu.Unlock()
 
-	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
+	creds, err := loadCreds()
+	if err != nil {
+		return err
+	}
+
+	idx := slices.IndexFunc(creds, func(c Credential) bool {
 		return c.RegistryURL.Host == cred.RegistryURL.Host
 	})
 
@@ -220,22 +269,28 @@ func AddCredential(cred Credential, allowOverwrite bool) error {
 		if !allowOverwrite {
 			return fmt.Errorf("credentials for %s already exist", cred.RegistryURL.Host)
 		}
-		loadedCredentials[idx] = cred
+		creds[idx] = cred
 	} else {
-		loadedCredentials = append(loadedCredentials, cred)
+		creds = append(creds, cred)
 	}
-	return writeCreds()
+	return writeCreds(creds)
 }
 
 func RemoveCredential(host Uri) error {
-	if err := LoadCredentials(); err != nil {
+	release, err := lockCredentialFile()
+	if err != nil {
 		return err
 	}
-
+	defer release()
 	credMu.Lock()
 	defer credMu.Unlock()
 
-	idx := slices.IndexFunc(loadedCredentials, func(c Credential) bool {
+	creds, err := loadCreds()
+	if err != nil {
+		return err
+	}
+
+	idx := slices.IndexFunc(creds, func(c Credential) bool {
 		return c.RegistryURL.Host == host.Host
 	})
 
@@ -243,13 +298,13 @@ func RemoveCredential(host Uri) error {
 		return fmt.Errorf("no credentials found for %s", host.Host)
 	}
 
-	loadedCredentials = append(loadedCredentials[:idx], loadedCredentials[idx+1:]...)
-	return writeCreds()
+	creds = append(creds[:idx], creds[idx+1:]...)
+	return writeCreds(creds)
 }
 
-// writeCreds persists loadedCredentials to disk.
+// writeCreds persists creds, then updates the lookup cache on success.
 // Caller must hold credMu.
-func writeCreds() error {
+func writeCreds(creds []Credential) error {
 	cp, err := getCredPath()
 	if err != nil {
 		return fmt.Errorf("failed to get credential path: %w", err)
@@ -265,13 +320,22 @@ func writeCreds() error {
 	}
 	defer f.Close()
 
-	return toml.NewEncoder(f).Encode(struct {
+	if err := toml.NewEncoder(f).Encode(struct {
 		Credentials []Credential `toml:"credentials"`
 	}{
-		Credentials: loadedCredentials,
-	})
+		Credentials: creds,
+	}); err != nil {
+		return err
+	}
+	loadedCredentials, credentialErr = creds, nil
+	return nil
 }
 
+// UpdateCreds rewrites the credentials file from this process's cached credentials.
+//
+// Deprecated: This overwrites changes other processes made since this process
+// loaded credentials. Use AddCredential or RemoveCredential, which re-read the
+// file before applying changes.
 func UpdateCreds() error {
 	if err := LoadCredentials(); err != nil {
 		return err
@@ -279,7 +343,40 @@ func UpdateCreds() error {
 
 	credMu.Lock()
 	defer credMu.Unlock()
-	return writeCreds()
+	return writeCreds(loadedCredentials)
+}
+
+// persistRefreshed writes cred, refreshed from before, back to the store. It
+// merges by host into the latest file contents, so other processes' changes
+// survive: it skips credentials not from the store (e.g. injected by a
+// binding), hosts removed since, and hosts whose stored entry no longer
+// matches before because another process logged in again.
+func persistRefreshed(before Credential, cred *Credential) error {
+	// Checked first so injected credentials never load or touch the store.
+	if _, fromStore := storeIssued.Load(cred); !fromStore {
+		return nil
+	}
+
+	release, err := lockCredentialFile()
+	if err != nil {
+		return err
+	}
+	defer release()
+	credMu.Lock()
+	defer credMu.Unlock()
+
+	creds, err := loadCreds()
+	if err != nil {
+		return err
+	}
+	idx := slices.IndexFunc(creds, func(c Credential) bool {
+		return c.RegistryURL.Host == cred.RegistryURL.Host
+	})
+	if idx == -1 || !reflect.DeepEqual(creds[idx], before) {
+		return nil
+	}
+	creds[idx] = *cred
+	return writeCreds(creds)
 }
 
 func PurgeCredentials() error {
@@ -295,6 +392,12 @@ func PurgeCredentials() error {
 
 	prefix := filepath.Dir(cp)
 
+	release, err := lockCredentialFile()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	for _, file := range fileList {
 		fullPath := filepath.Join(prefix, file)
 		if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -302,6 +405,10 @@ func PurgeCredentials() error {
 		}
 	}
 
+	// Remove the lock file last, while holding it: a waiter that then wins
+	// the lock on the unlinked file sees it is stale and reopens. On Windows
+	// the open handle blocks removal, and Release deletes it instead.
+	_ = os.Remove(cp + ".lock")
 	return nil
 }
 

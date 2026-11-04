@@ -18,6 +18,8 @@ package main
 
 import "syscall/js"
 
+const filesystemAvailable = false
+
 // Browser entrypoint (GOOS=js GOARCH=wasm, without -tags dbcnode). It exposes
 // only the filesystem-free API (search/resolve/verifySignature) via
 // registerCommon().

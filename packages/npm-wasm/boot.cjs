@@ -59,20 +59,35 @@ function installHostPathAdapter(platform) {
 // (notably on Windows CI runners, whose environment is large) overflows that cap
 // and makes go.run() throw before the runtime starts. The GOOS=js runtime reads
 // only a few vars: $HOME (+ $XDG_*) for os.UserHomeDir/UserConfigDir/UserCacheDir,
-// and $TMPDIR for os.TempDir() (it ignores %TEMP%/%TMP% and falls back to /tmp,
-// which does not exist on a Windows host). Windows exposes the home/temp dirs as
-// %USERPROFILE%/%TEMP%, so map them onto $HOME/$TMPDIR and convert backslashes to
-// the forward slashes the wasm filesystem layer expects.
+// and $TMPDIR for os.TempDir(). dbc's shared path helpers also need Windows
+// %AppData%/%LocalAppData% to match the native CLI. Normalize Windows paths here,
+// not in shared Go policy; keep UNC roots as backslashes so Go's Unix filepath
+// cleaning cannot collapse a network path's leading double slash.
 function curateGoEnv(env, platform) {
   const isWin = platform === "win32";
-  const norm = (p) => (isWin ? String(p).replace(/\\/g, "/") : String(p));
+  const norm = (p) => (isWin ? String(p).replace(/\\/g, "/").replace(/^\/\//, "\\\\") : String(p));
   const out = {};
-  const home = env.HOME || env.USERPROFILE;
+  const home = isWin ? env.USERPROFILE || env.HOME : env.HOME;
   if (home !== undefined) out.HOME = norm(home);
   const tmp = env.TMPDIR || env.TEMP || env.TMP;
   if (tmp !== undefined) out.TMPDIR = norm(tmp);
   for (const k of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"]) {
-    if (env[k] !== undefined) out[k] = env[k];
+    if (env[k] !== undefined) out[k] = norm(env[k]);
+  }
+  if (isWin) {
+    // Windows env names are case-insensitive, but Node worker env objects are
+    // not; canonicalize the two app-data keys before passing them to Go.
+    for (const key of Object.keys(env)) {
+      if (env[key] === undefined) continue;
+      switch (key.toLowerCase()) {
+        case "appdata":
+          out.AppData = norm(env[key]);
+          break;
+        case "localappdata":
+          out.LocalAppData = norm(env[key]);
+          break;
+      }
+    }
   }
   return out;
 }

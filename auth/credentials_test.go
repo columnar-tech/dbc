@@ -21,7 +21,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -414,6 +416,38 @@ func TestAddCredential(t *testing.T) {
 	})
 }
 
+func TestAddCredential_UsesLatestDiskSnapshot(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+
+	require.NoError(t, LoadCredentials())
+	staleSnapshot := loadedCredentials
+	first := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "first.example.com"}),
+		ApiKey:      "first-key",
+	}
+	second := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "second.example.com"}),
+		ApiKey:      "second-key",
+	}
+
+	require.NoError(t, AddCredential(first, false))
+	// Simulate another runtime that loaded its snapshot before the first write.
+	credMu.Lock()
+	loadedCredentials = staleSnapshot
+	credMu.Unlock()
+	require.NoError(t, AddCredential(second, false))
+
+	creds, err := loadCreds()
+	require.NoError(t, err)
+	assert.Equal(t, []Credential{first, second}, creds)
+	cached, err := GetCredentials((*url.URL)(&first.RegistryURL))
+	require.NoError(t, err)
+	assert.Equal(t, &first, cached)
+}
+
 func TestRemoveCredential(t *testing.T) {
 	resetCredState(t)
 
@@ -467,6 +501,51 @@ func TestRemoveCredential(t *testing.T) {
 	})
 }
 
+func TestRemoveCredential_UsesLatestDiskSnapshot(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+
+	removed := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "removed.example.com"}),
+		ApiKey:      "removed-key",
+	}
+	retained := Credential{
+		Type:        TypeApiKey,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "retained.example.com"}),
+		ApiKey:      "retained-key",
+	}
+	require.NoError(t, AddCredential(removed, false))
+	require.NoError(t, LoadCredentials())
+	staleSnapshot := append([]Credential(nil), loadedCredentials...)
+
+	require.NoError(t, AddCredential(retained, false))
+	// Simulate another runtime that loaded its snapshot before the latest write.
+	credMu.Lock()
+	loadedCredentials = staleSnapshot
+	credMu.Unlock()
+	require.NoError(t, RemoveCredential(removed.RegistryURL))
+
+	creds, err := loadCreds()
+	require.NoError(t, err)
+	assert.Equal(t, []Credential{retained}, creds)
+	cached, err := GetCredentials((*url.URL)(&retained.RegistryURL))
+	require.NoError(t, err)
+	assert.Equal(t, &retained, cached)
+}
+
+// writeCredFile replaces the credentials file without touching this
+// process's cache, like another dbc process would.
+func writeCredFile(t *testing.T, creds ...Credential) {
+	t.Helper()
+	f, err := os.Create(credPath)
+	require.NoError(t, err)
+	defer f.Close()
+	require.NoError(t, toml.NewEncoder(f).Encode(struct {
+		Credentials []Credential `toml:"credentials"`
+	}{Credentials: creds}))
+}
+
 func TestUpdateCreds(t *testing.T) {
 	resetCredState(t)
 
@@ -503,5 +582,169 @@ func TestUpdateCreds(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, creds, 1)
 		assert.Equal(t, "test-key", creds[0].ApiKey)
+	})
+}
+
+func TestPersistRefreshed(t *testing.T) {
+	cred := func(host, token string) Credential {
+		return Credential{
+			Type:        TypeToken,
+			RegistryURL: Uri(url.URL{Scheme: "https", Host: host}),
+			Token:       token,
+		}
+	}
+
+	t.Run("merges a refreshed credential into the latest file", func(t *testing.T) {
+		resetCredState(t)
+		withTempCredPath(t)
+		writeCredFile(t, cred("a.example.com", "old"), cred("gone.example.com", "x"))
+
+		stored, err := GetCredentials(&url.URL{Scheme: "https", Host: "a.example.com"})
+		require.NoError(t, err)
+		// Another process logs in to b and out of gone after this one loaded.
+		writeCredFile(t, cred("a.example.com", "old"), cred("b.example.com", "b-token"))
+
+		before := *stored
+		stored.Token = "refreshed"
+		require.NoError(t, persistRefreshed(before, stored))
+
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Equal(t, []Credential{cred("a.example.com", "refreshed"), cred("b.example.com", "b-token")}, creds)
+	})
+
+	t.Run("does not resurrect a credential removed elsewhere", func(t *testing.T) {
+		resetCredState(t)
+		withTempCredPath(t)
+		writeCredFile(t, cred("a.example.com", "old"))
+
+		stored, err := GetCredentials(&url.URL{Scheme: "https", Host: "a.example.com"})
+		require.NoError(t, err)
+		writeCredFile(t)
+
+		before := *stored
+		stored.Token = "refreshed"
+		require.NoError(t, persistRefreshed(before, stored))
+
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Empty(t, creds)
+	})
+
+	t.Run("does not persist a credential that is not from the store", func(t *testing.T) {
+		resetCredState(t)
+		withTempCredPath(t)
+		writeCredFile(t, cred("a.example.com", "stored"))
+		require.NoError(t, LoadCredentials())
+		writeCredFile(t, cred("a.example.com", "stored"), cred("b.example.com", "b-token"))
+
+		// An injected credential for a stored host must not replace it, and
+		// must not rewrite the file from this process's stale cache.
+		injected := cred("a.example.com", "injected")
+		before := injected
+		injected.Token = "refreshed"
+		require.NoError(t, persistRefreshed(before, &injected))
+
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Equal(t, []Credential{cred("a.example.com", "stored"), cred("b.example.com", "b-token")}, creds)
+	})
+
+	t.Run("an injected credential never loads the store", func(t *testing.T) {
+		resetCredState(t)
+		withTempCredPath(t)
+		require.NoError(t, os.WriteFile(credPath, []byte("not = [valid toml"), 0o600))
+
+		injected := cred("a.example.com", "injected")
+		before := injected
+		injected.Token = "refreshed"
+		require.NoError(t, persistRefreshed(before, &injected))
+
+		// The broken file must not have been cached as this process's store.
+		writeCredFile(t, cred("a.example.com", "stored"))
+		require.NoError(t, LoadCredentials())
+	})
+
+	t.Run("keeps persisting after a write replaces the cache", func(t *testing.T) {
+		resetCredState(t)
+		withTempCredPath(t)
+		writeCredFile(t, cred("a.example.com", "old"))
+
+		stored, err := GetCredentials(&url.URL{Scheme: "https", Host: "a.example.com"})
+		require.NoError(t, err)
+		// e.g. GetAuthToken refreshes an empty token, then the request gets a
+		// 401 and refreshes the same credential again.
+		for _, token := range []string{"first", "second"} {
+			before := *stored
+			stored.Token = token
+			require.NoError(t, persistRefreshed(before, stored))
+		}
+
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Equal(t, []Credential{cred("a.example.com", "second")}, creds)
+	})
+
+	t.Run("keeps a newer login for the same host", func(t *testing.T) {
+		resetCredState(t)
+		withTempCredPath(t)
+		writeCredFile(t, cred("a.example.com", "old"))
+
+		stored, err := GetCredentials(&url.URL{Scheme: "https", Host: "a.example.com"})
+		require.NoError(t, err)
+		// Another process logs in to the same host again.
+		writeCredFile(t, cred("a.example.com", "relogin"))
+
+		before := *stored
+		stored.Token = "refreshed"
+		require.NoError(t, persistRefreshed(before, stored))
+
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Equal(t, []Credential{cred("a.example.com", "relogin")}, creds)
+	})
+}
+
+// Writers serialize on the credentials file lock, which another dbc process
+// would hold during its own read-modify-write.
+func TestCredentialWritersWaitForFileLock(t *testing.T) {
+	resetCredState(t)
+	withTempCredPath(t)
+	cred := Credential{
+		Type:        TypeToken,
+		RegistryURL: Uri(url.URL{Scheme: "https", Host: "a.example.com"}),
+		Token:       "token",
+	}
+
+	t.Run("waits for the holder", func(t *testing.T) {
+		held, err := fslock.Acquire(credPath+".lock", 0)
+		require.NoError(t, err)
+		done := make(chan error, 1)
+		go func() { done <- AddCredential(cred, true) }()
+		select {
+		case err := <-done:
+			t.Fatalf("AddCredential returned while the lock was held: %v", err)
+		case <-time.After(200 * time.Millisecond):
+		}
+		require.NoError(t, held.Release())
+		require.NoError(t, <-done)
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Equal(t, []Credential{cred}, creds)
+	})
+
+	t.Run("fails when the holder does not release", func(t *testing.T) {
+		orig := credentialLockTimeout
+		credentialLockTimeout = 50 * time.Millisecond
+		t.Cleanup(func() { credentialLockTimeout = orig })
+		held, err := fslock.Acquire(credPath+".lock", 0)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = held.Release() })
+
+		err = RemoveCredential(cred.RegistryURL)
+		require.ErrorContains(t, err, "failed to lock credentials file")
+		creds, err := loadCreds()
+		require.NoError(t, err)
+		assert.Equal(t, []Credential{cred}, creds)
 	})
 }
