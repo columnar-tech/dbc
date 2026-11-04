@@ -16,7 +16,9 @@ package atomicfile
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -27,22 +29,26 @@ import (
 // is generous; cmd/go's robustio uses the same.
 const transientFor = 2 * time.Second
 
-// replace renames source over destination. Windows refuses to replace a file
-// while another handle without FILE_SHARE_DELETE has it open, which includes
-// every os.Open, failing with ERROR_ACCESS_DENIED or ERROR_SHARING_VIOLATION.
-// openForRead's handles share delete access and don't block it; replace waits
-// out any others.
+// replace renames source over destination, which must be in the same
+// directory. MoveFileEx refuses to replace a file that any handle has open,
+// even one sharing delete access. os.Root's Rename uses POSIX rename semantics
+// where the filesystem supports them (NTFS on Windows 10 1607 and later), which
+// replace a file that is open with FILE_SHARE_DELETE, as openForRead's handles
+// are; elsewhere it falls back to a plain replacing rename. A handle without
+// FILE_SHARE_DELETE (any os.Open) still blocks it with ERROR_ACCESS_DENIED or
+// ERROR_SHARING_VIOLATION, so replace waits those out.
 func replace(source, destination string) error {
-	src, err := windows.UTF16PtrFromString(source)
+	dir := filepath.Dir(destination)
+	if filepath.Dir(source) != dir {
+		return fmt.Errorf("replace %s with %s: not in the same directory", destination, source)
+	}
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return err
 	}
-	dst, err := windows.UTF16PtrFromString(destination)
-	if err != nil {
-		return err
-	}
+	defer root.Close()
 	return retryTransient(func() error {
-		return windows.MoveFileEx(src, dst, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+		return root.Rename(filepath.Base(source), filepath.Base(destination))
 	})
 }
 
