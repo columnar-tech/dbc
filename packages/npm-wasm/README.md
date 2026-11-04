@@ -126,8 +126,7 @@ handle is also released on GC.)
 
 **By default, Node clients now honor the user's global dbc `config.toml`.**
 Omitting `registryConfig` (or setting `"default"`) loads it; a missing global
-file is allowed, but malformed or unreadable files reject `loadDbc()`. This is
-an intentional change from always using only the built-in registries.
+file is allowed, but malformed or unreadable files reject `loadDbc()`. 
 
 ```js
 const dbc = await loadDbc({
