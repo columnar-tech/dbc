@@ -63,18 +63,41 @@ fn link_custom(dir: &Path, is_static: bool) {
     }
 }
 
+/// The libdbc versions these bindings can use: the release that matches the
+/// crate version, up to (excluding) the next minor release before 1.0, or the
+/// next major release after. The C ABI (option keys, target and field ids) can
+/// change between those, so an older or newer libdbc would compile and then
+/// fail or misbehave at run time. `None` for the unreleased 0.0.0-dev
+/// placeholder used in the repository.
+fn libdbc_version_range() -> Option<(String, String)> {
+    let version = env::var("CARGO_PKG_VERSION").unwrap();
+    if version == "0.0.0-dev" {
+        return None;
+    }
+    let release = version.split(['-', '+']).next().unwrap();
+    let mut parts = release.split('.').map(|p| p.parse::<u64>().unwrap());
+    let (major, minor) = (parts.next().unwrap(), parts.next().unwrap());
+    let upper = if major == 0 { format!("0.{}.0", minor + 1) } else { format!("{}.0.0", major + 1) };
+    Some((release.to_string(), upper))
+}
+
 fn link_pkg_config(is_static: bool) {
-    let library = pkg_config::Config::new()
-        .cargo_metadata(false)
-        .env_metadata(true)
-        .statik(is_static)
-        .probe("dbc")
-        .unwrap_or_else(|err| {
-            panic!(
-                "columnar-dbc-sys: {err}\n\nInstall libdbc-dev/libdbc-devel and pkg-config, set \
-                 DBC_SYS_LIB_DIR, or enable the `bundled` feature to link a prebuilt libdbc."
-            )
-        });
+    let range = libdbc_version_range();
+    let mut config = pkg_config::Config::new();
+    config.cargo_metadata(false).env_metadata(true).statik(is_static);
+    if let Some((lower, upper)) = &range {
+        config.range_version(lower.as_str()..upper.as_str());
+    }
+    let library = config.probe("dbc").unwrap_or_else(|err| {
+        let required = range
+            .as_ref()
+            .map(|(lower, upper)| format!(" (libdbc >= {lower}, < {upper}, matching this crate's version)"))
+            .unwrap_or_default();
+        panic!(
+            "columnar-dbc-sys: {err}\n\nInstall libdbc-dev/libdbc-devel{required} and pkg-config, set \
+             DBC_SYS_LIB_DIR, or enable the `bundled` feature to link a prebuilt libdbc."
+        )
+    });
     let libdir = pkg_config::get_variable("dbc", "libdir")
         .unwrap_or_else(|err| panic!("columnar-dbc-sys: {err}"));
     for path in &library.link_paths {

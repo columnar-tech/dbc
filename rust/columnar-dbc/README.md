@@ -66,6 +66,10 @@ bundled platform crates. For a nonstandard installation prefix, set
 `PKG_CONFIG_PATH` to the directory containing `dbc.pc`. It is not limited to
 the bundled targets below, but requires a libdbc built for your target.
 
+The installed libdbc must match the crate's version: `columnar-dbc` 0.4.x
+needs libdbc 0.4.x at or above the crate's patch release, and the build fails
+otherwise, because libdbc's C interface can change between minor releases.
+
 ## Bundled prebuilt libraries
 
 To link a prebuilt static library instead of an installed libdbc, enable the
@@ -101,6 +105,8 @@ The library source is selected in this order:
 
 System/custom linking is **static by default**. A custom directory must
 contain `libdbc.a`; for example, `DBC_SYS_LIB_DIR=/opt/dbc/lib cargo build`.
+The build can't check the version of a custom directory's library, so it must come
+from the same dbc release as the crate.
 Static pkg-config linking also selects `libdbc.a`, even under a system
 library directory.
 Static linking on MSVC targets is supported only for x86_64, including
