@@ -108,6 +108,113 @@ $ source .venv/bin/activate
 $ pip install dbc
 ```
 
+## Linux Package Repositories (deb/rpm)
+
+dbc's Debian (`.deb`) and RPM (`.rpm`) packages are published to the
+[Cloudsmith](https://cloudsmith.com) repository
+[`columnar/dbc`](https://cloudsmith.io/~columnar/repos/dbc/packages/) for every
+stable release. The same packages are attached to each
+[GitHub release](https://github.com/columnar-tech/dbc/releases) if you prefer
+to download and install them directly.
+
+The repository provides:
+
+| Package | Format | Contents |
+| --- | --- | --- |
+| `dbc` | deb, rpm | The dbc command-line tool |
+| `libdbc-dev` | deb | dbc's C library (`libdbc.a`, `libdbc.so`), header, and `dbc.pc` pkg-config file, e.g. for the [`columnar-dbc`](https://crates.io/crates/columnar-dbc) Rust crate |
+| `libdbc-devel` | rpm | The same development files for RPM-based distributions |
+
+The packages support x86_64 and aarch64 Linux with glibc 2.28 or newer, on any
+Debian- or RPM-based distribution.
+
+=== "Debian/Ubuntu (apt)"
+
+    Add the repository with Cloudsmith's setup script:
+
+    ```console
+    $ curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.deb.sh' | sudo -E bash
+    ```
+
+    Or add it manually:
+
+    ```console
+    $ curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/columnar-dbc-archive-keyring.gpg
+    $ echo 'deb [signed-by=/usr/share/keyrings/columnar-dbc-archive-keyring.gpg] https://dl.cloudsmith.io/public/columnar/dbc/deb/any-distro any-version main' | sudo tee /etc/apt/sources.list.d/columnar-dbc.list
+    $ sudo apt update
+    ```
+
+    Then install dbc, the development package, or both:
+
+    ```console
+    $ sudo apt install dbc
+    $ sudo apt install libdbc-dev pkg-config
+    ```
+
+=== "Fedora/RHEL (dnf)"
+
+    Add the repository with Cloudsmith's setup script:
+
+    ```console
+    $ curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/setup.rpm.sh' | sudo -E bash
+    ```
+
+    Or add it manually:
+
+    ```console
+    $ curl -1sLf 'https://dl.cloudsmith.io/public/columnar/dbc/config.rpm.txt?distro=any-distro&codename=any-version' | sudo tee /etc/yum.repos.d/columnar-dbc.repo
+    ```
+
+    Then install dbc, the development package, or both:
+
+    ```console
+    $ sudo dnf install dbc
+    $ sudo dnf install libdbc-devel pkgconf-pkg-config
+    ```
+
+To install a downloaded package from GitHub Releases instead, pass the file
+to the package manager, e.g. `sudo apt install ./libdbc-dev_*_amd64.deb` or
+`sudo dnf install ./libdbc-devel-*.x86_64.rpm`.
+
+## libdbc Development Libraries (macOS and Windows)
+
+dbc's C library, used for example by the
+[`columnar-dbc`](https://crates.io/crates/columnar-dbc) Rust crate, is also
+released as a static library for macOS and Windows. Each
+`libdbc-dev_<version>_<os>_<arch>` archive on
+[GitHub Releases](https://github.com/columnar-tech/dbc/releases) contains
+`libdbc.a` (`libdbc.lib` on Windows), the `libdbc.h` header, and a relocatable
+`dbc.pc` pkg-config file.
+
+=== "macOS (Homebrew)"
+
+    The `libdbc` formula in the `columnar-tech/tap` tap supports x86_64 and
+    arm64 on macOS 12 or newer, and installs the library, header, and `dbc.pc`
+    into Homebrew's prefix:
+
+    ```console
+    $ brew install pkgconf columnar-tech/tap/libdbc
+    $ pkg-config --modversion dbc
+    ```
+
+    To use a downloaded archive instead, unpack it and set `PKG_CONFIG_PATH` to
+    the unpacked directory.
+
+=== "Windows"
+
+    The Windows x64 zip is published to the Cloudsmith repository as the raw
+    package [`libdbc-dev-windows-x64`](https://cloudsmith.io/~columnar/repos/dbc/packages/)
+    for every stable release, and attached to each GitHub release:
+
+    ```powershell
+    $v = "<version>"
+    Invoke-WebRequest -OutFile libdbc-dev.zip "https://dl.cloudsmith.io/public/columnar/dbc/raw/names/libdbc-dev-windows-x64/versions/$v/libdbc-dev_${v}_windows_amd64.zip"
+    Expand-Archive libdbc-dev.zip -DestinationPath .
+    ```
+
+    For the Rust crate, set `DBC_SYS_LIB_DIR` to the unpacked
+    `libdbc-dev_<version>_windows_amd64` directory.
+
 ## GitHub Releases
 
 All dbc release artifacts are can be found at [GitHub Releases](https://github.com/columnar-tech/dbc/releases).

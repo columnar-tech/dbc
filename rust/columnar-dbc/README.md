@@ -107,6 +107,8 @@ Expand-Archive libdbc-dev.zip -DestinationPath .
 $env:DBC_SYS_LIB_DIR = "$PWD\libdbc-dev_${v}_windows_amd64"
 ```
 
+To add the repository without the setup script, see
+[Linux package repositories](https://github.com/columnar-tech/dbc/blob/main/docs/getting_started/installation.md#linux-package-repositories-debrpm).
 Set `PKG_CONFIG_PATH` to the directory containing `dbc.pc` for a nonstandard
 installation prefix. The source code is at <https://github.com/columnar-tech/dbc>.
 
