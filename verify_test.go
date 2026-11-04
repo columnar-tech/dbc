@@ -65,17 +65,24 @@ func TestVerifyPackageSignature(t *testing.T) {
 }
 
 // VerifyPackageSignature is exported, so it can't rely on the package
-// extractor having validated the manifest: a validly signed driver outside
-// the staging directory must not pass for the package's driver.
+// extractor having validated the manifest: a validly signed file outside the
+// staging directory must not pass for the package's driver or its signature.
 func TestVerifyPackageSignatureStaysInStagingDir(t *testing.T) {
 	outside := t.TempDir()
 	extractSignedPackage(t, outside)
 	stage := filepath.Join(outside, "stage")
 	require.NoError(t, os.Mkdir(stage, 0o700))
+	// The driver itself is legitimately staged, so the signature cases fail
+	// only if the signature is looked up inside the stage.
+	driver, err := os.ReadFile(filepath.Join(outside, signedDriver))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(stage, signedDriver), driver, 0o600))
 
 	for name, files := range map[string][2]string{
 		"relative driver and signature": {"../" + signedDriver, "../" + signedSignature},
 		"absolute driver and signature": {filepath.Join(outside, signedDriver), filepath.Join(outside, signedSignature)},
+		"relative signature":            {signedDriver, "../" + signedSignature},
+		"absolute signature":            {signedDriver, filepath.Join(outside, signedSignature)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			m := config.Manifest{}
@@ -84,14 +91,24 @@ func TestVerifyPackageSignatureStaysInStagingDir(t *testing.T) {
 		})
 	}
 
-	t.Run("symlinked driver", func(t *testing.T) {
-		link := filepath.Join(stage, "linked.so")
-		if err := os.Symlink(filepath.Join(outside, signedDriver), link); err != nil {
+	symlink := func(t *testing.T, target, link string) {
+		t.Helper()
+		if err := os.Symlink(target, link); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		require.NoError(t, os.Symlink(filepath.Join(outside, signedSignature), link+".sig"))
+	}
+	t.Run("symlinked driver", func(t *testing.T) {
+		link := filepath.Join(stage, "linked.so")
+		symlink(t, filepath.Join(outside, signedDriver), link)
+		symlink(t, filepath.Join(outside, signedSignature), link+".sig")
 		m := config.Manifest{}
 		m.Files.Driver = "linked.so"
+		require.Error(t, dbc.VerifyPackageSignature(stage, m))
+	})
+	t.Run("symlinked signature", func(t *testing.T) {
+		symlink(t, filepath.Join(outside, signedSignature), filepath.Join(stage, "linked.sig"))
+		m := config.Manifest{}
+		m.Files.Driver, m.Files.Signature = signedDriver, "linked.sig"
 		require.Error(t, dbc.VerifyPackageSignature(stage, m))
 	})
 }
