@@ -46,6 +46,10 @@ type SyncCmd struct {
 
 func (c SyncCmd) newModel(base baseModel) syncModel {
 	ctx, cancel := context.WithCancel(context.Background())
+	projectLock := &syncProjectLock{}
+	// Cancellation requests release, but an active worker owns the lock until
+	// it has finished all writes and cleanup. This also covers idle handoffs.
+	context.AfterFunc(ctx, projectLock.release)
 	return syncModel{
 		baseModel:          base,
 		Path:               c.Path,
@@ -55,7 +59,8 @@ func (c SyncCmd) newModel(base baseModel) syncModel {
 		jsonStreamProgress: c.JsonStreamProgress,
 		ctx:                ctx,
 		cancel:             cancel,
-		projectLock:        &syncProjectLock{},
+		projectLock:        projectLock,
+		installPackage:     config.InstallPackage,
 	}
 }
 
@@ -128,12 +133,13 @@ type syncModel struct {
 
 	done bool
 
-	// ctx is canceled when the user quits. The worker that prepares or installs
-	// the drivers owns its temporary files: once its blocking call returns it
-	// sees the canceled context, removes them and writes nothing more.
-	ctx         context.Context
-	cancel      context.CancelFunc
-	projectLock *syncProjectLock
+	// ctx is canceled when the user quits. Workers retain their temporary files
+	// and the project lock until they return; cancellation does not interrupt
+	// a blocking call or release a lock while that call may still write.
+	ctx            context.Context
+	cancel         context.CancelFunc
+	projectLock    *syncProjectLock
+	installPackage func(context.Context, config.Config, string, *os.File, config.InstallPackageOptions) (config.Manifest, error)
 
 	// jsonErrorOutput is the JSON error envelope to emit via FinalOutput
 	jsonErrorOutput string
@@ -146,12 +152,30 @@ type syncModel struct {
 	jsonOut io.Writer
 }
 
-// syncProjectLock is shared by model copies and the preparation worker. Closing
-// it also rejects a late acquisition after the user has already quit.
+// syncProjectLock is shared by model copies and workers. A release request
+// prevents new work, but defers unlocking until every active worker returns.
 type syncProjectLock struct {
-	mu     sync.Mutex
-	lock   *fslock.Lock
-	closed bool
+	mu      sync.Mutex
+	lock    *fslock.Lock
+	closed  bool
+	workers int
+}
+
+func (p *syncProjectLock) begin() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return false
+	}
+	p.workers++
+	return true
+}
+
+func (p *syncProjectLock) end() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.workers--
+	p.releaseIfIdle()
 }
 
 func (p *syncProjectLock) hold(lock fslock.Lock) bool {
@@ -169,7 +193,13 @@ func (p *syncProjectLock) release() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.closed = true
-	if p.lock != nil {
+	p.releaseIfIdle()
+}
+
+// releaseIfIdle is called with mu held. In particular, cancellation cannot
+// release the lock while an uninterruptible install is still publishing.
+func (p *syncProjectLock) releaseIfIdle() {
+	if p.closed && p.workers == 0 && p.lock != nil {
 		_ = p.lock.Release()
 		p.lock = nil
 	}
@@ -234,6 +264,10 @@ func removeDownload(f *os.File) {
 // anything is installed. The model retains the project lock until sync exits.
 // Downloads are removed again when preparation fails.
 func (s syncModel) prepare() (items []syncItem, err error) {
+	if !s.projectLock.begin() {
+		return nil, context.Canceled
+	}
+	defer s.projectLock.end()
 	listPath, err := filepath.Abs(s.Path)
 	if err != nil {
 		return nil, err
@@ -399,12 +433,19 @@ type alreadyInstalledDrvMsg struct {
 
 func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 	return func() tea.Msg {
+		if !s.projectLock.begin() {
+			removeDownload(item.File)
+			return nil
+		}
 		if item.Installed != nil {
+			defer s.projectLock.end()
 			return alreadyInstalledDrvMsg{info: *item.Installed}
 		}
 
+		program := prog
 		// avoid deadlock by doing this in a goroutine rather than during processing the tea.Msg
 		go func() {
+			defer s.projectLock.end()
 			verificationFailed := false
 			options := config.InstallPackageOptions{
 				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
@@ -429,20 +470,25 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 					return err
 				}
 			}
-			manifest, err := config.InstallPackage(s.ctx, cfg, item.Name, item.File, options)
+			manifest, err := s.installPackage(s.ctx, cfg, item.Name, item.File, options)
 			// Remove the archive before reporting: the program may exit as soon
 			// as the last result arrives.
 			removeDownload(item.File)
+			if s.ctx.Err() != nil {
+				s.projectLock.release()
+				return
+			}
 			if err != nil {
+				s.projectLock.release()
 				if verificationFailed {
-					prog.Send(fmt.Errorf("failed to verify signature: %w", err))
+					program.Send(fmt.Errorf("failed to verify signature: %w", err))
 					return
 				}
-				prog.Send(fmt.Errorf("failed to install driver package: %w", err))
+				program.Send(fmt.Errorf("failed to install driver package: %w", err))
 				return
 			}
 
-			prog.Send(installedDrvMsg{
+			program.Send(installedDrvMsg{
 				info:        manifest.DriverInfo,
 				postInstall: manifest.PostInstall.Messages,
 			})
@@ -479,7 +525,6 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// blocked, its temporary directory is left behind.
 		if isQuitKey(msg) {
 			s.cancel()
-			s.projectLock.release()
 			s.removeDownloads()
 		}
 	case []syncItem:
