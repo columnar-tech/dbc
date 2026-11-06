@@ -260,8 +260,11 @@ func AllowUnsigned() InstallOption {
 }
 
 // Install installs a driver with the given name to the specified
-// configuration, verifying its signature with VerifyPackageSignature unless
-// AllowUnsigned is given. Verification runs on the staged package before it is
+// configuration, verifying its signature with VerifyPackageSignature (which
+// checks the driver library's Columnar signature) unless
+// AllowUnsigned is given. When the registry publishes a SHA-256 for the
+// package, the downloaded archive must match it even with AllowUnsigned.
+// Verification runs on the staged package before it is
 // published, so a driver that fails it leaves any existing install in place.
 func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string, opts ...InstallOption) (*config.Manifest, error) {
 	var o installOptions
@@ -299,9 +302,10 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	var installOpts config.InstallPackageOptions
+	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
 	if !o.allowUnsigned {
-		installOpts.Verifier = VerifyPackageSignature
+		// VerifyPackageSignature checks the driver library's Columnar signature.
+		installOpts.SignatureVerifier = VerifyPackageSignature
 	}
 	manifest, err := config.InstallPackage(ctx, cfg, driverName, f, installOpts)
 	if err != nil {
