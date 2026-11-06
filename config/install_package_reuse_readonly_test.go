@@ -109,7 +109,7 @@ func TestCheckInstalledPackageReadOnlyFallback(t *testing.T) {
 			info, matched, err := CheckInstalledPackage(context.Background(), cfg, "driver", expect)
 			require.NoError(t, err)
 			assert.True(t, matched)
-			assert.True(t, sameDriverRegistration(registered, info))
+			assertSameResolvedRegistration(t, registered, info)
 			assert.Greater(t, verifierCalls, beforeCalls, "signature verification must run on the read-only path")
 		})
 	}
