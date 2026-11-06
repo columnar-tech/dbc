@@ -42,16 +42,14 @@ func (suite *SubcommandTestSuite) TestSync() {
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 
 	downloads := 0
+	counting := testBaseModel()
+	counting.downloadPkg = func(pkg dbc.PkgInfo) (*os.File, error) {
+		downloads++
+		return downloadTestPkg(pkg)
+	}
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
-	}.GetModelCustom(
-		baseModel{
-			getDriverRegistry: getTestDriverRegistry,
-			downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
-				downloads++
-				return downloadTestPkg(pkg)
-			},
-		})
+	}.GetModelCustom(counting)
 	suite.validateOutput("✓ test-driver-1-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
 	suite.Zero(downloads, "same-version sync should not download the package")
 }
@@ -77,8 +75,10 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	model := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
-			return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
+			return openTestdataCopy("test-driver-no-sig.tar.gz")
 		},
+		getRegistries:    testBaseModel().getRegistries,
+		getRegistryIndex: testBaseModel().getRegistryIndex,
 	})
 	suite.Contains(suite.runCmdErr(model), "failed to verify signature")
 
@@ -132,13 +132,7 @@ func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSe
 	suite.Equal(secondaryBytes, remainingSecondaryBytes, "secondary-root library should remain intact when shadowed")
 	suite.FileExists(filepath.Join(secondary, "test-driver-1.toml"))
 
-	lock, err := loadLockFile(filepath.Join(suite.tempdir, "dbc.lock"))
-	suite.Require().NoError(err)
-	lockInfo := lock.lockinfo["test-driver-1"]
-	suite.Equal("1.0.0", lockInfo.Version.String())
-	primaryChecksum, err := checksum(primaryLibrary)
-	suite.Require().NoError(err)
-	suite.Equal(primaryChecksum, lockInfo.Checksum)
+	suite.assertLockedArchive("test-driver-1", "1.0.0", "test-driver-1.tar.gz")
 }
 
 func (suite *SubcommandTestSuite) TestSyncPrimaryVersionReplacementUpdatesRegistrationAndLockChecksum() {
@@ -162,19 +156,13 @@ func (suite *SubcommandTestSuite) TestSyncPrimaryVersionReplacementUpdatesRegist
 	suite.True(strings.HasPrefix(filepath.Base(filepath.Dir(currentLibrary)), fmt.Sprintf(".dbc-package-g-%d-test-driver-1-", len([]byte("test-driver-1")))))
 	suite.FileExists(currentLibrary)
 
-	lock, err := loadLockFile(filepath.Join(suite.tempdir, "dbc.lock"))
-	suite.Require().NoError(err)
-	lockInfo := lock.lockinfo["test-driver-1"]
-	suite.Equal("1.0.0", lockInfo.Version.String())
-	currentChecksum, err := checksum(currentLibrary)
-	suite.Require().NoError(err)
-	suite.Equal(currentChecksum, lockInfo.Checksum)
+	suite.assertLockedArchive("test-driver-1", "1.0.0", "test-driver-1.tar.gz")
 }
 
 func (suite *SubcommandTestSuite) TestSyncRejectsUnsupportedLockFileWithoutRewriting() {
 	listPath := filepath.Join(suite.tempdir, "dbc.toml")
 	lockPath := filepath.Join(suite.tempdir, "dbc.lock")
-	lockContents := []byte("version = 2\nrevision = 0\n" +
+	lockContents := []byte("version = 3\nrevision = 0\n" +
 		"[[drivers]]\nname = 'test-driver-1'\nversion = '1.0.0'\n" +
 		"[drivers.source]\ntype = 'packslip'\n" +
 		"[[drivers.artifacts]]\nformat = 'tar.gz'\n")
@@ -183,7 +171,7 @@ func (suite *SubcommandTestSuite) TestSyncRejectsUnsupportedLockFileWithoutRewri
 
 	m := SyncCmd{Path: listPath}.GetModelCustom(testBaseModel())
 	output := suite.runCmdErr(m)
-	suite.Contains(output, "unsupported lock file version 2")
+	suite.Contains(output, "unsupported lock file version 3")
 
 	actual, err := os.ReadFile(lockPath)
 	suite.Require().NoError(err)
@@ -394,7 +382,7 @@ func (suite *SubcommandTestSuite) TestSyncPartialRegistryFailure() {
 	m = SyncCmd{
 		Path: filepath.Join(suite.tempdir, "dbc.toml"),
 	}.GetModelCustom(
-		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+		withRegistries(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg}))
 
 	// Should install successfully without printing the registry error
 	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
@@ -507,7 +495,7 @@ func (suite *SubcommandTestSuite) TestSync_JSONStream() {
 	suite.Require().NoError(err)
 
 	m := SyncCmd{Path: driverListPath, Json: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 
 	lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -538,7 +526,7 @@ func (suite *SubcommandTestSuite) TestSync_JSONProgressStream() {
 	suite.Require().NoError(err)
 
 	m := SyncCmd{Path: driverListPath, JsonStreamProgress: true}.
-		GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+		GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 
 	lines := strings.Split(strings.TrimSpace(out), "\n")

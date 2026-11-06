@@ -61,6 +61,8 @@ func defaultBaseModel() baseModel {
 	return baseModel{
 		getDriverRegistry: getDriverRegistry,
 		downloadPkg:       downloadPkg,
+		getRegistries:     configuredRegistries,
+		getRegistryIndex:  fetchRegistryIndex,
 	}
 }
 

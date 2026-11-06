@@ -64,7 +64,9 @@ func hashedRegistry(hash string) func() ([]dbc.Driver, error) {
 }
 
 func hashedBaseModel(hash string) baseModel {
-	return baseModel{getDriverRegistry: hashedRegistry(hash), downloadPkg: downloadTestPkg}
+	base := testBaseModel()
+	base.getDriverRegistry = hashedRegistry(hash)
+	return base
 }
 
 func (suite *SubcommandTestSuite) TestInstallRegistryHashMatch() {
