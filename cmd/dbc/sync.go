@@ -251,6 +251,17 @@ func (e *libraryChecksumError) Error() string {
 		e.Driver, e.Expected, e.Actual)
 }
 
+// archiveSizeMismatchError reports an archive whose bytes do not match the
+// optional size recorded in the lockfile.
+type archiveSizeMismatchError struct {
+	Driver           string
+	Expected, Actual int64
+}
+
+func (e *archiveSizeMismatchError) Error() string {
+	return fmt.Sprintf("driver %s: archive size mismatch: expected %d bytes, got %d", e.Driver, e.Expected, e.Actual)
+}
+
 // removeDownload closes a downloaded archive and removes its private directory.
 func removeDownload(f *os.File) {
 	if f == nil {
@@ -360,9 +371,9 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	if err != nil {
 		return item, err
 	}
-	// Receipts do not record archive size. A locked size therefore requires
-	// the original archive bytes even when the installed package matches.
-	if want := pd.Package.ArchiveSHA256; want != "" && pd.ArchiveSize == nil {
+	// Matching archive digests identify the same archive bytes; size is checked
+	// only when a download is needed.
+	if want := pd.Package.ArchiveSHA256; want != "" {
 		var signatureVerifier config.PackageVerifier
 		if !s.NoVerify {
 			signatureVerifier = dbc.VerifyPackageSignature
@@ -394,7 +405,7 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 		}
 		if info.Size() != *pd.ArchiveSize {
 			removeDownload(f)
-			return item, fmt.Errorf("driver %s: archive size mismatch: expected %d bytes, got %d", pd.Name, *pd.ArchiveSize, info.Size())
+			return item, &archiveSizeMismatchError{Driver: pd.Name, Expected: *pd.ArchiveSize, Actual: info.Size()}
 		}
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
@@ -661,7 +672,8 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			code := "sync_failed"
 			var archiveErr *config.ArchiveHashMismatchError
 			var libraryErr *libraryChecksumError
-			if errors.As(msg, &archiveErr) || errors.As(msg, &libraryErr) {
+			var sizeErr *archiveSizeMismatchError
+			if errors.As(msg, &archiveErr) || errors.As(msg, &libraryErr) || errors.As(msg, &sizeErr) {
 				code = "checksum_failed"
 			}
 			s.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
