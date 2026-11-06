@@ -70,26 +70,35 @@ func registrationNamespaceLockFilename(identity string) string {
 // The lock directory and identity are platform-specific because Windows
 // registry scopes share registrations independently of package payload roots.
 func acquireRegistrationNamespaceLock(ctx context.Context, cfg Config, location string, timeout time.Duration) (*driverInstallLock, string, error) {
-	identity, lockDirectory, registrationLocation, err := registrationNamespaceLockSpec(cfg, location)
+	lockPath, registrationLocation, err := registrationNamespaceLockPath(cfg, location)
 	if err != nil {
 		return nil, "", err
 	}
-	canonicalDirectory, err := hostpath.Abs(lockDirectory)
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve registration namespace lock directory: %w", err)
-	}
-	canonicalDirectory = hostpath.Clean(canonicalDirectory)
-	if identity == "" {
-		return nil, "", errors.New("registration namespace identity is empty")
-	}
-	// The root-local fixed name lets the filesystem resolve case and Unicode
-	// aliases according to its own identity rules.
-	lockPath := hostpath.Join(canonicalDirectory, registrationNamespaceLockFilename(identity))
 	lock, err := acquireDriverInstallLock(ctx, lockPath, timeout)
 	if err != nil {
 		return nil, "", fmt.Errorf("acquire registration namespace lock: %w", err)
 	}
 	return lock, registrationLocation, nil
+}
+
+// registrationNamespaceLockPath resolves the namespace without opening a
+// writable lock file, so read-only reuse can observe the same registration.
+func registrationNamespaceLockPath(cfg Config, location string) (lockPath, registrationLocation string, err error) {
+	identity, lockDirectory, registrationLocation, err := registrationNamespaceLockSpec(cfg, location)
+	if err != nil {
+		return "", "", err
+	}
+	canonicalDirectory, err := hostpath.Abs(lockDirectory)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve registration namespace lock directory: %w", err)
+	}
+	canonicalDirectory = hostpath.Clean(canonicalDirectory)
+	if identity == "" {
+		return "", "", errors.New("registration namespace identity is empty")
+	}
+	// The root-local fixed name lets the filesystem resolve case and Unicode
+	// aliases according to its own identity rules.
+	return hostpath.Join(canonicalDirectory, registrationNamespaceLockFilename(identity)), registrationLocation, nil
 }
 
 // collectFileRegistrationSharedMaps returns complete=false if any registration
