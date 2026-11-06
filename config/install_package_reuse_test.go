@@ -16,6 +16,7 @@ package config
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -187,6 +188,51 @@ func TestCheckInstalledPackageRejectsMismatches(t *testing.T) {
 		_, statErr := os.Stat(location)
 		assert.ErrorIs(t, statErr, fs.ErrNotExist)
 	})
+}
+
+func TestCheckInstalledPackageRejectsSingleReceiptFieldMismatch(t *testing.T) {
+	// Each case rewrites exactly one receipt field to another well-formed
+	// value. runtime_id and generation also fail the reader's own validation
+	// against the generation directory name, so those cases are rejected
+	// before the explicit field comparison is reached.
+	otherPlatform := "linux_arm64"
+	if PlatformTuple() == otherPlatform {
+		otherPlatform = "linux_amd64"
+	}
+	cases := map[string]func(current any) any{
+		"runtime_id": func(any) any { return "other" },
+		"platform":   func(any) any { return otherPlatform },
+		"registration_scope": func(current any) any {
+			if current == string(packageRegistrationFile) {
+				return string(packageRegistrationRegistryUser)
+			}
+			return string(packageRegistrationFile)
+		},
+		"generation":               func(any) any { return "other-generation" },
+		"registration_fingerprint": func(any) any { return strings.Repeat("0", 64) },
+	}
+	for field, change := range cases {
+		t.Run(field, func(t *testing.T) {
+			cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+			expect := reuseExpectation(installReusePackage(t, cfg, InstallPackageOptions{}))
+			registered, err := GetDriver(cfg, "driver")
+			require.NoError(t, err)
+			generation := filepath.Dir(registered.Driver.Shared.Get(PlatformTuple()))
+			receiptPath := filepath.Join(generation, packageInstallReceiptFilename)
+			data, err := os.ReadFile(receiptPath)
+			require.NoError(t, err)
+			var receipt map[string]any
+			require.NoError(t, json.Unmarshal(data, &receipt))
+			require.Contains(t, receipt, field)
+			changed := change(receipt[field])
+			require.NotEqual(t, receipt[field], changed)
+			receipt[field] = changed
+			data, err = json.Marshal(receipt)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(receiptPath, data, 0o600))
+			assertNotReusable(t, cfg, expect)
+		})
+	}
 }
 
 func TestCheckInstalledPackageInvalidInput(t *testing.T) {
