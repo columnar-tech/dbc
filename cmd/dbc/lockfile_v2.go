@@ -27,6 +27,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/atomicfile"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -40,8 +41,7 @@ const (
 )
 
 var (
-	lockHashRE   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	lockTargetRE = regexp.MustCompile(`^[a-z0-9]+(_[a-z0-9]+)+$`)
+	lockHashRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 type lockedSource struct {
@@ -49,21 +49,15 @@ type lockedSource struct {
 	URL  string `toml:"url"`
 }
 
-// lockedArtifact locates one archive. Exactly one of Path (relative to the
-// source registry) or URL (absolute) must be present; presence is decided by
-// key presence so that an empty string is not treated as absent.
-type lockedArtifact struct {
-	Target string  `toml:"target"`
-	Path   *string `toml:"path,omitempty"`
-	URL    *string `toml:"url,omitempty"`
-	Hash   string  `toml:"hash"`
-}
+// lockedArtifact describes a typed archive in a lockfile snapshot.
+type lockedArtifact = resolution.Artifact
 
 type lockedDriver struct {
-	Name      string           `toml:"name"`
-	Version   string           `toml:"version"`
-	Source    lockedSource     `toml:"source"`
-	Artifacts []lockedArtifact `toml:"artifacts"`
+	Name      string                `toml:"name"`
+	Version   string                `toml:"version"`
+	Source    lockedSource          `toml:"source"`
+	Artifacts []lockedArtifact      `toml:"artifacts"`
+	Evidence  []resolution.Evidence `toml:"evidence,omitempty"`
 }
 
 type lockFileV2 struct {
@@ -154,11 +148,13 @@ func validateLockedURL(s string) error {
 }
 
 func lockedLocation(src lockedSource, a lockedArtifact) string {
-	if a.URL != nil {
-		return *a.URL
+	if a.Location.Kind == resolution.ArtifactLocationURL {
+		return a.Location.Value
 	}
-	return src.URL + "/" + *a.Path
+	return src.URL + "/" + a.Location.Value
 }
+
+func validSHA256(s string) bool { return lockHashRE.MatchString(s) }
 
 // strictDecodeError adds the offending keys to go-toml's generic strict-mode error.
 func strictDecodeError(err error) error {
@@ -175,6 +171,7 @@ func (lf lockFileV2) validate() error {
 	}
 	names := map[string]bool{}
 	hashes := map[string]string{}
+	sizes := map[string]int64{}
 	for _, d := range lf.Drivers {
 		if d.Name == "" {
 			return errors.New("lock file contains a driver with an empty name")
@@ -196,33 +193,71 @@ func (lf lockFileV2) validate() error {
 		if len(d.Artifacts) == 0 {
 			return fmt.Errorf("driver %q has no artifacts", d.Name)
 		}
-		targets := map[string]bool{}
+		targets := map[resolution.Target]bool{}
 		for _, a := range d.Artifacts {
-			if a.Target == "" || !lockTargetRE.MatchString(a.Target) {
-				return fmt.Errorf("driver %q has an empty or malformed target %q", d.Name, a.Target)
+			target := resolution.CanonicalTarget(a.Target)
+			if target != a.Target || resolution.ValidateConcreteTarget(a.Target) != nil {
+				return fmt.Errorf("driver %q has an invalid or non-canonical target %+v", d.Name, a.Target)
 			}
 			if targets[a.Target] {
-				return fmt.Errorf("driver %q has duplicate target %q", d.Name, a.Target)
+				return fmt.Errorf("driver %q has duplicate target %+v", d.Name, a.Target)
 			}
 			targets[a.Target] = true
-			if (a.Path == nil) == (a.URL == nil) {
-				return fmt.Errorf("driver %q target %q must have exactly one of path or url", d.Name, a.Target)
+			if a.Format != "tar.gz" {
+				return fmt.Errorf("driver %q target %+v has unsupported format %q; expected tar.gz", d.Name, a.Target, a.Format)
 			}
-			if a.Path != nil {
-				if err := validateLockedPath(*a.Path); err != nil {
-					return fmt.Errorf("driver %q target %q: %w", d.Name, a.Target, err)
+			switch a.Location.Kind {
+			case resolution.ArtifactLocationRegistryPath:
+				if err := validateLockedPath(a.Location.Value); err != nil {
+					return fmt.Errorf("driver %q target %+v: %w", d.Name, a.Target, err)
 				}
-			} else if err := validateLockedURL(*a.URL); err != nil {
-				return fmt.Errorf("driver %q target %q: %w", d.Name, a.Target, err)
+			case resolution.ArtifactLocationURL:
+				if err := validateLockedURL(a.Location.Value); err != nil {
+					return fmt.Errorf("driver %q target %+v: %w", d.Name, a.Target, err)
+				}
+			case resolution.ArtifactLocationPath:
+				return fmt.Errorf("driver %q target %+v uses unsupported path location", d.Name, a.Target)
+			default:
+				return fmt.Errorf("driver %q target %+v has unknown location kind %q", d.Name, a.Target, a.Location.Kind)
 			}
-			if !lockHashRE.MatchString(a.Hash) {
-				return fmt.Errorf("driver %q target %q has a malformed hash; expected %s followed by 64 lowercase hex characters", d.Name, a.Target, lockHashPrefix)
+			if !validSHA256(a.Hash) {
+				return fmt.Errorf("driver %q target %+v has a malformed hash; expected %s followed by 64 lowercase hex characters", d.Name, a.Target, lockHashPrefix)
+			}
+			if a.Size != nil && *a.Size < 0 {
+				return fmt.Errorf("driver %q target %+v has a negative size", d.Name, a.Target)
 			}
 			loc := lockedLocation(d.Source, a)
 			if prev, ok := hashes[loc]; ok && prev != a.Hash {
 				return fmt.Errorf("location %s appears with different hashes", loc)
 			}
 			hashes[loc] = a.Hash
+			if a.Size != nil {
+				if prev, ok := sizes[loc]; ok && prev != *a.Size {
+					return fmt.Errorf("location %s appears with different sizes", loc)
+				}
+				sizes[loc] = *a.Size
+			}
+		}
+		if err := resolution.ValidateEvidence(d.Evidence); err != nil {
+			return fmt.Errorf("driver %q: %w", d.Name, err)
+		}
+		for _, e := range d.Evidence {
+			switch e.Location.Kind {
+			case resolution.ArtifactLocationURL:
+				if err := validateLockedURL(e.Location.Value); err != nil {
+					return fmt.Errorf("driver %q evidence %q: %w", d.Name, e.Kind, err)
+				}
+			case resolution.ArtifactLocationRegistryPath:
+				if err := validateLockedPath(e.Location.Value); err != nil {
+					return fmt.Errorf("driver %q evidence %q: %w", d.Name, e.Kind, err)
+				}
+			case resolution.ArtifactLocationPath:
+				if err := resolution.ValidateLocalPath(e.Location.Value); err != nil {
+					return fmt.Errorf("driver %q evidence %q: %w", d.Name, e.Kind, err)
+				}
+			default:
+				return fmt.Errorf("driver %q evidence %q has invalid location kind %q", d.Name, e.Kind, e.Location.Kind)
+			}
 		}
 	}
 	return nil
@@ -276,7 +311,19 @@ func writeLockFileV2(path string, lf lockFileV2) error {
 	out := lockFileV2{Version: lf.Version, Drivers: make([]lockedDriver, len(lf.Drivers))}
 	for i, d := range lf.Drivers {
 		d.Artifacts = append([]lockedArtifact(nil), d.Artifacts...)
-		sort.Slice(d.Artifacts, func(a, b int) bool { return d.Artifacts[a].Target < d.Artifacts[b].Target })
+		sort.Slice(d.Artifacts, func(a, b int) bool {
+			x, y := d.Artifacts[a].Target, d.Artifacts[b].Target
+			if x.OS != y.OS {
+				return x.OS < y.OS
+			}
+			if x.Arch != y.Arch {
+				return x.Arch < y.Arch
+			}
+			if x.LibC != y.LibC {
+				return x.LibC < y.LibC
+			}
+			return x.Variant < y.Variant
+		})
 		out.Drivers[i] = d
 	}
 	sort.Slice(out.Drivers, func(a, b int) bool { return out.Drivers[a].Name < out.Drivers[b].Name })
@@ -293,12 +340,16 @@ func writeLockFileV2(path string, lf lockFileV2) error {
 // path; otherwise it is stored as an absolute URL, which must be free of
 // userinfo, query and fragment.
 func newLockedArtifact(base, resolved *url.URL, target, hash string) (lockedArtifact, error) {
-	a := lockedArtifact{Target: target, Hash: hash}
+	parsedTarget, err := resolution.TargetFromPlatformTuple(target)
+	if err != nil {
+		return lockedArtifact{}, fmt.Errorf("cannot record artifact target: %w", err)
+	}
+	a := lockedArtifact{Target: parsedTarget, Format: "tar.gz", Hash: hash}
 	if rel, ok := relativeToBase(base, resolved); ok {
 		if err := validateLockedPath(rel); err != nil {
 			return a, fmt.Errorf("cannot record artifact location: %w", err)
 		}
-		a.Path = &rel
+		a.Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationRegistryPath, Value: rel}
 		return a, nil
 	}
 	if resolved.User != nil || resolved.RawQuery != "" || resolved.ForceQuery || resolved.Fragment != "" {
@@ -308,7 +359,7 @@ func newLockedArtifact(base, resolved *url.URL, target, hash string) (lockedArti
 	if err := validateLockedURL(s); err != nil {
 		return a, fmt.Errorf("cannot record artifact location: %w", err)
 	}
-	a.URL = &s
+	a.Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: s}
 	return a, nil
 }
 
@@ -372,22 +423,22 @@ func bindLockedRegistry(identity string, registries []dbc.Registry) (boundRegist
 
 // artifactURL returns the URL to request for a locked artifact.
 func (b boundRegistry) artifactURL(a lockedArtifact) (*url.URL, error) {
-	if (a.Path == nil) == (a.URL == nil) {
-		return nil, errors.New("locked artifact must have exactly one of path or url")
-	}
-	if a.URL != nil {
-		if err := validateLockedURL(*a.URL); err != nil {
+	if a.Location.Kind == resolution.ArtifactLocationURL {
+		if err := validateLockedURL(a.Location.Value); err != nil {
 			return nil, err
 		}
-		return url.Parse(*a.URL)
+		return url.Parse(a.Location.Value)
 	}
-	if err := validateLockedPath(*a.Path); err != nil {
+	if a.Location.Kind != resolution.ArtifactLocationRegistryPath {
+		return nil, fmt.Errorf("locked artifact has unsupported location kind %q", a.Location.Kind)
+	}
+	if err := validateLockedPath(a.Location.Value); err != nil {
 		return nil, err
 	}
-	u := b.BaseURL.JoinPath(*a.Path)
+	u := b.BaseURL.JoinPath(a.Location.Value)
 	prefix := strings.TrimRight(rootedPath(b.BaseURL), "/") + "/"
 	if !sameOrigin(b.BaseURL, u) || !strings.HasPrefix(rootedPath(u), prefix) {
-		return nil, fmt.Errorf("locked path %q escapes the registry", *a.Path)
+		return nil, fmt.Errorf("locked path %q escapes the registry", a.Location.Value)
 	}
 	return u, nil
 }

@@ -124,17 +124,36 @@ type = 'registry'
 url = 'https://dbc-cdn.columnar.tech'
 
 [[drivers.artifacts]]
-target = 'linux_amd64'
-path = 'mysql/v0.1.0/mysql_linux_amd64_v0.1.0.tar.gz'
+format = 'tar.gz'
 hash = 'sha256:...'
+
+[drivers.artifacts.target]
+os = 'linux'
+arch = 'amd64'
+libc = 'gnu'
+
+[drivers.artifacts.location]
+kind = 'registry-path'
+value = 'mysql/v0.1.0/mysql_linux_amd64_v0.1.0.tar.gz'
 
 [[drivers.artifacts]]
-target = 'macos_arm64'
-path = 'mysql/v0.1.0/mysql_macos_arm64_v0.1.0.tar.gz'
+format = 'tar.gz'
 hash = 'sha256:...'
+
+[drivers.artifacts.target]
+os = 'macos'
+arch = 'arm64'
+
+[drivers.artifacts.location]
+kind = 'registry-path'
+value = 'mysql/v0.1.0/mysql_macos_arm64_v0.1.0.tar.gz'
 ```
 
-When the registry publishes hashes, `dbc sync` records every platform the driver supports, so the same lockfile works on other machines. For older releases without published hashes, only the current platform is recorded, using the hash of the archive it downloaded; another platform is added the first time `dbc sync` runs there. Targets use the same platform names as the registry and earlier lockfiles (for example `linux_amd64`); Linux targets do not distinguish C libraries such as glibc and musl.
+Each artifact records its archive `format`, SHA-256 `hash`, structured `target`, and `location`. A registry artifact uses `kind = 'registry-path'` with a path relative to the registry. An archive outside a registry uses a credential-free absolute URL; `kind = 'path'` is reserved for a future local source.
+
+When the registry publishes hashes, `dbc sync` records every platform the driver supports, so the same lockfile works on other machines. For older releases without published hashes, only the current platform is recorded, using the hash of the archive it downloaded; another platform is added the first time `dbc sync` runs there. A target identifies its operating system and architecture. Linux targets use `libc = 'gnu'` by convention, while an explicit `libc = 'musl'` target is supported. This records the registry target convention; it does not change machine platform detection to inspect which C library is installed.
+
+The lockfile can also carry an artifact size, source evidence, and host requirements supplied by a resolver. When a size is present, `dbc sync` checks it against the downloaded archive. Registry-generated locks currently omit size, evidence, and host requirements. Host requirements and evidence are receiver-side metadata only; their presence does not mean `dbc sync` enforces them.
 
 When a lockfile exists, `dbc sync` uses the archive recorded for the current platform without consulting the registry index. A driver that is already installed is kept only when dbc can confirm it was installed from that exact archive; signature verification is repeated against the installed library and signature before reuse unless `--no-verify` is set. If these checks fail, the recorded archive is downloaded, its hash is checked, and the driver is reinstalled. dbc downloads and checks every archive it needs before it writes the lockfile or changes any installed driver. A project lock serializes concurrent syncs through installation. The new lockfile is written before installation starts, so if an installation then fails (for example on signature verification), the lockfile is kept and running `dbc sync` again retries with the same archives. `--no-verify` skips signature verification but never the archive hash check, and a driver installed with `--no-verify` is reinstalled with signature verification by a later `dbc sync` without that flag.
 

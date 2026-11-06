@@ -33,6 +33,7 @@ import (
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/go-faster/yaml"
 )
 
@@ -156,7 +157,7 @@ func (suite *SubcommandTestSuite) assertLockedArchive(driver, version, archive s
 	d := suite.lockedDriverEntry(driver)
 	suite.Equal(version, d.Version)
 	for _, a := range d.Artifacts {
-		if a.Target == config.PlatformTuple() {
+		if a.Target == testSyncTarget(suite.T(), config.PlatformTuple()) {
 			suite.Equal(lockHashPrefix+testArchiveSHA256(suite, archive), a.Hash)
 			return
 		}
@@ -206,15 +207,21 @@ func (suite *SubcommandTestSuite) TestSyncWritesV2LockWithAllPublishedTargets() 
 	suite.Equal("1.0.0", d.Version)
 	suite.Equal(lockedSource{Type: lockSourceRegistry, URL: "https://registry.columnar.tech"}, d.Source)
 	suite.Require().Len(d.Artifacts, 2)
-	hashes := map[string]string{}
+	hashes := map[resolution.Target]string{}
 	for _, a := range d.Artifacts {
-		suite.NotNil(a.Path)
+		suite.Equal("tar.gz", a.Format)
+		suite.Equal(resolution.ArtifactLocationRegistryPath, a.Location.Kind)
 		hashes[a.Target] = a.Hash
 	}
-	suite.Equal(map[string]string{
-		config.PlatformTuple(): lockHashPrefix + hash,
-		otherTarget:            lockHashPrefix + strings.Repeat("a", 64),
+	suite.Equal(map[resolution.Target]string{
+		testSyncTarget(suite.T(), config.PlatformTuple()): lockHashPrefix + hash,
+		testSyncTarget(suite.T(), otherTarget):            lockHashPrefix + strings.Repeat("a", 64),
 	}, hashes)
+	lockBytes, err := os.ReadFile(suite.lockPath())
+	suite.Require().NoError(err)
+	for _, receiverOnlyField := range []string{"evidence", "host_requirements", "size"} {
+		suite.NotContains(string(lockBytes), receiverOnlyField)
+	}
 }
 
 func (suite *SubcommandTestSuite) TestSyncMeasuresHashWhenRegistryPublishesNone() {
@@ -248,9 +255,12 @@ func (suite *SubcommandTestSuite) TestSyncCompletesLockedDriverFromBoundRegistry
 		Name:    "test-driver-1",
 		Version: "1.0.0",
 		Source:  lockedSource{Type: lockSourceRegistry, URL: "https://registry.columnar.tech"},
-		Artifacts: []lockedArtifact{
-			{Target: otherTarget, Path: &otherPath, Hash: lockHashPrefix + strings.Repeat("a", 64)},
-		},
+		Artifacts: []lockedArtifact{{
+			Target:   testSyncTarget(suite.T(), otherTarget),
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationRegistryPath, Value: otherPath},
+			Hash:     lockHashPrefix + strings.Repeat("a", 64),
+		}},
 	}}}))
 
 	var counters syncCounters
@@ -579,9 +589,12 @@ func (suite *SubcommandTestSuite) TestSyncReplayDoesNotSendCredentialsToOtherHos
 		Name:    "test-driver-1",
 		Version: "1.0.0",
 		Source:  lockedSource{Type: lockSourceRegistry, URL: registry.URL},
-		Artifacts: []lockedArtifact{
-			{Target: config.PlatformTuple(), URL: &mirrorURL, Hash: lockHashPrefix + testArchiveSHA256(suite, "test-driver-1.tar.gz")},
-		},
+		Artifacts: []lockedArtifact{{
+			Target:   testSyncTarget(suite.T(), config.PlatformTuple()),
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: mirrorURL},
+			Hash:     lockHashPrefix + testArchiveSHA256(suite, "test-driver-1.tar.gz"),
+		}},
 	}}}))
 
 	registryURL := must(url.Parse(registry.URL))
@@ -739,10 +752,15 @@ func (suite *SubcommandTestSuite) TestSyncCompletionErrorsHideRegistrySecrets() 
 	suite.Require().NoError(err)
 	path := "test-driver-1/1.0.0/other.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:      "test-driver-1",
-		Version:   "1.0.0",
-		Source:    lockedSource{Type: lockSourceRegistry, URL: identity},
-		Artifacts: []lockedArtifact{{Target: otherTarget, Path: &path, Hash: lockHashPrefix + strings.Repeat("a", 64)}},
+		Name:    "test-driver-1",
+		Version: "1.0.0",
+		Source:  lockedSource{Type: lockSourceRegistry, URL: identity},
+		Artifacts: []lockedArtifact{{
+			Target:   testSyncTarget(suite.T(), otherTarget),
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationRegistryPath, Value: path},
+			Hash:     lockHashPrefix + strings.Repeat("a", 64),
+		}},
 	}}}))
 
 	base := testBaseModel()

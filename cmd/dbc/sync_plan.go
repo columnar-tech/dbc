@@ -24,6 +24,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/resolution"
 )
 
 // plannedDriver is the outcome of planning one driver of the driver list.
@@ -36,6 +37,9 @@ type plannedDriver struct {
 	// Package is the archive of the current target. Its ArchiveSHA256 is empty
 	// when the digest is only known after the download.
 	Package dbc.PkgInfo
+	// ArchiveSize, when present in a lock entry, is checked against the archive
+	// bytes before the lock is saved or any driver is installed.
+	ArchiveSize *int64
 	// LibrarySHA256 is the installed library digest recorded by a v1 lock file
 	// that still applies, or empty.
 	LibrarySHA256 string
@@ -161,19 +165,23 @@ func (p *syncPlanner) v1Proof(name string, info lockInfo, pinned bool) (proof, w
 
 // fromLock plans a driver whose locked version is still wanted.
 func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (plannedDriver, error) {
+	target, err := resolution.TargetFromPlatformTuple(p.target)
+	if err != nil {
+		return plannedDriver{}, err
+	}
 	bound, err := p.bind(name, d.Source.URL)
 	if err != nil {
 		return plannedDriver{}, err
 	}
 	for _, a := range d.Artifacts {
-		if a.Target != p.target {
+		if a.Target != target {
 			continue
 		}
 		u, err := bound.artifactURL(a)
 		if err != nil {
 			return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
 		}
-		return plannedDriver{Name: name, Entry: d, Package: dbc.PkgInfo{
+		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Package: dbc.PkgInfo{
 			Driver:        dbc.Driver{Title: name, Path: name},
 			Version:       v,
 			PlatformTuple: p.target,
@@ -273,6 +281,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 func (p *syncPlanner) lockArtifacts(drv dbc.Driver, pkg dbc.PkgInfo) ([]lockedArtifact, error) {
 	var artifacts []lockedArtifact
 	seen := map[string]bool{}
+	targets := map[resolution.Target]bool{}
 	for _, vi := range drv.AllVersions() {
 		if !vi.Version.Equal(pkg.Version) {
 			continue
@@ -297,6 +306,10 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, pkg dbc.PkgInfo) ([]lockedAr
 			if err != nil {
 				return nil, err
 			}
+			if targets[art.Target] {
+				return nil, fmt.Errorf("duplicate artifact target %+v", art.Target)
+			}
+			targets[art.Target] = true
 			artifacts = append(artifacts, art)
 		}
 	}

@@ -34,6 +34,7 @@ import (
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
+	"github.com/columnar-tech/dbc/internal/resolution"
 )
 
 type SyncCmd struct {
@@ -355,7 +356,13 @@ func (s syncModel) prepare() (items []syncItem, err error) {
 // for an unpublished hash is recorded in the planned lock entry.
 func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256}
-	if want := pd.Package.ArchiveSHA256; want != "" {
+	target, err := resolution.TargetFromPlatformTuple(pd.Package.PlatformTuple)
+	if err != nil {
+		return item, err
+	}
+	// Receipts do not record archive size. A locked size therefore requires
+	// the original archive bytes even when the installed package matches.
+	if want := pd.Package.ArchiveSHA256; want != "" && pd.ArchiveSize == nil {
 		var signatureVerifier config.PackageVerifier
 		if !s.NoVerify {
 			signatureVerifier = dbc.VerifyPackageSignature
@@ -379,6 +386,17 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	if err != nil {
 		return item, fmt.Errorf("failed to download driver: %w", err)
 	}
+	if pd.ArchiveSize != nil {
+		info, err := f.Stat()
+		if err != nil {
+			removeDownload(f)
+			return item, fmt.Errorf("failed to stat downloaded driver %s: %w", pd.Name, err)
+		}
+		if info.Size() != *pd.ArchiveSize {
+			removeDownload(f)
+			return item, fmt.Errorf("driver %s: archive size mismatch: expected %d bytes, got %d", pd.Name, *pd.ArchiveSize, info.Size())
+		}
+	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		removeDownload(f)
 		return item, fmt.Errorf("failed to seek downloaded driver archive: %w", err)
@@ -395,7 +413,7 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	case want == "":
 		pd.Package.ArchiveSHA256 = digest
 		for i := range pd.Entry.Artifacts {
-			if a := &pd.Entry.Artifacts[i]; a.Target == pd.Package.PlatformTuple {
+			if a := &pd.Entry.Artifacts[i]; a.Target == target {
 				a.Hash = lockHashPrefix + digest
 			}
 		}
