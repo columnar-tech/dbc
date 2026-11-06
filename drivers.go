@@ -113,6 +113,7 @@ func ensureSetup() {
 				RoundTripper: http.DefaultTransport,
 				userAgent:    userAgent,
 			},
+			CheckRedirect: checkRedirect,
 		}
 
 		mid, _ = telemetryMachineID()

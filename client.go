@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/columnar-tech/dbc/auth"
@@ -62,6 +64,20 @@ type Client struct {
 	credentialResolver func(*url.URL) (*auth.Credential, error)
 }
 
+// checkRedirect keeps Go's limit of 10 redirects and drops the Authorization
+// header when a redirect leaves the host:port of the original request. Go only
+// strips it for a different hostname, but credentials here are scoped to the
+// host including the port.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
+		req.Header.Del("Authorization")
+	}
+	return nil
+}
+
 // NewClient creates a new driver registry client with the given options.
 func NewClient(opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
@@ -93,6 +109,7 @@ func NewClient(opts ...Option) (*Client, error) {
 				RoundTripper: http.DefaultTransport,
 				userAgent:    cfg.userAgent,
 			},
+			CheckRedirect: checkRedirect,
 		}
 	}
 
