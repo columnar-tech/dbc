@@ -22,3 +22,8 @@ extend-words = { fo = "fo" }
 [type.ine]
 extend-glob = ["**/first_steps.md"]
 extend-words = { ine = "ine" }
+
+# `fpr` is gpg's record type for a key fingerprint in --with-colons output.
+[type.fpr]
+extend-glob = ["**/import_signing_key.sh"]
+extend-words = { fpr = "fpr" }

@@ -22,6 +22,13 @@
 
 version: 2
 
+# Releases run split by GOOS (`release --split`, one CI job per OS, macOS on
+# a macOS runner so cgo can link the shared libdbc against Apple's frameworks)
+# and are then merged (`continue --merge`), which signs archives, checksums,
+# and publishes. See .github/workflows/release.yml.
+partial:
+  by: goos
+
 project_name: dbc
 metadata:
   description: "The command line tool for installing and managing ADBC drivers"
@@ -108,7 +115,10 @@ builds:
           output: true
         - cmd: python3 scripts/stage_capi.py "{{ .Path }}" {{ .Os }} {{ .Arch }} {{ .Version }}
           output: true
-  # Linux shared library for the development packages.
+  # Shared libdbc: on Linux for the development packages; on every platform
+  # for bindings that load it at run time. Linux and Windows cross-compile with
+  # Zig; macOS builds on a macOS runner with its clang, because a shared library
+  # links against Apple's CoreFoundation and Security frameworks.
   - id: capi-shared
     main: ./capi
     binary: libdbc
@@ -126,6 +136,9 @@ builds:
     targets:
       - linux_amd64_v1
       - linux_arm64_v8.0
+      - windows_amd64_v1
+      - darwin_amd64_v1
+      - darwin_arm64_v8.0
     overrides:
       - goos: linux
         goarch: amd64
@@ -135,12 +148,30 @@ builds:
         goarch: arm64
         goarm64: v8.0
         env: [CGO_ENABLED=1, "CC=zig cc -target aarch64-linux-gnu.2.28"]
+      # -soname and --strip-all above are ELF linker flags.
+      - goos: windows
+        goarch: amd64
+        goamd64: v1
+        ldflags: [-s -w]
+        env: [CGO_ENABLED=1, "CC=zig cc -target x86_64-windows-gnu"]
+      - goos: darwin
+        goarch: amd64
+        goamd64: v1
+        ldflags: [-s -w, "-extldflags=-Wl,-install_name,@rpath/libdbc.dylib"]
+        env: [CGO_ENABLED=1, "CC=clang -arch x86_64 -mmacosx-version-min=12.0"]
+      - goos: darwin
+        goarch: arm64
+        goarm64: v8.0
+        ldflags: [-s -w, "-extldflags=-Wl,-install_name,@rpath/libdbc.dylib"]
+        env: [CGO_ENABLED=1, "CC=clang -arch arm64 -mmacosx-version-min=12.0"]
     mod_timestamp: "{{ .CommitTimestamp }}"
     hooks:
       post:
-        - cmd: python3 scripts/check_glibc_floor.py "{{ .Path }}" {{ .Arch }}
+        - if: '{{ eq .Os "linux" }}'
+          cmd: python3 scripts/check_glibc_floor.py "{{ .Path }}" {{ .Arch }}
           output: true
-        - cmd: python3 scripts/stage_devel.py "{{ .Path }}" {{ .Arch }} {{ .Version }} {{ .CommitDate }}
+        - if: '{{ eq .Os "linux" }}'
+          cmd: python3 scripts/stage_devel.py "{{ .Path }}" {{ .Arch }} {{ .Version }} {{ .CommitDate }}
           output: true
 
 archives:
@@ -172,7 +203,7 @@ archives:
         - if: '{{ ne .Os "freebsd" }}'
           cmd: >-
             uv run ./scripts/create_wheels.py --binary_version {{ .RawVersion }}{{ .Prerelease }}
-            --platform={{ .Os }}-{{- if eq .Arch "386" }}x86{{else}}{{ .Arch }}{{ end }} --archive=dist/{{ .ProjectName }}-
+            --platform={{ .Os }}-{{- if eq .Arch "386" }}x86{{else}}{{ .Arch }}{{ end }} --archive={{ .Dist }}/{{ .ProjectName }}-
             {{- .Os }}-
             {{- if eq .Arch "386" }}x86
             {{- else }}{{ .Arch }}{{ end }}
@@ -210,6 +241,9 @@ blobs:
     bucket: dbc-distribution
     directory: "{{ .Version }}"
     include_meta: true
+    # DBC_RELEASE_DRY_RUN (the release workflow's dry run) builds, signs, and
+    # notarizes a full release but publishes nothing.
+    disable: '{{ isEnvSet "DBC_RELEASE_DRY_RUN" }}'
 
 binary_signs:
   # windows binaries are signed in-place and not detached, so we don't provide a .sig for them
@@ -242,7 +276,11 @@ changelog:
 # tag is always pushed; the others skip prereleases, as skip_push: auto did.
 # A snapshot build loads one image per platform instead (<tag>-amd64, ...).
 dockers_v2:
-  - ids:
+  # A snapshot builds its images in the split, and only the Linux split has
+  # Linux binaries (and, on its runner, Docker); a release builds and pushes
+  # them in the merge, where GGOOS is unset.
+  - disable: '{{ or (isEnvSet "DBC_RELEASE_DRY_RUN") (and (isEnvSet "GGOOS") (ne .Env.GGOOS "linux")) }}'
+    ids:
       - dbc # the CLI build only, not the libdbc builds
     dockerfile: Dockerfile
     images:
@@ -410,12 +448,15 @@ cloudsmiths:
       rpm: "any-distro/any-version"
     component: main
     # skip prereleases, matching homebrew/winget skip_upload: auto
-    disable: '{{ ne .Prerelease "" }}'
+    disable: '{{ or (ne .Prerelease "") (isEnvSet "DBC_RELEASE_DRY_RUN") }}'
     republish: true
 
 
 snapcrafts:
   - id: snaps
+    # Snaps package Linux binaries, and the pipe requires snapcraft even when
+    # there are none: only the Linux split (or an unsplit run) builds them.
+    disable: '{{ and (isEnvSet "GGOOS") (ne .Env.GGOOS "linux") }}'
     ids:
       - dbc
     name: dbc
@@ -469,16 +510,23 @@ signs:
       "-storepass", "NONE", "-storetype", "PKCS11", "-alg", "SHA-256", "-tsaurl", "http://timestamp.digicert.com",
       "--name", "{{ .ProjectName }} Installer", "-alias", "{{ .Env.SM_KEYPAIR_ALIAS }}", "${artifact}"]
 
+# Global after hooks run at the end of each split and again after the merge.
 after:
   hooks:
-    - mkdir -p dist/python
+    # Each split builds its OS's wheels (archive hooks above); CI hands them to
+    # the merge, which uploads them with the release.
+    - cmd: mkdir -p dist/python
+      if: "{{ not .IsMerging }}"
     - cmd: sh -c "mv dist/*.whl dist/python/"
-    # columnar-dbc crates, using the archives staged by the capi build hook.
+      if: "{{ not .IsMerging }}"
+    # columnar-dbc crates, only after the merge: the -sys crates bundle every
+    # platform's libdbc, staged by the capi build hook in each split and
+    # collected by CI before the merge.
     - cmd: python3 scripts/publish_crates.py --version {{ .Version }} --dry-run
-      if: "{{ .IsSnapshot }}"
+      if: '{{ and .IsMerging (or .IsSnapshot (isEnvSet "DBC_RELEASE_DRY_RUN")) }}'
       output: true
     - cmd: python3 scripts/publish_crates.py --version {{ .Version }}
-      if: "{{ not .IsSnapshot }}"
+      if: '{{ and .IsMerging (not .IsSnapshot) (not (isEnvSet "DBC_RELEASE_DRY_RUN")) }}'
       output: true
 
 notarize:
@@ -514,7 +562,7 @@ homebrew_casks:
     commit_msg_template: "Brew cask update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://columnar.tech/dbc"
     description: "The command line tool for installing and managing ADBC drivers"
-    skip_upload: auto # auto skips prereleases
+    skip_upload: '{{ if isEnvSet "DBC_RELEASE_DRY_RUN" }}true{{ else }}auto{{ end }}' # auto skips prereleases
     completions:
       bash: dbc.bash
       zsh: dbc.zsh
@@ -542,7 +590,7 @@ brews:
     homepage: "https://columnar.tech/dbc"
     description: "Static library and headers for the C API of dbc, the ADBC driver installer"
     license: Apache-2.0
-    skip_upload: auto # auto skips prereleases
+    skip_upload: '{{ if isEnvSet "DBC_RELEASE_DRY_RUN" }}true{{ else }}auto{{ end }}' # auto skips prereleases
     install: |
       lib.install "libdbc.a"
       include.install "libdbc.h"
@@ -583,12 +631,15 @@ publishers:
     env:
       - CLOUDSMITH_TOKEN={{ .Env.CLOUDSMITH_TOKEN }}
     # skip prereleases, matching the cloudsmiths publisher
-    disable: '{{ ne .Prerelease "" }}'
+    disable: '{{ or (ne .Prerelease "") (isEnvSet "DBC_RELEASE_DRY_RUN") }}'
 
 winget:
   - name: dbc
     ids:
       - archives
+    # The GitHub release URL winget uses by default; explicit so the dry run,
+    # which disables the release, can still render the manifest.
+    url_template: "https://github.com/columnar-tech/dbc/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     publisher: Columnar
     publisher_url: "https://columnar.tech/"
     publisher_support_url: "https://github.com/columnar-tech/dbc/issues"
@@ -606,7 +657,7 @@ winget:
       - cli
       - database-connector
       - open-source
-    skip_upload: auto
+    skip_upload: '{{ if isEnvSet "DBC_RELEASE_DRY_RUN" }}true{{ else }}auto{{ end }}'
     repository:
       owner: columnar-tech
       name: winget-pkgs
@@ -616,6 +667,7 @@ winget:
         enabled: false
 
 release:
+  disable: '{{ isEnvSet "DBC_RELEASE_DRY_RUN" }}'
   ids:
     - archives
     - libdbc-dev
@@ -626,7 +678,7 @@ release:
     - devel-rpm
   prerelease: auto
   extra_files:
-    - glob: ./dist/*.whl
+    - glob: ./dist/python/*.whl
   header: >-
     ## dbc Release ({{ .Now.Format "2006-01-02" }})
 
