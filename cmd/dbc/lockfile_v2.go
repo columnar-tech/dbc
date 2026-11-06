@@ -147,6 +147,27 @@ func validateLockedURL(s string) error {
 	return nil
 }
 
+// validateLockedArtifactURL applies the registry-to-artifact transport rule
+// after the generic locked URL checks. Registry identity is canonical and
+// credential-free, so errors from this helper cannot expose registry secrets.
+func validateLockedArtifactURL(s, registryIdentity string) error {
+	if err := validateLockedURL(s); err != nil {
+		return err
+	}
+	registry, err := url.Parse(registryIdentity)
+	if err != nil {
+		return errors.New("registry identity is invalid")
+	}
+	artifact, err := url.Parse(s)
+	if err != nil {
+		return errors.New("url is not valid")
+	}
+	if strings.EqualFold(registry.Scheme, "https") && strings.EqualFold(artifact.Scheme, "http") {
+		return errors.New("https registry cannot use an http artifact URL")
+	}
+	return nil
+}
+
 func lockedLocation(src lockedSource, a lockedArtifact) string {
 	if a.Location.Kind == resolution.ArtifactLocationURL {
 		return a.Location.Value
@@ -212,7 +233,7 @@ func (lf lockFileV2) validate() error {
 					return fmt.Errorf("driver %q target %+v: %w", d.Name, a.Target, err)
 				}
 			case resolution.ArtifactLocationURL:
-				if err := validateLockedURL(a.Location.Value); err != nil {
+				if err := validateLockedArtifactURL(a.Location.Value, d.Source.URL); err != nil {
 					return fmt.Errorf("driver %q target %+v: %w", d.Name, a.Target, err)
 				}
 			case resolution.ArtifactLocationPath:
@@ -356,7 +377,11 @@ func newLockedArtifact(base, resolved *url.URL, target, hash string) (lockedArti
 		return a, errors.New("cannot record artifact location: the URL contains userinfo, query or fragment and cannot be stored safely")
 	}
 	s := resolved.String()
-	if err := validateLockedURL(s); err != nil {
+	identity, err := canonicalRegistryIdentity(base)
+	if err != nil {
+		return a, fmt.Errorf("cannot record artifact location: %w", err)
+	}
+	if err := validateLockedArtifactURL(s, identity); err != nil {
 		return a, fmt.Errorf("cannot record artifact location: %w", err)
 	}
 	a.Location = resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: s}
@@ -424,7 +449,11 @@ func bindLockedRegistry(identity string, registries []dbc.Registry) (boundRegist
 // artifactURL returns the URL to request for a locked artifact.
 func (b boundRegistry) artifactURL(a lockedArtifact) (*url.URL, error) {
 	if a.Location.Kind == resolution.ArtifactLocationURL {
-		if err := validateLockedURL(a.Location.Value); err != nil {
+		identity, err := canonicalRegistryIdentity(b.BaseURL)
+		if err != nil {
+			return nil, errors.New("configured registry URL is invalid")
+		}
+		if err := validateLockedArtifactURL(a.Location.Value, identity); err != nil {
 			return nil, err
 		}
 		return url.Parse(a.Location.Value)
