@@ -130,6 +130,52 @@ func inflateTarballWithLimits(f *os.File, outDir string, limits packageArchiveLi
 	return manifest, nil
 }
 
+// PackageArchiveInfo describes a package archive without installing it.
+type PackageArchiveInfo struct {
+	// ArchiveSHA256 is the lowercase hex digest of all archive bytes, defined
+	// like the digest InstallPackage records.
+	ArchiveSHA256 string
+	// LibrarySHA256 is the lowercase hex digest of the Files.driver payload.
+	LibrarySHA256 string
+	// Manifest is the decoded package MANIFEST; Driver.Shared is not populated.
+	Manifest Manifest
+}
+
+// InspectPackageArchive extracts f into a private temporary staging directory
+// with the same safety checks as InstallPackage, hashes the archive and the
+// driver library, removes the staging directory and returns the result. It
+// does not close f and does not touch any installation.
+func InspectPackageArchive(f *os.File) (PackageArchiveInfo, error) {
+	if f == nil {
+		return PackageArchiveInfo{}, errors.New("package archive file is nil")
+	}
+	tempDir, err := os.MkdirTemp("", "dbc-inspect-")
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not create inspection directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	stageDir, manifest, _, archiveSHA256, err := extractPackageArchiveWithDigest(f, tempDir, defaultPackageArchiveLimits)
+	if err != nil {
+		return PackageArchiveInfo{}, err
+	}
+	root, err := os.OpenRoot(stageDir)
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not open staging directory: %w", err)
+	}
+	defer root.Close()
+	library, err := root.Open(manifest.Files.Driver)
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not open driver library: %w", err)
+	}
+	defer library.Close()
+	sum, err := hashSHA256(library)
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not hash driver library: %w", err)
+	}
+	return PackageArchiveInfo{ArchiveSHA256: archiveSHA256, LibrarySHA256: hex.EncodeToString(sum), Manifest: manifest}, nil
+}
+
 // extractPackageArchive validates the complete archive before returning a
 // private staging directory. The caller owns the returned directory.
 func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, []string, error) {

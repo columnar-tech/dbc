@@ -35,6 +35,9 @@ type InstalledPackageExpectation struct {
 	// RequireSignatureVerified rejects generations whose receipt does not
 	// record a successful signature verifier.
 	RequireSignatureVerified bool
+	// LibrarySHA256, when set, is the lowercase hex SHA-256 the installed
+	// driver library must have (for example a v1 lockfile checksum).
+	LibrarySHA256 string
 }
 
 // CheckInstalledPackage reports whether runtimeID's current registration at
@@ -58,6 +61,9 @@ func CheckInstalledPackage(ctx context.Context, cfg Config, runtimeID string, ex
 	}
 	if !validArchiveSHA256(expect.ArchiveSHA256) {
 		return DriverInfo{}, false, fmt.Errorf("invalid expected archive SHA-256 %q: want 64 lowercase hex characters", expect.ArchiveSHA256)
+	}
+	if expect.LibrarySHA256 != "" && !validArchiveSHA256(expect.LibrarySHA256) {
+		return DriverInfo{}, false, fmt.Errorf("invalid expected library SHA-256 %q: want 64 lowercase hex characters", expect.LibrarySHA256)
 	}
 	if err := ctx.Err(); err != nil {
 		return DriverInfo{}, false, err
@@ -144,6 +150,9 @@ func installedPackageMatches(cfg Config, root, runtimeID string, registered Driv
 		return false
 	}
 	if expect.RequireSignatureVerified && !receipt.SignatureVerified {
+		return false
+	}
+	if expect.LibrarySHA256 != "" && receipt.OwnedLibrarySHA256 != expect.LibrarySHA256 {
 		return false
 	}
 	// The integrity check tolerates an already removed library for cleanup;
