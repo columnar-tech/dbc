@@ -297,6 +297,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
 			}
 			if !s.NoVerify {
+				// VerifyPackageSignature checks the driver library's Columnar signature.
 				options.SignatureVerifier = func(stagingDir string, manifest config.Manifest) error {
 					err := dbc.VerifyPackageSignature(stagingDir, manifest)
 					verificationFailed = err != nil

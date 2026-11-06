@@ -34,28 +34,31 @@ type PackageVerifier func(stagingDir string, manifest Manifest) error
 // InstallPackageOptions controls optional package verification.
 type InstallPackageOptions struct {
 	// ExpectedArchiveSHA256 is the optional lowercase hex SHA-256 (64
-	// characters) the downloaded archive must have, as published by the
-	// registry. A different measured digest fails the install with an
+	// characters) the caller requires the downloaded archive to have. A
+	// different measured digest fails the install with an
 	// *ArchiveHashMismatchError before anything is published.
 	ExpectedArchiveSHA256 string
 	// Verifier runs under the driver lock before generation publication.
 	Verifier PackageVerifier
 	// SignatureVerifier runs on the staged package right after Verifier and
 	// under the same conditions. Only its success marks the install as
-	// signature-verified in the install receipt.
+	// signature-verified in the install receipt. The receipt records only that
+	// this caller-supplied callback succeeded; config does not guarantee the
+	// verification method, key, source trust, or provenance.
 	SignatureVerifier PackageVerifier
 }
 
 // ArchiveHashMismatchError reports that the SHA-256 of the downloaded archive
-// differs from the digest the registry published for it.
+// differs from the digest the caller required.
 type ArchiveHashMismatchError struct {
-	// Expected and Actual are lowercase hex SHA-256 digests.
+	// Expected is the digest the caller required and Actual the measured one;
+	// both are lowercase hex SHA-256 digests.
 	Expected string
 	Actual   string
 }
 
 func (e *ArchiveHashMismatchError) Error() string {
-	return fmt.Sprintf("downloaded archive does not match the registry: expected SHA-256 %s, got %s", e.Expected, e.Actual)
+	return fmt.Sprintf("archive SHA-256 mismatch: expected %s, got %s", e.Expected, e.Actual)
 }
 
 func validArchiveSHA256(s string) bool {

@@ -17,6 +17,7 @@ package dbc_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -229,5 +230,50 @@ func TestClientInstallChecksRegistryArchiveHash(t *testing.T) {
 		m, err := c.Install(t.Context(), cfg, "test-driver-hashed", dbc.AllowUnsigned())
 		require.NoError(t, err)
 		assert.FileExists(t, m.Driver.Shared.Get(config.PlatformTuple()))
+	})
+}
+
+// readReceiptEvidence reads the persisted install receipt that sits next to
+// the registered shared library of the installed driver.
+func readReceiptEvidence(t *testing.T, cfg config.Config, driver string) (archiveSHA256 string, signatureVerified bool) {
+	t.Helper()
+	info, err := config.GetDriver(cfg, driver)
+	require.NoError(t, err)
+	shared := info.Driver.Shared.Get(config.PlatformTuple())
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(shared), "dbc-install-receipt.json"))
+	require.NoError(t, err)
+	var r struct {
+		ArchiveSHA256     string `json:"archive_sha256"`
+		SignatureVerified *bool  `json:"signature_verified"`
+	}
+	require.NoError(t, json.Unmarshal(data, &r))
+	require.NotNil(t, r.SignatureVerified, "receipt must record signature_verified")
+	return r.ArchiveSHA256, *r.SignatureVerified
+}
+
+func TestClientInstallReceiptEvidence(t *testing.T) {
+	srv := newInstallTestServer(t)
+	c := newTestClientForServer(t, srv.URL)
+	tarball, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	sum := sha256.Sum256(tarball)
+	digest := hex.EncodeToString(sum[:])
+
+	t.Run("signature verified", func(t *testing.T) {
+		cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+		_, err := c.Install(t.Context(), cfg, "test-driver-1")
+		require.NoError(t, err)
+		got, verified := readReceiptEvidence(t, cfg, "test-driver-1")
+		assert.Equal(t, digest, got)
+		assert.True(t, verified)
+	})
+
+	t.Run("AllowUnsigned", func(t *testing.T) {
+		cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+		_, err := c.Install(t.Context(), cfg, "test-driver-1", dbc.AllowUnsigned())
+		require.NoError(t, err)
+		got, verified := readReceiptEvidence(t, cfg, "test-driver-1")
+		assert.Equal(t, digest, got)
+		assert.False(t, verified)
 	})
 }

@@ -52,8 +52,10 @@ const (
 
 // packageInstallReceipt records local ownership and integrity evidence.
 // ArchiveSHA256 is the digest of the archive bytes dbc actually consumed and
-// SignatureVerified records whether a signature verifier accepted the package
-// before publication. It deliberately contains no source identity.
+// SignatureVerified records only that the caller-supplied signature verifier
+// callback succeeded before publication; config itself does not guarantee the
+// verification method, key, source trust, or provenance. The receipt
+// deliberately contains no source identity.
 // TODO: Define and record source evidence before strict locked-artifact
 // reuse; OwnedLibrarySHA256 verifies local installed bytes only and does not
 // establish upstream artifact identity.

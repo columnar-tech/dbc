@@ -511,6 +511,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 			},
 		}
 		if !m.NoVerify {
+			// The default verifier checks the driver library's Columnar signature.
 			options.SignatureVerifier = verifier
 		}
 		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, options)

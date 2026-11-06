@@ -89,7 +89,7 @@ func TestInstallPackageArchiveHash(t *testing.T) {
 		require.ErrorAs(t, err, &mismatch)
 		assert.Equal(t, expected, mismatch.Expected)
 		assert.Equal(t, actual, mismatch.Actual)
-		assert.Contains(t, err.Error(), "does not match the registry")
+		assert.Contains(t, err.Error(), "archive SHA-256 mismatch")
 		assert.False(t, verifierRan)
 		assertArchiveClosed(t, archive)
 		assertPreviousPackage(t, cfg, previousPath)
