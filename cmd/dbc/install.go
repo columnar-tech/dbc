@@ -111,16 +111,6 @@ func (c InstallCmd) GetModel() tea.Model {
 	return c.GetModelCustom(defaultBaseModel())
 }
 
-func verifySignatureInStaging(path string, m config.Manifest, noVerify bool) error {
-	if m.Files.Driver == "" {
-		return fmt.Errorf("package manifest does not specify Files.driver")
-	}
-	if noVerify {
-		return nil
-	}
-	return dbc.VerifyPackageSignature(path, m)
-}
-
 type packageInstallResultMsg struct {
 	Manifest config.Manifest
 }
@@ -220,7 +210,7 @@ type progressiveInstallModel struct {
 	jsonOut                  io.Writer
 	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
 	verificationStarted      bool
-	verifyStagedPackage      func(string, config.Manifest, bool) error
+	verifyStagedPackage      config.PackageVerifier
 }
 
 type driversWithRegistryError struct {
@@ -504,17 +494,26 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	program := prog
 	verifier := m.verifyStagedPackage
 	if verifier == nil {
-		verifier = verifySignatureInStaging
+		verifier = dbc.VerifyPackageSignature
 	}
 	return m, func() tea.Msg {
-		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, config.InstallPackageOptions{
+		options := config.InstallPackageOptions{
+			// Local archives have no registry-published hash to compare to.
+			ExpectedArchiveSHA256: m.DriverPackage.ArchiveSHA256,
 			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
 				if program != nil {
 					program.Send(installVerificationStartedMsg{})
 				}
-				return verifier(stagingDir, stagedManifest, m.NoVerify)
+				if stagedManifest.Files.Driver == "" {
+					return fmt.Errorf("package manifest does not specify Files.driver")
+				}
+				return nil
 			},
-		})
+		}
+		if !m.NoVerify {
+			options.SignatureVerifier = verifier
+		}
+		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, options)
 		if err != nil {
 			return err
 		}

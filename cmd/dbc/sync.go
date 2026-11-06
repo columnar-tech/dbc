@@ -293,13 +293,17 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 			}
 
 			verificationFailed := false
-			manifest, err := config.InstallPackage(context.Background(), cfg, item.Driver.Path, output, config.InstallPackageOptions{
-				Verifier: func(stagingDir string, manifest config.Manifest) error {
-					err := verifySignatureInStaging(stagingDir, manifest, s.NoVerify)
+			options := config.InstallPackageOptions{
+				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
+			}
+			if !s.NoVerify {
+				options.SignatureVerifier = func(stagingDir string, manifest config.Manifest) error {
+					err := dbc.VerifyPackageSignature(stagingDir, manifest)
 					verificationFailed = err != nil
 					return err
-				},
-			})
+				}
+			}
+			manifest, err := config.InstallPackage(context.Background(), cfg, item.Driver.Path, output, options)
 			if err != nil {
 				if verificationFailed {
 					prog.Send(fmt.Errorf("failed to verify signature: %w", err))

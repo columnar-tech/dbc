@@ -16,6 +16,7 @@ package dbc
 
 import (
 	"context"
+	"crypto/sha256"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -31,12 +32,14 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 )
 
@@ -263,6 +266,11 @@ type PkgInfo struct {
 	PlatformTuple string
 
 	Path *url.URL
+
+	// ArchiveSHA256 is the lowercase hex SHA-256 (64 characters, without the
+	// "sha256:" prefix) of the package archive as published by the registry.
+	// It is empty when the registry did not publish a hash for this package.
+	ArchiveSHA256 string
 }
 
 // Deprecated: Use Client.Download instead.
@@ -310,12 +318,46 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	return output, err
 }
 
+const registryHashPrefix = "sha256:"
+
+// registryHash is the optional "hash" of a registry package entry. Decoding
+// never fails: a malformed value is only recorded, so that just the affected
+// package is rejected when it is resolved instead of the whole index.
+type registryHash struct {
+	digest  string
+	present bool
+	valid   bool
+}
+
+func (h *registryHash) UnmarshalYAML(value *yaml.Node) error {
+	h.present = true
+	h.valid = false
+	if value.Kind != yaml.ScalarNode || value.Tag != "!!str" {
+		return nil
+	}
+	hexDigest, ok := strings.CutPrefix(value.Value, registryHashPrefix)
+	if !ok || len(hexDigest) != sha256.Size*2 {
+		return nil
+	}
+	for _, c := range hexDigest {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return nil
+		}
+	}
+	h.digest = hexDigest
+	h.valid = true
+	return nil
+}
+
+type pkgEntry struct {
+	PlatformTuple string       `yaml:"platform"`
+	URL           string       `yaml:"url"`
+	Hash          registryHash `yaml:"hash"`
+}
+
 type pkginfo struct {
 	Version  *semver.Version `yaml:"version"`
-	Packages []struct {
-		PlatformTuple string `yaml:"platform"`
-		URL           string `yaml:"url"`
-	} `yaml:"packages"`
+	Packages []pkgEntry      `yaml:"packages"`
 }
 
 func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
@@ -329,6 +371,10 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 	base := d.Registry.BaseURL
 	for _, pkg := range p.Packages {
 		if pkg.PlatformTuple == platformTuple {
+			if pkg.Hash.present && !pkg.Hash.valid {
+				return PkgInfo{}, fmt.Errorf("invalid archive hash in registry for driver %s version %s platform %s: expected %s followed by 64 lowercase hex characters",
+					d.Path, p.Version, platformTuple, registryHashPrefix)
+			}
 			var uri *url.URL
 
 			if pkg.URL != "" {
@@ -350,6 +396,8 @@ func (p pkginfo) GetPackage(d Driver, platformTuple string) (PkgInfo, error) {
 				Version:       p.Version,
 				PlatformTuple: platformTuple,
 				Path:          uri,
+
+				ArchiveSHA256: pkg.Hash.digest,
 			}, nil
 		}
 	}
@@ -395,10 +443,7 @@ func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (
 			return false
 		}
 
-		return slices.ContainsFunc(p.Packages, func(p struct {
-			PlatformTuple string `yaml:"platform"`
-			URL           string `yaml:"url"`
-		}) bool {
+		return slices.ContainsFunc(p.Packages, func(p pkgEntry) bool {
 			return p.PlatformTuple == platformTuple
 		})
 	})
