@@ -319,3 +319,33 @@ func TestArtifactURLRejectsEscapes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://elsewhere.example.com/x", u.String())
 }
+
+func TestLockedArtifactEscapedRoundTrip(t *testing.T) {
+	bases := []string{
+		"https://r.example.com",
+		"https://r.example.com/mount/",
+		"https://u:SUPERSECRET@r.example.com/mount?token=SUPERSECRET",
+	}
+	rels := []string{"a%20b/c.tar.gz", "d/x%2Bplus.tar.gz", "d/%E3%81%82/x.tar.gz"}
+	for _, bs := range bases {
+		for _, rel := range rels {
+			t.Run(bs+" "+rel, func(t *testing.T) {
+				base := testURL(t, bs)
+				// Resolve the way pkginfo.GetPackage does for a relative index URL.
+				resolved := base.JoinPath(rel)
+				a, err := newLockedArtifact(base, resolved, "linux_amd64", testHashA)
+				require.NoError(t, err)
+				require.NotNil(t, a.Path)
+				assert.Equal(t, rel, *a.Path)
+
+				id, err := canonicalRegistryIdentity(base)
+				require.NoError(t, err)
+				b, err := bindLockedRegistry(id, []dbc.Registry{{BaseURL: base}})
+				require.NoError(t, err)
+				got, err := b.artifactURL(a)
+				require.NoError(t, err)
+				assert.Equal(t, resolved.String(), got.String())
+			})
+		}
+	}
+}
