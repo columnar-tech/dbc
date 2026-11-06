@@ -44,7 +44,8 @@ jobs:
       matrix:
         include:
           - { goos: linux, os: ubuntu-latest }
-          - { goos: windows, os: ubuntu-latest }
+          # ubuntu-26.04 for its wixl 0.106 (see Install wixl)
+          - { goos: windows, os: ubuntu-26.04 }
           - { goos: darwin, os: macos-latest }
     env:
       GGOOS: ${{ matrix.goos }}
@@ -61,15 +62,13 @@ jobs:
           go-version-file: './go.mod'
           cache: false
 
-      # pull more recent version of wixl than in the ubuntu repos
-      # needed for Path Env update support
+      # wixl 0.106 or later, for Path Env update support; Ubuntu 26.04 ships it
       - name: Install wixl
         if: matrix.goos == 'windows'
         run: |
-          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl-data_0.106+repack-1_all.deb
-          wget http://ftp.de.debian.org/debian/pool/main/m/msitools/wixl_0.106+repack-1_amd64.deb
-          sudo apt install -y msitools ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
-          rm ./wixl-data_0.106+repack-1_all.deb ./wixl_0.106+repack-1_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y msitools wixl
+          wixl --version
 
       - name: install nfpm
         if: matrix.goos == 'linux'
