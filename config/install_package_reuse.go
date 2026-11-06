@@ -16,8 +16,11 @@ package config
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -32,9 +35,10 @@ type InstalledPackageExpectation struct {
 	// ArchiveSHA256 is the lowercase hex SHA-256 (64 characters) of the archive
 	// the package must have been installed from. Required.
 	ArchiveSHA256 string
-	// RequireSignatureVerified rejects generations whose receipt does not
-	// record a successful signature verifier.
-	RequireSignatureVerified bool
+	// SignatureVerifier, when set, re-verifies the installed library and
+	// signature before reuse. It is called under the driver lock with a private
+	// copy of files opened from the verified generation.
+	SignatureVerifier PackageVerifier
 	// LibrarySHA256, when set, is the lowercase hex SHA-256 the installed
 	// driver library must have (for example a v1 lockfile checksum).
 	LibrarySHA256 string
@@ -46,9 +50,10 @@ type InstalledPackageExpectation struct {
 // recorded archive digest must all agree. Any mismatch, missing, corrupt or
 // legacy state yields (DriverInfo{}, false, nil) so the caller can reinstall.
 // Errors are returned only for invalid input, context cancellation and lock
-// failures. The check never creates, modifies or removes anything and looks
-// only at cfg's primary location. On platforms without pinned directory
-// handles it always reports false.
+// failures. The check never modifies installation state and looks only at
+// cfg's primary location. A signature verifier may cause a private temporary
+// directory to be created for its path-based callback. On platforms without
+// pinned directory handles it always reports false.
 func CheckInstalledPackage(ctx context.Context, cfg Config, runtimeID string, expect InstalledPackageExpectation) (info DriverInfo, ok bool, err error) {
 	if ctx == nil {
 		return DriverInfo{}, false, errors.New("check context is nil")
@@ -149,16 +154,83 @@ func installedPackageMatches(cfg Config, root, runtimeID string, registered Driv
 	if receipt.ArchiveSHA256 == "" || receipt.ArchiveSHA256 != expect.ArchiveSHA256 {
 		return false
 	}
-	if expect.RequireSignatureVerified && !receipt.SignatureVerified {
+	if expect.SignatureVerifier != nil && !receipt.SignatureVerified {
 		return false
 	}
 	if expect.LibrarySHA256 != "" && receipt.OwnedLibrarySHA256 != expect.LibrarySHA256 {
 		return false
 	}
-	// The integrity check tolerates an already removed library for cleanup;
-	// reuse needs the library to be present.
+	// The integrity check tolerates a removed library for cleanup; reuse needs
+	// the registered library to be present.
 	if _, err := generationRoot.Lstat(receipt.OwnedLibraryFilename); err != nil {
 		return false
 	}
-	return verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, nil) == nil
+	if verifyPackageOwnedLibraryIntegrityAtRoot(generationRoot, receipt, nil) != nil {
+		return false
+	}
+	if expect.SignatureVerifier != nil {
+		if receipt.SignatureFilename == "" || validatePackageFilename(receipt.SignatureFilename) != nil || receipt.SignatureFilename == receipt.OwnedLibraryFilename {
+			return false
+		}
+		if !verifyInstalledPackageSignature(generationRoot, receipt, registered, expect.SignatureVerifier) {
+			return false
+		}
+	}
+	return true
+}
+
+// verifyInstalledPackageSignature copies files opened relative to the pinned
+// generation into a private directory before calling the path-based verifier.
+// The callback runs while CheckInstalledPackage still holds the driver lock.
+func verifyInstalledPackageSignature(generation *os.Root, receipt packageInstallReceipt, registered DriverInfo, verifier PackageVerifier) bool {
+	tempDir, err := os.MkdirTemp("", "dbc-package-verify-")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(tempDir)
+	for index, name := range []string{receipt.OwnedLibraryFilename, receipt.SignatureFilename} {
+		digest, ok := copyVerifiedGenerationFile(generation, name, hostpath.Join(tempDir, name))
+		if !ok {
+			return false
+		}
+		if index == 0 && hex.EncodeToString(digest) != receipt.OwnedLibrarySHA256 {
+			return false
+		}
+	}
+	manifest := Manifest{DriverInfo: registered}
+	manifest.Files.Driver = receipt.OwnedLibraryFilename
+	manifest.Files.Signature = receipt.SignatureFilename
+	manifest.Driver.Shared = driverMap{}
+	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(tempDir, receipt.OwnedLibraryFilename))
+	manifest.FilePath = hostpath.Join(tempDir, receipt.OwnedLibraryFilename)
+	return verifier(tempDir, manifest) == nil
+}
+
+func copyVerifiedGenerationFile(generation *os.Root, name, destination string) ([]byte, bool) {
+	info, err := generation.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	source, err := generation.Open(name)
+	if err != nil {
+		return nil, false
+	}
+	openedInfo, statErr := source.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		_ = source.Close()
+		return nil, false
+	}
+	target, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		_ = source.Close()
+		return nil, false
+	}
+	hash := sha256.New()
+	_, copyErr := io.Copy(io.MultiWriter(target, hash), source)
+	closeTargetErr := target.Close()
+	closeSourceErr := source.Close()
+	if copyErr != nil || closeTargetErr != nil || closeSourceErr != nil {
+		return nil, false
+	}
+	return hash.Sum(nil), true
 }

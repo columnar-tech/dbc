@@ -232,6 +232,12 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	}
 	receipt.ArchiveSHA256 = archiveSHA256
 	receipt.SignatureVerified = signatureVerified
+	if signatureVerified {
+		receipt.SignatureFilename = manifest.Files.Signature
+		if receipt.SignatureFilename == "" {
+			receipt.SignatureFilename = driverFilename + ".sig"
+		}
+	}
 	if err := operations.writeReceipt(stageDir, receipt); err != nil {
 		return Manifest{}, fmt.Errorf("write package install receipt: %w", err)
 	}

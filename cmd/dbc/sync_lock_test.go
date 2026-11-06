@@ -389,7 +389,7 @@ func (suite *SubcommandTestSuite) TestSyncNoVerifyStillEnforcesLockedArchiveHash
 	listPath := suite.writeDriverList("test-driver-1")
 	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
 	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)))
-	suite.Require().NoError(os.Remove(filepath.Join(suite.Dir(), "test-driver-1.toml")))
+	suite.Require().NoError(config.UninstallDriver(getConfig(suite.configLevel), suite.getInstalledDriver("test-driver-1")))
 
 	// The locked hash is replayed, so even a registry that now publishes a
 	// different one cannot change what is accepted.
@@ -398,6 +398,22 @@ func (suite *SubcommandTestSuite) TestSyncNoVerifyStillEnforcesLockedArchiveHash
 	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel, NoVerify: true}.GetModelCustom(wrong))
 	suite.Contains(out, "archive SHA-256 mismatch")
 	suite.driverIsNotInstalled("test-driver-1")
+}
+
+func (suite *SubcommandTestSuite) TestSyncReverifiesInstalledSignature() {
+	listPath := suite.writeDriverList("test-driver-1")
+	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)))
+	installed := suite.getInstalledDriver("test-driver-1")
+	library := installed.Driver.Shared.Get(config.PlatformTuple())
+	suite.Require().NoError(os.WriteFile(library+".sig", []byte("invalid signature"), 0o600))
+
+	// The receipt still says signature_verified=true, but the current bytes
+	// must be checked again rather than trusting that historical flag.
+	var counters syncCounters
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(counters.counted(hashedBaseModel(hash))))
+	suite.Equal(1, counters.downloads)
+	suite.assertReceipt("test-driver-1", "test-driver-1.tar.gz", true)
 }
 
 func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsWrittenLock() {
@@ -740,6 +756,71 @@ func (suite *SubcommandTestSuite) TestSyncCompletionErrorsHideRegistrySecrets() 
 
 // quitKey is a Ctrl+C key press.
 var quitKey = tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}
+
+// preparedSyncModel starts installation with a plan prepared by the test.
+type preparedSyncModel struct {
+	syncModel
+	items []syncItem
+}
+
+func (s preparedSyncModel) Init() tea.Cmd {
+	return func() tea.Msg { return s.items }
+}
+
+func (s preparedSyncModel) WithJSONWriter(w io.Writer) tea.Model {
+	s.jsonOut = w
+	return s
+}
+
+func (suite *SubcommandTestSuite) TestSyncProjectLockHeldThroughInstallation() {
+	listPath := suite.writeDriverList("test-driver-1")
+	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	first := SyncCmd{Path: listPath, Level: suite.configLevel}.newModel(hashedBaseModel(hash))
+	items, err := first.prepare()
+	suite.Require().NoError(err)
+	defer first.projectLock.release()
+	defer func() {
+		for _, item := range items {
+			removeDownload(item.File)
+		}
+	}()
+
+	second := SyncCmd{Path: listPath, Level: suite.configLevel}.newModel(hashedBaseModel(hash))
+	defer second.projectLock.release()
+	type result struct {
+		items []syncItem
+		err   error
+	}
+	finished := make(chan result, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		items, err := second.prepare()
+		finished <- result{items, err}
+	}()
+	<-started
+	select {
+	case r := <-finished:
+		for _, item := range r.items {
+			removeDownload(item.File)
+		}
+		suite.FailNow("second sync prepared before the first installed its drivers", "%v", r.err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	suite.runCmd(preparedSyncModel{syncModel: first, items: items})
+	select {
+	case r := <-finished:
+		suite.Require().NoError(r.err)
+		suite.Require().Len(r.items, 1)
+		suite.NotNil(r.items[0].Installed, "the second sync sees the first sync's completed installation")
+		for _, item := range r.items {
+			removeDownload(item.File)
+		}
+	case <-time.After(5 * time.Second):
+		suite.FailNow("second sync did not acquire the lock after installation")
+	}
+}
 
 func (suite *SubcommandTestSuite) TestSyncQuitDuringPrepareExitsPromptlyAndWorkerCleansUp() {
 	listPath := suite.writeDriverList("test-driver-1", "test-driver-no-sig")

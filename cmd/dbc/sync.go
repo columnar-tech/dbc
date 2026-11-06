@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
@@ -31,6 +32,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 )
 
@@ -53,6 +55,7 @@ func (c SyncCmd) newModel(base baseModel) syncModel {
 		jsonStreamProgress: c.JsonStreamProgress,
 		ctx:                ctx,
 		cancel:             cancel,
+		projectLock:        &syncProjectLock{},
 	}
 }
 
@@ -128,8 +131,9 @@ type syncModel struct {
 	// ctx is canceled when the user quits. The worker that prepares or installs
 	// the drivers owns its temporary files: once its blocking call returns it
 	// sees the canceled context, removes them and writes nothing more.
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx         context.Context
+	cancel      context.CancelFunc
+	projectLock *syncProjectLock
 
 	// jsonErrorOutput is the JSON error envelope to emit via FinalOutput
 	jsonErrorOutput string
@@ -140,6 +144,35 @@ type syncModel struct {
 	newlyInstalled []jsonschema.SyncedDriver
 
 	jsonOut io.Writer
+}
+
+// syncProjectLock is shared by model copies and the preparation worker. Closing
+// it also rejects a late acquisition after the user has already quit.
+type syncProjectLock struct {
+	mu     sync.Mutex
+	lock   *fslock.Lock
+	closed bool
+}
+
+func (p *syncProjectLock) hold(lock fslock.Lock) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		_ = lock.Release()
+		return false
+	}
+	p.lock = &lock
+	return true
+}
+
+func (p *syncProjectLock) release() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.closed = true
+	if p.lock != nil {
+		_ = p.lock.Release()
+		p.lock = nil
+	}
 }
 
 func (s syncModel) Init() tea.Cmd {
@@ -198,7 +231,8 @@ func removeDownload(f *os.File) {
 
 // prepare plans every driver, downloads and verifies what is not installed
 // yet and writes the lock file, all while holding the project lock and before
-// anything is installed. Downloads are removed again when it fails.
+// anything is installed. The model retains the project lock until sync exits.
+// Downloads are removed again when preparation fails.
 func (s syncModel) prepare() (items []syncItem, err error) {
 	listPath, err := filepath.Abs(s.Path)
 	if err != nil {
@@ -213,9 +247,12 @@ func (s syncModel) prepare() (items []syncItem, err error) {
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Release()
+	if !s.projectLock.hold(lock) {
+		return nil, context.Canceled
+	}
 	defer func() {
 		if err != nil {
+			s.projectLock.release()
 			for _, item := range items {
 				removeDownload(item.File)
 			}
@@ -285,11 +322,15 @@ func (s syncModel) prepare() (items []syncItem, err error) {
 func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256}
 	if want := pd.Package.ArchiveSHA256; want != "" {
+		var signatureVerifier config.PackageVerifier
+		if !s.NoVerify {
+			signatureVerifier = dbc.VerifyPackageSignature
+		}
 		info, ok, err := config.CheckInstalledPackage(s.ctx, s.cfg, pd.Name, config.InstalledPackageExpectation{
-			Version:                  pd.Package.Version,
-			ArchiveSHA256:            want,
-			LibrarySHA256:            pd.LibrarySHA256,
-			RequireSignatureVerified: !s.NoVerify,
+			Version:           pd.Package.Version,
+			ArchiveSHA256:     want,
+			LibrarySHA256:     pd.LibrarySHA256,
+			SignatureVerifier: signatureVerifier,
 		})
 		if err != nil {
 			return item, fmt.Errorf("failed to check installed driver %s: %w", pd.Name, err)
@@ -438,6 +479,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// blocked, its temporary directory is left behind.
 		if isQuitKey(msg) {
 			s.cancel()
+			s.projectLock.release()
 			s.removeDownloads()
 		}
 	case []syncItem:
@@ -474,6 +516,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if s.index >= len(s.installItems)-1 {
+			s.projectLock.release()
 			s.done = true
 			if s.jsonOutput {
 				return s, tea.Quit
@@ -525,6 +568,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if s.index >= len(s.installItems)-1 {
+			s.projectLock.release()
 			s.done = true
 			if s.jsonOutput {
 				return s, tea.Quit
@@ -546,6 +590,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case error:
+		s.projectLock.release()
 		s.removeDownloads()
 		s.status = 1
 		s.err = msg
