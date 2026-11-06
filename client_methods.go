@@ -198,7 +198,10 @@ func (c *Client) downloadPackage(ctx context.Context, pkg PkgInfo) (*os.File, er
 	}
 	defer rsp.Body.Close()
 
-	fname := path.Base(location)
+	// Name the file after the escaped URL path only: a query (for example a
+	// registry token) must not end up in the file name, and decoding could
+	// turn %5C into a Windows path separator.
+	fname := path.Base(pkg.Path.EscapedPath())
 	tmpdir, err := os.MkdirTemp(os.TempDir(), "adbc-drivers-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
@@ -260,8 +263,11 @@ func AllowUnsigned() InstallOption {
 }
 
 // Install installs a driver with the given name to the specified
-// configuration, verifying its signature with VerifyPackageSignature unless
-// AllowUnsigned is given. Verification runs on the staged package before it is
+// configuration, verifying its signature with VerifyPackageSignature (which
+// checks the driver library's Columnar signature) unless
+// AllowUnsigned is given. When the registry publishes a SHA-256 for the
+// package, the downloaded archive must match it even with AllowUnsigned.
+// Verification runs on the staged package before it is
 // published, so a driver that fails it leaves any existing install in place.
 func (c *Client) Install(ctx context.Context, cfg config.Config, driverName string, opts ...InstallOption) (*config.Manifest, error) {
 	var o installOptions
@@ -299,9 +305,10 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	var installOpts config.InstallPackageOptions
+	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
 	if !o.allowUnsigned {
-		installOpts.Verifier = VerifyPackageSignature
+		// VerifyPackageSignature checks the driver library's Columnar signature.
+		installOpts.SignatureVerifier = VerifyPackageSignature
 	}
 	manifest, err := config.InstallPackage(ctx, cfg, driverName, f, installOpts)
 	if err != nil {

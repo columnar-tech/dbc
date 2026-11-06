@@ -141,7 +141,7 @@ func (suite *SubcommandTestSuite) TestInstallShadowsLowerPriorityVersion() {
 	suite.Require().NoError(err)
 	_, err = config.InstallPackage(context.Background(), config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1", archive,
 		config.InstallPackageOptions{Verifier: func(stagingDir string, manifest config.Manifest) error {
-			return verifySignatureInStaging(stagingDir, manifest, false)
+			return dbc.VerifyPackageSignature(stagingDir, manifest)
 		}})
 	suite.Require().NoError(err)
 	secondaryDriver, err := config.GetDriver(config.Config{Level: config.ConfigEnv, Location: secondary}, "test-driver-1")
@@ -779,7 +779,7 @@ func (suite *SubcommandTestSuite) TestInstallVerificationPhaseIsReportedBeforeVe
 			close(verifyRelease)
 		}
 	}()
-	model.verifyStagedPackage = func(string, config.Manifest, bool) error {
+	model.verifyStagedPackage = func(string, config.Manifest) error {
 		close(verifyEntered)
 		<-verifyRelease
 		close(verifyCompleted)

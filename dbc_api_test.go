@@ -66,7 +66,7 @@ func TestMain(m *testing.M) {
 		case "/index.yaml":
 			w.Header().Set("Content-Type", "application/yaml")
 			w.Write(indexData)
-		case "/test-driver-1.tar.gz":
+		case "/test-driver-1.tar.gz", `/..\escaped.tar.gz`:
 			w.Header().Set("Content-Type", "application/gzip")
 			w.Header().Set("Content-Length", fmt.Sprint(len(tarballData)))
 			w.Write(tarballData)
@@ -356,6 +356,25 @@ func TestDriverGetWithConstraint(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no package info available")
 	})
+}
+
+func TestPkgInfoDownloadPackageFileNameIgnoresQueryAndEscapes(t *testing.T) {
+	pkg := dbc.PkgInfo{
+		Driver:  dbc.Driver{Title: "test-driver-1"},
+		Version: semver.MustParse("1.0.0"),
+		Path:    mustParseURL(testServer.URL + "/..%5Cescaped.tar.gz?token=x"),
+	}
+	f, err := pkg.DownloadPackage(nil)
+	require.NoError(t, err)
+	dir := filepath.Dir(f.Name())
+	defer os.RemoveAll(dir)
+	defer f.Close()
+
+	name := filepath.Base(f.Name())
+	assert.NotContains(t, name, `\`)
+	assert.NotContains(t, name, "?")
+	assert.NotContains(t, name, "token")
+	assert.True(t, strings.HasPrefix(filepath.Base(dir), "adbc-drivers-"), "the file lives in its private temp dir: %s", f.Name())
 }
 
 func TestPkgInfoDownloadPackage(t *testing.T) {

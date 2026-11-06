@@ -18,6 +18,8 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -128,6 +130,52 @@ func inflateTarballWithLimits(f *os.File, outDir string, limits packageArchiveLi
 	return manifest, nil
 }
 
+// PackageArchiveInfo describes a package archive without installing it.
+type PackageArchiveInfo struct {
+	// ArchiveSHA256 is the lowercase hex digest of all archive bytes, defined
+	// like the digest InstallPackage records.
+	ArchiveSHA256 string
+	// LibrarySHA256 is the lowercase hex digest of the Files.driver payload.
+	LibrarySHA256 string
+	// Manifest is the decoded package MANIFEST; Driver.Shared is not populated.
+	Manifest Manifest
+}
+
+// InspectPackageArchive extracts f into a private temporary staging directory
+// with the same safety checks as InstallPackage, hashes the archive and the
+// driver library, removes the staging directory and returns the result. It
+// does not close f and does not touch any installation.
+func InspectPackageArchive(f *os.File) (PackageArchiveInfo, error) {
+	if f == nil {
+		return PackageArchiveInfo{}, errors.New("package archive file is nil")
+	}
+	tempDir, err := os.MkdirTemp("", "dbc-inspect-")
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not create inspection directory: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	stageDir, manifest, _, archiveSHA256, err := extractPackageArchiveWithDigest(f, tempDir, defaultPackageArchiveLimits)
+	if err != nil {
+		return PackageArchiveInfo{}, err
+	}
+	root, err := os.OpenRoot(stageDir)
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not open staging directory: %w", err)
+	}
+	defer root.Close()
+	library, err := root.Open(manifest.Files.Driver)
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not open driver library: %w", err)
+	}
+	defer library.Close()
+	sum, err := hashSHA256(library)
+	if err != nil {
+		return PackageArchiveInfo{}, fmt.Errorf("could not hash driver library: %w", err)
+	}
+	return PackageArchiveInfo{ArchiveSHA256: archiveSHA256, LibrarySHA256: hex.EncodeToString(sum), Manifest: manifest}, nil
+}
+
 // extractPackageArchive validates the complete archive before returning a
 // private staging directory. The caller owns the returned directory.
 func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, []string, error) {
@@ -135,16 +183,27 @@ func extractPackageArchive(f *os.File, stageParent string) (string, Manifest, []
 }
 
 func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits packageArchiveLimits) (string, Manifest, []string, error) {
+	stageDir, manifest, payloadNames, _, err := extractPackageArchiveWithDigest(f, stageParent, limits)
+	return stageDir, manifest, payloadNames, err
+}
+
+// extractPackageArchiveWithDigest extracts the archive like
+// extractPackageArchiveWithLimits and also returns the lowercase hex SHA-256 of
+// every archive byte it consumed. The digest comes from the same sequential
+// pass that feeds extraction, so it describes exactly the bytes that were
+// extracted. The gzip reader consumes all members and their trailers before
+// the digest is returned.
+func extractPackageArchiveWithDigest(f *os.File, stageParent string, limits packageArchiveLimits) (string, Manifest, []string, string, error) {
 	var manifest Manifest
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return "", manifest, nil, fmt.Errorf("could not seek to start: %w", err)
+		return "", manifest, nil, "", fmt.Errorf("could not seek to start: %w", err)
 	}
 	if err := hostpath.MkdirAll(stageParent, 0o755); err != nil {
-		return "", manifest, nil, fmt.Errorf("could not create staging parent: %w", err)
+		return "", manifest, nil, "", fmt.Errorf("could not create staging parent: %w", err)
 	}
 	stageDir, err := os.MkdirTemp(stageParent, ".dbc-package-stage-")
 	if err != nil {
-		return "", manifest, nil, fmt.Errorf("could not create private staging directory: %w", err)
+		return "", manifest, nil, "", fmt.Errorf("could not create private staging directory: %w", err)
 	}
 	keepStage := false
 	defer func() {
@@ -153,9 +212,10 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 		}
 	}()
 
-	gz, err := gzip.NewReader(f)
+	archiveHash := sha256.New()
+	gz, err := gzip.NewReader(io.TeeReader(f, archiveHash))
 	if err != nil {
-		return "", manifest, nil, fmt.Errorf("could not create gzip reader: %w", err)
+		return "", manifest, nil, "", fmt.Errorf("could not create gzip reader: %w", err)
 	}
 	defer gz.Close()
 
@@ -173,102 +233,103 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 			break
 		}
 		if err != nil {
-			return "", manifest, nil, fmt.Errorf("error reading tarball: %w", err)
+			return "", manifest, nil, "", fmt.Errorf("error reading tarball: %w", err)
 		}
 		entryCount++
 		if entryCount > limits.entryCount {
-			return "", manifest, nil, fmt.Errorf("archive exceeds the limit of %d entries", limits.entryCount)
+			return "", manifest, nil, "", fmt.Errorf("archive exceeds the limit of %d entries", limits.entryCount)
 		}
 		if hdr.Typeflag == tar.TypeXGlobalHeader {
 			continue
 		}
 		if hdr.Size < 0 {
-			return "", manifest, nil, fmt.Errorf("archive entry %q has a negative size", hdr.Name)
+			return "", manifest, nil, "", fmt.Errorf("archive entry %q has a negative size", hdr.Name)
 		}
 		if hdr.Typeflag == tar.TypeDir {
-			return "", manifest, nil, fmt.Errorf("found a directory entry %q which isn't supported; driver archives shouldn't contain subdirectories", hdr.Name)
+			return "", manifest, nil, "", fmt.Errorf("found a directory entry %q which isn't supported; driver archives shouldn't contain subdirectories", hdr.Name)
 		}
 		if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
-			return "", manifest, nil, fmt.Errorf("archive entry %q has unsupported type %d", hdr.Name, hdr.Typeflag)
+			return "", manifest, nil, "", fmt.Errorf("archive entry %q has unsupported type %d", hdr.Name, hdr.Typeflag)
 		}
 		if hdr.Size > limits.entrySize {
-			return "", manifest, nil, fmt.Errorf("archive entry %q exceeds the limit of %d bytes", hdr.Name, limits.entrySize)
+			return "", manifest, nil, "", fmt.Errorf("archive entry %q exceeds the limit of %d bytes", hdr.Name, limits.entrySize)
 		}
 		if hdr.Size > declaredRemaining {
-			return "", manifest, nil, fmt.Errorf("archive exceeds the limit of %d regular file bytes", limits.totalSize)
+			return "", manifest, nil, "", fmt.Errorf("archive exceeds the limit of %d regular file bytes", limits.totalSize)
 		}
 		if err := validatePackageFilename(hdr.Name); err != nil {
-			return "", manifest, nil, err
+			return "", manifest, nil, "", err
 		}
 		if strings.EqualFold(hdr.Name, packageInstallReceiptFilename) {
-			return "", manifest, nil, fmt.Errorf("archive entry %q uses a reserved package receipt filename", hdr.Name)
+			return "", manifest, nil, "", fmt.Errorf("archive entry %q uses a reserved package receipt filename", hdr.Name)
 		}
 		for _, previous := range seen {
 			if strings.EqualFold(previous, hdr.Name) {
-				return "", manifest, nil, fmt.Errorf("duplicate or case-fold-colliding archive entry %q", hdr.Name)
+				return "", manifest, nil, "", fmt.Errorf("duplicate or case-fold-colliding archive entry %q", hdr.Name)
 			}
 		}
 		seen = append(seen, hdr.Name)
 		if hasSparsePackagePAXRecord(hdr.PAXRecords) {
-			return "", manifest, nil, fmt.Errorf("sparse archive entry %q is not supported", hdr.Name)
+			return "", manifest, nil, "", fmt.Errorf("sparse archive entry %q is not supported", hdr.Name)
 		}
 
 		if hdr.Name == "MANIFEST" {
 			if manifestSeen {
-				return "", manifest, nil, errors.New("archive contains duplicate MANIFEST entries")
+				return "", manifest, nil, "", errors.New("archive contains duplicate MANIFEST entries")
 			}
 			if hdr.Size > limits.manifestSize {
-				return "", manifest, nil, fmt.Errorf("MANIFEST exceeds %d bytes", limits.manifestSize)
+				return "", manifest, nil, "", fmt.Errorf("MANIFEST exceeds %d bytes", limits.manifestSize)
 			}
 		}
 		declaredRemaining -= hdr.Size
 		if err := budget.extend(hdr.Size); err != nil {
-			return "", manifest, nil, err
+			return "", manifest, nil, "", err
 		}
 
 		if hdr.Name == "MANIFEST" {
 			manifestSeen = true
 			data, err := io.ReadAll(io.LimitReader(tr, limits.manifestSize+1))
 			if err != nil {
-				return "", manifest, nil, fmt.Errorf("could not read MANIFEST: %w", err)
+				return "", manifest, nil, "", fmt.Errorf("could not read MANIFEST: %w", err)
 			}
 			if int64(len(data)) != hdr.Size {
-				return "", manifest, nil, fmt.Errorf("MANIFEST size mismatch: expected %d bytes, read %d", hdr.Size, len(data))
+				return "", manifest, nil, "", fmt.Errorf("MANIFEST size mismatch: expected %d bytes, read %d", hdr.Size, len(data))
 			}
 			manifest, err = decodeManifest(bytes.NewReader(data), "", false)
 			if err != nil {
-				return "", Manifest{}, nil, fmt.Errorf("could not decode manifest: %w", err)
+				return "", Manifest{}, nil, "", fmt.Errorf("could not decode manifest: %w", err)
 			}
 			continue
 		}
 
 		file, err := os.OpenFile(hostpath.Join(stageDir, hdr.Name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o666)
 		if err != nil {
-			return "", manifest, nil, fmt.Errorf("could not create staged file %s: %w", hdr.Name, err)
+			return "", manifest, nil, "", fmt.Errorf("could not create staged file %s: %w", hdr.Name, err)
 		}
 		written, copyErr := io.CopyN(file, tr, hdr.Size)
 		closeErr := file.Close()
 		if copyErr != nil {
-			return "", manifest, nil, fmt.Errorf("could not write staged file %s: %w", hdr.Name, copyErr)
+			return "", manifest, nil, "", fmt.Errorf("could not write staged file %s: %w", hdr.Name, copyErr)
 		}
 		if closeErr != nil {
-			return "", manifest, nil, fmt.Errorf("could not close staged file %s: %w", hdr.Name, closeErr)
+			return "", manifest, nil, "", fmt.Errorf("could not close staged file %s: %w", hdr.Name, closeErr)
 		}
 		if written != hdr.Size {
-			return "", manifest, nil, fmt.Errorf("archive entry %s size mismatch: expected %d bytes, wrote %d", hdr.Name, hdr.Size, written)
+			return "", manifest, nil, "", fmt.Errorf("archive entry %s size mismatch: expected %d bytes, wrote %d", hdr.Name, hdr.Size, written)
 		}
 		payloads[hdr.Name] = struct{}{}
 		payloadNames = append(payloadNames, hdr.Name)
 	}
 
 	if _, err := io.Copy(io.Discard, budget); err != nil {
-		return "", manifest, nil, fmt.Errorf("error validating gzip stream: %w", err)
+		return "", manifest, nil, "", fmt.Errorf("error validating gzip stream: %w", err)
 	}
+	digest := hex.EncodeToString(archiveHash.Sum(nil))
 	if !manifestSeen {
-		return "", manifest, nil, errors.New("archive does not contain a MANIFEST")
+		return "", manifest, nil, "", errors.New("archive does not contain a MANIFEST")
 	}
 	if manifest.Files.Driver == "" {
-		return "", Manifest{}, nil, errors.New("package manifest does not specify Files.driver")
+		return "", Manifest{}, nil, "", errors.New("package manifest does not specify Files.driver")
 	}
 	for _, ref := range []struct {
 		kind string
@@ -278,14 +339,14 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 			continue
 		}
 		if err := validatePackageFilename(ref.name); err != nil {
-			return "", Manifest{}, nil, fmt.Errorf("invalid Files.%s reference: %w", ref.kind, err)
+			return "", Manifest{}, nil, "", fmt.Errorf("invalid Files.%s reference: %w", ref.kind, err)
 		}
 		if _, ok := payloads[ref.name]; !ok {
-			return "", Manifest{}, nil, fmt.Errorf("Files.%s references missing archive entry %q", ref.kind, ref.name)
+			return "", Manifest{}, nil, "", fmt.Errorf("Files.%s references missing archive entry %q", ref.kind, ref.name)
 		}
 	}
 	keepStage = true
-	return stageDir, manifest, payloadNames, nil
+	return stageDir, manifest, payloadNames, digest, nil
 }
 
 func hasSparsePackagePAXRecord(records map[string]string) bool {
