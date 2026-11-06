@@ -98,14 +98,7 @@ func TestCheckInstalledPackageMatches(t *testing.T) {
 	require.True(t, matched)
 	registered, err := GetDriver(cfg, "driver")
 	require.NoError(t, err)
-	// The check reads the registration from its symlink-resolved location
-	// (for example /private/var on macOS or a long path on Windows), so
-	// compare locations by the files they resolve to.
-	assert.True(t, sameResolvedFilesystemPath(registered.FilePath, info.FilePath))
-	shared := PlatformTuple()
-	assert.True(t, sameResolvedFilesystemPath(registered.Driver.Shared.Get(shared), info.Driver.Shared.Get(shared)))
-	registered.FilePath, registered.Driver.Shared = info.FilePath, info.Driver.Shared
-	assert.True(t, sameDriverRegistration(registered, info))
+	assertSameResolvedRegistration(t, registered, info)
 
 	assert.Equal(t, before, reuseTreeSnapshot(t, cfg.Location))
 }
@@ -402,4 +395,18 @@ func requireReuseSupported(t *testing.T) {
 	if !supportsPinnedCleanup() {
 		t.Skip("installed package reuse requires pinned directory handles")
 	}
+}
+
+// assertSameResolvedRegistration compares a registration read through
+// GetDriver with one returned by CheckInstalledPackage. The check reads the
+// registration from its symlink-resolved location (for example /private/var
+// on macOS or a long path on Windows), so locations are compared by the files
+// they resolve to.
+func assertSameResolvedRegistration(t *testing.T, want, got DriverInfo) {
+	t.Helper()
+	assert.True(t, sameResolvedFilesystemPath(want.FilePath, got.FilePath))
+	shared := PlatformTuple()
+	assert.True(t, sameResolvedFilesystemPath(want.Driver.Shared.Get(shared), got.Driver.Shared.Get(shared)))
+	want.FilePath, want.Driver.Shared = got.FilePath, got.Driver.Shared
+	assert.True(t, sameDriverRegistration(want, got))
 }
