@@ -150,6 +150,7 @@ func TestReadLockFileV2Invalid(t *testing.T) {
 		{"empty location", drv(art(baseArt("linux", "amd64", "gnu", "registry-path", "", testHashA))), "empty"},
 		{"url with query", drv(art(baseArt("linux", "amd64", "gnu", "url", "https://e.com/a?x=1", testHashA))), "query"},
 		{"url with userinfo", drv(art(baseArt("linux", "amd64", "gnu", "url", "https://u@e.com/a", testHashA))), "userinfo"},
+		{"https registry with http artifact", drv(art(baseArt("linux", "amd64", "gnu", "url", "http://e.com/a", testHashA))), "https registry"},
 		{"url not http", drv(art(baseArt("linux", "amd64", "gnu", "url", "file:///a", testHashA))), "http"},
 		{"missing hash", drv(art("format = 'tar.gz'\ntarget = { os = 'linux', arch = 'amd64', libc = 'gnu' }\nlocation = { kind = 'registry-path', value = 'a' }\n")), "hash"},
 		{"uppercase hash", drv(art(strings.Replace(baseArt("linux", "amd64", "gnu", "registry-path", "a", testHashA), testHashA, "sha256:"+strings.Repeat("A", 64), 1))), "hash"},
@@ -266,7 +267,8 @@ func TestNewLockedArtifact(t *testing.T) {
 		}, "duckdb/2.0.0/duckdb_linux_amd64-2.0.0.tar.gz", "", false},
 		{"absolute on same base", "https://r.example.com/", func(b *url.URL) *url.URL { return testURL(t, "https://R.example.com/pkgs/x.tar.gz") }, "pkgs/x.tar.gz", "", false},
 		{"absolute other host", "https://r.example.com", func(b *url.URL) *url.URL { return testURL(t, "https://other.example.com/x.tar.gz") }, "", "https://other.example.com/x.tar.gz", false},
-		{"absolute other scheme", "https://r.example.com", func(b *url.URL) *url.URL { return testURL(t, "http://r.example.com/x.tar.gz") }, "", "http://r.example.com/x.tar.gz", false},
+		{"absolute other scheme", "https://r.example.com", func(b *url.URL) *url.URL { return testURL(t, "http://r.example.com/x.tar.gz") }, "", "", true},
+		{"absolute http artifact from http registry", "http://r.example.com", func(b *url.URL) *url.URL { return testURL(t, "http://other.example.com/x.tar.gz") }, "", "http://other.example.com/x.tar.gz", false},
 		{"absolute other port", "https://r.example.com", func(b *url.URL) *url.URL { return testURL(t, "https://r.example.com:8443/x.tar.gz") }, "", "https://r.example.com:8443/x.tar.gz", false},
 		{"prefix base", "https://host/mount/", func(b *url.URL) *url.URL { return b.JoinPath("d/x.tar.gz") }, "d/x.tar.gz", "", false},
 		{"outside prefix", "https://host/mount/", func(b *url.URL) *url.URL { return testURL(t, "https://host/mountain/x.tar.gz") }, "", "https://host/mountain/x.tar.gz", false},
@@ -369,6 +371,55 @@ func TestArtifactURLRejectsEscapes(t *testing.T) {
 	u, err := b.artifactURL(lockedArtifact{Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: "https://elsewhere.example.com/x"}})
 	require.NoError(t, err)
 	assert.Equal(t, "https://elsewhere.example.com/x", u.String())
+}
+
+func TestArtifactURLTransportSecurity(t *testing.T) {
+	artifactURL := func(s string) lockedArtifact {
+		return lockedArtifact{Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: s}}
+	}
+
+	t.Run("lock validation rejects https registry downgrade", func(t *testing.T) {
+		lf := validV2()
+		lf.Drivers[0].Artifacts[1].Location.Value = "http://elsewhere.example.com/x.tar.gz"
+		err := lf.validate()
+		require.ErrorContains(t, err, "https registry")
+		assert.NotContains(t, err.Error(), "SUPERSECRET")
+	})
+
+	t.Run("http registry accepts http artifact", func(t *testing.T) {
+		lf := validV2()
+		lf.Drivers[0].Source.URL = "http://dbc-cdn.columnar.tech"
+		lf.Drivers[0].Artifacts[1].Location.Value = "http://elsewhere.example.com/x.tar.gz"
+		require.NoError(t, lf.validate())
+		assert.NoError(t, validateLockedURL("http://elsewhere.example.com/x.tar.gz"))
+	})
+
+	t.Run("https registry accepts other host https artifact", func(t *testing.T) {
+		lf := validV2()
+		lf.Drivers[0].Artifacts[1].Location.Value = "https://elsewhere.example.com/x.tar.gz"
+		require.NoError(t, lf.validate())
+	})
+
+	t.Run("bound https registry rejects downgrade without secrets", func(t *testing.T) {
+		b := boundRegistry{BaseURL: testURL(t, "https://u:SUPERSECRET@r.example.com/m?token=SUPERSECRET")}
+		_, err := b.artifactURL(artifactURL("http://elsewhere.example.com/x.tar.gz"))
+		require.ErrorContains(t, err, "https registry")
+		assert.NotContains(t, err.Error(), "SUPERSECRET")
+	})
+
+	t.Run("bound http registry accepts http artifact", func(t *testing.T) {
+		b := boundRegistry{BaseURL: testURL(t, "http://r.example.com/m")}
+		u, err := b.artifactURL(artifactURL("http://elsewhere.example.com/x.tar.gz"))
+		require.NoError(t, err)
+		assert.Equal(t, "http://elsewhere.example.com/x.tar.gz", u.String())
+	})
+
+	t.Run("bound https registry accepts other host https artifact", func(t *testing.T) {
+		b := boundRegistry{BaseURL: testURL(t, "https://r.example.com/m")}
+		u, err := b.artifactURL(artifactURL("https://elsewhere.example.com/x.tar.gz"))
+		require.NoError(t, err)
+		assert.Equal(t, "https://elsewhere.example.com/x.tar.gz", u.String())
+	})
 }
 
 func TestLockedArtifactEscapedRoundTrip(t *testing.T) {
