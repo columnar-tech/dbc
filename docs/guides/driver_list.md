@@ -140,7 +140,7 @@ When a lockfile exists, `dbc sync` uses the archive recorded for the current pla
 
 The lockfile never contains credentials. The registry is recorded without any user name, password or query string, and `dbc sync` uses your configured registry with the same address to download archives. If your registry URL includes a query string, `dbc sync` can't add a missing platform to an existing entry; delete the lockfile and run `dbc sync` again instead.
 
-Lockfiles written by dbc versions before 0.4 (`version = 1`) are upgraded automatically: the locked version is kept, and the recorded checksum is still checked when you run `dbc sync` on the same platform. Older dbc versions cannot read a version 2 lockfile.
+Lockfiles written by dbc versions before 0.4 (`version = 1`) are upgraded automatically: the locked version is kept as long as it still satisfies the driver list's version constraint, and the recorded checksum is still checked when you run `dbc sync` on the same platform. Older dbc versions cannot read a version 2 lockfile.
 
 Every time you run `dbc sync`, this file is updated with the exact information about each driver.
 It's a good idea to track `dbc.lock` as well as `dbc.toml` in version control if you want to ensure a completely reproducible set of drivers.
