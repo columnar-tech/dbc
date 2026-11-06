@@ -429,7 +429,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: >-
-          sudo -E env "PATH=$PATH" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}"
+          sudo env "PATH=$PATH" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}"
           DBC_TEST_LEVEL_SYSTEM=1
           cargo test --manifest-path rust/Cargo.toml -p columnar-dbc --features bundled --target ${{ matrix.target }} --test levels
       - name: Test at the system level (Windows)
