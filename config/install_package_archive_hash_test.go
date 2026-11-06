@@ -96,6 +96,96 @@ func TestInstallPackageArchiveHash(t *testing.T) {
 		assertOnlyPackageGeneration(t, cfg.Location, filepath.Base(filepath.Dir(previousPath)))
 	})
 
+	t.Run("hash mismatch takes precedence over malformed archives", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			corrupt func(*testing.T, *os.File)
+		}{
+			{
+				name: "truncated archive",
+				corrupt: func(t *testing.T, archive *os.File) {
+					t.Helper()
+					require.NoError(t, os.Truncate(archive.Name(), 8))
+				},
+			},
+			{
+				name: "HTML response",
+				corrupt: func(t *testing.T, archive *os.File) {
+					t.Helper()
+					require.NoError(t, os.WriteFile(archive.Name(), []byte("<html>download failed</html>"), 0o600))
+				},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+				installInitialPackage(t, cfg)
+				previous, err := GetDriver(cfg, "driver")
+				require.NoError(t, err)
+				previousPath := previous.Driver.Shared.Get(PlatformTuple())
+
+				archive := testPackageArchive(t, "new")
+				tc.corrupt(t, archive)
+				actual := fileSHA256(t, archive)
+				expected := strings.Repeat("0", 64)
+				require.NotEqual(t, expected, actual)
+
+				_, err = InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{ExpectedArchiveSHA256: expected})
+				var mismatch *ArchiveHashMismatchError
+				require.ErrorAs(t, err, &mismatch)
+				assert.Equal(t, expected, mismatch.Expected)
+				assert.Equal(t, actual, mismatch.Actual)
+				assertArchiveClosed(t, archive)
+				assertPreviousPackage(t, cfg, previousPath)
+				assertOnlyPackageGeneration(t, cfg.Location, filepath.Base(filepath.Dir(previousPath)))
+			})
+		}
+	})
+
+	t.Run("matching corrupted archive digest reports extraction error", func(t *testing.T) {
+		cases := []struct {
+			name    string
+			corrupt func(*testing.T, *os.File)
+		}{
+			{
+				name: "truncated archive",
+				corrupt: func(t *testing.T, archive *os.File) {
+					t.Helper()
+					require.NoError(t, os.Truncate(archive.Name(), 8))
+				},
+			},
+			{
+				name: "HTML response",
+				corrupt: func(t *testing.T, archive *os.File) {
+					t.Helper()
+					require.NoError(t, os.WriteFile(archive.Name(), []byte("<html>download failed</html>"), 0o600))
+				},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+				installInitialPackage(t, cfg)
+				previous, err := GetDriver(cfg, "driver")
+				require.NoError(t, err)
+				previousPath := previous.Driver.Shared.Get(PlatformTuple())
+
+				archive := testPackageArchive(t, "new")
+				tc.corrupt(t, archive)
+				digest := fileSHA256(t, archive)
+
+				_, err = InstallPackage(ctx, cfg, "driver", archive, InstallPackageOptions{ExpectedArchiveSHA256: digest})
+				require.Error(t, err)
+				var mismatch *ArchiveHashMismatchError
+				assert.False(t, errors.As(err, &mismatch), "matching archive digest should reach extraction")
+				assert.Contains(t, err.Error(), "failed to extract package")
+				assertArchiveClosed(t, archive)
+				assertPreviousPackage(t, cfg, previousPath)
+				assertOnlyPackageGeneration(t, cfg.Location, filepath.Base(filepath.Dir(previousPath)))
+			})
+		}
+	})
+
 	t.Run("digest covers bytes after the first gzip member", func(t *testing.T) {
 		cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
 		archive := testPackageArchive(t, "new")

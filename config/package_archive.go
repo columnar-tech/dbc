@@ -145,7 +145,8 @@ func extractPackageArchiveWithLimits(f *os.File, stageParent string, limits pack
 // extractPackageArchiveWithLimits and also returns the lowercase hex SHA-256 of
 // every archive byte it consumed. The digest comes from the same sequential
 // pass that feeds extraction, so it describes exactly the bytes that were
-// extracted; bytes left after the gzip stream are drained into it.
+// extracted. The gzip reader consumes all members and their trailers before
+// the digest is returned.
 func extractPackageArchiveWithDigest(f *os.File, stageParent string, limits packageArchiveLimits) (string, Manifest, []string, string, error) {
 	var manifest Manifest
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
@@ -276,9 +277,6 @@ func extractPackageArchiveWithDigest(f *os.File, stageParent string, limits pack
 
 	if _, err := io.Copy(io.Discard, budget); err != nil {
 		return "", manifest, nil, "", fmt.Errorf("error validating gzip stream: %w", err)
-	}
-	if _, err := io.Copy(archiveHash, f); err != nil {
-		return "", manifest, nil, "", fmt.Errorf("error reading archive trailer: %w", err)
 	}
 	digest := hex.EncodeToString(archiveHash.Sum(nil))
 	if !manifestSeen {
