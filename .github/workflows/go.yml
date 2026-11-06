@@ -71,9 +71,8 @@ jobs:
       - name: Run Tests (System, Unixlike)
         # Run system tests with sudo on Unixlikes to replicate what users do
         if: runner.os != 'Windows'
-        run: sudo -E env "PATH=$PATH" go test -v ./...
-        env:
-          DBC_TEST_LEVEL_SYSTEM: 1
+        # Pass variables explicitly: some sudo implementations ignore -E.
+        run: sudo env "PATH=$PATH" "GOTOOLCHAIN=$GOTOOLCHAIN" DBC_TEST_LEVEL_SYSTEM=1 go test -v ./...
       - name: Run Tests (System, Windows)
         if: runner.os == 'Windows'
         run: go test -v ./...
