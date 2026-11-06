@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,12 +209,15 @@ func (p *syncProjectLock) releaseIfIdle() {
 
 func (s syncModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		items, err := s.prepare()
-		if err != nil {
-			return err
-		}
-		return items
+		items, warnings, err := s.prepareWithWarnings()
+		return syncPreparedMsg{items: items, warnings: warnings, err: err}
 	}
+}
+
+type syncPreparedMsg struct {
+	items    []syncItem
+	warnings []string
+	err      error
 }
 
 func loadDriverList(path string) (DriversList, error) {
@@ -275,14 +279,22 @@ func removeDownload(f *os.File) {
 // yet and writes the lock file, all while holding the project lock and before
 // anything is installed. The model retains the project lock until sync exits.
 // Downloads are removed again when preparation fails.
-func (s syncModel) prepare() (items []syncItem, err error) {
+func (s syncModel) prepare() ([]syncItem, error) {
+	items, _, err := s.prepareWithWarnings()
+	return items, err
+}
+
+func (s syncModel) prepareWithWarnings() (items []syncItem, warnings []string, err error) {
+	// Preserve URL stripping for every diagnostic, including failures before
+	// the project lock is acquired. Secret values are handled at source boundaries.
+	defer func() { err = redactURLSecrets(err, nil) }()
 	if !s.projectLock.begin() {
-		return nil, context.Canceled
+		return nil, warnings, context.Canceled
 	}
 	defer s.projectLock.end()
 	listPath, err := filepath.Abs(s.Path)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	if filepath.Ext(listPath) == "" {
 		listPath = filepath.Join(listPath, "dbc.toml")
@@ -291,10 +303,10 @@ func (s syncModel) prepare() (items []syncItem, err error) {
 
 	lock, err := acquireLock(filepath.Join(filepath.Dir(listPath), ".dbc.project.lock"), 10*time.Second)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	if !s.projectLock.hold(lock) {
-		return nil, context.Canceled
+		return nil, warnings, context.Canceled
 	}
 	defer func() {
 		if err != nil {
@@ -303,25 +315,25 @@ func (s syncModel) prepare() (items []syncItem, err error) {
 				removeDownload(item.File)
 			}
 			items = nil
-			// Registry URLs may carry credentials that the underlying errors print.
-			var registries []dbc.Registry
-			if s.getRegistries != nil {
-				registries, _ = s.getRegistries()
-			}
-			err = redactURLSecrets(err, registrySecrets(registries))
 		}
 	}()
 
 	list, err := loadDriverList(listPath)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	existing, err := readLockFile(lockPath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, warnings, err
 	}
 	if err := applyProjectRegistries(list); err != nil {
-		return nil, err
+		var urls []*url.URL
+		for _, entry := range list.Registries {
+			if u, parseErr := url.Parse(entry.URL); parseErr == nil {
+				urls = append(urls, u)
+			}
+		}
+		return nil, warnings, redactRegistryError(err, s.getRegistries, urls...)
 	}
 
 	planner := syncPlanner{
@@ -332,34 +344,31 @@ func (s syncModel) prepare() (items []syncItem, err error) {
 	}
 	planned, warnings, err := planner.plan(list, existing)
 	if err != nil {
-		return nil, err
+		return nil, warnings, err
 	}
 	if err := s.ctx.Err(); err != nil {
-		return nil, err
-	}
-	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, w)
+		return nil, warnings, err
 	}
 
 	entries := make([]lockedDriver, 0, len(planned))
 	for i := range planned {
 		if err := s.ctx.Err(); err != nil {
-			return items, err
+			return items, warnings, err
 		}
 		item, err := s.fetch(&planned[i])
 		if err != nil {
-			return items, err
+			return items, warnings, err
 		}
 		items = append(items, item)
 		entries = append(entries, planned[i].Entry)
 	}
 	if err := s.ctx.Err(); err != nil {
-		return items, err
+		return items, warnings, err
 	}
 	if err := writeLockFileV2(lockPath, lockFileV2{Version: lockFileVersionV2, Drivers: entries}); err != nil {
-		return items, err
+		return items, warnings, err
 	}
-	return items, nil
+	return items, warnings, nil
 }
 
 // fetch reuses the installed package of a planned driver when it matches the
@@ -395,7 +404,7 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 
 	f, err := s.downloadPkg(pd.Package)
 	if err != nil {
-		return item, fmt.Errorf("failed to download driver: %w", err)
+		return item, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, s.getRegistries, pd.Package.Path))
 	}
 	if pd.ArchiveSize != nil {
 		info, err := f.Stat()
@@ -537,6 +546,22 @@ func (s syncModel) removeDownloads() {
 
 func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case syncPreparedMsg:
+		var next tea.Msg = msg.items
+		if msg.err != nil {
+			next = msg.err
+		}
+		model, cmd := s.Update(next)
+		if len(msg.warnings) == 0 {
+			return model, cmd
+		}
+		if s.jsonOutput {
+			for _, warning := range msg.warnings {
+				fmt.Fprintln(os.Stderr, warning)
+			}
+			return model, cmd
+		}
+		return model, tea.Sequence(tea.Println(strings.Join(msg.warnings, "\n")), cmd)
 	case tea.WindowSizeMsg:
 		s.width, s.height = msg.Width, msg.Height
 	case spinner.TickMsg:
@@ -664,6 +689,7 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case error:
+		msg = redactURLSecrets(msg, nil)
 		s.projectLock.release()
 		s.removeDownloads()
 		s.status = 1

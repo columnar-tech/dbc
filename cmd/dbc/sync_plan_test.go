@@ -225,15 +225,21 @@ func TestPlanPartialLockKeepsCurrentTargetWithoutHash(t *testing.T) {
 	assert.Empty(t, planned[0].Package.ArchiveSHA256)
 }
 
-func TestPlanRejectsMalformedHashes(t *testing.T) {
-	for _, name := range []string{"bad", "bad-current"} {
-		t.Run(name, func(t *testing.T) {
-			f := newPlanFixture(t)
-			_, _, err := f.planner.plan(listOf(map[string]driverSpec{name: {}}), parsedLockFile{})
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid archive hash")
-		})
-	}
+func TestPlanSkipsMalformedSecondaryHash(t *testing.T) {
+	f := newPlanFixture(t)
+	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"bad": {}}), parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "linux_amd64"): lockHashPrefix + planHashA,
+	}, artifactTargets(planned[0].Entry))
+}
+
+func TestPlanRejectsMalformedCurrentHash(t *testing.T) {
+	f := newPlanFixture(t)
+	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"bad-current": {}}), parsedLockFile{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid archive hash")
 }
 
 func TestPlanUnknownDriverReportsRegistryErrors(t *testing.T) {
