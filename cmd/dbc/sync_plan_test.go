@@ -23,6 +23,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -150,8 +151,20 @@ func lockedAlpha(version string, artifacts ...lockedArtifact) lockedDriver {
 	}
 }
 
-func pathArtifact(target, path, hash string) lockedArtifact {
-	return lockedArtifact{Target: target, Path: &path, Hash: lockHashPrefix + hash}
+func testSyncTarget(t *testing.T, tuple string) resolution.Target {
+	t.Helper()
+	target, err := resolution.TargetFromPlatformTuple(tuple)
+	require.NoError(t, err)
+	return target
+}
+
+func pathArtifact(t *testing.T, tuple, path, hash string) lockedArtifact {
+	return lockedArtifact{
+		Target:   testSyncTarget(t, tuple),
+		Format:   "tar.gz",
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationRegistryPath, Value: path},
+		Hash:     lockHashPrefix + hash,
+	}
 }
 
 func v2Lock(drivers ...lockedDriver) parsedLockFile {
@@ -168,8 +181,8 @@ func v1Lock(infos ...lockInfo) parsedLockFile {
 
 func listOf(drivers map[string]driverSpec) DriversList { return DriversList{Drivers: drivers} }
 
-func artifactTargets(d lockedDriver) map[string]string {
-	out := map[string]string{}
+func artifactTargets(d lockedDriver) map[resolution.Target]string {
+	out := map[resolution.Target]string{}
 	for _, a := range d.Artifacts {
 		out[a.Target] = a.Hash
 	}
@@ -187,15 +200,15 @@ func TestPlanResolvesAllPublishedTargets(t *testing.T) {
 	assert.Equal(t, "1.1.0", pd.Entry.Version)
 	assert.Equal(t, lockedSource{Type: lockSourceRegistry, URL: "https://registry.example.com"}, pd.Entry.Source)
 	// The windows target publishes no hash and is not the current target.
-	assert.Equal(t, map[string]string{
-		"linux_amd64": lockHashPrefix + planHashC,
-		"macos_arm64": lockHashPrefix + planHashD,
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "linux_amd64"): lockHashPrefix + planHashC,
+		testSyncTarget(t, "macos_arm64"): lockHashPrefix + planHashD,
 	}, artifactTargets(pd.Entry))
 	assert.Equal(t, planHashC, pd.Package.ArchiveSHA256)
 	assert.Equal(t, "https://registry.example.com/alpha/1.1.0/alpha-linux.tar.gz", pd.Package.Path.String())
 	for _, a := range pd.Entry.Artifacts {
-		require.NotNil(t, a.Path)
-		assert.Nil(t, a.URL)
+		assert.Equal(t, "tar.gz", a.Format)
+		assert.Equal(t, resolution.ArtifactLocationRegistryPath, a.Location.Kind)
 	}
 	assert.Equal(t, 1, f.indexCalls)
 	require.NoError(t, v2Lock(pd.Entry).V2.validate())
@@ -208,7 +221,7 @@ func TestPlanPartialLockKeepsCurrentTargetWithoutHash(t *testing.T) {
 	require.Len(t, planned, 1)
 
 	// Only the current target is recorded; its hash is measured later.
-	assert.Equal(t, map[string]string{"linux_amd64": ""}, artifactTargets(planned[0].Entry))
+	assert.Equal(t, map[resolution.Target]string{testSyncTarget(t, "linux_amd64"): ""}, artifactTargets(planned[0].Entry))
 	assert.Empty(t, planned[0].Package.ArchiveSHA256)
 }
 
@@ -238,7 +251,7 @@ func TestPlanUnknownDriverReportsRegistryErrors(t *testing.T) {
 
 func TestPlanReplaysLockWithoutRegistryIndex(t *testing.T) {
 	f := newPlanFixture(t)
-	lock := v2Lock(lockedAlpha("1.0.0", pathArtifact("linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
+	lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
 	planned, warnings, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 	require.NoError(t, err)
 	assert.Empty(t, warnings)
@@ -256,14 +269,19 @@ func TestPlanReplaysLockWithoutRegistryIndex(t *testing.T) {
 func TestPlanReplayUsesAbsoluteArtifactURL(t *testing.T) {
 	f := newPlanFixture(t)
 	abs := "https://mirror.example.net/alpha-linux.tar.gz"
-	d := lockedAlpha("1.0.0", lockedArtifact{Target: planTarget, URL: &abs, Hash: lockHashPrefix + planHashA})
+	d := lockedAlpha("1.0.0", lockedArtifact{
+		Target:   testSyncTarget(t, planTarget),
+		Format:   "tar.gz",
+		Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: abs},
+		Hash:     lockHashPrefix + planHashA,
+	})
 	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
 	require.NoError(t, err)
 	assert.Equal(t, abs, planned[0].Package.Path.String())
 }
 
 func TestPlanReplayBindsRegistry(t *testing.T) {
-	lock := v2Lock(lockedAlpha("1.0.0", pathArtifact("linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
+	lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
 	for name, registries := range map[string][]dbc.Registry{
 		"none":      {{BaseURL: must(url.Parse("https://other.example.com"))}},
 		"ambiguous": {{BaseURL: planRegistryURL}, {BaseURL: must(url.Parse("https://REGISTRY.example.com/"))}},
@@ -281,7 +299,7 @@ func TestPlanReplayBindsRegistry(t *testing.T) {
 func TestPlanReplayRebindsCredentialsOfConfiguredRegistry(t *testing.T) {
 	f := newPlanFixture(t)
 	f.registries = []dbc.Registry{{BaseURL: must(url.Parse("https://user:SUPERSECRET@registry.example.com?token=SUPERSECRET"))}}
-	lock := v2Lock(lockedAlpha("1.0.0", pathArtifact("linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
+	lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
 	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 	require.NoError(t, err)
 	assert.Equal(t, "https://user:SUPERSECRET@registry.example.com/alpha/1.0.0/alpha-linux.tar.gz?token=SUPERSECRET", planned[0].Package.Path.String())
@@ -290,15 +308,15 @@ func TestPlanReplayRebindsCredentialsOfConfiguredRegistry(t *testing.T) {
 
 func TestPlanCompletesMissingTarget(t *testing.T) {
 	f := newPlanFixture(t)
-	existing := pathArtifact("macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)
+	existing := pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)
 	lock := v2Lock(lockedAlpha("1.0.0", existing))
 	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 	require.NoError(t, err)
 	require.Len(t, planned, 1)
 
-	assert.Equal(t, map[string]string{
-		"macos_arm64": lockHashPrefix + planHashB,
-		"linux_amd64": lockHashPrefix + planHashA,
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "macos_arm64"): lockHashPrefix + planHashB,
+		testSyncTarget(t, "linux_amd64"): lockHashPrefix + planHashA,
 	}, artifactTargets(planned[0].Entry))
 	assert.Equal(t, existing, planned[0].Entry.Artifacts[0], "existing artifacts stay unchanged")
 	assert.Equal(t, planHashA, planned[0].Package.ArchiveSHA256)
@@ -311,18 +329,18 @@ func TestPlanCompletesMissingTarget(t *testing.T) {
 
 func TestPlanCompletionWithoutPublishedHashMeasuresLater(t *testing.T) {
 	f := newPlanFixture(t)
-	d := lockedAlpha("1.1.0", pathArtifact("macos_arm64", "alpha/1.1.0/alpha-macos.tar.gz", planHashD))
+	d := lockedAlpha("1.1.0", pathArtifact(t, "macos_arm64", "alpha/1.1.0/alpha-macos.tar.gz", planHashD))
 	d.Name = "beta"
 	d.Version = "1.0.0"
-	d.Artifacts = []lockedArtifact{pathArtifact("macos_arm64", "beta/1.0.0/beta-macos.tar.gz", planHashD)}
+	d.Artifacts = []lockedArtifact{pathArtifact(t, "macos_arm64", "beta/1.0.0/beta-macos.tar.gz", planHashD)}
 	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"beta": {}}), v2Lock(d))
 	require.NoError(t, err)
-	assert.Equal(t, "", artifactTargets(planned[0].Entry)["linux_amd64"])
+	assert.Equal(t, "", artifactTargets(planned[0].Entry)[testSyncTarget(t, "linux_amd64")])
 	assert.Empty(t, planned[0].Package.ArchiveSHA256)
 }
 
 func TestPlanCompletionErrors(t *testing.T) {
-	macos := pathArtifact("macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)
+	macos := pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)
 
 	t.Run("registry with query", func(t *testing.T) {
 		f := newPlanFixture(t)
@@ -418,8 +436,8 @@ func TestRedactKnownRegistrySecrets(t *testing.T) {
 }
 
 func TestPlanConstraintAndPrerelease(t *testing.T) {
-	lock10 := v2Lock(lockedAlpha("1.0.0", pathArtifact("linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
-	lockBeta := v2Lock(lockedAlpha("2.0.0-beta.1", pathArtifact("linux_amd64", "alpha/2.0.0-beta.1/alpha-linux.tar.gz", planHashE)))
+	lock10 := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
+	lockBeta := v2Lock(lockedAlpha("2.0.0-beta.1", pathArtifact(t, "linux_amd64", "alpha/2.0.0-beta.1/alpha-linux.tar.gz", planHashE)))
 
 	tests := []struct {
 		name        string
