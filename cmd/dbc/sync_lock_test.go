@@ -453,9 +453,9 @@ func (suite *SubcommandTestSuite) TestSyncPlanningFailureLeavesEveryDriverUntouc
         packages:
           - platform: %[1]s
             url: test-driver-2/2.0.0/test-driver-2.tar.gz
+            hash: sha256:nothex
           - platform: %[2]s
             url: test-driver-2/2.0.0/other.tar.gz
-            hash: sha256:nothex
 `, config.PlatformTuple(), otherTarget))
 	}
 	var counters syncCounters

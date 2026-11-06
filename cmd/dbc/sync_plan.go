@@ -15,7 +15,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"net/url"
@@ -69,6 +68,7 @@ func (p *syncPlanner) loadIndex() ([]dbc.Driver, error) {
 	if !p.indexLoaded {
 		p.indexLoaded = true
 		drivers, err := p.index()
+		err = redactRegistryError(err, p.registries)
 		p.drivers, p.registryErr = drivers, err
 		if len(drivers) == 0 && err != nil {
 			p.indexErr = fmt.Errorf("error getting driver list: %w", err)
@@ -198,7 +198,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	drivers, err := p.registryIndex(dbc.Registry{BaseURL: bound.BaseURL})
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("could not fetch the index of registry %s to complete the lock entry of driver %s: %w",
-			d.Source.URL, name, err)
+			d.Source.URL, name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
 	drv, err := findDriver(name, drivers)
 	if err != nil {
@@ -206,11 +206,11 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	}
 	pkg, err := drv.GetPackage(v, p.target, true)
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, err)
+		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
 	art, err := newLockedArtifact(bound.BaseURL, pkg.Path, p.target, publishedHash(pkg))
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
+		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
 	d.Artifacts = append(slices.Clone(d.Artifacts), art)
 	return plannedDriver{Name: name, Entry: d, Package: pkg}, nil
@@ -220,7 +220,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 func (p *syncPlanner) bind(name, identity string) (boundRegistry, error) {
 	registries, err := p.registries()
 	if err != nil {
-		return boundRegistry{}, err
+		return boundRegistry{}, redactURLSecrets(err, registrySecrets(registries))
 	}
 	bound, err := bindLockedRegistry(identity, registries)
 	if err != nil {
@@ -240,6 +240,10 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	if err != nil {
 		return plannedDriver{}, wrapWithRegistryContext(err, p.registryErr)
 	}
+	var sourceURL *url.URL
+	if drv.Registry != nil {
+		sourceURL = drv.Registry.BaseURL
+	}
 
 	var pkg dbc.PkgInfo
 	switch {
@@ -251,10 +255,10 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 		pkg, err = drv.GetPackage(nil, p.target, spec.Prerelease == "allow")
 	}
 	if err != nil {
-		return plannedDriver{}, err
+		return plannedDriver{}, redactRegistryError(err, p.registries, sourceURL)
 	}
 
-	identity, err := canonicalRegistryIdentity(drv.Registry.BaseURL)
+	identity, err := canonicalRegistryIdentity(sourceURL)
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
 	}
@@ -265,7 +269,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	}
 	artifacts, err := p.lockArtifacts(drv, pkg)
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
+		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, drv.Registry.BaseURL))
 	}
 	return plannedDriver{Name: name, Package: pkg, Entry: lockedDriver{
 		Name:      name,
@@ -273,50 +277,6 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 		Source:    lockedSource{Type: lockSourceRegistry, URL: identity},
 		Artifacts: artifacts,
 	}}, nil
-}
-
-// lockArtifacts lists every target of the resolved version whose archive hash
-// the registry publishes. The current target is always listed; without a
-// published hash it gets an empty one.
-func (p *syncPlanner) lockArtifacts(drv dbc.Driver, pkg dbc.PkgInfo) ([]lockedArtifact, error) {
-	var artifacts []lockedArtifact
-	seen := map[string]bool{}
-	targets := map[resolution.Target]bool{}
-	for _, vi := range drv.AllVersions() {
-		if !vi.Version.Equal(pkg.Version) {
-			continue
-		}
-		for _, pi := range vi.Packages {
-			if seen[pi.Platform] {
-				continue
-			}
-			seen[pi.Platform] = true
-
-			tp := pkg
-			if pi.Platform != p.target {
-				var err error
-				if tp, err = drv.GetPackage(pkg.Version, pi.Platform, true); err != nil {
-					return nil, err
-				}
-				if tp.ArchiveSHA256 == "" {
-					continue
-				}
-			}
-			art, err := newLockedArtifact(drv.Registry.BaseURL, tp.Path, pi.Platform, publishedHash(tp))
-			if err != nil {
-				return nil, err
-			}
-			if targets[art.Target] {
-				return nil, fmt.Errorf("duplicate artifact target %+v", art.Target)
-			}
-			targets[art.Target] = true
-			artifacts = append(artifacts, art)
-		}
-	}
-	if len(artifacts) == 0 {
-		return nil, errors.New("no artifact could be recorded")
-	}
-	return artifacts, nil
 }
 
 // publishedHash returns the lock file spelling of the registry's archive hash,
@@ -411,7 +371,6 @@ func stripURLSecrets(raw string) string {
 
 // registrySecrets lists the values in the configured registry URLs that must
 // never be shown: userinfo and query values, in raw and escaped spellings.
-// Short values are skipped so that ordinary words are not mangled.
 // minRedactableSecretLen is the shortest secret replaced in place; a
 // diagnostic containing a shorter one is hidden entirely.
 const minRedactableSecretLen = 4
