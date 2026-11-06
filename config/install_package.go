@@ -17,8 +17,10 @@ package config
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -147,7 +149,28 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, fmt.Errorf("install canceled before staging: %w", err)
 	}
+	if options.ExpectedArchiveSHA256 != "" {
+		if _, err := downloaded.Seek(0, io.SeekStart); err != nil {
+			return Manifest{}, fmt.Errorf("seek archive before hash verification: %w", err)
+		}
+		sum, err := hashSHA256(downloaded)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("hash archive before extraction: %w", err)
+		}
+		actual := hex.EncodeToString(sum)
+		if actual != options.ExpectedArchiveSHA256 {
+			return Manifest{}, &ArchiveHashMismatchError{Expected: options.ExpectedArchiveSHA256, Actual: actual}
+		}
+		if _, err := downloaded.Seek(0, io.SeekStart); err != nil {
+			return Manifest{}, fmt.Errorf("rewind archive after hash verification: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, fmt.Errorf("install canceled after archive hash verification: %w", err)
+		}
+	}
 
+	// Extraction measures the same descriptor again, so a change after the
+	// preflight check cannot be published under the expected archive digest.
 	stageDir, manifest, _, archiveSHA256, err := extractPackageArchiveWithDigest(downloaded, location, defaultPackageArchiveLimits)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("failed to extract package: %w", err)
