@@ -82,6 +82,7 @@ func assertNotReusable(t *testing.T, cfg Config, expect InstalledPackageExpectat
 }
 
 func TestCheckInstalledPackageMatches(t *testing.T) {
+	requireReuseSupported(t)
 	ok := func(string, Manifest) error { return nil }
 	cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
 	digest := installReusePackage(t, cfg, InstallPackageOptions{SignatureVerifier: ok})
@@ -93,6 +94,13 @@ func TestCheckInstalledPackageMatches(t *testing.T) {
 	require.True(t, matched)
 	registered, err := GetDriver(cfg, "driver")
 	require.NoError(t, err)
+	// The check reads the registration from its symlink-resolved location
+	// (for example /private/var on macOS or a long path on Windows), so
+	// compare locations by the files they resolve to.
+	assert.True(t, sameResolvedFilesystemPath(registered.FilePath, info.FilePath))
+	shared := PlatformTuple()
+	assert.True(t, sameResolvedFilesystemPath(registered.Driver.Shared.Get(shared), info.Driver.Shared.Get(shared)))
+	registered.FilePath, registered.Driver.Shared = info.FilePath, info.Driver.Shared
 	assert.True(t, sameDriverRegistration(registered, info))
 
 	expect.RequireSignatureVerified = true
@@ -257,6 +265,7 @@ func TestCheckInstalledPackageInvalidInput(t *testing.T) {
 }
 
 func TestCheckInstalledPackageCanceledWhileLockHeld(t *testing.T) {
+	requireReuseSupported(t)
 	cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
 	expect := reuseExpectation(installReusePackage(t, cfg, InstallPackageOptions{}))
 	lock, err := acquireDriverInstallLockWith(context.Background(), cfg.Location, "driver", time.Second)
@@ -292,4 +301,13 @@ func TestCheckInstalledPackageCanceledWhileLockHeld(t *testing.T) {
 	_, matched, err := CheckInstalledPackage(context.Background(), cfg, "driver", expect)
 	require.NoError(t, err)
 	assert.True(t, matched)
+}
+
+// requireReuseSupported skips tests that expect a match on platforms where
+// CheckInstalledPackage always reports no match.
+func requireReuseSupported(t *testing.T) {
+	t.Helper()
+	if !supportsPinnedCleanup() {
+		t.Skip("installed package reuse requires pinned directory handles")
+	}
 }

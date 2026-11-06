@@ -71,6 +71,9 @@ func TestInspectPackageArchiveRejectsMalformed(t *testing.T) {
 	} {
 		_, err := InspectPackageArchive(f)
 		require.Error(t, err, name)
+		// InspectPackageArchive leaves f open for the caller; Windows cannot
+		// remove the temporary directory while it is open.
+		require.NoError(t, f.Close())
 	}
 	entries, err := os.ReadDir(tmp)
 	require.NoError(t, err)
@@ -87,6 +90,7 @@ func notGzipFile(t *testing.T) *os.File {
 }
 
 func TestCheckInstalledPackageLibrarySHA256(t *testing.T) {
+	requireReuseSupported(t)
 	cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
 	digest := installReusePackage(t, cfg, InstallPackageOptions{})
 	libSum := sha256.Sum256([]byte("new"))
