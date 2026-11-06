@@ -364,8 +364,6 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 
 		// avoid deadlock by doing this in a goroutine rather than during processing the tea.Msg
 		go func() {
-			defer removeDownload(item.File)
-
 			verificationFailed := false
 			options := config.InstallPackageOptions{
 				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
@@ -391,6 +389,9 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 				}
 			}
 			manifest, err := config.InstallPackage(s.ctx, cfg, item.Name, item.File, options)
+			// Remove the archive before reporting: the program may exit as soon
+			// as the last result arrives.
+			removeDownload(item.File)
 			if err != nil {
 				if verificationFailed {
 					prog.Send(fmt.Errorf("failed to verify signature: %w", err))
