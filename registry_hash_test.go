@@ -108,6 +108,10 @@ func TestRegistryPackageHash(t *testing.T) {
 		"yaml map":        "            hash:\n              sha256: " + validRegistryDigest,
 		"yaml list":       "            hash:\n              - sha256:" + validRegistryDigest,
 		"yaml number":     "            hash: 12345",
+		"yaml null":       "            hash: null",
+		"yaml tilde null": "            hash: ~",
+		"yaml empty":      "            hash:",
+		"empty string":    `            hash: ""`,
 	}
 	for name, line := range bad {
 		t.Run("malformed hash only breaks that package: "+name, func(t *testing.T) {
