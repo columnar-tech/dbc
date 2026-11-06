@@ -57,9 +57,6 @@ const (
 // signature file it used; config itself does not guarantee the verification
 // method, key, source trust, or provenance. Reuse must invoke a verifier again.
 // The receipt deliberately contains no source identity.
-// TODO: Define and record source evidence before strict locked-artifact
-// reuse; OwnedLibrarySHA256 verifies local installed bytes only and does not
-// establish upstream artifact identity.
 type packageInstallReceipt struct {
 	SchemaVersion                int                      `json:"schema_version"`
 	RegistrationScope            packageRegistrationScope `json:"registration_scope"`

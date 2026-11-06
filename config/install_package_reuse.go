@@ -15,16 +15,20 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc/internal/fslock"
 	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
@@ -36,8 +40,9 @@ type InstalledPackageExpectation struct {
 	// the package must have been installed from. Required.
 	ArchiveSHA256 string
 	// SignatureVerifier, when set, re-verifies the installed library and
-	// signature before reuse. It is called under the driver lock with a private
-	// copy of files opened from the verified generation.
+	// signature before reuse using private copies from the verified generation.
+	// Normally the driver lock is held; a read-only fallback instead rechecks
+	// the observed installation after verification. It must not mutate drivers.
 	SignatureVerifier PackageVerifier
 	// LibrarySHA256, when set, is the lowercase hex SHA-256 the installed
 	// driver library must have (for example a v1 lockfile checksum).
@@ -54,6 +59,9 @@ type InstalledPackageExpectation struct {
 // cfg's primary location. A signature verifier may cause a private temporary
 // directory to be created for its path-based callback. On platforms without
 // pinned directory handles it always reports false.
+// If a lock file cannot be opened for writing due to permissions or a read-only
+// filesystem, it checks an optimistic read-only snapshot instead. This is not
+// exclusion against a concurrent writer; observed changes prevent reuse.
 func CheckInstalledPackage(ctx context.Context, cfg Config, runtimeID string, expect InstalledPackageExpectation) (info DriverInfo, ok bool, err error) {
 	if ctx == nil {
 		return DriverInfo{}, false, errors.New("check context is nil")
@@ -100,25 +108,58 @@ func CheckInstalledPackage(ctx context.Context, cfg Config, runtimeID string, ex
 
 	lock, err := acquireDriverInstallLockWith(ctx, lockLocation, runtimeID, 10*time.Second)
 	if err != nil {
-		return DriverInfo{}, false, fmt.Errorf("acquire driver install lock: %w", err)
+		if !readOnlyLockOpenError(err) {
+			return DriverInfo{}, false, fmt.Errorf("acquire driver install lock: %w", err)
+		}
 	}
+	optimistic := err != nil
 	defer func() { err = errors.Join(err, lock.release()) }()
-	namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(ctx, cfg, lockLocation, 10*time.Second)
+	namespacePath, registrationLocation, err := registrationNamespaceLockPath(cfg, lockLocation)
 	if err != nil {
 		return DriverInfo{}, false, err
 	}
-	defer func() { err = errors.Join(err, namespaceLock.release()) }()
+	if !optimistic {
+		namespaceLock, lockErr := acquireDriverInstallLock(ctx, namespacePath, 10*time.Second)
+		if lockErr != nil {
+			if !readOnlyLockOpenError(lockErr) {
+				return DriverInfo{}, false, fmt.Errorf("acquire registration namespace lock: %w", lockErr)
+			}
+			optimistic = true
+		} else {
+			defer func() { err = errors.Join(err, namespaceLock.release()) }()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return DriverInfo{}, false, err
+	}
 
 	registered, ok := readPrimaryRuntimeRegistration(cfg, registrationLocation, runtimeID)
-	if !ok || !installedPackageMatches(cfg, location, runtimeID, registered, expect) {
+	if !ok || !installedPackageMatches(cfg, location, registrationLocation, runtimeID, registered, expect, optimistic) {
+		if err := ctx.Err(); err != nil {
+			return DriverInfo{}, false, err
+		}
 		return DriverInfo{}, false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return DriverInfo{}, false, err
 	}
 	return registered, true, nil
 }
 
+// Only failure to open a writable lock permits optimistic reuse. Contention,
+// cancellation, and lock-path validation failures retain their normal errors.
+func readOnlyLockOpenError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, fslock.ErrLockContended) {
+		return false
+	}
+	var pathErr *os.PathError
+	return errors.As(err, &pathErr) && pathErr.Op == "open" &&
+		(errors.Is(pathErr, fs.ErrPermission) || errors.Is(pathErr, syscall.EROFS))
+}
+
 // installedPackageMatches applies the strict reuse conditions to a
 // registration read under the driver and namespace locks.
-func installedPackageMatches(cfg Config, root, runtimeID string, registered DriverInfo, expect InstalledPackageExpectation) bool {
+func installedPackageMatches(cfg Config, root, registrationLocation, runtimeID string, registered DriverInfo, expect InstalledPackageExpectation, optimistic bool) bool {
 	if !sameRuntimeID(registered.ID, runtimeID) || registered.Source != "dbc" || !sameVersion(registered.Version, expect.Version) {
 		return false
 	}
@@ -172,7 +213,39 @@ func installedPackageMatches(cfg Config, root, runtimeID string, registered Driv
 		if receipt.SignatureFilename == "" || validatePackageFilename(receipt.SignatureFilename) != nil || receipt.SignatureFilename == receipt.OwnedLibraryFilename {
 			return false
 		}
-		if !verifyInstalledPackageSignature(generationRoot, receipt, registered, expect.SignatureVerifier) {
+		if !verifyInstalledPackageSignature(generationRoot, receipt, registered, expect.SignatureVerifier, optimistic) {
+			return false
+		}
+	}
+	if optimistic {
+		// The handles pin the observed directories, not the runtime paths. A
+		// writer may have replaced the registration or unlinked the generation
+		// while the private signature copy was being checked.
+		openedRoot, rootErr := rootHandle.Stat(".")
+		currentRoot, currentRootErr := os.Stat(root)
+		openedGeneration, generationErr := generationRoot.Stat(".")
+		currentGeneration, currentGenerationErr := rootHandle.Lstat(generation)
+		if rootErr != nil || currentRootErr != nil || !os.SameFile(openedRoot, currentRoot) ||
+			generationErr != nil || currentGenerationErr != nil || !currentGeneration.IsDir() ||
+			!os.SameFile(openedGeneration, currentGeneration) {
+			return false
+		}
+		currentReceipt, ok := readPackageInstallReceiptAtRoot(generationRoot, generation)
+		if !ok || currentReceipt != receipt {
+			return false
+		}
+		library, ok := openVerifiedGenerationFile(generationRoot, receipt.OwnedLibraryFilename)
+		if !ok {
+			return false
+		}
+		digest, hashErr := hashSHA256(library)
+		closeErr := library.Close()
+		if hashErr != nil || closeErr != nil || hex.EncodeToString(digest) != receipt.OwnedLibrarySHA256 {
+			return false
+		}
+		currentRegistration, ok := readPrimaryRuntimeRegistration(cfg, registrationLocation, runtimeID)
+		if !ok || !sameDriverRegistration(registered, currentRegistration) ||
+			!receiptMatchesRegistration(cfg, root, hostpath.Join(root, generation), receipt, currentRegistration) {
 			return false
 		}
 	}
@@ -181,20 +254,27 @@ func installedPackageMatches(cfg Config, root, runtimeID string, registered Driv
 
 // verifyInstalledPackageSignature copies files opened relative to the pinned
 // generation into a private directory before calling the path-based verifier.
-// The callback runs while CheckInstalledPackage still holds the driver lock.
-func verifyInstalledPackageSignature(generation *os.Root, receipt packageInstallReceipt, registered DriverInfo, verifier PackageVerifier) bool {
+// In optimistic mode the original signature is checked again after the callback
+// and the caller rechecks the library and its registration. Otherwise the
+// driver and namespace locks are held.
+func verifyInstalledPackageSignature(generation *os.Root, receipt packageInstallReceipt, registered DriverInfo, verifier PackageVerifier, optimistic bool) bool {
 	tempDir, err := os.MkdirTemp("", "dbc-package-verify-")
 	if err != nil {
 		return false
 	}
 	defer os.RemoveAll(tempDir)
-	for index, name := range []string{receipt.OwnedLibraryFilename, receipt.SignatureFilename} {
+	files := []string{receipt.OwnedLibraryFilename, receipt.SignatureFilename}
+	var signatureDigest []byte
+	for index, name := range files {
 		digest, ok := copyVerifiedGenerationFile(generation, name, hostpath.Join(tempDir, name))
 		if !ok {
 			return false
 		}
 		if index == 0 && hex.EncodeToString(digest) != receipt.OwnedLibrarySHA256 {
 			return false
+		}
+		if index == 1 {
+			signatureDigest = digest
 		}
 	}
 	manifest := Manifest{DriverInfo: registered}
@@ -203,21 +283,26 @@ func verifyInstalledPackageSignature(generation *os.Root, receipt packageInstall
 	manifest.Driver.Shared = driverMap{}
 	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(tempDir, receipt.OwnedLibraryFilename))
 	manifest.FilePath = hostpath.Join(tempDir, receipt.OwnedLibraryFilename)
-	return verifier(tempDir, manifest) == nil
+	if verifier(tempDir, manifest) != nil {
+		return false
+	}
+	if optimistic {
+		f, ok := openVerifiedGenerationFile(generation, receipt.SignatureFilename)
+		if !ok {
+			return false
+		}
+		digest, hashErr := hashSHA256(f)
+		closeErr := f.Close()
+		if hashErr != nil || closeErr != nil || !bytes.Equal(digest, signatureDigest) {
+			return false
+		}
+	}
+	return true
 }
 
 func copyVerifiedGenerationFile(generation *os.Root, name, destination string) ([]byte, bool) {
-	info, err := generation.Lstat(name)
-	if err != nil || !info.Mode().IsRegular() {
-		return nil, false
-	}
-	source, err := generation.Open(name)
-	if err != nil {
-		return nil, false
-	}
-	openedInfo, statErr := source.Stat()
-	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
-		_ = source.Close()
+	source, ok := openVerifiedGenerationFile(generation, name)
+	if !ok {
 		return nil, false
 	}
 	target, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -233,4 +318,21 @@ func copyVerifiedGenerationFile(generation *os.Root, name, destination string) (
 		return nil, false
 	}
 	return hash.Sum(nil), true
+}
+
+func openVerifiedGenerationFile(generation *os.Root, name string) (*os.File, bool) {
+	info, err := generation.Lstat(name)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	source, err := generation.Open(name)
+	if err != nil {
+		return nil, false
+	}
+	openedInfo, statErr := source.Stat()
+	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		_ = source.Close()
+		return nil, false
+	}
+	return source, true
 }
