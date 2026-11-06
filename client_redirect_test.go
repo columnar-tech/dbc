@@ -102,3 +102,188 @@ func TestDefaultClientTooManyRedirects(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, strings.Contains(err.Error(), "stopped after 10 redirects"), err.Error())
 }
+
+func TestCheckRedirectRefererOriginScope(t *testing.T) {
+	t.Run("same origin preserves headers", func(t *testing.T) {
+		var srv *httptest.Server
+		var gotAuth, gotReferer string
+		srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/final" {
+				gotAuth = r.Header.Get("Authorization")
+				gotReferer = r.Referer()
+				return
+			}
+			http.Redirect(w, r, srv.URL+"/final", http.StatusFound)
+		}))
+		defer srv.Close()
+
+		client := &http.Client{CheckRedirect: checkRedirect}
+		req, err := http.NewRequest(http.MethodGet, srv.URL+"/start?token=query-secret", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer secret")
+		rsp, err := client.Do(req)
+		require.NoError(t, err)
+		rsp.Body.Close()
+
+		assert.Equal(t, "Bearer secret", gotAuth)
+		assert.Equal(t, srv.URL+"/start?token=query-secret", gotReferer)
+	})
+
+	t.Run("cross origin strips query-bearing referer and authorization", func(t *testing.T) {
+		var gotAuth, gotReferer string
+		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			gotReferer = r.Referer()
+		}))
+		defer target.Close()
+
+		var source *httptest.Server
+		source = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+"/final", http.StatusFound)
+		}))
+		defer source.Close()
+
+		client := &http.Client{CheckRedirect: checkRedirect}
+		req, err := http.NewRequest(http.MethodGet, source.URL+"/start?token=query-secret", nil)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer secret")
+		rsp, err := client.Do(req)
+		require.NoError(t, err)
+		rsp.Body.Close()
+
+		assert.Empty(t, gotAuth)
+		assert.Empty(t, gotReferer)
+	})
+
+	for _, explicitReferer := range []bool{false, true} {
+		t.Run(fmt.Sprintf("headers stay scoped within foreign origin explicitReferer=%t", explicitReferer), func(t *testing.T) {
+			var finalAuth, finalReferer string
+			var target *httptest.Server
+			target = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/foreign" {
+					http.Redirect(w, r, target.URL+"/final", http.StatusFound)
+					return
+				}
+				finalAuth = r.Header.Get("Authorization")
+				finalReferer = r.Referer()
+			}))
+			defer target.Close()
+
+			var source *httptest.Server
+			source = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL+"/foreign", http.StatusFound)
+			}))
+			defer source.Close()
+
+			client := &http.Client{CheckRedirect: checkRedirect}
+			req, err := http.NewRequest(http.MethodGet, source.URL+"/start", nil)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer secret")
+			if explicitReferer {
+				req.Header.Set("Referer", source.URL+"/private?token=referer-secret")
+			}
+			rsp, err := client.Do(req)
+			require.NoError(t, err)
+			rsp.Body.Close()
+
+			assert.Empty(t, finalAuth)
+			assert.Empty(t, finalReferer)
+		})
+	}
+}
+
+func TestCheckRedirectOriginNormalization(t *testing.T) {
+	cases := []struct {
+		name  string
+		a     string
+		b     string
+		equal bool
+	}{
+		{"hostname case and default HTTP port", "http://EXAMPLE.com/path", "http://example.COM:80/other", true},
+		{"default HTTPS port", "https://example.com/path", "https://EXAMPLE.com:443/other", true},
+		{"nondefault port", "http://example.com:8080/", "http://example.com/", false},
+		{"hostname", "http://example.com/", "http://other.example/", false},
+		{"scheme", "http://example.com/", "https://example.com/", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := url.Parse(tc.a)
+			require.NoError(t, err)
+			b, err := url.Parse(tc.b)
+			require.NoError(t, err)
+			assert.Equal(t, tc.equal, originOf(a) == originOf(b))
+		})
+	}
+}
+
+func TestCheckRedirectRejectsHTTPSDowngrade(t *testing.T) {
+	var targetRequests int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetRequests++
+	}))
+	defer target.Close()
+
+	var source *httptest.Server
+	source = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/final", http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := source.Client()
+	client.CheckRedirect = checkRedirect
+	rsp, err := client.Get(source.URL + "/start")
+	if rsp != nil {
+		rsp.Body.Close()
+	}
+	require.ErrorContains(t, err, "refusing HTTPS to HTTP redirect")
+	assert.Zero(t, targetRequests)
+}
+
+func TestCheckRedirectHTTPSUpgradeStripsHeaders(t *testing.T) {
+	var gotAuth, gotReferer string
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotReferer = r.Referer()
+	}))
+	defer target.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/final", http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := target.Client()
+	client.CheckRedirect = checkRedirect
+	req, err := http.NewRequest(http.MethodGet, source.URL+"/start?token=query-secret", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer secret")
+	rsp, err := client.Do(req)
+	require.NoError(t, err)
+	rsp.Body.Close()
+	assert.Empty(t, gotAuth)
+	assert.Empty(t, gotReferer)
+}
+
+func TestCheckRedirectRejectsHTTPSDowngradeAfterUpgrade(t *testing.T) {
+	var targetRequests int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetRequests++
+	}))
+	defer target.Close()
+	secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/final", http.StatusFound)
+	}))
+	defer secure.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, secure.URL+"/intermediate", http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := secure.Client()
+	client.CheckRedirect = checkRedirect
+	rsp, err := client.Get(source.URL + "/start")
+	if rsp != nil {
+		rsp.Body.Close()
+	}
+	require.ErrorContains(t, err, "refusing HTTPS to HTTP redirect")
+	assert.Zero(t, targetRequests)
+}
