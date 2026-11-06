@@ -235,7 +235,7 @@ func upgradeRegistry(hash10, hash11 string) func() ([]dbc.Driver, error) {
 // assertFailedUpgradeKeepsInstall installs v1.0.0, then attempts an update to
 // v1.1.0 using the given model and expects it to fail without touching the
 // existing receipt, registration or library bytes.
-func (suite *SubcommandTestSuite) assertFailedUpgradeKeepsInstall(upgrade InstallCmd, base baseModel) {
+func (suite *SubcommandTestSuite) assertFailedUpgradeKeepsInstall(upgrade InstallCmd, base baseModel) string {
 	suite.runCmd(InstallCmd{Driver: "test-driver-1=1.0.0", Level: suite.configLevel}.
 		GetModelCustom(hashedBaseModel(testArchiveSHA256(suite, "test-driver-1.tar.gz"))))
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
@@ -247,7 +247,7 @@ func (suite *SubcommandTestSuite) assertFailedUpgradeKeepsInstall(upgrade Instal
 	suite.Require().NoError(err)
 
 	upgrade.Level = suite.configLevel
-	suite.runCmdErr(upgrade.GetModelCustom(base))
+	out := suite.runCmdErr(upgrade.GetModelCustom(base))
 
 	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
 	suite.Equal(shared, suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
@@ -257,20 +257,22 @@ func (suite *SubcommandTestSuite) assertFailedUpgradeKeepsInstall(upgrade Instal
 	newLib, err := os.ReadFile(shared)
 	suite.Require().NoError(err)
 	suite.Equal(oldLib, newLib)
+	return out
 }
 
 func (suite *SubcommandTestSuite) TestFailedHashUpgradeKeepsExistingInstall() {
-	suite.assertFailedUpgradeKeepsInstall(
+	out := suite.assertFailedUpgradeKeepsInstall(
 		InstallCmd{Driver: "test-driver-1=1.1.0"},
 		baseModel{
 			getDriverRegistry: upgradeRegistry(testArchiveSHA256(suite, "test-driver-1.tar.gz"), strings.Repeat("0", 64)),
 			downloadPkg:       downloadTestPkg,
 		})
+	suite.Contains(out, "archive SHA-256 mismatch")
 }
 
 func (suite *SubcommandTestSuite) TestFailedSignatureUpgradeKeepsExistingInstall() {
 	tampered := testArchiveSHA256(suite, "test-driver-tampered.tar.gz")
-	suite.assertFailedUpgradeKeepsInstall(
+	out := suite.assertFailedUpgradeKeepsInstall(
 		InstallCmd{Driver: "test-driver-1=1.1.0"},
 		baseModel{
 			getDriverRegistry: upgradeRegistry(testArchiveSHA256(suite, "test-driver-1.tar.gz"), tampered),
@@ -281,4 +283,6 @@ func (suite *SubcommandTestSuite) TestFailedSignatureUpgradeKeepsExistingInstall
 				return downloadTestPkg(pkg)
 			},
 		})
+	suite.Contains(out, "signature verification failed")
+	suite.NotContains(out, "archive SHA-256 mismatch")
 }

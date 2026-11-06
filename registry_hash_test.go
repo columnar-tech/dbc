@@ -18,12 +18,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -276,4 +278,107 @@ func TestClientInstallReceiptEvidence(t *testing.T) {
 		assert.Equal(t, digest, got)
 		assert.False(t, verified)
 	})
+}
+
+func TestClientFailedUpgradeKeepsExistingInstall(t *testing.T) {
+	read := func(name string) []byte {
+		data, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", name))
+		require.NoError(t, err)
+		return data
+	}
+	digest := func(b []byte) string {
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}
+	v1 := read("test-driver-1.tar.gz")
+	v11 := read("test-driver-1.1.tar.gz")
+	tampered := read("test-driver-tampered.tar.gz")
+
+	cases := []struct {
+		name       string
+		served     []byte
+		hash11     string
+		wantMismat bool
+	}{
+		{"hash mismatch", v11, strings.Repeat("0", 64), true},
+		{"signature failure with matching hash", tampered, digest(tampered), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// The index lists only v1.0.0 until publishNewer is set, because
+			// Client.Install always picks the newest version.
+			var publishNewer atomic.Bool
+			indexOld := fmt.Sprintf(`drivers:
+  - name: Test Driver 1
+    description: d
+    license: MIT
+    path: test-driver-1
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: %s
+            url: test-driver-1/1.0.0/a.tar.gz
+            hash: sha256:%s
+`, config.PlatformTuple(), digest(v1))
+			indexNew := indexOld + fmt.Sprintf(`      - version: v1.1.0
+        packages:
+          - platform: %s
+            url: test-driver-1/1.1.0/b.tar.gz
+            hash: sha256:%s
+`, config.PlatformTuple(), tc.hash11)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/index.yaml":
+					if publishNewer.Load() {
+						_, _ = w.Write([]byte(indexNew))
+					} else {
+						_, _ = w.Write([]byte(indexOld))
+					}
+				case strings.HasSuffix(r.URL.Path, "/a.tar.gz"):
+					_, _ = w.Write(v1)
+				case strings.HasSuffix(r.URL.Path, "/b.tar.gz"):
+					_, _ = w.Write(tc.served)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			t.Cleanup(srv.Close)
+			c := newTestClientForServer(t, srv.URL)
+			cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
+
+			_, err := c.Install(t.Context(), cfg, "test-driver-1")
+			require.NoError(t, err)
+			before, err := config.GetDriver(cfg, "test-driver-1")
+			require.NoError(t, err)
+			shared := before.Driver.Shared.Get(config.PlatformTuple())
+			receiptPath := filepath.Join(filepath.Dir(shared), "dbc-install-receipt.json")
+			oldReceipt, err := os.ReadFile(receiptPath)
+			require.NoError(t, err)
+			oldLib, err := os.ReadFile(shared)
+			require.NoError(t, err)
+
+			publishNewer.Store(true)
+			_, err = c.Install(t.Context(), cfg, "test-driver-1")
+			require.Error(t, err)
+			var mismatch *config.ArchiveHashMismatchError
+			if tc.wantMismat {
+				require.True(t, errors.As(err, &mismatch), "got %v", err)
+			} else {
+				require.False(t, errors.As(err, &mismatch), "got %v", err)
+				require.ErrorContains(t, err, "signature verification failed")
+			}
+
+			after, err := config.GetDriver(cfg, "test-driver-1")
+			require.NoError(t, err)
+			assert.Equal(t, shared, after.Driver.Shared.Get(config.PlatformTuple()))
+			assert.Equal(t, before.Version.String(), after.Version.String())
+			assert.Equal(t, "1.0.0", after.Version.String())
+			newReceipt, err := os.ReadFile(receiptPath)
+			require.NoError(t, err)
+			assert.Equal(t, oldReceipt, newReceipt)
+			newLib, err := os.ReadFile(shared)
+			require.NoError(t, err)
+			assert.Equal(t, oldLib, newLib)
+		})
+	}
 }
