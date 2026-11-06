@@ -32,7 +32,6 @@ import (
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
-	"github.com/pelletier/go-toml/v2"
 )
 
 type SyncCmd struct {
@@ -43,26 +42,26 @@ type SyncCmd struct {
 	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
 }
 
-func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
+func (c SyncCmd) newModel(base baseModel) syncModel {
+	ctx, cancel := context.WithCancel(context.Background())
 	return syncModel{
-		baseModel:          baseModel,
+		baseModel:          base,
 		Path:               c.Path,
 		cfg:                getConfig(c.Level),
 		NoVerify:           c.NoVerify,
 		jsonOutput:         c.Json || c.JsonStreamProgress,
 		jsonStreamProgress: c.JsonStreamProgress,
+		ctx:                ctx,
+		cancel:             cancel,
 	}
 }
 
+func (c SyncCmd) GetModelCustom(baseModel baseModel) tea.Model {
+	return c.newModel(baseModel)
+}
+
 func (c SyncCmd) GetModel() tea.Model {
-	return syncModel{
-		Path:               c.Path,
-		cfg:                getConfig(c.Level),
-		NoVerify:           c.NoVerify,
-		jsonOutput:         c.Json || c.JsonStreamProgress,
-		jsonStreamProgress: c.JsonStreamProgress,
-		baseModel:          defaultBaseModel(),
-	}
+	return c.newModel(defaultBaseModel())
 }
 
 func (syncModel) NeedsRenderer() {}
@@ -83,7 +82,10 @@ func (s syncModel) emitJSON(kind string, payload any) {
 }
 
 func (s syncModel) FinalOutput() string {
-	if s.status != 0 || !s.jsonOutput {
+	if s.status != 0 {
+		return s.jsonErrorOutput // empty string for non-JSON errors
+	}
+	if !s.jsonOutput {
 		return ""
 	}
 	installed := s.newlyInstalled
@@ -105,22 +107,15 @@ type syncModel struct {
 	baseModel
 
 	// path to driver list
-	Path         string
-	NoVerify     bool
-	LockFilePath string
-	// information to write the new lockfile
-	locked LockFile
-	cfg    config.Config
+	Path     string
+	NoVerify bool
+	cfg      config.Config
 
 	jsonOutput         bool
 	jsonStreamProgress bool
 
-	// the list of drivers in the driver list
-	list DriversList
-	// cdn driver registry index
-	driverIndex []dbc.Driver
-	// the list of package+version to install
-	installItems []installItem
+	// the drivers to install or skip, in installation order
+	installItems []syncItem
 	// the index of the next driver to install in installItems
 	index int
 
@@ -128,8 +123,16 @@ type syncModel struct {
 	progress      progress.Model
 	width, height int
 
-	done           bool
-	registryErrors error // Store registry errors for better error messages
+	done bool
+
+	// ctx is canceled when the user quits. The worker that prepares or installs
+	// the drivers owns its temporary files: once its blocking call returns it
+	// sees the canceled context, removes them and writes nothing more.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// jsonErrorOutput is the JSON error envelope to emit via FinalOutput
+	jsonErrorOutput string
 
 	// skippedDrivers tracks already-installed drivers for JSON output
 	skippedDrivers []jsonschema.SyncedDriver
@@ -139,37 +142,13 @@ type syncModel struct {
 	jsonOut io.Writer
 }
 
-type driversListMsg struct {
-	path string
-	list DriversList
-}
-
 func (s syncModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		p, err := filepath.Abs(s.Path)
+		items, err := s.prepare()
 		if err != nil {
 			return err
 		}
-
-		if filepath.Ext(p) == "" {
-			p = filepath.Join(p, "dbc.toml")
-		}
-
-		lockPath := filepath.Join(filepath.Dir(p), ".dbc.project.lock")
-		lock, err := acquireLock(lockPath, 10*time.Second)
-		if err != nil {
-			return err
-		}
-		defer lock.Release()
-
-		drivers, err := loadDriverList(p)
-		if err != nil {
-			return err
-		}
-		return driversListMsg{
-			path: p,
-			list: drivers,
-		}
+		return items
 	}
 }
 
@@ -184,63 +163,188 @@ func loadDriverList(path string) (DriversList, error) {
 	return list, nil
 }
 
-type installItem struct {
-	Driver   dbc.Driver
-	Package  dbc.PkgInfo
-	Checksum string
+// syncItem is a driver of the driver list that is ready to be installed or
+// that is already installed as locked.
+type syncItem struct {
+	Name    string
+	Package dbc.PkgInfo
+	// LibrarySHA256 is the library digest a v1 lock file requires, or empty.
+	LibrarySHA256 string
+	// Installed is set when the driver is already installed as locked.
+	Installed *config.DriverInfo
+	// File is the downloaded archive; nil for installed drivers.
+	File *os.File
 }
 
-func (s syncModel) createInstallList(list DriversList) ([]installItem, error) {
-	// Load the lock file if it exists
-	lf, err := loadLockFile(s.LockFilePath)
+// libraryChecksumError reports an archive whose driver library differs from
+// the checksum recorded by a v1 lock file.
+type libraryChecksumError struct {
+	Driver, Expected, Actual string
+}
+
+func (e *libraryChecksumError) Error() string {
+	return fmt.Sprintf("checksum mismatch for driver %s: the lock file records %s but the package contains %s",
+		e.Driver, e.Expected, e.Actual)
+}
+
+// removeDownload closes a downloaded archive and removes its private directory.
+func removeDownload(f *os.File) {
+	if f == nil {
+		return
+	}
+	_ = f.Close()
+	_ = os.RemoveAll(filepath.Dir(f.Name()))
+}
+
+// prepare plans every driver, downloads and verifies what is not installed
+// yet and writes the lock file, all while holding the project lock and before
+// anything is installed. Downloads are removed again when it fails.
+func (s syncModel) prepare() (items []syncItem, err error) {
+	listPath, err := filepath.Abs(s.Path)
+	if err != nil {
+		return nil, err
+	}
+	if filepath.Ext(listPath) == "" {
+		listPath = filepath.Join(listPath, "dbc.toml")
+	}
+	lockPath := strings.TrimSuffix(listPath, filepath.Ext(listPath)) + ".lock"
+
+	lock, err := acquireLock(filepath.Join(filepath.Dir(listPath), ".dbc.project.lock"), 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+	defer func() {
+		if err != nil {
+			for _, item := range items {
+				removeDownload(item.File)
+			}
+			items = nil
+			// Registry URLs may carry credentials that the underlying errors print.
+			var registries []dbc.Registry
+			if s.getRegistries != nil {
+				registries, _ = s.getRegistries()
+			}
+			err = redactURLSecrets(err, registrySecrets(registries))
+		}
+	}()
+
+	list, err := loadDriverList(listPath)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := readLockFile(lockPath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	if err := applyProjectRegistries(list); err != nil {
+		return nil, err
+	}
 
-	// construct our list of driver+version to install
-	var items []installItem
-	for name, spec := range list.Drivers {
-		var info lockInfo
-		if lf.lockinfo != nil {
-			info = lf.lockinfo[name]
+	planner := syncPlanner{
+		target:        config.PlatformTuple(),
+		registries:    s.getRegistries,
+		index:         s.getDriverRegistry,
+		registryIndex: s.getRegistryIndex,
+	}
+	planned, warnings, err := planner.plan(list, existing)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
+	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, w)
+	}
+
+	entries := make([]lockedDriver, 0, len(planned))
+	for i := range planned {
+		if err := s.ctx.Err(); err != nil {
+			return items, err
 		}
-
-		// locate the driver info in the CDN driver registry index
-		drv, err := findDriver(name, s.driverIndex)
+		item, err := s.fetch(&planned[i])
 		if err != nil {
-			return nil, wrapWithRegistryContext(err, s.registryErrors)
+			return items, err
 		}
-
-		var pkg dbc.PkgInfo
-		// if the lockfile specified a version and either the driver list doesn't
-		// specify a version constraint or the version in the locked file is valid
-		// for that constraint, then we want to install the version in the lockfile
-		if info.Version != nil && (spec.Version == nil || spec.Version.Check(info.Version)) {
-			// install the locked version and verify checksum
-			pkg, err = drv.GetPackage(info.Version, config.PlatformTuple(), spec.Prerelease == "allow")
-		} else {
-			// no locked version or driver list version doesn't match locked file
-			if spec.Version != nil {
-				if spec.Prerelease == "allow" {
-					spec.Version.IncludePrerelease = true
-				}
-				pkg, err = drv.GetWithConstraint(spec.Version, config.PlatformTuple())
-			} else {
-				pkg, err = drv.GetPackage(nil, config.PlatformTuple(), spec.Prerelease == "allow")
-			}
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		items = append(items, installItem{
-			Driver:   drv,
-			Package:  pkg,
-			Checksum: info.Checksum,
-		})
+		items = append(items, item)
+		entries = append(entries, planned[i].Entry)
+	}
+	if err := s.ctx.Err(); err != nil {
+		return items, err
+	}
+	if err := writeLockFileV2(lockPath, lockFileV2{Version: lockFileVersionV2, Drivers: entries}); err != nil {
+		return items, err
 	}
 	return items, nil
+}
+
+// fetch reuses the installed package of a planned driver when it matches the
+// lock, and otherwise downloads and verifies the archive. A digest measured
+// for an unpublished hash is recorded in the planned lock entry.
+func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
+	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256}
+	if want := pd.Package.ArchiveSHA256; want != "" {
+		info, ok, err := config.CheckInstalledPackage(s.ctx, s.cfg, pd.Name, config.InstalledPackageExpectation{
+			Version:                  pd.Package.Version,
+			ArchiveSHA256:            want,
+			LibrarySHA256:            pd.LibrarySHA256,
+			RequireSignatureVerified: !s.NoVerify,
+		})
+		if err != nil {
+			return item, fmt.Errorf("failed to check installed driver %s: %w", pd.Name, err)
+		}
+		if ok {
+			item.Package, item.Installed = pd.Package, &info
+			return item, nil
+		}
+	}
+
+	f, err := s.downloadPkg(pd.Package)
+	if err != nil {
+		return item, fmt.Errorf("failed to download driver: %w", err)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		removeDownload(f)
+		return item, fmt.Errorf("failed to seek downloaded driver archive: %w", err)
+	}
+	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "")
+	if err == nil {
+		_, err = f.Seek(0, io.SeekStart)
+	}
+	if err != nil {
+		removeDownload(f)
+		return item, fmt.Errorf("failed to inspect downloaded driver %s: %w", pd.Name, err)
+	}
+	switch want := pd.Package.ArchiveSHA256; {
+	case want == "":
+		pd.Package.ArchiveSHA256 = digest
+		for i := range pd.Entry.Artifacts {
+			if a := &pd.Entry.Artifacts[i]; a.Target == pd.Package.PlatformTuple {
+				a.Hash = lockHashPrefix + digest
+			}
+		}
+	case want != digest:
+		removeDownload(f)
+		return item, fmt.Errorf("driver %s: %w", pd.Name, &config.ArchiveHashMismatchError{Expected: want, Actual: digest})
+	}
+	if pd.LibrarySHA256 != "" && pd.LibrarySHA256 != library {
+		removeDownload(f)
+		return item, &libraryChecksumError{Driver: pd.Name, Expected: pd.LibrarySHA256, Actual: library}
+	}
+	item.Package, item.File = pd.Package, f
+	return item, nil
+}
+
+// archiveDigests returns the SHA-256 of the archive and, when withLibrary is
+// set, of the driver library inside it.
+func archiveDigests(f *os.File, withLibrary bool) (archive, library string, err error) {
+	if withLibrary {
+		info, err := config.InspectPackageArchive(f)
+		return info.ArchiveSHA256, info.LibrarySHA256, err
+	}
+	archive, err = checksum(f.Name())
+	return archive, "", err
 }
 
 type installedDrvMsg struct {
@@ -250,51 +354,33 @@ type installedDrvMsg struct {
 
 type alreadyInstalledDrvMsg struct {
 	info config.DriverInfo
-	item installItem
 }
 
-func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
+func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 	return func() tea.Msg {
-		if cfg.Exists {
-			// is driver installed already?
-			if drv, ok := cfg.Drivers[item.Driver.Path]; ok {
-				if item.Package.Version.Equal(drv.Version) {
-					chksum, err := checksum(drv.Driver.Shared.Get(config.PlatformTuple()))
-					if err != nil {
-						return fmt.Errorf("failed to compute checksum: %w", err)
-					}
-
-					if item.Checksum != "" {
-						if chksum != item.Checksum {
-							return fmt.Errorf("checksum mismatch for driver %s: %s != %s",
-								item.Driver.Path, chksum, item.Checksum)
-						}
-					} else {
-						item.Checksum = chksum
-					}
-
-					return alreadyInstalledDrvMsg{info: drv, item: item}
-				}
-			}
+		if item.Installed != nil {
+			return alreadyInstalledDrvMsg{info: *item.Installed}
 		}
 
 		// avoid deadlock by doing this in a goroutine rather than during processing the tea.Msg
 		go func() {
-			output, err := s.downloadPkg(item.Package)
-			if err != nil {
-				prog.Send(fmt.Errorf("failed to download driver: %w", err))
-				return
-			}
-
-			if _, err := output.Seek(0, io.SeekStart); err != nil {
-				_ = output.Close()
-				prog.Send(fmt.Errorf("failed to seek downloaded driver archive: %w", err))
-				return
-			}
+			defer removeDownload(item.File)
 
 			verificationFailed := false
 			options := config.InstallPackageOptions{
 				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
+			}
+			if item.LibrarySHA256 != "" {
+				options.Verifier = func(stagingDir string, manifest config.Manifest) error {
+					actual, err := checksum(filepath.Join(stagingDir, manifest.Files.Driver))
+					if err != nil {
+						return err
+					}
+					if actual != item.LibrarySHA256 {
+						return &libraryChecksumError{Driver: item.Name, Expected: item.LibrarySHA256, Actual: actual}
+					}
+					return nil
+				}
 			}
 			if !s.NoVerify {
 				// VerifyPackageSignature checks the driver library's Columnar signature.
@@ -304,7 +390,7 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 					return err
 				}
 			}
-			manifest, err := config.InstallPackage(context.Background(), cfg, item.Driver.Path, output, options)
+			manifest, err := config.InstallPackage(s.ctx, cfg, item.Name, item.File, options)
 			if err != nil {
 				if verificationFailed {
 					prog.Send(fmt.Errorf("failed to verify signature: %w", err))
@@ -323,15 +409,13 @@ func (s syncModel) installDriver(cfg config.Config, item installItem) tea.Cmd {
 	}
 }
 
-func (s syncModel) writeLockFile() error {
-	f, err := os.Create(s.LockFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to create lock file %s: %w", s.LockFilePath, err)
+// removeDownloads removes the archives of the drivers after the current one.
+// The current driver's archive belongs to its install worker, which removes it
+// when it stops.
+func (s syncModel) removeDownloads() {
+	for _, item := range s.installItems[min(s.index+1, len(s.installItems)):] {
+		removeDownload(item.File)
 	}
-	defer f.Close()
-
-	s.locked.Version = lockFileVersion
-	return toml.NewEncoder(f).Encode(s.locked)
 }
 
 func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -346,47 +430,16 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		s.progress, cmd = s.progress.Update(msg)
 		return s, cmd
-	case driversListMsg:
-		s.Path = msg.path
-		s.LockFilePath = strings.TrimSuffix(s.Path, filepath.Ext(s.Path)) + ".lock"
-		s.list = msg.list
-		if err := applyProjectRegistries(s.list); err != nil {
-			return s, errCmd("%v", err)
+	case tea.KeyPressMsg:
+		// Quit at once and tell the worker to stop. Only archives that no
+		// install worker can be using are removed here. Cleanup by the worker
+		// is best effort: if the process exits while a download is still
+		// blocked, its temporary directory is left behind.
+		if isQuitKey(msg) {
+			s.cancel()
+			s.removeDownloads()
 		}
-		return s, func() tea.Msg {
-			drivers, err := s.getDriverRegistry()
-			// Return both drivers and error - we'll decide how to handle based on whether
-			// all requested drivers can be found
-			return driversWithRegistryError{
-				drivers: drivers,
-				err:     err,
-			}
-		}
-	case driversWithRegistryError:
-		s.registryErrors = msg.err
-		// If we have no drivers and there's an error, fail immediately
-		if len(msg.drivers) == 0 && msg.err != nil {
-			return s, errCmd("error getting driver list: %w", msg.err)
-		}
-		s.driverIndex = msg.drivers
-		return s, func() tea.Msg {
-			items, err := s.createInstallList(s.list)
-			if err != nil {
-				return err
-			}
-			return items
-		}
-	case []dbc.Driver:
-		// For backwards compatibility, still handle plain driver list
-		s.driverIndex = msg
-		return s, func() tea.Msg {
-			items, err := s.createInstallList(s.list)
-			if err != nil {
-				return err
-			}
-			return items
-		}
-	case []installItem:
+	case []syncItem:
 		s.spinner = spinner.New()
 		s.progress = progress.New(
 			progress.WithDefaultBlend(),
@@ -399,19 +452,13 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, item := range msg {
 				s.emitJSON("sync.progress", jsonschema.SyncProgressEvent{
 					Phase:  "resolving",
-					Driver: item.Driver.Path,
+					Driver: item.Name,
 				})
 			}
 		}
 
 		return s, tea.Batch(s.installDriver(s.cfg, s.installItems[s.index]), s.spinner.Tick)
 	case alreadyInstalledDrvMsg:
-		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
-			Name:     msg.info.ID,
-			Version:  msg.info.Version,
-			Platform: config.PlatformTuple(),
-			Checksum: msg.item.Checksum,
-		})
 		s.skippedDrivers = append(s.skippedDrivers, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),
@@ -428,13 +475,10 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
 			if s.jsonOutput {
-				return s, tea.Sequence(
-					func() tea.Msg { return s.writeLockFile() },
-					tea.Quit)
+				return s, tea.Quit
 			}
 			return s, tea.Sequence(
 				tea.Printf("%s %s-%s already installed", checkMark, msg.info.ID, msg.info.Version),
-				func() tea.Msg { return s.writeLockFile() },
 				tea.Quit)
 		}
 
@@ -452,23 +496,6 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case installedDrvMsg:
-		chksum, err := checksum(msg.info.Driver.Shared.Get(config.PlatformTuple()))
-		if err != nil {
-			s.status = 1
-			if s.jsonOutput {
-				return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
-					Code:    "checksum_failed",
-					Message: err.Error(),
-				})), tea.Quit)
-			}
-			return s, tea.Sequence(tea.Println("Error: ", err), tea.Quit)
-		}
-		s.locked.Drivers = append(s.locked.Drivers, lockInfo{
-			Name:     msg.info.ID,
-			Version:  msg.info.Version,
-			Platform: config.PlatformTuple(),
-			Checksum: chksum,
-		})
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
 			Name:    msg.info.ID,
 			Version: msg.info.Version.String(),
@@ -499,14 +526,9 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if s.index >= len(s.installItems)-1 {
 			s.done = true
 			if s.jsonOutput {
-				return s, tea.Sequence(
-					func() tea.Msg { return s.writeLockFile() },
-					tea.Quit)
+				return s, tea.Quit
 			}
-			return s, tea.Sequence(
-				printCmd,
-				func() tea.Msg { return s.writeLockFile() },
-				tea.Quit)
+			return s, tea.Sequence(printCmd, tea.Quit)
 		}
 
 		s.index++
@@ -523,13 +545,21 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			s.installDriver(s.cfg, s.installItems[s.index]),
 		)
 	case error:
+		s.removeDownloads()
 		s.status = 1
 		s.err = msg
 		if s.jsonOutput {
-			return s, tea.Sequence(tea.Println(marshalEnvelope("error", jsonschema.ErrorResponse{
-				Code:    "sync_failed",
+			code := "sync_failed"
+			var archiveErr *config.ArchiveHashMismatchError
+			var libraryErr *libraryChecksumError
+			if errors.As(msg, &archiveErr) || errors.As(msg, &libraryErr) {
+				code = "checksum_failed"
+			}
+			s.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
+				Code:    code,
 				Message: msg.Error(),
-			})), tea.Quit)
+			})
+			return s, tea.Quit
 		}
 	}
 
@@ -560,7 +590,7 @@ func (s syncModel) View() tea.View {
 	prog := s.progress.View()
 	cellsAvail := max(0, s.width-lipgloss.Width(spin+prog+driverCount))
 
-	driverName := s.installItems[s.index].Driver.Path
+	driverName := s.installItems[s.index].Name
 	info := lipgloss.NewStyle().MaxWidth(cellsAvail).Render("Installing " + driverName)
 
 	cellsRemaining := max(0, s.width-lipgloss.Width(spin+info+prog+driverCount))
