@@ -677,8 +677,15 @@ func assertPreviousPackage(t *testing.T, cfg Config, path string) {
 // testPackageArchive builds a package whose driver.so holds exactly contents,
 // so tests can assert real payload bytes.
 func testPackageArchive(t *testing.T, contents string) *os.File {
+	return testPackageArchiveWithSignature(t, contents, "")
+}
+
+func testPackageArchiveWithSignature(t *testing.T, contents, signatureFilename string) *os.File {
 	t.Helper()
-	const manifest = "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
+	manifest := "name = \"Driver\"\nversion = \"1.0.0\"\n[Files]\ndriver = \"driver.so\"\n"
+	if signatureFilename != "" {
+		manifest += "signature = \"" + signatureFilename + "\"\n"
+	}
 	path := filepath.Join(t.TempDir(), "package.tar.gz")
 	archive, err := os.Create(path)
 	if err != nil {
@@ -699,6 +706,9 @@ func testPackageArchive(t *testing.T, contents string) *os.File {
 	}
 	writeFile("MANIFEST", manifest, 0o644)
 	writeFile("driver.so", contents, 0o4755)
+	if signatureFilename != "" {
+		writeFile(signatureFilename, "signature", 0o644)
+	}
 	if err := tarWriter.Close(); err != nil {
 		t.Fatal(err)
 	}

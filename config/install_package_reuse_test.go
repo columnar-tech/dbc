@@ -17,6 +17,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -59,7 +60,11 @@ func reuseTreeSnapshot(t *testing.T, root string) map[string]string {
 
 func installReusePackage(t *testing.T, cfg Config, options InstallPackageOptions) (digest string) {
 	t.Helper()
-	archive := testPackageArchive(t, "new")
+	return installReuseArchive(t, cfg, testPackageArchive(t, "new"), options)
+}
+
+func installReuseArchive(t *testing.T, cfg Config, archive *os.File, options InstallPackageOptions) (digest string) {
+	t.Helper()
 	digest = fileSHA256(t, archive)
 	options.ExpectedArchiveSHA256 = digest
 	_, err := InstallPackage(context.Background(), cfg, "driver", archive, options)
@@ -83,9 +88,8 @@ func assertNotReusable(t *testing.T, cfg Config, expect InstalledPackageExpectat
 
 func TestCheckInstalledPackageMatches(t *testing.T) {
 	requireReuseSupported(t)
-	ok := func(string, Manifest) error { return nil }
 	cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
-	digest := installReusePackage(t, cfg, InstallPackageOptions{SignatureVerifier: ok})
+	digest := installReusePackage(t, cfg, InstallPackageOptions{})
 	before := reuseTreeSnapshot(t, cfg.Location)
 
 	expect := reuseExpectation(digest)
@@ -103,11 +107,60 @@ func TestCheckInstalledPackageMatches(t *testing.T) {
 	registered.FilePath, registered.Driver.Shared = info.FilePath, info.Driver.Shared
 	assert.True(t, sameDriverRegistration(registered, info))
 
-	expect.RequireSignatureVerified = true
-	_, matched, err = CheckInstalledPackage(context.Background(), cfg, "driver", expect)
-	require.NoError(t, err)
-	assert.True(t, matched)
 	assert.Equal(t, before, reuseTreeSnapshot(t, cfg.Location))
+}
+
+func TestCheckInstalledPackageReverifiesSignature(t *testing.T) {
+	requireReuseSupported(t)
+	cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+	installVerifierCalled := false
+	installSignatureVerifier := func(_ string, manifest Manifest) error {
+		installVerifierCalled = true
+		assert.Equal(t, "driver.detached", manifest.Files.Signature)
+		return nil
+	}
+	digest := installReuseArchive(t, cfg, testPackageArchiveWithSignature(t, "new", "driver.detached"), InstallPackageOptions{
+		SignatureVerifier: installSignatureVerifier,
+	})
+	assert.True(t, installVerifierCalled)
+	expect := reuseExpectation(digest)
+	failingCallbackCalled := false
+	expect.SignatureVerifier = func(string, Manifest) error {
+		failingCallbackCalled = true
+		return errors.New("signature rejected")
+	}
+	assertNotReusable(t, cfg, expect)
+	assert.True(t, failingCallbackCalled, "reuse must invoke the supplied verifier")
+
+	called := false
+	lockHeld := false
+	registered, err := GetDriver(cfg, "driver")
+	require.NoError(t, err)
+	registeredLibrary := registered.Driver.Shared.Get(PlatformTuple())
+	expect.SignatureVerifier = func(stage string, manifest Manifest) error {
+		called = true
+		assert.Equal(t, "driver.so", manifest.Files.Driver)
+		assert.Equal(t, "driver.detached", manifest.Files.Signature)
+		assert.FileExists(t, filepath.Join(stage, manifest.Files.Driver))
+		assert.FileExists(t, filepath.Join(stage, manifest.Files.Signature))
+		assert.NotEqual(t, registeredLibrary, manifest.Driver.Shared.Get(PlatformTuple()))
+		probeCtx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+		defer cancel()
+		lock, lockErr := acquireDriverInstallLockWith(probeCtx, cfg.Location, "driver", 25*time.Millisecond)
+		if lockErr == nil {
+			_ = lock.release()
+			return errors.New("driver lock was not held during signature verification")
+		}
+		lockHeld = true
+		return nil
+	}
+	info, matched, err := CheckInstalledPackage(context.Background(), cfg, "driver", expect)
+	require.NoError(t, err)
+	assert.True(t, called)
+	assert.True(t, lockHeld)
+	assert.True(t, matched)
+	assert.Equal(t, registeredLibrary, info.Driver.Shared.Get(PlatformTuple()))
+	assert.FileExists(t, info.Driver.Shared.Get(PlatformTuple()))
 }
 
 func TestCheckInstalledPackageRejectsMismatches(t *testing.T) {
@@ -122,10 +175,49 @@ func TestCheckInstalledPackageRejectsMismatches(t *testing.T) {
 		installReusePackage(t, cfg, InstallPackageOptions{})
 		assertNotReusable(t, cfg, reuseExpectation(strings.Repeat("0", 64)))
 	})
-	t.Run("signature required but not verified", func(t *testing.T) {
+	t.Run("forged signature flag has no signature evidence", func(t *testing.T) {
 		cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
 		expect := reuseExpectation(installReusePackage(t, cfg, InstallPackageOptions{}))
-		expect.RequireSignatureVerified = true
+		registered, err := GetDriver(cfg, "driver")
+		require.NoError(t, err)
+		generation := filepath.Dir(registered.Driver.Shared.Get(PlatformTuple()))
+		receiptPath := filepath.Join(generation, packageInstallReceiptFilename)
+		data, err := os.ReadFile(receiptPath)
+		require.NoError(t, err)
+		var receipt map[string]any
+		require.NoError(t, json.Unmarshal(data, &receipt))
+		receipt["signature_verified"] = true
+		data, err = json.Marshal(receipt)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(receiptPath, data, 0o600))
+		expect.SignatureVerifier = func(string, Manifest) error { return nil }
+		assertNotReusable(t, cfg, expect)
+	})
+	t.Run("signature file missing", func(t *testing.T) {
+		cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+		expect := reuseExpectation(installReusePackage(t, cfg, InstallPackageOptions{SignatureVerifier: func(string, Manifest) error { return nil }}))
+		expect.SignatureVerifier = func(string, Manifest) error { return nil }
+		assertNotReusable(t, cfg, expect)
+	})
+	t.Run("signature filename missing", func(t *testing.T) {
+		cfg := Config{Level: ConfigEnv, Location: t.TempDir()}
+		installVerifier := func(stage string, manifest Manifest) error {
+			return os.WriteFile(filepath.Join(stage, manifest.Files.Driver+".sig"), []byte("signature"), 0o600)
+		}
+		expect := reuseExpectation(installReusePackage(t, cfg, InstallPackageOptions{SignatureVerifier: installVerifier}))
+		registered, err := GetDriver(cfg, "driver")
+		require.NoError(t, err)
+		generation := filepath.Dir(registered.Driver.Shared.Get(PlatformTuple()))
+		receiptPath := filepath.Join(generation, packageInstallReceiptFilename)
+		data, err := os.ReadFile(receiptPath)
+		require.NoError(t, err)
+		var receipt map[string]any
+		require.NoError(t, json.Unmarshal(data, &receipt))
+		delete(receipt, "signature_filename")
+		data, err = json.Marshal(receipt)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(receiptPath, data, 0o600))
+		expect.SignatureVerifier = func(string, Manifest) error { return nil }
 		assertNotReusable(t, cfg, expect)
 	})
 	t.Run("library bytes modified", func(t *testing.T) {
