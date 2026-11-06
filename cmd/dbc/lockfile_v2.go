@@ -162,9 +162,9 @@ func lockedLocation(src lockedSource, a lockedArtifact) string {
 
 // strictDecodeError adds the offending keys to go-toml's generic strict-mode error.
 func strictDecodeError(err error) error {
-	var sme *toml.StrictMissingError
-	if errors.As(err, &sme) {
-		return fmt.Errorf("%w\n%s", err, sme.String())
+	var strictErr *toml.StrictMissingError
+	if errors.As(err, &strictErr) {
+		return fmt.Errorf("%w\n%s", err, strictErr.String())
 	}
 	return err
 }
