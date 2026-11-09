@@ -263,6 +263,10 @@ Installed mysql 0.1.0 to /opt/homebrew/Caskroom/miniforge/base/envs/my-adbc-proj
 
     [`ADBC_DRIVER_PATH`](#adbc_driver_path) and/or an activated Python virtual environment will take precedence over a Conda environment. dbc (and [ADBC driver managers](../concepts/driver_manager.md)) use the following precedence hierarchy: `ADBC_DRIVER_PATH` before virtual environments before Conda environments.
 
+## Archive Verification
+
+When the registry publishes a SHA-256 hash for a package, dbc checks the downloaded archive against it before installing anything. If the hash does not match, the installation is aborted and any existing installation of the driver is left in place. The `--no-verify` flag skips only signature verification; it does not skip this archive hash check. Packages from registries that don't publish a hash are not checked this way.
+
 ## From Local Archive
 
 dbc can install drivers from local archives as an alternative for users who can't or don't want to install from a [Driver Registry](../concepts/driver_registry.md). This is meant for advanced use cases and requires understanding the [ADBC Driver Manifests](https://arrow.apache.org/adbc/current/format/driver_manifests.html) spec and loading process.

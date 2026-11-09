@@ -50,9 +50,13 @@ const (
 	packageRegistrationRegistrySystem packageRegistrationScope = "registry-system"
 )
 
-// packageInstallReceipt records local ownership and integrity evidence. It
-// deliberately contains no source identity or archive provenance.
-// TODO: Define and record source/archive evidence before strict locked-artifact
+// packageInstallReceipt records local ownership and integrity evidence.
+// ArchiveSHA256 is the digest of the archive bytes dbc actually consumed and
+// SignatureVerified records only that the caller-supplied signature verifier
+// callback succeeded before publication; config itself does not guarantee the
+// verification method, key, source trust, or provenance. The receipt
+// deliberately contains no source identity.
+// TODO: Define and record source evidence before strict locked-artifact
 // reuse; OwnedLibrarySHA256 verifies local installed bytes only and does not
 // establish upstream artifact identity.
 type packageInstallReceipt struct {
@@ -64,6 +68,8 @@ type packageInstallReceipt struct {
 	Generation                   string                   `json:"generation"`
 	OwnedLibraryFilename         string                   `json:"owned_library_filename"`
 	OwnedLibrarySHA256           string                   `json:"owned_library_sha256"`
+	ArchiveSHA256                string                   `json:"archive_sha256"`
+	SignatureVerified            bool                     `json:"signature_verified"`
 	RegistrationFingerprintAlgo  string                   `json:"registration_fingerprint_algorithm"`
 	RegistrationFingerprintVer   int                      `json:"registration_fingerprint_version"`
 	RegistrationFingerprintValue string                   `json:"registration_fingerprint"`
@@ -334,6 +340,9 @@ func validPackageInstallReceiptForGeneration(receipt packageInstallReceipt, gene
 		return false
 	}
 	if _, err := hex.DecodeString(receipt.OwnedLibrarySHA256); err != nil || strings.ToLower(receipt.OwnedLibrarySHA256) != receipt.OwnedLibrarySHA256 {
+		return false
+	}
+	if receipt.ArchiveSHA256 != "" && !validArchiveSHA256(receipt.ArchiveSHA256) {
 		return false
 	}
 	return true

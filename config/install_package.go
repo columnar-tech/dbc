@@ -16,8 +16,11 @@ package config
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -32,8 +35,44 @@ type PackageVerifier func(stagingDir string, manifest Manifest) error
 
 // InstallPackageOptions controls optional package verification.
 type InstallPackageOptions struct {
+	// ExpectedArchiveSHA256 is the optional lowercase hex SHA-256 (64
+	// characters) the caller requires the downloaded archive to have. A
+	// different measured digest fails the install with an
+	// *ArchiveHashMismatchError before anything is published.
+	ExpectedArchiveSHA256 string
 	// Verifier runs under the driver lock before generation publication.
 	Verifier PackageVerifier
+	// SignatureVerifier runs on the staged package right after Verifier and
+	// under the same conditions. Only its success marks the install as
+	// signature-verified in the install receipt. The receipt records only that
+	// this caller-supplied callback succeeded; config does not guarantee the
+	// verification method, key, source trust, or provenance.
+	SignatureVerifier PackageVerifier
+}
+
+// ArchiveHashMismatchError reports that the SHA-256 of the downloaded archive
+// differs from the digest the caller required.
+type ArchiveHashMismatchError struct {
+	// Expected is the digest the caller required and Actual the measured one;
+	// both are lowercase hex SHA-256 digests.
+	Expected string
+	Actual   string
+}
+
+func (e *ArchiveHashMismatchError) Error() string {
+	return fmt.Sprintf("archive SHA-256 mismatch: expected %s, got %s", e.Expected, e.Actual)
+}
+
+func validArchiveSHA256(s string) bool {
+	if len(s) != sha256.Size*2 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 type packageInstallOperations struct {
@@ -76,6 +115,9 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 			err = errors.Join(err, downloaded.Close())
 		}
 	}()
+	if options.ExpectedArchiveSHA256 != "" && !validArchiveSHA256(options.ExpectedArchiveSHA256) {
+		return Manifest{}, fmt.Errorf("invalid expected archive SHA-256 %q: want 64 lowercase hex characters", options.ExpectedArchiveSHA256)
+	}
 	if ctx == nil {
 		return Manifest{}, errors.New("install context is nil")
 	}
@@ -107,8 +149,29 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	if err := ctx.Err(); err != nil {
 		return Manifest{}, fmt.Errorf("install canceled before staging: %w", err)
 	}
+	if options.ExpectedArchiveSHA256 != "" {
+		if _, err := downloaded.Seek(0, io.SeekStart); err != nil {
+			return Manifest{}, fmt.Errorf("seek archive before hash verification: %w", err)
+		}
+		sum, err := hashSHA256(downloaded)
+		if err != nil {
+			return Manifest{}, fmt.Errorf("hash archive before extraction: %w", err)
+		}
+		actual := hex.EncodeToString(sum)
+		if actual != options.ExpectedArchiveSHA256 {
+			return Manifest{}, &ArchiveHashMismatchError{Expected: options.ExpectedArchiveSHA256, Actual: actual}
+		}
+		if _, err := downloaded.Seek(0, io.SeekStart); err != nil {
+			return Manifest{}, fmt.Errorf("rewind archive after hash verification: %w", err)
+		}
+		if err := ctx.Err(); err != nil {
+			return Manifest{}, fmt.Errorf("install canceled after archive hash verification: %w", err)
+		}
+	}
 
-	stageDir, manifest, _, err := extractPackageArchive(downloaded, location)
+	// Extraction measures the same descriptor again, so a change after the
+	// preflight check cannot be published under the expected archive digest.
+	stageDir, manifest, _, archiveSHA256, err := extractPackageArchiveWithDigest(downloaded, location, defaultPackageArchiveLimits)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("failed to extract package: %w", err)
 	}
@@ -125,6 +188,10 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		return Manifest{}, fmt.Errorf("close package archive: %w", closeErr)
 	}
 	closed = true
+
+	if options.ExpectedArchiveSHA256 != "" && options.ExpectedArchiveSHA256 != archiveSHA256 {
+		return Manifest{}, &ArchiveHashMismatchError{Expected: options.ExpectedArchiveSHA256, Actual: archiveSHA256}
+	}
 
 	manifest.DriverInfo.ID = runtimeID
 	manifest.DriverInfo.Source = "dbc"
@@ -155,15 +222,25 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	reservationExists = false
 	manifest.Driver.Shared = driverMap{}
 	manifest.Driver.Shared.Set(PlatformTuple(), hostpath.Join(generationDir, driverFilename))
-	if options.Verifier != nil {
+	signatureVerified := false
+	for _, step := range []struct {
+		verify    PackageVerifier
+		signature bool
+	}{{options.Verifier, false}, {options.SignatureVerifier, true}} {
+		if step.verify == nil {
+			continue
+		}
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, fmt.Errorf("install canceled before package verification: %w", err)
 		}
-		if err := options.Verifier(stageDir, manifest); err != nil {
+		if err := step.verify(stageDir, manifest); err != nil {
 			return Manifest{}, fmt.Errorf("verify package: %w", err)
 		}
 		if err := ctx.Err(); err != nil {
 			return Manifest{}, fmt.Errorf("install canceled after package verification: %w", err)
+		}
+		if step.signature {
+			signatureVerified = true
 		}
 	}
 	namespaceLock, registrationLocation, err := acquireRegistrationNamespaceLock(ctx, cfg, lockLocation, 10*time.Second)
@@ -176,6 +253,8 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package install receipt: %w", err)
 	}
+	receipt.ArchiveSHA256 = archiveSHA256
+	receipt.SignatureVerified = signatureVerified
 	if err := operations.writeReceipt(stageDir, receipt); err != nil {
 		return Manifest{}, fmt.Errorf("write package install receipt: %w", err)
 	}
