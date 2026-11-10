@@ -191,6 +191,28 @@ var getDriverRegistry = func() ([]dbc.Driver, error) {
 	return dbcClient.Search(context.Background(), "")
 }
 
+// configuredRegistries lists the registries the client resolves drivers from.
+func configuredRegistries() ([]dbc.Registry, error) {
+	if err := initDBCClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
+	}
+	return dbcClient.Registries(), nil
+}
+
+// fetchRegistryIndex fetches the index of one registry only. Unlike a search
+// over all registries, any failure is an error.
+func fetchRegistryIndex(r dbc.Registry) ([]dbc.Driver, error) {
+	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{{Name: r.Name, BaseURL: r.BaseURL}})}
+	if userAgentSuffix != "" {
+		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
+	}
+	c, err := dbc.NewClient(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return c.Search(context.Background(), "")
+}
+
 func findDriver(name string, drivers []dbc.Driver) (dbc.Driver, error) {
 	idx := slices.IndexFunc(drivers, func(d dbc.Driver) bool {
 		return d.Path == name
@@ -225,6 +247,10 @@ func getConfig(c config.ConfigLevel) config.Config {
 type baseModel struct {
 	getDriverRegistry func() ([]dbc.Driver, error)
 	downloadPkg       func(p dbc.PkgInfo) (*os.File, error)
+	// getRegistries lists the configured registries without fetching an index.
+	getRegistries func() ([]dbc.Registry, error)
+	// getRegistryIndex fetches the index of a single registry.
+	getRegistryIndex func(dbc.Registry) ([]dbc.Driver, error)
 
 	status int
 	err    error
@@ -236,11 +262,19 @@ func (m baseModel) Status() int         { return m.status }
 func (m baseModel) Err() error          { return m.err }
 func (m baseModel) FinalOutput() string { return "" }
 
+// isQuitKey reports whether a key press asks the program to stop.
+func isQuitKey(msg tea.KeyPressMsg) bool {
+	switch msg.String() {
+	case "ctrl+c", "ctrl+d", "esc":
+		return true
+	}
+	return false
+}
+
 func (m baseModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c", "ctrl+d", "esc":
+		if isQuitKey(msg) {
 			return m, tea.Quit
 		}
 	case error:

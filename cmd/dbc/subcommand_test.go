@@ -65,26 +65,51 @@ func getTestDriverRegistry() ([]dbc.Driver, error) {
 }
 
 func testBaseModel() baseModel {
-	return baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg}
+	return withRegistries(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
+}
+
+// withRegistries adds the test registry to a base model that lacks one.
+func withRegistries(base baseModel) baseModel {
+	base.getRegistries = func() ([]dbc.Registry, error) { return []dbc.Registry{testRegistry}, nil }
+	base.getRegistryIndex = func(dbc.Registry) ([]dbc.Driver, error) { return getTestDriverRegistry() }
+	return base
+}
+
+// openTestdataCopy returns a private copy of a testdata file in its own
+// directory, like a real download, so callers may remove it.
+func openTestdataCopy(name string) (*os.File, error) {
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp("", "adbc-drivers-test-*")
+	if err != nil {
+		return nil, err
+	}
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, data, 0o600); err != nil {
+		return nil, err
+	}
+	return os.Open(p)
 }
 
 func downloadTestPkg(pkg dbc.PkgInfo) (*os.File, error) {
 	switch pkg.Driver.Path {
 	case "test-driver-1":
 		if pkg.Version.Minor() == 1 {
-			return os.Open(filepath.Join("testdata", "test-driver-1.1.tar.gz"))
+			return openTestdataCopy("test-driver-1.1.tar.gz")
 		}
-		return os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+		return openTestdataCopy("test-driver-1.tar.gz")
 	case "test-driver-2":
-		return os.Open(filepath.Join("testdata", "test-driver-2.tar.gz"))
+		return openTestdataCopy("test-driver-2.tar.gz")
 	case "test-driver-manifest-only":
-		return os.Open(filepath.Join("testdata", "test-driver-manifest-only.tar.gz"))
+		return openTestdataCopy("test-driver-manifest-only.tar.gz")
 	case "test-driver-no-sig":
-		return os.Open(filepath.Join("testdata", "test-driver-no-sig.tar.gz"))
+		return openTestdataCopy("test-driver-no-sig.tar.gz")
 	case "test-driver-invalid-manifest":
-		return os.Open(filepath.Join("testdata", "test-driver-invalid-manifest.tar.gz"))
+		return openTestdataCopy("test-driver-invalid-manifest.tar.gz")
 	case "test-driver-only-pre":
-		return os.Open(filepath.Join("testdata", "test-driver-only-pre.tar.gz"))
+		return openTestdataCopy("test-driver-only-pre.tar.gz")
 	default:
 		return nil, fmt.Errorf("unknown driver: %s", pkg.Driver.Path)
 	}

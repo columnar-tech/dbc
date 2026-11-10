@@ -27,10 +27,12 @@ import (
 	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
-// PackageVerifier validates a fully extracted package before it is published.
-// It runs while the runtime ID's driver lock is held and must not call a driver
-// mutation API for that runtime ID. The manifest points to the planned final
-// generation path while stagingDir contains the candidate package files.
+// PackageVerifier validates extracted package files. During installation it
+// runs under the runtime ID's driver lock before publication; installed reuse
+// may instead verify a read-only snapshot (see InstalledPackageExpectation).
+// It must not call a driver mutation API for that runtime ID. During installation
+// the manifest points to the planned final generation while stagingDir contains
+// the candidate package files.
 type PackageVerifier func(stagingDir string, manifest Manifest) error
 
 // InstallPackageOptions controls optional package verification.
@@ -255,6 +257,12 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	}
 	receipt.ArchiveSHA256 = archiveSHA256
 	receipt.SignatureVerified = signatureVerified
+	if signatureVerified {
+		receipt.SignatureFilename = manifest.Files.Signature
+		if receipt.SignatureFilename == "" {
+			receipt.SignatureFilename = driverFilename + ".sig"
+		}
+	}
 	if err := operations.writeReceipt(stageDir, receipt); err != nil {
 		return Manifest{}, fmt.Errorf("write package install receipt: %w", err)
 	}

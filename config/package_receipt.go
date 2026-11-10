@@ -52,13 +52,11 @@ const (
 
 // packageInstallReceipt records local ownership and integrity evidence.
 // ArchiveSHA256 is the digest of the archive bytes dbc actually consumed and
-// SignatureVerified records only that the caller-supplied signature verifier
-// callback succeeded before publication; config itself does not guarantee the
-// verification method, key, source trust, or provenance. The receipt
-// deliberately contains no source identity.
-// TODO: Define and record source evidence before strict locked-artifact
-// reuse; OwnedLibrarySHA256 verifies local installed bytes only and does not
-// establish upstream artifact identity.
+// SignatureVerified and SignatureFilename record that the caller-supplied
+// signature verifier succeeded before publication and which detached
+// signature file it used; config itself does not guarantee the verification
+// method, key, source trust, or provenance. Reuse must invoke a verifier again.
+// The receipt deliberately contains no source identity.
 type packageInstallReceipt struct {
 	SchemaVersion                int                      `json:"schema_version"`
 	RegistrationScope            packageRegistrationScope `json:"registration_scope"`
@@ -70,6 +68,7 @@ type packageInstallReceipt struct {
 	OwnedLibrarySHA256           string                   `json:"owned_library_sha256"`
 	ArchiveSHA256                string                   `json:"archive_sha256"`
 	SignatureVerified            bool                     `json:"signature_verified"`
+	SignatureFilename            string                   `json:"signature_filename,omitempty"`
 	RegistrationFingerprintAlgo  string                   `json:"registration_fingerprint_algorithm"`
 	RegistrationFingerprintVer   int                      `json:"registration_fingerprint_version"`
 	RegistrationFingerprintValue string                   `json:"registration_fingerprint"`

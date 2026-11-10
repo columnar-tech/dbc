@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/columnar-tech/dbc/auth"
@@ -62,6 +64,50 @@ type Client struct {
 	credentialResolver func(*url.URL) (*auth.Credential, error)
 }
 
+type redirectOrigin struct {
+	scheme   string
+	hostname string
+	port     string
+}
+
+func originOf(u *url.URL) redirectOrigin {
+	scheme := strings.ToLower(u.Scheme)
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "http":
+			port = "80"
+		case "https":
+			port = "443"
+		}
+	}
+	return redirectOrigin{
+		scheme:   scheme,
+		hostname: strings.ToLower(u.Hostname()),
+		port:     port,
+	}
+}
+
+// checkRedirect keeps Go's limit of 10 redirects. Sensitive headers must stay
+// within both the initial and previous origins: net/http copies initial headers
+// on every hop, including an explicit Referer, or generates Referer from the
+// previous URL, potentially including credentials in its query string.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	initial := via[0].URL
+	previous := via[len(via)-1].URL
+	if strings.EqualFold(previous.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
+		return errors.New("refusing HTTPS to HTTP redirect")
+	}
+	if originOf(req.URL) != originOf(initial) || originOf(req.URL) != originOf(previous) {
+		req.Header.Del("Authorization")
+		req.Header.Del("Referer")
+	}
+	return nil
+}
+
 // NewClient creates a new driver registry client with the given options.
 func NewClient(opts ...Option) (*Client, error) {
 	cfg := &clientConfig{
@@ -93,6 +139,7 @@ func NewClient(opts ...Option) (*Client, error) {
 				RoundTripper: http.DefaultTransport,
 				userAgent:    cfg.userAgent,
 			},
+			CheckRedirect: checkRedirect,
 		}
 	}
 

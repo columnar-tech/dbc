@@ -113,6 +113,7 @@ func ensureSetup() {
 				RoundTripper: http.DefaultTransport,
 				userAgent:    userAgent,
 			},
+			CheckRedirect: checkRedirect,
 		}
 
 		mid, _ = telemetryMachineID()
@@ -291,7 +292,10 @@ func (p PkgInfo) DownloadPackage(prog ProgressFunc) (*os.File, error) {
 	}
 	defer rsp.Body.Close()
 
-	fname := path.Base(location)
+	// Name the file after the escaped URL path only: a query (for example a
+	// registry token) must not end up in the file name, and decoding could
+	// turn %5C into a Windows path separator.
+	fname := path.Base(p.Path.EscapedPath())
 	tmpdir, err := os.MkdirTemp(os.TempDir(), "adbc-drivers-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
