@@ -115,7 +115,8 @@ $ dbc search --verbose
    License: MIT OR Apache-2.0
    Available Versions:
     ├── 0.1.0
-    ╰── 0.1.1
+    ├── 0.1.1
+    ╰── 0.1.2
 • databricks
    Title: ADBC Driver Foundry Driver for Databricks
    Description: An ADBC Driver for Databricks developed by the ADBC Driver Foundry
@@ -167,13 +168,15 @@ $ dbc search --verbose
     ├── 0.12.7
     ├── 0.13.0
     ├── 0.16.0
-    ╰── 0.31.0
+    ├── 0.31.0
+    ╰── 0.32.0
 • firebolt
    Title: firebolt
    Description: An ADBC driver for Firebolt
    License: Apache-2.0
    Available Versions:
-    ╰── 0.2.0
+    ├── 0.2.0
+    ╰── 0.3.1
 • flightsql
    Title: ASF Apache Arrow Flight SQL Driver
    Description: An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
