@@ -30,6 +30,7 @@ duckdb               An ADBC driver for DuckDB developed by the DuckDB Foundatio
 exasol               An ADBC driver for Exasol developed by Exasol Labs
 firebolt             An ADBC driver for Firebolt
 flightsql            An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+mariadb              An ADBC Driver for MariaDB developed by the ADBC Driver Foundry
 mssql                An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql                An ADBC Driver for MySQL developed by the ADBC Driver Foundry
 postgresql           An ADBC driver for PostgreSQL developed under the Apache Software Foundation
@@ -101,7 +102,8 @@ $ dbc search --verbose
     ├── 1.12.2
     ├── 1.13.0
     ├── 1.14.0
-    ╰── 1.14.1
+    ├── 1.14.1
+    ╰── 1.15.0
 • chdb
    Title: chDB Driver
    Description: An embedded ADBC driver powered by ClickHouse
@@ -125,7 +127,8 @@ $ dbc search --verbose
     ├── 0.1.2
     ├── 0.1.3
     ├── 0.2.0
-    ╰── 0.3.0
+    ├── 0.3.0
+    ╰── 0.4.0
 • datafusion
    Title: ADBC Driver Foundry Driver for Apache DataFusion
    Description: An ADBC driver for Apache DataFusion developed by the ADBC Driver Foundry
@@ -189,7 +192,14 @@ $ dbc search --verbose
     ├── 1.12.0
     ├── 1.12.1
     ├── 1.12.2
-    ╰── 1.13.0
+    ├── 1.13.0
+    ╰── 1.13.1
+• mariadb
+   Title: ADBC Driver Foundry Driver for MariaDB
+   Description: An ADBC Driver for MariaDB developed by the ADBC Driver Foundry
+   License: Apache-2.0
+   Available Versions:
+    ╰── 0.1.6
 • mssql
    Title: Columnar Microsoft SQL Server Driver
    Description: An ADBC driver for Microsoft SQL Server developed by Columnar
@@ -207,7 +217,8 @@ $ dbc search --verbose
     ├── 1.6.1
     ├── 1.6.2
     ├── 1.7.0
-    ╰── 1.7.1
+    ├── 1.7.1
+    ╰── 1.8.0
 • mysql
    Title: ADBC Driver Foundry Driver for MySQL
    Description: An ADBC Driver for MySQL developed by the ADBC Driver Foundry
@@ -222,7 +233,8 @@ $ dbc search --verbose
     ├── 0.6.0
     ├── 0.6.1
     ├── 0.7.0
-    ╰── 0.7.1
+    ├── 0.7.1
+    ╰── 0.8.0
 • postgresql
    Title: ASF PostgreSQL Driver
    Description: An ADBC driver for PostgreSQL developed under the Apache Software Foundation
@@ -254,7 +266,8 @@ $ dbc search --verbose
     ├── 1.6.0
     ├── 1.7.0
     ├── 1.8.0
-    ╰── 1.8.1
+    ├── 1.8.1
+    ╰── 1.9.0
 • snowflake
    Title: ASF Snowflake Driver
    Description: An ADBC driver for Snowflake developed under the Apache Software Foundation
@@ -270,7 +283,8 @@ $ dbc search --verbose
     ├── 1.13.0
     ├── 1.14.0
     ├── 1.15.0
-    ╰── 1.15.1
+    ├── 1.15.1
+    ╰── 1.16.0
 • spark
    Title: ADBC Driver Foundry Driver for Apache Spark
    Description: An ADBC driver for Apache Spark developed by the ADBC Driver Foundry
@@ -280,7 +294,8 @@ $ dbc search --verbose
     ├── 0.2.0
     ├── 0.2.1
     ├── 0.2.2
-    ╰── 0.3.0
+    ├── 0.3.0
+    ╰── 0.4.0
 • sqlite
    Title: ASF SQLite Driver
    Description: An ADBC driver for SQLite developed under the Apache Software Foundation
@@ -309,7 +324,8 @@ $ dbc search --verbose
     ├── 0.5.3
     ├── 0.6.0
     ├── 0.6.1
-    ╰── 0.7.0
+    ├── 0.7.0
+    ╰── 0.8.0
 • oracle [private]
    Title: Columnar ADBC Driver for Oracle Database
    Description: An ADBC driver for Oracle Database developed by Columnar
@@ -321,7 +337,8 @@ $ dbc search --verbose
     ├── 0.6.1
     ├── 0.6.2
     ├── 0.6.3
-    ╰── 0.6.4
+    ├── 0.6.4
+    ╰── 0.7.0
 • teradata [private]
    Title: Columnar ADBC Driver for Teradata
    Description: An ADBC driver for Teradata developed by Columnar
@@ -372,7 +389,8 @@ $ dbc search --pre --verbose mysql
     ├── 0.6.0
     ├── 0.6.1
     ├── 0.7.0
-    ╰── 0.7.1
+    ├── 0.7.1
+    ╰── 0.8.0
 ```
 <!-- /dbc-output -->
 
