@@ -209,6 +209,10 @@ func TestInvalidURLReplacementsFailRegistryCommands(t *testing.T) {
 	_, err = getRegistryViaClient()
 	require.ErrorIs(t, err, dbc.ErrInvalidURLReplacement)
 
+	// The download path does not need a client, so it has to fail by itself.
+	_, err = downloadPkg(dbc.PkgInfo{Path: testRegistry.BaseURL.JoinPath("x.tar.gz")})
+	require.ErrorIs(t, err, dbc.ErrInvalidURLReplacement)
+
 	// Other load errors stay warnings.
 	resetClientState()
 	bad := writeUserConfig(t, "this is not toml")

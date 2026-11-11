@@ -249,6 +249,10 @@ type progressMsg struct {
 }
 
 func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
+	// A locked sync can get here without building a registry client.
+	if urlReplacementsErr != nil {
+		return nil, urlReplacementsErr
+	}
 	return p.DownloadPackage(func(written, total int64) {
 		prog.Send(progressMsg{total: total, written: written})
 	})
