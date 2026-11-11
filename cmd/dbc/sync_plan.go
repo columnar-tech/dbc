@@ -42,6 +42,9 @@ type plannedDriver struct {
 	// LibrarySHA256 is the installed library digest recorded by a v1 lock file
 	// that still applies, or empty.
 	LibrarySHA256 string
+	// Signer is the key the lock entry pins. Reuse checks, installs and the
+	// hash-measuring download of dbc lock all verify with it. It is never nil.
+	Signer *dbc.SigningKey
 }
 
 // syncPlanner decides which version, registry and archive digest every driver
@@ -103,6 +106,10 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 			spec.Version.IncludePrerelease = true
 		}
 
+		var (
+			oldSigner lockedSigner
+			hadLock   bool
+		)
 		if d, ok := locked[name]; ok {
 			v, err := semver.NewVersion(d.Version)
 			if err != nil {
@@ -116,6 +123,8 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 				planned = append(planned, pd)
 				continue
 			}
+			// The driver is resolved again; its signer must not change silently.
+			oldSigner, hadLock = d.Signer, true
 		}
 
 		var pin *semver.Version
@@ -134,6 +143,9 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		pd, err := p.resolve(name, spec, pin)
 		if err != nil {
 			return nil, nil, err
+		}
+		if hadLock && pd.Entry.Signer != oldSigner {
+			return nil, nil, signerChangedError(name, oldSigner)
 		}
 		pd.LibrarySHA256 = proof
 		planned = append(planned, pd)
@@ -169,6 +181,13 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	if err != nil {
 		return plannedDriver{}, err
 	}
+	// Look up the pinned key before anything else: a pin that is not trusted
+	// fails here, before any index is fetched, archive is downloaded or lock
+	// file is written, and never falls back to another key or registry.
+	signer, err := trustedSigner(name, d.Signer)
+	if err != nil {
+		return plannedDriver{}, err
+	}
 	bound, err := p.bind(name, d.Source.URL)
 	if err != nil {
 		return plannedDriver{}, err
@@ -181,7 +200,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 		if err != nil {
 			return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
 		}
-		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Package: dbc.PkgInfo{
+		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: dbc.PkgInfo{
 			Driver:        dbc.Driver{Title: name, Path: name},
 			Version:       v,
 			PlatformTuple: p.target,
@@ -213,7 +232,48 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
 	d.Artifacts = append(slices.Clone(d.Artifacts), art)
-	return plannedDriver{Name: name, Entry: d, Package: pkg}, nil
+	return plannedDriver{Name: name, Entry: d, Package: pkg, Signer: signer}, nil
+}
+
+// signerFor returns the key that packages of a driver from the registry with
+// the given identity must verify with. Only the built-in Columnar key exists
+// for now; this is the one place that would choose a key per registry.
+func (p *syncPlanner) signerFor(name, registryIdentity string) (*dbc.SigningKey, error) {
+	key, err := dbc.ColumnarSigningKey()
+	if err != nil {
+		return nil, fmt.Errorf("driver %s: could not load the signing key: %w", name, err)
+	}
+	return key, nil
+}
+
+// trustedSigner returns the trusted key that a lock entry pins. Only the
+// built-in Columnar key is trusted for now.
+func trustedSigner(name string, sig lockedSigner) (*dbc.SigningKey, error) {
+	if sig.Type == lockSignerOpenPGP {
+		key, err := dbc.ColumnarSigningKey()
+		if err != nil {
+			return nil, fmt.Errorf("driver %s: could not load the signing key: %w", name, err)
+		}
+		if key.Fingerprint() == sig.Fingerprint {
+			return key, nil
+		}
+	}
+	return nil, fmt.Errorf("driver %s: the lock file pins the signing key %s, which is not trusted by this version of dbc; "+
+		"if the change of key is intended, delete the driver's entry from the lock file to lock it again",
+		name, sig.Fingerprint)
+}
+
+// signerChangedError reports that resolving a driver again would replace the
+// signing key that its lock entry pins.
+func signerChangedError(name string, locked lockedSigner) error {
+	return fmt.Errorf("driver %s: the lock file pins the signing key %s, but its packages would now be verified with a different key; "+
+		"if the change of key is intended, delete the driver's entry from the lock file to lock it again",
+		name, locked.Fingerprint)
+}
+
+// lockedSignerOf returns the lock file spelling of the policy for key.
+func lockedSignerOf(key *dbc.SigningKey) lockedSigner {
+	return lockedSigner{Type: lockSignerOpenPGP, Fingerprint: key.Fingerprint()}
 }
 
 // bind finds the one configured registry with the given identity.
@@ -267,13 +327,18 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	if _, err := p.bind(name, identity); err != nil {
 		return plannedDriver{}, err
 	}
+	signer, err := p.signerFor(name, identity)
+	if err != nil {
+		return plannedDriver{}, err
+	}
 	artifacts, err := p.lockArtifacts(drv, pkg)
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, drv.Registry.BaseURL))
 	}
-	return plannedDriver{Name: name, Package: pkg, Entry: lockedDriver{
+	return plannedDriver{Name: name, Package: pkg, Signer: signer, Entry: lockedDriver{
 		Name:      name,
 		Version:   pkg.Version.String(),
+		Signer:    lockedSignerOf(signer),
 		Source:    lockedSource{Type: lockSourceRegistry, URL: identity},
 		Artifacts: artifacts,
 	}}, nil

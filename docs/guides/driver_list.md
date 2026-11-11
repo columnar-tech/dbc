@@ -104,11 +104,14 @@ By default, this file is called `dbc.lock` but will match the name of your drive
 When you run `dbc sync` and a lockfile already exists, dbc will install the exact versions in the lockfile.
 To upgrade the versions in the lockfile, delete the lockfile and run `dbc sync`.
 
+To create or refresh the lockfile without installing any driver, for example in a CI job or before committing, run [`dbc lock`](../reference/cli.md#lock).
+It resolves the driver list the same way `dbc sync` does and keeps existing compatible pins.
+
 ## Lockfile
 
 `dbc sync` automatically creates a lockfile file in the same directory as the driver list. By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.
 
-The lockfile records, for each driver, the exact version, the registry it came from, and the SHA-256 hash of the archive for each platform:
+The lockfile records, for each driver, the exact version, the signing key its packages must verify with, the registry it came from, and the SHA-256 hash of the archive for each platform:
 
 ```console
 $ cat dbc.lock
@@ -118,6 +121,10 @@ version = 2
 [[drivers]]
 name = 'mysql'
 version = '0.1.0'
+
+[drivers.signer]
+type = 'openpgp'
+fingerprint = 'ab7766e9b341299ebc7f45dd82abd0a33a3c9e48'
 
 [drivers.source]
 type = 'registry'
@@ -148,6 +155,12 @@ arch = 'arm64'
 kind = 'registry-path'
 value = 'mysql/v0.1.0/mysql_macos_arm64_v0.1.0.tar.gz'
 ```
+
+The `signer` table names the expected signer of the driver: its packages must verify with the OpenPGP key whose primary key (certificate) fingerprint is recorded, in lowercase hex. A signing subkey of that key is accepted, so a renewed subkey keeps working, but replacing the primary key requires updating the entry. Today `dbc` only trusts the key that is built into it, which signs the packages of the default registry. The table is a policy, not evidence that a signature was verified: whether a verification happened on a machine is recorded with the installed driver.
+
+Unless `--no-verify` is set, `dbc sync` verifies the drivers it reuses or installs with the pinned key, and `dbc sync` and `dbc lock` verify the archives they download with it. If the lockfile pins a key that this version of `dbc` does not trust, or a driver that is resolved again would use a different key than the one pinned, dbc fails before downloading anything, installing anything or changing the lockfile, and never falls back to another key. `--no-verify` skips the signature verification of that run, but it does not change or bypass the pin. To accept a different key, delete the driver's entry from the lockfile and run `dbc sync` or `dbc lock` again.
+
+The signature only covers the driver library file; other contents of the archive, such as the manifest, are covered only by the archive hash.
 
 Each artifact records its archive `format`, SHA-256 `hash`, structured `target`, and `location`. A registry artifact uses `kind = 'registry-path'` with a path relative to the registry. An archive outside a registry uses a credential-free absolute URL; `kind = 'path'` is reserved for a future local source. An HTTPS registry cannot use an HTTP artifact URL.
 

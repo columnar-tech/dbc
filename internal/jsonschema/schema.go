@@ -270,6 +270,27 @@ type SyncStatus struct {
 }
 
 // -----------------------------------------------------------------------------
+// Lock
+// -----------------------------------------------------------------------------
+
+// LockedDriver records a driver pinned in the lock file by the lock command.
+type LockedDriver struct {
+	// Name is the driver identifier.
+	Name string `json:"name"`
+	// Version is the version recorded in the lock file.
+	Version string `json:"version"`
+}
+
+// LockStatus is the final JSON payload emitted after the lock command wrote the
+// lock file (kind "lock.status").
+type LockStatus struct {
+	// LockFilePath is the filesystem path of the lock file that was written.
+	LockFilePath string `json:"lock_file_path"`
+	// Drivers lists every driver pinned in the lock file, in driver list order.
+	Drivers []LockedDriver `json:"drivers"`
+}
+
+// -----------------------------------------------------------------------------
 // Auth
 // -----------------------------------------------------------------------------
 
