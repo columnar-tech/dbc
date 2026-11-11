@@ -220,6 +220,17 @@ func TestReadLockFileVersions(t *testing.T) {
 	assert.True(t, errors.Is(err, fs.ErrNotExist))
 }
 
+// A v6 OpenPGP key has a 64 character fingerprint.
+func TestLockFileV2AcceptsV6Fingerprint(t *testing.T) {
+	lf := validV2()
+	lf.Drivers[0].Signer.Fingerprint = strings.Repeat("0123456789abcdef", 4)
+	p := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileV2(p, lf))
+	got, err := readLockFile(p)
+	require.NoError(t, err)
+	assert.Equal(t, lf.Drivers[0].Signer, got.V2.Drivers[0].Signer)
+}
+
 func TestWriteLockFileV2RejectsInvalid(t *testing.T) {
 	lf := validV2()
 	lf.Drivers[0].Artifacts[0].Hash = "bad"
