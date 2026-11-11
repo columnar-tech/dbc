@@ -25,6 +25,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -306,4 +307,57 @@ func (suite *SubcommandTestSuite) TestLockReplaysCompleteLockWithoutRegistry() {
 	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(counters.counted(unreachableRegistries(testBaseModel()))))
 	suite.Equal(before, suite.readLockBytes())
 	suite.Zero(counters.downloads)
+}
+
+func (suite *SubcommandTestSuite) TestLockRecordsSigner() {
+	listPath := suite.writeDriverList("test-driver-1")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
+	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-1").Signature)
+
+	listPath = suite.writeDriverList("test-driver-no-sig")
+	suite.Require().NoError(os.Remove(suite.lockPath()))
+	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(testBaseModel()))
+	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-no-sig").Signature)
+}
+
+func (suite *SubcommandTestSuite) assertLockRejectsUntrustedPin(noVerify bool) {
+	listPath := suite.writeDriverList("test-driver-1")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
+	lock := suite.pinOtherSigner("test-driver-1")
+
+	var counters syncCounters
+	out := suite.runCmdErr(LockCmd{Path: listPath, NoVerify: noVerify, Json: true}.GetModelCustom(counters.counted(testBaseModel())))
+	suite.assertJSONErrorEnvelope(out, "lock_failed", otherFingerprint)
+	suite.Zero(counters.downloads)
+	suite.Zero(counters.index)
+	suite.Zero(counters.boundIndex)
+	suite.Equal(lock, suite.readLockBytes(), "the lock file must stay untouched")
+	suite.driverIsNotInstalled("test-driver-1")
+}
+
+func (suite *SubcommandTestSuite) TestLockRejectsUntrustedPinnedSigner() {
+	suite.assertLockRejectsUntrustedPin(false)
+}
+
+func (suite *SubcommandTestSuite) TestLockRejectsUntrustedPinnedSignerWithNoVerify() {
+	suite.assertLockRejectsUntrustedPin(true)
+}
+
+func (suite *SubcommandTestSuite) TestLockVerifiesWithThePlannedKey() {
+	m := LockCmd{Path: suite.writeDriverList("test-driver-1")}.GetModelCustom(testBaseModel()).(lockModel)
+	pd := &plannedDriver{Name: "test-driver-1", Package: dbc.PkgInfo{
+		Driver:        dbc.Driver{Title: "test-driver-1", Path: "test-driver-1"},
+		PlatformTuple: config.PlatformTuple(),
+		Version:       semver.MustParse("1.1.0"),
+		Path:          testURL(suite.T(), "https://registry.columnar.tech/test-driver-1/1.1.0/test-driver-1.1.tar.gz"),
+	}}
+	_, err := m.fetch(pd)
+	suite.ErrorContains(err, "no signing key", "a driver without a planned key is not verified with another key")
+
+	var err2 error
+	pd.Signer, err2 = dbc.ColumnarSigningKey()
+	suite.Require().NoError(err2)
+	item, err := m.fetch(pd)
+	suite.Require().NoError(err)
+	suite.Same(pd.Signer, item.Signer)
 }

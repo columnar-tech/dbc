@@ -114,10 +114,10 @@ func (m lockModel) Init() tea.Cmd {
 // it. An archive is downloaded only when the registry published no hash for
 // the current target or when a v1 library proof has to be checked. The
 // download is verified like the one of dbc sync, and unless NoVerify is set
-// its Columnar signature is checked before its hash is recorded. The download
-// is always removed again.
+// its signature is checked with the key the lock pins before its hash is
+// recorded. The download is always removed again.
 func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
-	item := syncItem{Name: pd.Name, Package: pd.Package, LibrarySHA256: pd.LibrarySHA256}
+	item := syncItem{Name: pd.Name, Package: pd.Package, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
 	if pd.Package.ArchiveSHA256 != "" && pd.LibrarySHA256 == "" {
 		return item, nil
 	}
@@ -129,7 +129,7 @@ func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	// archive that could not be installed is never pinned, even with NoVerify.
 	f, err := downloadArchive(m.baseModel, pd, target, archiveChecks{
 		extract:   true,
-		signature: columnarSignatureVerifier(m.NoVerify),
+		signature: signatureVerifier(pd.Signer, m.NoVerify),
 	})
 	if err != nil {
 		return item, err

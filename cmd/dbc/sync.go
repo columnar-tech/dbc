@@ -242,6 +242,9 @@ type syncItem struct {
 	Installed *config.DriverInfo
 	// File is the downloaded archive; nil for installed drivers.
 	File *os.File
+	// Signer is the key the lock pins for the driver; the package signature is
+	// verified with it.
+	Signer *dbc.SigningKey
 }
 
 // libraryChecksumError reports an archive whose driver library differs from
@@ -411,7 +414,7 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 // lock, and otherwise downloads and verifies the archive. A digest measured
 // for an unpublished hash is recorded in the planned lock entry.
 func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
-	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256}
+	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
 	target, err := resolution.TargetFromPlatformTuple(pd.Package.PlatformTuple)
 	if err != nil {
 		return item, err
@@ -419,15 +422,13 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	// Matching archive digests identify the same archive bytes; size is checked
 	// only when a download is needed.
 	if want := pd.Package.ArchiveSHA256; want != "" {
-		var signatureVerifier config.PackageVerifier
-		if !s.NoVerify {
-			signatureVerifier = dbc.VerifyPackageSignature
-		}
+		// A failed check only means the package is installed again.
+		verify := signatureVerifier(pd.Signer, s.NoVerify)
 		info, ok, err := config.CheckInstalledPackage(s.ctx, s.cfg, pd.Name, config.InstalledPackageExpectation{
 			Version:           pd.Package.Version,
 			ArchiveSHA256:     want,
 			LibrarySHA256:     pd.LibrarySHA256,
-			SignatureVerifier: signatureVerifier,
+			SignatureVerifier: verify,
 		})
 		if err != nil {
 			return item, fmt.Errorf("failed to check installed driver %s: %w", pd.Name, err)
@@ -471,16 +472,19 @@ func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target
 	return f, nil
 }
 
-// columnarSignatureVerifier returns the verifier of the Columnar package
-// signature, or nil when noVerify is set. Its failures are marked with
+// signatureVerifier returns the verifier of the package signature with key, or
+// nil when noVerify is set. Its failures are marked with
 // signatureVerificationError.
-func columnarSignatureVerifier(noVerify bool) config.PackageVerifier {
+func signatureVerifier(key *dbc.SigningKey, noVerify bool) config.PackageVerifier {
 	if noVerify {
 		return nil
 	}
 	return func(stagingDir string, manifest config.Manifest) error {
-		// VerifyPackageSignature checks the driver library's Columnar signature.
-		if err := dbc.VerifyPackageSignature(stagingDir, manifest); err != nil {
+		if key == nil {
+			return &signatureVerificationError{err: errors.New("no signing key is available to verify the package")}
+		}
+		// VerifyPackage checks the driver library's signature with the pinned key.
+		if err := key.VerifyPackage(stagingDir, manifest); err != nil {
 			return &signatureVerificationError{err: err}
 		}
 		return nil
@@ -597,7 +601,7 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 					return nil
 				}
 			}
-			options.SignatureVerifier = columnarSignatureVerifier(s.NoVerify)
+			options.SignatureVerifier = signatureVerifier(item.Signer, s.NoVerify)
 			manifest, err := s.installPackage(s.ctx, cfg, item.Name, item.File, options)
 			// Remove the archive before reporting: the program may exit as soon
 			// as the last result arrives.
