@@ -19,8 +19,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -109,4 +111,31 @@ func TestCheckInstalledPackageLibrarySHA256(t *testing.T) {
 		require.Error(t, err, bad)
 		assert.False(t, ok)
 	}
+}
+
+func TestInspectPackageArchiveSignatureVerifier(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+
+	archive := testPackageArchive(t, "library bytes")
+	var stagedLibrary []byte
+	info, err := InspectPackageArchive(archive, WithInspectSignatureVerifier(func(stagingDir string, manifest Manifest) error {
+		var err error
+		stagedLibrary, err = os.ReadFile(filepath.Join(stagingDir, manifest.Files.Driver))
+		return err
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "library bytes", string(stagedLibrary), "the verifier sees the staged package")
+	assert.Equal(t, fileSHA256(t, archive), info.ArchiveSHA256)
+
+	failed := errors.New("bad signature")
+	info, err = InspectPackageArchive(archive, WithInspectSignatureVerifier(func(string, Manifest) error { return failed }))
+	require.ErrorIs(t, err, failed)
+	assert.Empty(t, info.ArchiveSHA256, "no digest is returned for an unverified archive")
+
+	entries, err := os.ReadDir(tmp)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "no staging directory may be left behind")
 }
