@@ -1,0 +1,3 @@
+# The detached signature covers the exact bytes of the payload, so git must not
+# convert its line endings on checkout.
+testdata/signing/* -text
