@@ -62,9 +62,11 @@ folder of your user configuration directory, for example
   refuses to start registry operations if a rule is invalid.
 - The mirror must serve the same bytes as the registry. Requests to a mirror are
   sent without credentials and without the telemetry identifiers dbc normally
-  adds. Archive hashes and signatures are still verified, so a mirror cannot
-  change the contents of a driver unnoticed.
-- dbc does not fall back to the original URL when the mirror fails.
+  adds. Archive hashes and signatures are checked exactly as without a mirror,
+  so a mirror cannot change a driver unnoticed while signature verification is
+  on or the archive hash is pinned in `dbc.lock`.
+- dbc does not fall back to the original URL when the mirror fails, and refuses
+  a redirect from the mirror back to a URL that a rule replaces.
 - `dbc.lock` and `dbc.toml` keep the original registry URLs, so a lock file
   created behind a mirror can be shared with people who use the registry
   directly and the other way round.
