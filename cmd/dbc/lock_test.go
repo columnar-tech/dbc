@@ -267,3 +267,43 @@ func (suite *SubcommandTestSuite) TestLockDriverListWithoutDrivers() {
 	suite.Contains(out, "no drivers found")
 	suite.NoFileExists(suite.lockPath())
 }
+
+func (suite *SubcommandTestSuite) TestLockNoVerifyRejectsMalformedArchive() {
+	listPath := suite.writeDriverList("test-driver-1")
+	base := testBaseModel()
+	base.downloadPkg = func(dbc.PkgInfo) (*os.File, error) {
+		dir, err := os.MkdirTemp("", "dbc-lock-test-")
+		if err != nil {
+			return nil, err
+		}
+		path := filepath.Join(dir, "broken.tar.gz")
+		if err := os.WriteFile(path, []byte("not a package archive"), 0o600); err != nil {
+			return nil, err
+		}
+		return os.Open(path)
+	}
+	suite.runCmdErr(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(base))
+	suite.NoFileExists(suite.lockPath(), "an archive that cannot be installed is never pinned")
+}
+
+func (suite *SubcommandTestSuite) TestLockMatchesSyncLock() {
+	listPath := suite.writeDriverList("test-driver-1")
+	suite.runCmd(SyncCmd{Path: listPath, Level: config.ConfigEnv}.GetModelCustom(testBaseModel()))
+	synced := suite.readLockBytes()
+	suite.Require().NoError(os.Remove(suite.lockPath()))
+
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
+	suite.Equal(string(synced), string(suite.readLockBytes()), "lock and sync write the same lock file")
+}
+
+func (suite *SubcommandTestSuite) TestLockReplaysCompleteLockWithoutRegistry() {
+	listPath := suite.writeDriverList("test-driver-1")
+	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(hashedBaseModel(hash)))
+	before := suite.readLockBytes()
+
+	var counters syncCounters
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(counters.counted(unreachableRegistries(testBaseModel()))))
+	suite.Equal(before, suite.readLockBytes())
+	suite.Zero(counters.downloads)
+}

@@ -132,7 +132,9 @@ func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	}
 	defer removeDownload(f)
 
-	var verify config.PackageVerifier
+	// Always extract the archive with the install-time safety checks, so an
+	// archive that could not be installed is never pinned, even with NoVerify.
+	verify := func(string, config.Manifest) error { return nil }
 	if !m.NoVerify {
 		// VerifyPackageSignature checks the driver library's Columnar signature.
 		verify = func(stagingDir string, manifest config.Manifest) error {
