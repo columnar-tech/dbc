@@ -25,6 +25,7 @@ function _dbc {
                 'init[Create new driver list]' \
                 'add[Add one or more drivers to the driver list]' \
                 'sync[Install all drivers in the driver list]' \
+                'lock[Create or update the lock file from the driver list]' \
                 'search[Search for drivers]' \
                 'info[Get detailed information about a specific driver]' \
                 'docs[Open driver documentation in a web browser]' \
@@ -51,6 +52,9 @@ function _dbc {
                 ;;
                 sync)
                     _dbc_sync_completions
+                ;;
+                lock)
+                    _dbc_lock_completions
                 ;;
                 search)
                     _dbc_search_completions
@@ -135,6 +139,16 @@ function _dbc_sync_completions {
         '--no-verify[do not verify the driver after installation]' \
         '--json[Print output as JSON instead of plaintext]' \
         '--json-stream-progress[Stream progress events as JSON lines (implies --json)]'
+}
+
+function _dbc_lock_completions {
+    _arguments  \
+        '(--help)-h[Help]' \
+        '(-h)--help[Help]' \
+        '(-p)--path[driver list to lock]: :_files -g \*.toml' \
+        '(--path)-p[driver list to lock]: :_files -g \*.toml' \
+        '--no-verify[do not verify the driver signature]' \
+        '--json[Print output as JSON instead of plaintext]'
 }
 
 function _dbc_search_completions {

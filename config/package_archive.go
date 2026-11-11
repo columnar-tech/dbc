@@ -141,11 +141,31 @@ type PackageArchiveInfo struct {
 	Manifest Manifest
 }
 
+// InspectOption configures InspectPackageArchive.
+type InspectOption func(*inspectOptions)
+
+type inspectOptions struct {
+	signatureVerifier PackageVerifier
+}
+
+// WithInspectSignatureVerifier makes InspectPackageArchive call verify on the
+// private staging directory and the decoded manifest, the way InstallPackage
+// calls InstallPackageOptions.SignatureVerifier on its staged package. A
+// failure is returned wrapped, before any result is produced.
+func WithInspectSignatureVerifier(verify PackageVerifier) InspectOption {
+	return func(o *inspectOptions) { o.signatureVerifier = verify }
+}
+
 // InspectPackageArchive extracts f into a private temporary staging directory
 // with the same safety checks as InstallPackage, hashes the archive and the
-// driver library, removes the staging directory and returns the result. It
-// does not close f and does not touch any installation.
-func InspectPackageArchive(f *os.File) (PackageArchiveInfo, error) {
+// driver library, optionally verifies the staged package, removes the staging
+// directory and returns the result. It does not close f and does not touch any
+// installation.
+func InspectPackageArchive(f *os.File, opts ...InspectOption) (PackageArchiveInfo, error) {
+	var options inspectOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	if f == nil {
 		return PackageArchiveInfo{}, errors.New("package archive file is nil")
 	}
@@ -164,6 +184,11 @@ func InspectPackageArchive(f *os.File) (PackageArchiveInfo, error) {
 		return PackageArchiveInfo{}, fmt.Errorf("could not open staging directory: %w", err)
 	}
 	defer root.Close()
+	if options.signatureVerifier != nil {
+		if err := options.signatureVerifier(stageDir, manifest); err != nil {
+			return PackageArchiveInfo{}, fmt.Errorf("verify package: %w", err)
+		}
+	}
 	library, err := root.Open(manifest.Files.Driver)
 	if err != nil {
 		return PackageArchiveInfo{}, fmt.Errorf("could not open driver library: %w", err)
