@@ -49,11 +49,11 @@ func (v *nativeVerifier) configureTUF(cfg Config) error {
 	}
 	v.cacheDir = cfg.CacheDir
 	if v.cacheDir == "" {
-		dir, err := internal.GetUserConfigPath()
+		dir, err := internal.GetUserCachePath()
 		if err != nil {
-			return fmt.Errorf("find dbc config directory for Sigstore TUF cache: %w", err)
+			return fmt.Errorf("find dbc cache directory for Sigstore TUF cache: %w", err)
 		}
-		v.cacheDir = filepath.Join(dir, "cache", "sigstore-tuf")
+		v.cacheDir = filepath.Join(dir, "sigstore-tuf")
 	}
 	if !filepath.IsAbs(v.cacheDir) {
 		return fmt.Errorf("Sigstore TUF cache directory must be absolute: %q", v.cacheDir)

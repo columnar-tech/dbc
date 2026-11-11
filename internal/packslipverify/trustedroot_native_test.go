@@ -24,7 +24,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -320,16 +319,18 @@ func TestNewTUFConfig(t *testing.T) {
 
 func TestNewDefaultCacheDir(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("uses XDG_CONFIG_HOME")
+		t.Skip("uses XDG_CACHE_HOME")
 	}
-	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
 	v, err := New(Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := v.(*nativeVerifier).cacheDir
-	if !strings.HasPrefix(dir, cfg) || !strings.HasSuffix(dir, "sigstore-tuf") {
-		t.Errorf("default cache dir = %q", dir)
+	if got, want := v.(*nativeVerifier).cacheDir, filepath.Join(cache, "columnar", "dbc", "sigstore-tuf"); got != want {
+		t.Errorf("default cache dir = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(cache, "columnar")); !os.IsNotExist(err) {
+		t.Errorf("New created the cache directory: %v", err)
 	}
 }
