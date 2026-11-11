@@ -312,12 +312,12 @@ func (suite *SubcommandTestSuite) TestLockReplaysCompleteLockWithoutRegistry() {
 func (suite *SubcommandTestSuite) TestLockRecordsSigner() {
 	listPath := suite.writeDriverList("test-driver-1")
 	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
-	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-1").Signature)
+	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-1").Signer)
 
 	listPath = suite.writeDriverList("test-driver-no-sig")
 	suite.Require().NoError(os.Remove(suite.lockPath()))
 	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(testBaseModel()))
-	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-no-sig").Signature)
+	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-no-sig").Signer)
 }
 
 func (suite *SubcommandTestSuite) assertLockRejectsUntrustedPin(noVerify bool) {
