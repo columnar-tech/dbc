@@ -30,6 +30,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/config"
@@ -252,9 +253,10 @@ func (suite *SubcommandTestSuite) TestSyncCompletesLockedDriverFromBoundRegistry
 	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
 	otherPath := "test-driver-1/1.0.0/test-driver-1-other.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:    "test-driver-1",
-		Version: "1.0.0",
-		Source:  lockedSource{Type: lockSourceRegistry, URL: "https://registry.columnar.tech"},
+		Name:      "test-driver-1",
+		Version:   "1.0.0",
+		Signature: testSignature,
+		Source:    lockedSource{Type: lockSourceRegistry, URL: "https://registry.columnar.tech"},
 		Artifacts: []lockedArtifact{{
 			Target:   testSyncTarget(suite.T(), otherTarget),
 			Format:   "tar.gz",
@@ -586,9 +588,10 @@ func (suite *SubcommandTestSuite) TestSyncReplayDoesNotSendCredentialsToOtherHos
 	listPath := suite.writeDriverList("test-driver-1")
 	mirrorURL := mirror.URL + "/mirror/test-driver-1.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:    "test-driver-1",
-		Version: "1.0.0",
-		Source:  lockedSource{Type: lockSourceRegistry, URL: registry.URL},
+		Name:      "test-driver-1",
+		Version:   "1.0.0",
+		Signature: testSignature,
+		Source:    lockedSource{Type: lockSourceRegistry, URL: registry.URL},
 		Artifacts: []lockedArtifact{{
 			Target:   testSyncTarget(suite.T(), config.PlatformTuple()),
 			Format:   "tar.gz",
@@ -752,9 +755,10 @@ func (suite *SubcommandTestSuite) TestSyncCompletionErrorsHideRegistrySecrets() 
 	suite.Require().NoError(err)
 	path := "test-driver-1/1.0.0/other.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:    "test-driver-1",
-		Version: "1.0.0",
-		Source:  lockedSource{Type: lockSourceRegistry, URL: identity},
+		Name:      "test-driver-1",
+		Version:   "1.0.0",
+		Signature: testSignature,
+		Source:    lockedSource{Type: lockSourceRegistry, URL: identity},
 		Artifacts: []lockedArtifact{{
 			Target:   testSyncTarget(suite.T(), otherTarget),
 			Format:   "tar.gz",
@@ -922,4 +926,129 @@ func (suite *SubcommandTestSuite) TestSyncQuitDuringInstallKeepsArchiveInUse() {
 	suite.FileExists(files[0].Name(), "the archive in use by the install worker is not touched")
 	suite.NoFileExists(files[1].Name())
 	suite.NoFileExists(files[2].Name())
+}
+
+// pinOtherSigner rewrites the lock file so that driver pins a key that dbc does
+// not trust, and returns the new file contents.
+func (suite *SubcommandTestSuite) pinOtherSigner(driver string) []byte {
+	lock := suite.readV2Lock()
+	for i := range lock.Drivers {
+		if lock.Drivers[i].Name == driver {
+			lock.Drivers[i].Signature.Fingerprint = otherFingerprint
+		}
+	}
+	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lock))
+	return suite.readLockBytes()
+}
+
+func (suite *SubcommandTestSuite) TestSyncRecordsSignerAndReplaysIt() {
+	listPath := suite.writeDriverList("test-driver-1")
+	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)))
+	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-1").Signature)
+	before := suite.readLockBytes()
+
+	var counters syncCounters
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(counters.counted(unreachableRegistries(hashedBaseModel(hash)))))
+	suite.Equal(before, suite.readLockBytes())
+}
+
+func (suite *SubcommandTestSuite) TestSyncNoVerifyRecordsSigner() {
+	listPath := suite.writeDriverList("test-driver-no-sig")
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, NoVerify: true}.GetModelCustom(testBaseModel()))
+	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-no-sig").Signature)
+	suite.assertReceipt("test-driver-no-sig", "test-driver-no-sig.tar.gz", false)
+}
+
+func (suite *SubcommandTestSuite) assertSyncRejectsUntrustedPin(noVerify, installed bool) {
+	listPath := suite.writeDriverList("test-driver-1")
+	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)))
+	var oldLibrary []byte
+	if installed {
+		var err error
+		oldLibrary, err = os.ReadFile(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
+		suite.Require().NoError(err)
+	} else {
+		suite.Require().NoError(config.UninstallDriver(getConfig(suite.configLevel), suite.getInstalledDriver("test-driver-1")))
+	}
+	lock := suite.pinOtherSigner("test-driver-1")
+
+	var counters syncCounters
+	cmd := SyncCmd{Path: listPath, Level: suite.configLevel, NoVerify: noVerify, Json: true}
+	out := suite.runCmdErr(cmd.GetModelCustom(counters.counted(hashedBaseModel(hash))))
+	suite.assertJSONErrorEnvelope(out, "sync_failed", otherFingerprint)
+
+	suite.Zero(counters.downloads)
+	suite.Zero(counters.index)
+	suite.Zero(counters.boundIndex)
+	suite.Equal(lock, suite.readLockBytes(), "the lock file must stay untouched")
+	if installed {
+		library, err := os.ReadFile(suite.getInstalledDriver("test-driver-1").Driver.Shared.Get(config.PlatformTuple()))
+		suite.Require().NoError(err)
+		suite.Equal(oldLibrary, library)
+	} else {
+		suite.driverIsNotInstalled("test-driver-1")
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncRejectsUntrustedPinnedSigner() {
+	suite.assertSyncRejectsUntrustedPin(false, true)
+}
+
+func (suite *SubcommandTestSuite) TestSyncRejectsUntrustedPinnedSignerNotInstalled() {
+	suite.assertSyncRejectsUntrustedPin(false, false)
+}
+
+func (suite *SubcommandTestSuite) TestSyncRejectsUntrustedPinnedSignerWithNoVerify() {
+	suite.assertSyncRejectsUntrustedPin(true, true)
+}
+
+func (suite *SubcommandTestSuite) TestSyncRejectsUntrustedPinnedSignerWithNoVerifyNotInstalled() {
+	suite.assertSyncRejectsUntrustedPin(true, false)
+}
+
+// The key that verifies a package is the one of the planned driver: without a
+// planned key nothing falls back to the built-in key, unless verification is
+// switched off.
+func (suite *SubcommandTestSuite) TestSyncVerifiesWithThePlannedKey() {
+	listPath := suite.writeDriverList("test-driver-1")
+	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)))
+
+	model := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)).(syncModel)
+	pd := &plannedDriver{Name: "test-driver-1", Package: dbc.PkgInfo{
+		Driver:        dbc.Driver{Title: "test-driver-1", Path: "test-driver-1"},
+		PlatformTuple: config.PlatformTuple(),
+		Version:       semver.MustParse("1.0.0"),
+		ArchiveSHA256: hash,
+		Path:          testURL(suite.T(), "https://registry.columnar.tech/test-driver-1/1.0.0/test-driver-1.tar.gz"),
+	}}
+	if suite.supportsReuse() {
+		// Reuse: the installed package verifies with the planned key only.
+		var err error
+		pd.Signer, err = dbc.ColumnarSigningKey()
+		suite.Require().NoError(err)
+		item, err := model.fetch(pd)
+		suite.Require().NoError(err)
+		suite.NotNil(item.Installed, "the installed package is reused")
+		suite.Same(pd.Signer, item.Signer)
+
+		pd.Signer = nil
+		item, err = model.fetch(pd)
+		suite.Require().NoError(err)
+		suite.Nil(item.Installed, "without a key the package is not reused")
+		removeDownload(item.File)
+	}
+	// Fresh install: the key travels with the item to the installer.
+	pd.Signer = nil
+	model.NoVerify = false
+	item, err := model.fetch(pd)
+	suite.Require().NoError(err)
+	suite.Nil(item.Signer)
+	verify := signatureVerifier(item.Signer, false)
+	suite.Require().NotNil(verify)
+	suite.Error(verify(suite.T().TempDir(), config.Manifest{}))
+	removeDownload(item.File)
+	suite.Nil(signatureVerifier(nil, true), "NoVerify skips the verification")
 }
