@@ -29,8 +29,10 @@ import (
 // Prefix and Replacement are absolute http or https URLs without userinfo,
 // query or fragment. A request URL matches when its origin (scheme, host and
 // port) equals the prefix's and the prefix path is a prefix of the request
-// path at a path segment boundary. The matching part of the URL is then
-// replaced by Replacement. Requests that were replaced are always anonymous:
+// path at a path segment boundary. Percent-encoded unreserved ASCII
+// characters compare as their literal characters; reserved escapes such as
+// %2F stay escaped and do not become path separators. The matching part of
+// the URL is then replaced by Replacement. Requests that were replaced are always anonymous:
 // no credentials, no telemetry identifiers and no fallback to the original
 // URL.
 type URLReplacement struct {
@@ -52,7 +54,8 @@ var ErrInvalidURLReplacement = errors.New("invalid URL replacement")
 // urlRule is a validated URLReplacement.
 type urlRule struct {
 	origin redirectOrigin
-	// path is the escaped prefix path without a trailing slash.
+	// path is the escaped prefix path with unreserved escapes normalized and
+	// without a trailing slash.
 	path string
 	// scheme, host and replPath describe the replacement; replPath is the
 	// escaped path without a trailing slash.
@@ -108,7 +111,7 @@ func newURLRouter(rules []URLReplacement) (*urlRouter, error) {
 		}
 		r.rules = append(r.rules, urlRule{
 			origin:   originOf(p),
-			path:     strings.TrimRight(p.EscapedPath(), "/"),
+			path:     strings.TrimRight(normalizeEscapedPath(p.EscapedPath()).path, "/"),
 			scheme:   strings.ToLower(repl.Scheme),
 			host:     repl.Host,
 			replPath: strings.TrimRight(repl.EscapedPath(), "/"),
@@ -126,7 +129,9 @@ func (r *urlRouter) route(u *url.URL) (eff *url.URL, replaced bool, err error) {
 		return nil, false, nil
 	}
 	o := originOf(u)
-	p := u.EscapedPath()
+	escapedPath := u.EscapedPath()
+	normalized := normalizeEscapedPath(escapedPath)
+	p := normalized.path
 	for _, rule := range r.rules {
 		if rule.origin != o {
 			continue
@@ -137,7 +142,8 @@ func (r *urlRouter) route(u *url.URL) (eff *url.URL, replaced bool, err error) {
 		if u.RawQuery != "" || u.ForceQuery {
 			return nil, false, fmt.Errorf("refusing to send %s%s to a URL replacement: the URL has a query string, which is never sent to a replacement", u.Host, p)
 		}
-		eff, err = url.Parse(rule.scheme + "://" + rule.host + rule.replPath + p[len(rule.path):])
+		suffixOffset := normalized.sourceOffset(len(rule.path))
+		eff, err = url.Parse(rule.scheme + "://" + rule.host + rule.replPath + escapedPath[suffixOffset:])
 		if err != nil {
 			return nil, false, fmt.Errorf("failed to build replacement URL for %s%s: %w", u.Host, p, err)
 		}
@@ -181,6 +187,9 @@ func anonymousGet(ctx context.Context, hc *http.Client, r *urlRouter, eff *url.U
 func (r *urlRouter) withoutRedirectsToReplaced(hc *http.Client) *http.Client {
 	guarded := *hc
 	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
+			return errors.New("refusing HTTPS to HTTP redirect for URL replacement request")
+		}
 		if _, replaced, err := r.route(req.URL); replaced || err != nil {
 			return fmt.Errorf("refusing redirect to %s, which a URL replacement rule replaces", req.URL.Host)
 		}
@@ -193,6 +202,78 @@ func (r *urlRouter) withoutRedirectsToReplaced(hc *http.Client) *http.Client {
 		return nil
 	}
 	return &guarded
+}
+
+type normalizedEscapedPath struct {
+	path    string
+	offsets []int
+}
+
+// normalizeEscapedPath decodes percent-encoded unreserved ASCII characters
+// and uppercases retained escapes. offsets maps normalized byte boundaries
+// back to the corresponding boundary in the original escaped path.
+func normalizeEscapedPath(path string) normalizedEscapedPath {
+	var normalized strings.Builder
+	normalized.Grow(len(path))
+	offsets := make([]int, 1, len(path)+1)
+	offsets[0] = 0
+	for i := 0; i < len(path); {
+		start := i
+		var token string
+		if path[i] == '%' && i+2 < len(path) {
+			if high, ok := fromHex(path[i+1]); ok {
+				if low, ok := fromHex(path[i+2]); ok {
+					value := high<<4 | low
+					if isUnreserved(value) {
+						token = string([]byte{value})
+					} else {
+						token = strings.ToUpper(path[i : i+3])
+					}
+					i += 3
+				}
+			}
+		}
+		if token == "" {
+			token = path[i : i+1]
+			i++
+		}
+		normalized.WriteString(token)
+		for j := 1; j <= len(token); j++ {
+			if j == len(token) {
+				offsets = append(offsets, i)
+			} else {
+				offsets = append(offsets, start)
+			}
+		}
+	}
+	return normalizedEscapedPath{path: normalized.String(), offsets: offsets}
+}
+
+func (p normalizedEscapedPath) sourceOffset(normalizedOffset int) int {
+	if normalizedOffset <= 0 {
+		return 0
+	}
+	if normalizedOffset >= len(p.offsets) {
+		return p.offsets[len(p.offsets)-1]
+	}
+	return p.offsets[normalizedOffset]
+}
+
+func fromHex(b byte) (byte, bool) {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0', true
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10, true
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10, true
+	default:
+		return 0, false
+	}
+}
+
+func isUnreserved(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9' || b == '-' || b == '.' || b == '_' || b == '~'
 }
 
 var defaultRouter atomic.Pointer[urlRouter]

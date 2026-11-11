@@ -63,12 +63,18 @@ func TestURLRouterMatching(t *testing.T) {
 		{"http default port", []URLReplacement{{Prefix: "http://a.example:80", Replacement: "http://m.example"}}, "http://a.example/x", "http://m.example/x"},
 		{"segment boundary exact", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/foo", "https://m.example/bar"},
 		{"segment boundary child", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/foo/baz", "https://m.example/bar/baz"},
+		{"encoded unreserved prefix", []URLReplacement{{Prefix: "https://a.example/%66oo", Replacement: "https://m.example/bar"}}, "https://a.example/foo/baz", "https://m.example/bar/baz"},
+		{"encoded unreserved request prefix", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/%66oo/baz", "https://m.example/bar/baz"},
+		{"encoded unreserved escape case", []URLReplacement{{Prefix: "https://a.example/f%6Fo", Replacement: "https://m.example/bar"}}, "https://a.example/foo/baz", "https://m.example/bar/baz"},
+		{"encoded unreserved boundary violated", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/%66oobar", ""},
 		{"segment boundary violated", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/foobar", ""},
 		{"trailing slash on prefix", []URLReplacement{{Prefix: "https://a.example/foo/", Replacement: "https://m.example/bar"}}, "https://a.example/foo/x", "https://m.example/bar/x"},
 		{"trailing slash on replacement", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar/"}}, "https://a.example/foo/x", "https://m.example/bar/x"},
 		{"trailing slash on both", []URLReplacement{{Prefix: "https://a.example/", Replacement: "https://m.example/"}}, "https://a.example/x/y", "https://m.example/x/y"},
 		{"escaped path kept verbatim", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/foo/a%2Fb%20c", "https://m.example/bar/a%2Fb%20c"},
+		{"escaped suffix kept verbatim", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example/bar"}}, "https://a.example/foo/a%66", "https://m.example/bar/a%66"},
 		{"escaped slash is not a boundary", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example"}}, "https://a.example/foo%2Fbar", ""},
+		{"lowercase escaped slash is not a boundary", []URLReplacement{{Prefix: "https://a.example/foo", Replacement: "https://m.example"}}, "https://a.example/foo%2fbar", ""},
 		{"first match wins", []URLReplacement{
 			{Prefix: "https://a.example/x", Replacement: "https://one.example"},
 			{Prefix: "https://a.example", Replacement: "https://two.example"},
@@ -463,8 +469,25 @@ func TestURLReplacementRedirectToReplacedURLRefused(t *testing.T) {
 	assert.Zero(t, f.upstreamHits.Load())
 }
 
+func TestURLReplacementEncodedRedirectToReplacedURLRefused(t *testing.T) {
+	var f *mirrorFixture
+	f = newMirrorFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, f.upstream.URL+"/%66oo/index.yaml", http.StatusFound)
+	})
+	rules := []URLReplacement{{Prefix: f.upstream.URL + "/foo", Replacement: f.mirror.URL + "/prefix"}}
+	c, err := NewClient(WithBaseURL(f.upstream.URL), WithURLReplacements(rules))
+	require.NoError(t, err)
+
+	_, err = c.makeRequest(t.Context(), f.upstream.URL+"/foo/index.yaml")
+	require.ErrorContains(t, err, "refusing redirect")
+	assert.Equal(t, int32(1), f.mirrorHits.Load())
+	assert.Zero(t, f.upstreamHits.Load())
+}
+
 func TestURLReplacementHTTPSDowngradeRefused(t *testing.T) {
+	var plainHits atomic.Int32
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits.Add(1)
 		io.WriteString(w, "plain")
 	}))
 	defer plain.Close()
@@ -474,7 +497,7 @@ func TestURLReplacementHTTPSDowngradeRefused(t *testing.T) {
 	defer mirror.Close()
 
 	hc := mirror.Client()
-	hc.CheckRedirect = checkRedirect
+	hc.CheckRedirect = nil
 	c, err := NewClient(
 		WithHTTPClient(hc),
 		WithBaseURL("https://upstream.example"),
@@ -484,6 +507,33 @@ func TestURLReplacementHTTPSDowngradeRefused(t *testing.T) {
 	_, err = c.makeRequest(t.Context(), "https://upstream.example/index.yaml")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refusing HTTPS to HTTP redirect")
+	assert.Zero(t, plainHits.Load(), "the HTTP destination must not receive the downgraded request")
+	assert.Nil(t, hc.CheckRedirect, "the provided client is not modified")
+}
+
+func TestURLReplacementHTTPSDowngradeRefusedWithPermissiveCallback(t *testing.T) {
+	var plainHits atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits.Add(1)
+		io.WriteString(w, "plain")
+	}))
+	defer plain.Close()
+	mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, plain.URL+"/x", http.StatusFound)
+	}))
+	defer mirror.Close()
+
+	hc := mirror.Client()
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return nil }
+	c, err := NewClient(
+		WithHTTPClient(hc),
+		WithBaseURL("https://upstream.example"),
+		WithURLReplacements([]URLReplacement{{Prefix: "https://upstream.example", Replacement: mirror.URL}}),
+	)
+	require.NoError(t, err)
+	_, err = c.makeRequest(t.Context(), "https://upstream.example/index.yaml")
+	require.ErrorContains(t, err, "refusing HTTPS to HTTP redirect")
+	assert.Zero(t, plainHits.Load())
 }
 
 func TestLegacyDownloadPackageURLReplacement(t *testing.T) {

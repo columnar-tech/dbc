@@ -17,12 +17,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/columnar-tech/dbc"
@@ -70,6 +73,13 @@ func writeUserConfig(t *testing.T, content string) string {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.toml"), []byte(content), 0o600))
 	return dir
+}
+
+func parseTestURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+	return u
 }
 
 func mirrorRuleConfig(prefix, replacement string) string {
@@ -121,7 +131,7 @@ func (suite *SubcommandTestSuite) applyMirrorRule(mirror, upstream *prefixedRegi
 	resetClientState()
 	dir := writeUserConfig(suite.T(), mirrorRuleConfig(upstream.URL, mirror.URL+"/m"))
 	suite.Empty(loadStartupRegistryConfig(dir))
-	suite.NoError(urlReplacementsErr)
+	suite.NoError(startupRegistryConfigErr)
 }
 
 func (suite *SubcommandTestSuite) TestSyncThroughMirrorKeepsCanonicalLock() {
@@ -195,8 +205,8 @@ func TestInvalidURLReplacementsFailRegistryCommands(t *testing.T) {
 	t.Cleanup(resetClientState)
 
 	dir := writeUserConfig(t, mirrorRuleConfig("https://dbc-cdn.columnar.tech", "http://mirror.example.com"))
-	assert.Empty(t, loadStartupRegistryConfig(dir), "invalid rules are an error, not a warning")
-	require.Error(t, urlReplacementsErr)
+	assert.True(t, strings.HasPrefix(loadStartupRegistryConfig(dir), "warning:"))
+	require.Error(t, startupRegistryConfigErr)
 
 	c, err := newDBCClient(nil, nil)
 	require.Nil(t, c)
@@ -213,11 +223,97 @@ func TestInvalidURLReplacementsFailRegistryCommands(t *testing.T) {
 	_, err = downloadPkg(dbc.PkgInfo{Path: testRegistry.BaseURL.JoinPath("x.tar.gz")})
 	require.ErrorIs(t, err, dbc.ErrInvalidURLReplacement)
 
-	// Other load errors stay warnings.
-	resetClientState()
-	bad := writeUserConfig(t, "this is not toml")
-	assert.True(t, strings.HasPrefix(loadStartupRegistryConfig(bad), "warning:"))
-	assert.NoError(t, urlReplacementsErr)
+}
+
+func TestGlobalConfigLoadErrorsStopRegistryOperations(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+	t.Cleanup(resetClientState)
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "wrong prefix type",
+			config: `[[network.url_replacements]]
+prefix = 123
+replacement = "https://mirror.example.com"
+`,
+			wantErr: "prefix",
+		},
+		{
+			name:    "malformed TOML",
+			config:  "this is not toml",
+			wantErr: "invalid",
+		},
+		{
+			name: "valid mirror with invalid registry",
+			config: `[[network.url_replacements]]
+prefix = "https://upstream.example.com"
+replacement = "https://mirror.example.com"
+
+[[registries]]
+url = "not a registry URL"
+`,
+			wantErr: "registry",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetClientState()
+			var hits atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				_, _ = io.WriteString(w, "unexpected request")
+			}))
+			defer server.Close()
+			dir := writeUserConfig(t, tt.config)
+			assert.True(t, strings.HasPrefix(loadStartupRegistryConfig(dir), "warning:"))
+			require.Error(t, startupRegistryConfigErr)
+			assert.Contains(t, strings.ToLower(startupRegistryConfigErr.Error()), tt.wantErr)
+
+			_, err := newDBCClient(nil, nil)
+			require.ErrorIs(t, err, startupRegistryConfigErr)
+
+			_, err = fetchRegistryIndex(dbc.Registry{BaseURL: parseTestURL(t, server.URL)})
+			require.ErrorIs(t, err, startupRegistryConfigErr)
+
+			_, err = downloadPkg(dbc.PkgInfo{Path: parseTestURL(t, server.URL+"/x.tar.gz")})
+			require.ErrorIs(t, err, startupRegistryConfigErr)
+			assert.Zero(t, hits.Load(), "registry configuration failures stop requests before HTTP")
+		})
+	}
+
+	t.Run("missing config keeps defaults", func(t *testing.T) {
+		resetClientState()
+		assert.Empty(t, loadStartupRegistryConfig(t.TempDir()))
+		assert.NoError(t, startupRegistryConfigErr)
+	})
+
+	t.Run("valid config permits operations", func(t *testing.T) {
+		resetClientState()
+		dir := writeUserConfig(t, "replace_defaults = false\n")
+		assert.Empty(t, loadStartupRegistryConfig(dir))
+		assert.NoError(t, startupRegistryConfigErr)
+		_, err := newDBCClient(nil, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("config read error stops registry operations", func(t *testing.T) {
+		resetClientState()
+		dir := t.TempDir()
+		require.NoError(t, os.Mkdir(filepath.Join(dir, "config.toml"), 0o700))
+		assert.True(t, strings.HasPrefix(loadStartupRegistryConfig(dir), "warning:"))
+		require.Error(t, startupRegistryConfigErr)
+		_, err := newDBCClient(nil, nil)
+		require.ErrorIs(t, err, startupRegistryConfigErr)
+	})
+
+	t.Run("help remains available with an invalid config", func(t *testing.T) {
+		result := runStartup(writeUserConfig(t, "this is not toml"), []string{"--help"})
+		require.Equal(t, startupHelp, result.kind)
+	})
 }
 
 // getRegistryViaClient runs the real lazy client initialisation.
