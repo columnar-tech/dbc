@@ -122,7 +122,7 @@ version = 2
 name = 'mysql'
 version = '0.1.0'
 
-[drivers.signature]
+[drivers.signer]
 type = 'openpgp'
 fingerprint = 'ab7766e9b341299ebc7f45dd82abd0a33a3c9e48'
 
@@ -156,7 +156,7 @@ kind = 'registry-path'
 value = 'mysql/v0.1.0/mysql_macos_arm64_v0.1.0.tar.gz'
 ```
 
-The `signature` table names the expected signer of the driver: its packages must verify with the OpenPGP key whose primary key (certificate) fingerprint is recorded, in lowercase hex. A signing subkey of that key is accepted, so a renewed subkey keeps working, but replacing the primary key requires updating the entry. Today `dbc` only trusts the key that is built into it, which signs the packages of the default registry. The table is a policy, not evidence that a signature was verified: whether a verification happened on a machine is recorded with the installed driver.
+The `signer` table names the expected signer of the driver: its packages must verify with the OpenPGP key whose primary key (certificate) fingerprint is recorded, in lowercase hex. A signing subkey of that key is accepted, so a renewed subkey keeps working, but replacing the primary key requires updating the entry. Today `dbc` only trusts the key that is built into it, which signs the packages of the default registry. The table is a policy, not evidence that a signature was verified: whether a verification happened on a machine is recorded with the installed driver.
 
 Unless `--no-verify` is set, `dbc sync` verifies the drivers it reuses or installs with the pinned key, and `dbc sync` and `dbc lock` verify the archives they download with it. If the lockfile pins a key that this version of `dbc` does not trust, or a driver that is resolved again would use a different key than the one pinned, dbc fails before downloading anything, installing anything or changing the lockfile, and never falls back to another key. `--no-verify` skips the signature verification of that run, but it does not change or bypass the pin. To accept a different key, delete the driver's entry from the lockfile and run `dbc sync` or `dbc lock` again.
 

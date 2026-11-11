@@ -253,10 +253,10 @@ func (suite *SubcommandTestSuite) TestSyncCompletesLockedDriverFromBoundRegistry
 	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
 	otherPath := "test-driver-1/1.0.0/test-driver-1-other.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:      "test-driver-1",
-		Version:   "1.0.0",
-		Signature: testSignature,
-		Source:    lockedSource{Type: lockSourceRegistry, URL: "https://registry.columnar.tech"},
+		Name:    "test-driver-1",
+		Version: "1.0.0",
+		Signer:  testSigner,
+		Source:  lockedSource{Type: lockSourceRegistry, URL: "https://registry.columnar.tech"},
 		Artifacts: []lockedArtifact{{
 			Target:   testSyncTarget(suite.T(), otherTarget),
 			Format:   "tar.gz",
@@ -588,10 +588,10 @@ func (suite *SubcommandTestSuite) TestSyncReplayDoesNotSendCredentialsToOtherHos
 	listPath := suite.writeDriverList("test-driver-1")
 	mirrorURL := mirror.URL + "/mirror/test-driver-1.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:      "test-driver-1",
-		Version:   "1.0.0",
-		Signature: testSignature,
-		Source:    lockedSource{Type: lockSourceRegistry, URL: registry.URL},
+		Name:    "test-driver-1",
+		Version: "1.0.0",
+		Signer:  testSigner,
+		Source:  lockedSource{Type: lockSourceRegistry, URL: registry.URL},
 		Artifacts: []lockedArtifact{{
 			Target:   testSyncTarget(suite.T(), config.PlatformTuple()),
 			Format:   "tar.gz",
@@ -755,10 +755,10 @@ func (suite *SubcommandTestSuite) TestSyncCompletionErrorsHideRegistrySecrets() 
 	suite.Require().NoError(err)
 	path := "test-driver-1/1.0.0/other.tar.gz"
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lockFileV2{Version: lockFileVersionV2, Drivers: []lockedDriver{{
-		Name:      "test-driver-1",
-		Version:   "1.0.0",
-		Signature: testSignature,
-		Source:    lockedSource{Type: lockSourceRegistry, URL: identity},
+		Name:    "test-driver-1",
+		Version: "1.0.0",
+		Signer:  testSigner,
+		Source:  lockedSource{Type: lockSourceRegistry, URL: identity},
 		Artifacts: []lockedArtifact{{
 			Target:   testSyncTarget(suite.T(), otherTarget),
 			Format:   "tar.gz",
@@ -934,7 +934,7 @@ func (suite *SubcommandTestSuite) pinOtherSigner(driver string) []byte {
 	lock := suite.readV2Lock()
 	for i := range lock.Drivers {
 		if lock.Drivers[i].Name == driver {
-			lock.Drivers[i].Signature.Fingerprint = otherFingerprint
+			lock.Drivers[i].Signer.Fingerprint = otherFingerprint
 		}
 	}
 	suite.Require().NoError(writeLockFileV2(suite.lockPath(), lock))
@@ -945,7 +945,7 @@ func (suite *SubcommandTestSuite) TestSyncRecordsSignerAndReplaysIt() {
 	listPath := suite.writeDriverList("test-driver-1")
 	hash := testArchiveSHA256(suite, "test-driver-1.tar.gz")
 	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(hashedBaseModel(hash)))
-	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-1").Signature)
+	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-1").Signer)
 	before := suite.readLockBytes()
 
 	var counters syncCounters
@@ -956,7 +956,7 @@ func (suite *SubcommandTestSuite) TestSyncRecordsSignerAndReplaysIt() {
 func (suite *SubcommandTestSuite) TestSyncNoVerifyRecordsSigner() {
 	listPath := suite.writeDriverList("test-driver-no-sig")
 	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, NoVerify: true}.GetModelCustom(testBaseModel()))
-	suite.Equal(testSignature, suite.lockedDriverEntry("test-driver-no-sig").Signature)
+	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-no-sig").Signer)
 	suite.assertReceipt("test-driver-no-sig", "test-driver-no-sig.tar.gz", false)
 }
 

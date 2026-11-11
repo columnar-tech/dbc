@@ -146,7 +146,7 @@ func lockedAlpha(version string, artifacts ...lockedArtifact) lockedDriver {
 	return lockedDriver{
 		Name:      "alpha",
 		Version:   version,
-		Signature: testSignature,
+		Signer:    testSigner,
 		Source:    lockedSource{Type: lockSourceRegistry, URL: "https://registry.example.com"},
 		Artifacts: artifacts,
 	}
@@ -560,7 +560,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
 		require.NoError(t, err)
 		assert.Same(t, columnar, planned[0].Signer)
-		assert.Equal(t, lockedSignature{Type: lockSignatureOpenPGP, Fingerprint: columnar.Fingerprint()}, planned[0].Entry.Signature)
+		assert.Equal(t, lockedSigner{Type: lockSignerOpenPGP, Fingerprint: columnar.Fingerprint()}, planned[0].Entry.Signer)
 	})
 
 	t.Run("v1 lock upgrade records the key of the source", func(t *testing.T) {
@@ -568,7 +568,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0"), Platform: "linux_amd64"})
 		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 		require.NoError(t, err)
-		assert.Equal(t, columnar.Fingerprint(), planned[0].Entry.Signature.Fingerprint)
+		assert.Equal(t, columnar.Fingerprint(), planned[0].Entry.Signer.Fingerprint)
 	})
 
 	t.Run("replay uses the pinned key", func(t *testing.T) {
@@ -580,19 +580,19 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		assert.Zero(t, f.indexCalls)
 	})
 
-	t.Run("completing a missing target keeps the signature", func(t *testing.T) {
+	t.Run("completing a missing target keeps the signer", func(t *testing.T) {
 		f := newPlanFixture(t)
 		lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)))
 		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 		require.NoError(t, err)
-		assert.Equal(t, testSignature, planned[0].Entry.Signature)
+		assert.Equal(t, testSigner, planned[0].Entry.Signer)
 		assert.Same(t, columnar, planned[0].Signer)
 	})
 
 	t.Run("an untrusted pin fails before any registry access", func(t *testing.T) {
 		f := newPlanFixture(t)
 		d := lockedAlpha("1.0.0", pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB))
-		d.Signature.Fingerprint = otherFingerprint
+		d.Signer.Fingerprint = otherFingerprint
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), otherFingerprint)
@@ -604,7 +604,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 	t.Run("resolving again may not replace the pin", func(t *testing.T) {
 		f := newPlanFixture(t)
 		d := lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA))
-		d.Signature.Fingerprint = otherFingerprint
+		d.Signer.Fingerprint = otherFingerprint
 		spec := driverSpec{Version: constraint(t, ">=1.1")}
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": spec}), v2Lock(d))
 		require.Error(t, err)
