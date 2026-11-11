@@ -447,6 +447,22 @@ func TestGlobalConfigURLReplacementsWithBaseURLAndRegistries(t *testing.T) {
 	assert.Zero(t, f.upstreamHits.Load())
 }
 
+// A mirror must not be able to send a replaced request to the site it stands
+// in for.
+func TestURLReplacementRedirectToReplacedURLRefused(t *testing.T) {
+	var f *mirrorFixture
+	f = newMirrorFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, f.upstream.URL+"/index.yaml", http.StatusFound)
+	})
+	c, err := NewClient(WithBaseURL(f.upstream.URL), WithURLReplacements(f.rules()))
+	require.NoError(t, err)
+
+	_, err = c.makeRequest(t.Context(), f.upstream.URL+"/index.yaml")
+	require.ErrorContains(t, err, "refusing redirect")
+	assert.Equal(t, int32(1), f.mirrorHits.Load())
+	assert.Zero(t, f.upstreamHits.Load())
+}
+
 func TestURLReplacementHTTPSDowngradeRefused(t *testing.T) {
 	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "plain")

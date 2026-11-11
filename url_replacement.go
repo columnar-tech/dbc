@@ -149,8 +149,10 @@ func (r *urlRouter) route(u *url.URL) (eff *url.URL, replaced bool, err error) {
 // anonymousGet performs a GET for a replaced request. It sends no credentials
 // and no query, never falls back to the original URL, and reports every
 // failure (including non-200 statuses) naming the effective host and path.
-// canonicalPath decides the Accept header, as for unreplaced requests.
-func anonymousGet(ctx context.Context, do func(*http.Request) (*http.Response, error), eff *url.URL, canonicalPath string) (*http.Response, error) {
+// canonicalPath decides the Accept header, as for unreplaced requests. A
+// redirect that leads back to a URL some rule replaces is refused, so a mirror
+// cannot send the request to the site it stands in for.
+func anonymousGet(ctx context.Context, hc *http.Client, r *urlRouter, eff *url.URL, canonicalPath string) (*http.Response, error) {
 	where := eff.Host + eff.EscapedPath()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, eff.String(), nil)
 	if err != nil {
@@ -159,7 +161,7 @@ func anonymousGet(ctx context.Context, do func(*http.Request) (*http.Response, e
 	if canonicalPath == "/index.yaml" {
 		req.Header.Set("Accept", "application/yaml")
 	}
-	resp, err := do(req)
+	resp, err := r.withoutRedirectsToReplaced(hc).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request to %s (URL replacement): %w", where, err)
 	}
@@ -172,6 +174,25 @@ func anonymousGet(ctx context.Context, do func(*http.Request) (*http.Response, e
 	}
 	resp.Body.Close()
 	return nil, fmt.Errorf("request to %s (URL replacement): %s", where, resp.Status)
+}
+
+// withoutRedirectsToReplaced returns a copy of hc that keeps hc's redirect
+// policy and additionally refuses redirects to URLs that a rule replaces.
+func (r *urlRouter) withoutRedirectsToReplaced(hc *http.Client) *http.Client {
+	guarded := *hc
+	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if _, replaced, err := r.route(req.URL); replaced || err != nil {
+			return fmt.Errorf("refusing redirect to %s, which a URL replacement rule replaces", req.URL.Host)
+		}
+		if hc.CheckRedirect != nil {
+			return hc.CheckRedirect(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &guarded
 }
 
 var defaultRouter atomic.Pointer[urlRouter]

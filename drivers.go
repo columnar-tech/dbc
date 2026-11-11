@@ -156,12 +156,13 @@ func makereq(u string) (resp *http.Response, err error) {
 	}
 
 	// Replaced requests are anonymous: no credentials, no telemetry ids.
-	eff, replaced, err := defaultRouter.Load().route(uri)
+	router := defaultRouter.Load()
+	eff, replaced, err := router.route(uri)
 	if err != nil {
 		return nil, err
 	}
 	if replaced {
-		return anonymousGet(context.Background(), getHTTPClient().Do, eff, uri.Path)
+		return anonymousGet(context.Background(), getHTTPClient(), router, eff, uri.Path)
 	}
 
 	ensureSetup()

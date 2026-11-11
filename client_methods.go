@@ -44,7 +44,7 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 		return nil, err
 	}
 	if replaced {
-		return anonymousGet(ctx, c.httpClient.Do, eff, uri.Path)
+		return anonymousGet(ctx, c.httpClient, c.router, eff, uri.Path)
 	}
 
 	c.setup()
