@@ -300,7 +300,7 @@ dbc sync --file dbc.toml
 Create or update the `dbc.lock` file next to a [driver list](../concepts/driver_list.md) without installing any driver.
 This resolves the driver list exactly like [sync](#sync) does: versions and archive hashes already recorded in an existing `dbc.lock` are kept where they still satisfy the driver list, and a version 1 lock file is upgraded to version 2.
 No installed driver or [config level](config_level.md) is touched.
-An archive is downloaded only when the registry does not publish its hash for the current platform or when an existing version 1 lock file is upgraded and its recorded driver library checksum must be compared with the downloaded archive. The download is verified, its signature is checked before its hash is recorded (unless `--no-verify` is set), and it is removed again.
+An archive is downloaded only when the registry does not publish its hash for the current platform or when an existing version 1 lock file is upgraded and its recorded driver library checksum must be compared with the downloaded archive. The download is verified, its signature is checked with the key the lock file pins for the driver before its hash is recorded (unless `--no-verify` is set), and it is removed again. A pinned key that dbc does not trust is an error even with `--no-verify`.
 The lock file is written only after every driver succeeded; on error, an existing lock file stays unchanged.
 See [Lockfile](../guides/driver_list.md#lockfile).
 
