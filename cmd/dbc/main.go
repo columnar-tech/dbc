@@ -87,6 +87,11 @@ var (
 	// built in this process, including clients rebuilt after reading a project's
 	// dbc.toml registry section.
 	globalRegistryConfig *dbc.GlobalConfig
+
+	// startupRegistryConfigErr records a global config load failure. Registry
+	// operations return it instead of silently using default registries, which
+	// could send requests to an upstream the user meant to avoid.
+	startupRegistryConfigErr error
 )
 
 func newDefaultClient() (*dbc.Client, error) {
@@ -128,13 +133,18 @@ func setUserAgentSuffix(suffix string) {
 // Callers pass nil/nil for process-wide operations (search, info, install);
 // project commands (add, sync, remove) pass the values parsed from dbc.toml.
 func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
+	if startupRegistryConfigErr != nil {
+		return nil, startupRegistryConfigErr
+	}
 	var opts []dbc.Option
+	// The global config also carries the URL replacements, which apply even
+	// when DBC_BASE_URL chooses the registry.
+	if globalRegistryConfig != nil {
+		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+	}
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
 	} else {
-		if globalRegistryConfig != nil {
-			opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
-		}
 		if projectRegs != nil || projectReplaceDefaults != nil {
 			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
 		}
@@ -170,6 +180,8 @@ func resetClientState() {
 	dbcClientErr = nil
 	dbcClientOnce = &sync.Once{}
 	globalRegistryConfig = nil
+	startupRegistryConfigErr = nil
+	_ = dbc.SetDefaultURLReplacements(nil)
 }
 
 func initDBCClient() error {
@@ -202,7 +214,13 @@ func configuredRegistries() ([]dbc.Registry, error) {
 // fetchRegistryIndex fetches the index of one registry only. Unlike a search
 // over all registries, any failure is an error.
 func fetchRegistryIndex(r dbc.Registry) ([]dbc.Driver, error) {
+	if startupRegistryConfigErr != nil {
+		return nil, startupRegistryConfigErr
+	}
 	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{{Name: r.Name, BaseURL: r.BaseURL}})}
+	if globalRegistryConfig != nil {
+		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+	}
 	if userAgentSuffix != "" {
 		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
 	}
@@ -230,6 +248,10 @@ type progressMsg struct {
 }
 
 func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
+	// A locked sync can get here without building a registry client.
+	if startupRegistryConfigErr != nil {
+		return nil, startupRegistryConfigErr
+	}
 	return p.DownloadPackage(func(written, total int64) {
 		prog.Send(progressMsg{total: total, written: written})
 	})
@@ -353,15 +375,19 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 
 // loadStartupRegistryConfig reads the user's global config.toml and stashes
 // it into globalRegistryConfig. Extracted from main() so tests can exercise
-// the same startup path. Returns an error message string for display (never
-// fatal — a missing or malformed config is reported as a warning and the
-// default registry set is preserved).
+// the same startup path. A load failure is reported as a warning and retained
+// so registry operations cannot fall back to the default upstream.
 func loadStartupRegistryConfig(configDir string) string {
 	cfg, err := dbc.LoadGlobalConfig(configDir)
 	if err != nil {
+		startupRegistryConfigErr = err
 		return fmt.Sprintf("warning: failed to load registry config: %v", err)
 	}
 	globalRegistryConfig = cfg
+	if cfg != nil {
+		// Cannot fail: LoadGlobalConfig validated the rules.
+		_ = dbc.SetDefaultURLReplacements(cfg.Network.URLReplacements)
+	}
 	return ""
 }
 

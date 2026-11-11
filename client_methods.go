@@ -33,12 +33,21 @@ import (
 )
 
 func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, error) {
-	c.setup()
-
 	uri, err := url.Parse(u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
+
+	// Replaced requests are anonymous: no credentials, no telemetry ids.
+	eff, replaced, err := c.router.route(uri)
+	if err != nil {
+		return nil, err
+	}
+	if replaced {
+		return anonymousGet(ctx, c.httpClient, c.router, eff, uri.Path)
+	}
+
+	c.setup()
 
 	cred, err := c.getCredential(uri)
 	if err != nil && !os.IsNotExist(err) {
