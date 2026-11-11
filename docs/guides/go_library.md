@@ -71,6 +71,16 @@ options apply. It returns an error if the merged configuration produces no
 registries. The loaders do not reject `replace_defaults = true` with no entries
 on its own, because the other configuration layer may supply entries.
 
+## URL replacements
+
+`dbc.WithURLReplacements([]dbc.URLReplacement{...})` sends requests for URLs
+under a prefix to a mirror instead; see [Mirrors](../concepts/driver_registry.md#mirrors).
+`dbc.WithGlobalConfig` applies the `network.url_replacements` rules of the
+loaded `config.toml` the same way, and `dbc.LoadGlobalConfig` and `dbc.NewClient`
+return an error for invalid rules. Replacements apply with `WithBaseURL` and
+`WithRegistries` too. Requests that were replaced are anonymous. The deprecated
+package-level functions use `dbc.SetDefaultURLReplacements`.
+
 ## Explicit registry overrides
 
 `dbc.WithRegistries([]dbc.Registry{...})` replaces the entire registry list,
