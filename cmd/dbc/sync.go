@@ -285,32 +285,68 @@ func (s syncModel) prepare() ([]syncItem, error) {
 }
 
 func (s syncModel) prepareWithWarnings() (items []syncItem, warnings []string, err error) {
-	// Preserve URL stripping for every diagnostic, including failures before
-	// the project lock is acquired. Secret values are handled at source boundaries.
-	defer func() { err = redactURLSecrets(err, nil) }()
-	if !s.projectLock.begin() {
-		return nil, warnings, context.Canceled
-	}
-	defer s.projectLock.end()
-	listPath, err := filepath.Abs(s.Path)
+	return driverListResolution{
+		path:        s.Path,
+		ctx:         s.ctx,
+		projectLock: s.projectLock,
+		base:        s.baseModel,
+	}.resolve(s.fetch)
+}
+
+// driverListPaths returns the absolute driver list path and the path of its
+// lock file for a user-supplied driver list path or directory.
+func driverListPaths(path string) (listPath, lockPath string, err error) {
+	listPath, err = filepath.Abs(path)
 	if err != nil {
-		return nil, warnings, err
+		return "", "", err
 	}
 	if filepath.Ext(listPath) == "" {
 		listPath = filepath.Join(listPath, "dbc.toml")
 	}
-	lockPath := strings.TrimSuffix(listPath, filepath.Ext(listPath)) + ".lock"
+	lockPath = strings.TrimSuffix(listPath, filepath.Ext(listPath)) + ".lock"
+	return listPath, lockPath, nil
+}
+
+// driverListResolution resolves a driver list into its lock file. dbc sync and
+// dbc lock share it and differ only in the per-driver step they pass to resolve.
+type driverListResolution struct {
+	// path is the driver list path or directory as given by the user.
+	path string
+	ctx  context.Context
+	// projectLock holds the project lock for the lifetime of the command.
+	projectLock *syncProjectLock
+	// base provides the registry and download functions.
+	base baseModel
+}
+
+// resolve plans every driver, runs fetch for each planned driver and writes
+// the lock file once all of them succeeded, all while holding the project lock.
+// fetch may record a measured archive digest in the planned lock entry. The
+// items returned by fetch are released with removeDownload when resolving
+// fails. On success the project lock stays held; callers release it.
+func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, error)) (items []syncItem, warnings []string, err error) {
+	// Preserve URL stripping for every diagnostic, including failures before
+	// the project lock is acquired. Secret values are handled at source boundaries.
+	defer func() { err = redactURLSecrets(err, nil) }()
+	if !r.projectLock.begin() {
+		return nil, warnings, context.Canceled
+	}
+	defer r.projectLock.end()
+	listPath, lockPath, err := driverListPaths(r.path)
+	if err != nil {
+		return nil, warnings, err
+	}
 
 	lock, err := acquireLock(filepath.Join(filepath.Dir(listPath), ".dbc.project.lock"), 10*time.Second)
 	if err != nil {
 		return nil, warnings, err
 	}
-	if !s.projectLock.hold(lock) {
+	if !r.projectLock.hold(lock) {
 		return nil, warnings, context.Canceled
 	}
 	defer func() {
 		if err != nil {
-			s.projectLock.release()
+			r.projectLock.release()
 			for _, item := range items {
 				removeDownload(item.File)
 			}
@@ -333,36 +369,36 @@ func (s syncModel) prepareWithWarnings() (items []syncItem, warnings []string, e
 				urls = append(urls, u)
 			}
 		}
-		return nil, warnings, redactRegistryError(err, s.getRegistries, urls...)
+		return nil, warnings, redactRegistryError(err, r.base.getRegistries, urls...)
 	}
 
 	planner := syncPlanner{
 		target:        config.PlatformTuple(),
-		registries:    s.getRegistries,
-		index:         s.getDriverRegistry,
-		registryIndex: s.getRegistryIndex,
+		registries:    r.base.getRegistries,
+		index:         r.base.getDriverRegistry,
+		registryIndex: r.base.getRegistryIndex,
 	}
 	planned, warnings, err := planner.plan(list, existing)
 	if err != nil {
 		return nil, warnings, err
 	}
-	if err := s.ctx.Err(); err != nil {
+	if err := r.ctx.Err(); err != nil {
 		return nil, warnings, err
 	}
 
 	entries := make([]lockedDriver, 0, len(planned))
 	for i := range planned {
-		if err := s.ctx.Err(); err != nil {
+		if err := r.ctx.Err(); err != nil {
 			return items, warnings, err
 		}
-		item, err := s.fetch(&planned[i])
+		item, err := fetch(&planned[i])
 		if err != nil {
 			return items, warnings, err
 		}
 		items = append(items, item)
 		entries = append(entries, planned[i].Entry)
 	}
-	if err := s.ctx.Err(); err != nil {
+	if err := r.ctx.Err(); err != nil {
 		return items, warnings, err
 	}
 	if err := writeLockFileV2(lockPath, lockFileV2{Version: lockFileVersionV2, Drivers: entries}); err != nil {
@@ -406,28 +442,42 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	if err != nil {
 		return item, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, s.getRegistries, pd.Package.Path))
 	}
+	if err := checkDownloadedArchive(f, pd, target, nil); err != nil {
+		removeDownload(f)
+		return item, err
+	}
+	item.Package, item.File = pd.Package, f
+	return item, nil
+}
+
+// checkDownloadedArchive checks a downloaded archive against the plan: the
+// locked size, the archive hash and the v1 library proof. When the registry
+// published no hash, the measured digest is recorded in the planned package
+// and lock entry. A non-nil verify runs on the extracted package before any
+// digest is recorded. It leaves f positioned at its start and does not close it.
+func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Target, verify config.PackageVerifier) error {
 	if pd.ArchiveSize != nil {
 		info, err := f.Stat()
 		if err != nil {
-			removeDownload(f)
-			return item, fmt.Errorf("failed to stat downloaded driver %s: %w", pd.Name, err)
+			return fmt.Errorf("failed to stat downloaded driver %s: %w", pd.Name, err)
 		}
 		if info.Size() != *pd.ArchiveSize {
-			removeDownload(f)
-			return item, &archiveSizeMismatchError{Driver: pd.Name, Expected: *pd.ArchiveSize, Actual: info.Size()}
+			return &archiveSizeMismatchError{Driver: pd.Name, Expected: *pd.ArchiveSize, Actual: info.Size()}
 		}
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		removeDownload(f)
-		return item, fmt.Errorf("failed to seek downloaded driver archive: %w", err)
+		return fmt.Errorf("failed to seek downloaded driver archive: %w", err)
 	}
-	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "")
+	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "", verify)
 	if err == nil {
 		_, err = f.Seek(0, io.SeekStart)
 	}
 	if err != nil {
-		removeDownload(f)
-		return item, fmt.Errorf("failed to inspect downloaded driver %s: %w", pd.Name, err)
+		var sigErr *signatureVerificationError
+		if errors.As(err, &sigErr) {
+			return fmt.Errorf("failed to verify signature: %w", sigErr.err)
+		}
+		return fmt.Errorf("failed to inspect downloaded driver %s: %w", pd.Name, err)
 	}
 	switch want := pd.Package.ArchiveSHA256; {
 	case want == "":
@@ -438,22 +488,31 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 			}
 		}
 	case want != digest:
-		removeDownload(f)
-		return item, fmt.Errorf("driver %s: %w", pd.Name, &config.ArchiveHashMismatchError{Expected: want, Actual: digest})
+		return fmt.Errorf("driver %s: %w", pd.Name, &config.ArchiveHashMismatchError{Expected: want, Actual: digest})
 	}
 	if pd.LibrarySHA256 != "" && pd.LibrarySHA256 != library {
-		removeDownload(f)
-		return item, &libraryChecksumError{Driver: pd.Name, Expected: pd.LibrarySHA256, Actual: library}
+		return &libraryChecksumError{Driver: pd.Name, Expected: pd.LibrarySHA256, Actual: library}
 	}
-	item.Package, item.File = pd.Package, f
-	return item, nil
+	return nil
 }
 
+// signatureVerificationError marks a failed package signature check so that it
+// is not reported as a failure to inspect the archive.
+type signatureVerificationError struct{ err error }
+
+func (e *signatureVerificationError) Error() string { return e.err.Error() }
+func (e *signatureVerificationError) Unwrap() error { return e.err }
+
 // archiveDigests returns the SHA-256 of the archive and, when withLibrary is
-// set, of the driver library inside it.
-func archiveDigests(f *os.File, withLibrary bool) (archive, library string, err error) {
-	if withLibrary {
-		info, err := config.InspectPackageArchive(f)
+// set, of the driver library inside it. A non-nil verify checks the extracted
+// package in the same pass and fails before any digest is returned.
+func archiveDigests(f *os.File, withLibrary bool, verify config.PackageVerifier) (archive, library string, err error) {
+	if withLibrary || verify != nil {
+		var opts []config.InspectOption
+		if verify != nil {
+			opts = append(opts, config.WithInspectSignatureVerifier(verify))
+		}
+		info, err := config.InspectPackageArchive(f, opts...)
 		return info.ArchiveSHA256, info.LibrarySHA256, err
 	}
 	archive, err = checksum(f.Name())
