@@ -37,6 +37,9 @@ type RegistryEntry struct {
 type GlobalConfig struct {
 	Registries      []RegistryEntry `toml:"registries"`
 	ReplaceDefaults bool            `toml:"replace_defaults,omitempty"`
+	// Network holds settings that change where requests are sent. They are
+	// only read from the user's config, never from a project's dbc.toml.
+	Network NetworkConfig `toml:"network,omitempty"`
 }
 
 // LoadGlobalConfig reads config.toml from configDir. It returns (nil, nil) if
@@ -67,8 +70,17 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 		}
 	}
 
+	if _, err := newURLRouter(cfg.Network.URLReplacements); err != nil {
+		return nil, fmt.Errorf("%s: %w", configPath, err)
+	}
+
 	return &cfg, nil
 }
+
+// ErrProjectNetwork is returned when a project's dbc.toml contains a network
+// table. Network settings such as URL replacements are only read from the
+// user's config, so a project cannot redirect requests.
+var ErrProjectNetwork = errors.New("network settings are only read from the user config, not from dbc.toml; remove the [network] table")
 
 // LoadProjectRegistries reads only registries and replace_defaults from a
 // project's dbc.toml, leaving driver specifications to the caller. A nil
@@ -87,9 +99,13 @@ func LoadProjectRegistries(path string) ([]RegistryEntry, *bool, error) {
 	var cfg struct {
 		Registries      []RegistryEntry `toml:"registries"`
 		ReplaceDefaults *bool           `toml:"replace_defaults"`
+		Network         map[string]any  `toml:"network"`
 	}
 	if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
 		return nil, nil, fmt.Errorf("invalid %s: %w", path, err)
+	}
+	if cfg.Network != nil {
+		return nil, nil, fmt.Errorf("%s: %w", path, ErrProjectNetwork)
 	}
 	for _, entry := range cfg.Registries {
 		if err := validateRegistryEntry(entry); err != nil {

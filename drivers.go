@@ -150,12 +150,21 @@ func getHTTPClient() *http.Client {
 }
 
 func makereq(u string) (resp *http.Response, err error) {
-	ensureSetup()
-
 	uri, err := url.Parse(u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
+
+	// Replaced requests are anonymous: no credentials, no telemetry ids.
+	eff, replaced, err := defaultRouter.Load().route(uri)
+	if err != nil {
+		return nil, err
+	}
+	if replaced {
+		return anonymousGet(context.Background(), getHTTPClient().Do, eff, uri.Path)
+	}
+
+	ensureSetup()
 
 	cred, err := auth.GetCredentials(uri)
 	if err != nil && !os.IsNotExist(err) {
