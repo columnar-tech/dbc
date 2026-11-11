@@ -295,6 +295,8 @@ dbc sync --file dbc.toml
 
 ## lock
 
+{{ since_version('v0.4.0') }}
+
 Create or update the `dbc.lock` file next to a [driver list](../concepts/driver_list.md) without installing any driver.
 This resolves the driver list exactly like [sync](#sync) does: versions and archive hashes already recorded in an existing `dbc.lock` are kept where they still satisfy the driver list, and a version 1 lock file is upgraded to version 2.
 No installed driver or [config level](config_level.md) is touched.
