@@ -629,6 +629,98 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         let mut driver = ManagedDriver::load_from_name("datafusion", ... )
         ```
 
+=== "Druid"
+
+    ```console
+    $ dbc install --pre druid
+    ```
+
+    <br/><span class="quickstart-step-number">3</span> [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "druid", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("druid");
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "druid", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "druid");
+        ```
+
+    === "JS/TS"
+
+        ```javascript
+        import { AdbcDatabase } from "@apache-arrow/adbc-driver-manager";
+
+        const db = new AdbcDatabase({driver: "druid", ... });
+        ```
+
+        !!! note
+
+            The JavaScript/TypeScript ADBC driver manager is for server-side runtimes like Node.js, Deno, and Bun. It does not run in the browser.
+
+    === "Kotlin"
+
+        ```kotlin
+        import org.apache.arrow.adbc.driver.jni.JniDriver
+
+        JniDriver.PARAM_DRIVER.set(params, "druid")
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="druid", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("druid")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "druid")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("druid", ... )
+        ```
+
 === "DuckDB"
 
     ```console
