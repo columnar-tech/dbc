@@ -87,6 +87,12 @@ var (
 	// built in this process, including clients rebuilt after reading a project's
 	// dbc.toml registry section.
 	globalRegistryConfig *dbc.GlobalConfig
+
+	// urlReplacementsErr records invalid network.url_replacements rules found
+	// in the user config at startup. Unlike other config problems it is not
+	// downgraded to a warning: continuing would send requests to the upstream
+	// the user meant to avoid. Registry operations return it instead.
+	urlReplacementsErr error
 )
 
 func newDefaultClient() (*dbc.Client, error) {
@@ -128,13 +134,18 @@ func setUserAgentSuffix(suffix string) {
 // Callers pass nil/nil for process-wide operations (search, info, install);
 // project commands (add, sync, remove) pass the values parsed from dbc.toml.
 func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
+	if urlReplacementsErr != nil {
+		return nil, urlReplacementsErr
+	}
 	var opts []dbc.Option
+	// The global config also carries the URL replacements, which apply even
+	// when DBC_BASE_URL chooses the registry.
+	if globalRegistryConfig != nil {
+		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+	}
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
 	} else {
-		if globalRegistryConfig != nil {
-			opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
-		}
 		if projectRegs != nil || projectReplaceDefaults != nil {
 			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
 		}
@@ -170,6 +181,8 @@ func resetClientState() {
 	dbcClientErr = nil
 	dbcClientOnce = &sync.Once{}
 	globalRegistryConfig = nil
+	urlReplacementsErr = nil
+	_ = dbc.SetDefaultURLReplacements(nil)
 }
 
 func initDBCClient() error {
@@ -202,7 +215,13 @@ func configuredRegistries() ([]dbc.Registry, error) {
 // fetchRegistryIndex fetches the index of one registry only. Unlike a search
 // over all registries, any failure is an error.
 func fetchRegistryIndex(r dbc.Registry) ([]dbc.Driver, error) {
+	if urlReplacementsErr != nil {
+		return nil, urlReplacementsErr
+	}
 	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{{Name: r.Name, BaseURL: r.BaseURL}})}
+	if globalRegistryConfig != nil {
+		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+	}
 	if userAgentSuffix != "" {
 		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
 	}
@@ -359,9 +378,18 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 func loadStartupRegistryConfig(configDir string) string {
 	cfg, err := dbc.LoadGlobalConfig(configDir)
 	if err != nil {
+		if errors.Is(err, dbc.ErrInvalidURLReplacement) {
+			// Not a warning: see urlReplacementsErr.
+			urlReplacementsErr = err
+			return ""
+		}
 		return fmt.Sprintf("warning: failed to load registry config: %v", err)
 	}
 	globalRegistryConfig = cfg
+	if cfg != nil {
+		// Cannot fail: LoadGlobalConfig validated the rules.
+		_ = dbc.SetDefaultURLReplacements(cfg.Network.URLReplacements)
+	}
 	return ""
 }
 
