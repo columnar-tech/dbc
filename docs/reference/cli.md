@@ -47,6 +47,7 @@ $ dbc [OPTIONS] <COMMAND>
 <dt><a href="#add">dbc add</a></dt><dd><p>Add a driver to the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#remove">dbc remove</a></dt><dd><p>Remove a driver from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
 <dt><a href="#sync">dbc sync</a></dt><dd><p>Install the drivers from the <a href="../../concepts/driver_list/">driver list</a></p></dd>
+<dt><a href="#lock">dbc lock</a></dt><dd><p>Create or update the lock file from the <a href="../../concepts/driver_list/">driver list</a> without installing drivers</p></dd>
 <dt><a href="#auth">dbc auth</a></dt><dd><p>Manage driver registry credentials</p></dd>
 </dl>
 
@@ -289,6 +290,39 @@ dbc sync --file dbc.toml
 :   Allow installation of drivers without a signature file
 
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
+
+:   Suppress all output
+
+## lock
+
+Create or update the `dbc.lock` file next to a [driver list](../concepts/driver_list.md) without installing any driver.
+This resolves the driver list exactly like [sync](#sync) does: versions and archive hashes already recorded in an existing `dbc.lock` are kept where they still satisfy the driver list, and a version 1 lock file is upgraded to version 2.
+No installed driver or [config level](config_level.md) is touched.
+An archive is downloaded only when the registry does not publish its hash for the current platform or when a version 1 lock file requires its library checksum to be checked. The download is verified, its signature is checked before its hash is recorded (unless `--no-verify` is set), and it is removed again.
+The lock file is written only after every driver succeeded; on error, an existing lock file stays unchanged.
+See [Lockfile](../guides/driver_list.md#lockfile).
+
+<h3>Usage</h3>
+
+```console
+$ dbc lock [OPTIONS]
+```
+
+<h3>Options</h3>
+
+`--path FILE`, `-p FILE`
+
+:   Path to a [driver list](../concepts/driver_list.md) file to lock. Defaults to `dbc.toml` in the current working directory.
+
+`--no-verify`
+
+:   Allow locking drivers without a signature file. The archive hash checks still apply.
+
+`--json`
+
+:   Print output as JSON instead of plaintext. On success, a single `lock.status` object lists the path of the lock file and the name and version of each locked driver.
+
+`--quiet`, `-q`
 
 :   Suppress all output
 

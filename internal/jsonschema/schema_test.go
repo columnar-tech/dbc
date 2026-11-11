@@ -657,3 +657,21 @@ func TestSyncError(t *testing.T) {
 		t.Errorf("round-trip mismatch:\n want %+v\n  got %+v", v, got)
 	}
 }
+
+func TestLockStatus(t *testing.T) {
+	v := jsonschema.LockStatus{
+		LockFilePath: "/project/dbc.lock",
+		Drivers:      []jsonschema.LockedDriver{{Name: "snowflake", Version: "1.0.0"}},
+	}
+	b, _ := json.Marshal(v)
+	if string(b) != `{"lock_file_path":"/project/dbc.lock","drivers":[{"name":"snowflake","version":"1.0.0"}]}` {
+		t.Errorf("unexpected JSON: %s", b)
+	}
+	var got jsonschema.LockStatus
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.LockFilePath != v.LockFilePath || len(got.Drivers) != 1 || got.Drivers[0] != v.Drivers[0] {
+		t.Errorf("round trip mismatch: %+v", got)
+	}
+}

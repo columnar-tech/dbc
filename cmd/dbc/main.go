@@ -295,6 +295,7 @@ type cmds struct {
 	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
 	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
+	Lock       *LockCmd         `arg:"subcommand" help:"Create or update the lock file from the driver list without installing drivers"`
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
