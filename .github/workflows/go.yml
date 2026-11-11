@@ -49,11 +49,11 @@ jobs:
         # macos-15 is intel macos while macos-latest is arm64
         os: [ 'ubuntu-latest', 'windows-latest', 'macos-latest', 'macos-15' ]
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - name: Install Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: "./go.mod"
           cache: true
