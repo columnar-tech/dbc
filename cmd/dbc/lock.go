@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/columnar-tech/dbc/internal/resolution"
@@ -126,27 +125,16 @@ func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	if err != nil {
 		return item, err
 	}
-	f, err := m.downloadPkg(pd.Package)
-	if err != nil {
-		return item, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, m.getRegistries, pd.Package.Path))
-	}
-	defer removeDownload(f)
-
 	// Always extract the archive with the install-time safety checks, so an
 	// archive that could not be installed is never pinned, even with NoVerify.
-	verify := func(string, config.Manifest) error { return nil }
-	if !m.NoVerify {
-		// VerifyPackageSignature checks the driver library's Columnar signature.
-		verify = func(stagingDir string, manifest config.Manifest) error {
-			if err := dbc.VerifyPackageSignature(stagingDir, manifest); err != nil {
-				return &signatureVerificationError{err: err}
-			}
-			return nil
-		}
-	}
-	if err := checkDownloadedArchive(f, pd, target, verify); err != nil {
+	f, err := downloadArchive(m.baseModel, pd, target, archiveChecks{
+		extract:   true,
+		signature: columnarSignatureVerifier(m.NoVerify),
+	})
+	if err != nil {
 		return item, err
 	}
+	removeDownload(f)
 	item.Package = pd.Package
 	return item, nil
 }

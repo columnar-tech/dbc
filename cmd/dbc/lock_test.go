@@ -169,11 +169,11 @@ func (suite *SubcommandTestSuite) TestLockChecksLockedArchiveSize() {
 	wrong := info.Size() + 1
 	pd := plannedDriver{Name: "test-driver-1", ArchiveSize: &wrong}
 	var sizeErr *archiveSizeMismatchError
-	suite.ErrorAs(checkDownloadedArchive(f, &pd, target, nil), &sizeErr)
+	suite.ErrorAs(checkDownloadedArchive(f, &pd, target, archiveChecks{}), &sizeErr)
 
 	right := info.Size()
 	pd = plannedDriver{Name: "test-driver-1", ArchiveSize: &right, Entry: lockedDriver{Artifacts: []lockedArtifact{{Target: target}}}}
-	suite.Require().NoError(checkDownloadedArchive(f, &pd, target, nil))
+	suite.Require().NoError(checkDownloadedArchive(f, &pd, target, archiveChecks{}))
 	suite.Equal(lockHashPrefix+testArchiveSHA256(suite, "test-driver-1.tar.gz"), pd.Entry.Artifacts[0].Hash)
 }
 

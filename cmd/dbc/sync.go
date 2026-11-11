@@ -438,24 +438,62 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 		}
 	}
 
-	f, err := s.downloadPkg(pd.Package)
+	// The signature is verified when the package is installed.
+	f, err := downloadArchive(s.baseModel, pd, target, archiveChecks{})
 	if err != nil {
-		return item, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, s.getRegistries, pd.Package.Path))
-	}
-	if err := checkDownloadedArchive(f, pd, target, nil); err != nil {
-		removeDownload(f)
 		return item, err
 	}
 	item.Package, item.File = pd.Package, f
 	return item, nil
 }
 
+// archiveChecks selects the checks of a downloaded archive beyond its locked
+// size, archive hash and v1 library proof.
+type archiveChecks struct {
+	// extract extracts the archive with the install-time safety checks even
+	// when no library proof needs it.
+	extract bool
+	// signature, when set, verifies the extracted package; it implies extract.
+	signature config.PackageVerifier
+}
+
+// downloadArchive downloads the archive of a planned driver and checks it with
+// checkDownloadedArchive. The download is removed when a check fails.
+func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target, checks archiveChecks) (*os.File, error) {
+	f, err := base.downloadPkg(pd.Package)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, base.getRegistries, pd.Package.Path))
+	}
+	if err := checkDownloadedArchive(f, pd, target, checks); err != nil {
+		removeDownload(f)
+		return nil, err
+	}
+	return f, nil
+}
+
+// columnarSignatureVerifier returns the verifier of the Columnar package
+// signature, or nil when noVerify is set. Its failures are marked with
+// signatureVerificationError.
+func columnarSignatureVerifier(noVerify bool) config.PackageVerifier {
+	if noVerify {
+		return nil
+	}
+	return func(stagingDir string, manifest config.Manifest) error {
+		// VerifyPackageSignature checks the driver library's Columnar signature.
+		if err := dbc.VerifyPackageSignature(stagingDir, manifest); err != nil {
+			return &signatureVerificationError{err: err}
+		}
+		return nil
+	}
+}
+
 // checkDownloadedArchive checks a downloaded archive against the plan: the
-// locked size, the archive hash and the v1 library proof. When the registry
-// published no hash, the measured digest is recorded in the planned package
-// and lock entry. A non-nil verify runs on the extracted package before any
-// digest is recorded. It leaves f positioned at its start and does not close it.
-func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Target, verify config.PackageVerifier) error {
+// locked size, the archive hash and the v1 library proof, plus the extra
+// checks. When the registry published no hash, the measured digest is recorded
+// in the planned package and lock entry. Extra checks run on the extracted
+// package before any digest is recorded. It leaves f positioned at its start
+// and does not close it.
+func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Target, checks archiveChecks) error {
 	if pd.ArchiveSize != nil {
 		info, err := f.Stat()
 		if err != nil {
@@ -468,7 +506,7 @@ func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Tar
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek downloaded driver archive: %w", err)
 	}
-	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "", verify)
+	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "", checks)
 	if err == nil {
 		_, err = f.Seek(0, io.SeekStart)
 	}
@@ -504,13 +542,14 @@ func (e *signatureVerificationError) Error() string { return e.err.Error() }
 func (e *signatureVerificationError) Unwrap() error { return e.err }
 
 // archiveDigests returns the SHA-256 of the archive and, when withLibrary is
-// set, of the driver library inside it. A non-nil verify checks the extracted
-// package in the same pass and fails before any digest is returned.
-func archiveDigests(f *os.File, withLibrary bool, verify config.PackageVerifier) (archive, library string, err error) {
-	if withLibrary || verify != nil {
+// set, of the driver library inside it. The archive is extracted when the
+// library digest or one of the checks needs it; the checks then fail before
+// any digest is returned.
+func archiveDigests(f *os.File, withLibrary bool, checks archiveChecks) (archive, library string, err error) {
+	if withLibrary || checks.extract || checks.signature != nil {
 		var opts []config.InspectOption
-		if verify != nil {
-			opts = append(opts, config.WithInspectSignatureVerifier(verify))
+		if checks.signature != nil {
+			opts = append(opts, config.WithInspectSignatureVerifier(checks.signature))
 		}
 		info, err := config.InspectPackageArchive(f, opts...)
 		return info.ArchiveSHA256, info.LibrarySHA256, err
@@ -543,7 +582,6 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 		// avoid deadlock by doing this in a goroutine rather than during processing the tea.Msg
 		go func() {
 			defer s.projectLock.end()
-			verificationFailed := false
 			options := config.InstallPackageOptions{
 				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
 			}
@@ -559,14 +597,7 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 					return nil
 				}
 			}
-			if !s.NoVerify {
-				// VerifyPackageSignature checks the driver library's Columnar signature.
-				options.SignatureVerifier = func(stagingDir string, manifest config.Manifest) error {
-					err := dbc.VerifyPackageSignature(stagingDir, manifest)
-					verificationFailed = err != nil
-					return err
-				}
-			}
+			options.SignatureVerifier = columnarSignatureVerifier(s.NoVerify)
 			manifest, err := s.installPackage(s.ctx, cfg, item.Name, item.File, options)
 			// Remove the archive before reporting: the program may exit as soon
 			// as the last result arrives.
@@ -577,7 +608,7 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 			}
 			if err != nil {
 				s.projectLock.release()
-				if verificationFailed {
+				if sigErr := (*signatureVerificationError)(nil); errors.As(err, &sigErr) {
 					program.Send(fmt.Errorf("failed to verify signature: %w", err))
 					return
 				}
