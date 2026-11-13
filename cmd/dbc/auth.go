@@ -248,7 +248,7 @@ func (m loginModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return err
 				}
 			}
-			return authLoginCompleteMsg{cred: msg.cred}
+			return authLoginCompleteMsg(msg)
 		}
 	case authLoginCompleteMsg:
 		if m.jsonOutput {

@@ -137,8 +137,7 @@ func TestCheckRedirectRefererOriginScope(t *testing.T) {
 		}))
 		defer target.Close()
 
-		var source *httptest.Server
-		source = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var source = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, target.URL+"/final", http.StatusFound)
 		}))
 		defer source.Close()
@@ -169,8 +168,7 @@ func TestCheckRedirectRefererOriginScope(t *testing.T) {
 			}))
 			defer target.Close()
 
-			var source *httptest.Server
-			source = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var source = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, target.URL+"/foreign", http.StatusFound)
 			}))
 			defer source.Close()
@@ -223,8 +221,7 @@ func TestCheckRedirectRejectsHTTPSDowngrade(t *testing.T) {
 	}))
 	defer target.Close()
 
-	var source *httptest.Server
-	source = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var source = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target.URL+"/final", http.StatusFound)
 	}))
 	defer source.Close()

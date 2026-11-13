@@ -132,7 +132,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdWithMissingVersionInManifest() {
 
 	// Remove the version line from the manifest
 	lines := []string{}
-	for _, line := range strings.Split(string(manifestData), "\n") {
+	for line := range strings.SplitSeq(string(manifestData), "\n") {
 		if !strings.HasPrefix(line, "version =") {
 			lines = append(lines, line)
 		}
@@ -406,7 +406,7 @@ func (suite *SubcommandTestSuite) TestSearch_JSON() {
 
 	var result struct {
 		Drivers []jsonschema.SearchDriverBasic `json:"drivers"`
-		Warning string                          `json:"warning,omitempty"`
+		Warning string                         `json:"warning,omitempty"`
 	}
 	suite.Require().NoError(json.Unmarshal(env.Payload, &result))
 	suite.NotEmpty(result.Drivers)
@@ -425,7 +425,7 @@ func (suite *SubcommandTestSuite) TestSearch_JSON_Verbose() {
 
 	var result struct {
 		Drivers []jsonschema.SearchDriverVerbose `json:"drivers"`
-		Warning string                            `json:"warning,omitempty"`
+		Warning string                           `json:"warning,omitempty"`
 	}
 	suite.Require().NoError(json.Unmarshal(env.Payload, &result))
 	suite.NotEmpty(result.Drivers)

@@ -28,8 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 func urls(regs []Registry) []string {
 	out := make([]string, len(regs))
 	for i, r := range regs {
@@ -160,8 +158,8 @@ prerelease = ["not", "a", "string"]
 			wantEntries: []RegistryEntry{{URL: "https://project.test", Name: "Project"}, {URL: "https://second.test"}},
 		},
 		{name: "empty project inherits replacement", toml: ""},
-		{name: "explicit false", toml: "replace_defaults = false\n", wantReplace: boolPtr(false)},
-		{name: "true without registries is resolved after merging", toml: "replace_defaults = true\n", wantReplace: boolPtr(true)},
+		{name: "explicit false", toml: "replace_defaults = false\n", wantReplace: new(false)},
+		{name: "true without registries is resolved after merging", toml: "replace_defaults = true\n", wantReplace: new(true)},
 		{name: "malformed TOML", toml: "[[registries", wantErr: "invalid"},
 		{name: "wrong replacement type", toml: "replace_defaults = \"false\"\n", wantErr: "invalid"},
 		{name: "empty registry URL", toml: "[[registries]]\nurl = \"\"\n", wantErr: "empty url"},
@@ -246,7 +244,7 @@ func TestMergeRegistries(t *testing.T) {
 		{
 			name:           "project replace_defaults drops defaults",
 			project:        []RegistryEntry{{URL: "https://proj.example.com"}},
-			projectReplace: boolPtr(true),
+			projectReplace: new(true),
 			global:         []RegistryEntry{{URL: "https://glob.example.com"}},
 			defaults:       defaults,
 			wantURLsInOrder: []string{
@@ -265,7 +263,7 @@ func TestMergeRegistries(t *testing.T) {
 		},
 		{
 			name:           "project replace_defaults=false overrides global true",
-			projectReplace: boolPtr(false),
+			projectReplace: new(false),
 			global:         []RegistryEntry{{URL: "https://g.example.com"}},
 			globalReplace:  true,
 			defaults:       defaults,
@@ -335,7 +333,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://r.example.com?tenant=a"},
 				{URL: "https://r.example.com?tenant=b"},
 			},
-			projectReplace: boolPtr(true),
+			projectReplace: new(true),
 			wantURLsInOrder: []string{
 				"https://r.example.com?tenant=a",
 				"https://r.example.com?tenant=b",
@@ -347,7 +345,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://u1@r.example.com"},
 				{URL: "https://u2@r.example.com"},
 			},
-			projectReplace: boolPtr(true),
+			projectReplace: new(true),
 			wantURLsInOrder: []string{
 				"https://u1@r.example.com",
 				"https://u2@r.example.com",
@@ -359,7 +357,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://r.example.com/tenant-a"},
 				{URL: "https://r.example.com/tenant-b"},
 			},
-			projectReplace: boolPtr(true),
+			projectReplace: new(true),
 			wantURLsInOrder: []string{
 				"https://r.example.com/tenant-a",
 				"https://r.example.com/tenant-b",
@@ -371,7 +369,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://R.Example.COM/path/"},
 				{URL: "HTTPS://r.example.com/path"},
 			},
-			projectReplace: boolPtr(true),
+			projectReplace: new(true),
 			wantURLsInOrder: []string{
 				"https://R.Example.COM/path/", // first wins; kept verbatim
 			},
@@ -382,7 +380,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://r.example.com/#a"},
 				{URL: "https://r.example.com/#b"},
 			},
-			projectReplace: boolPtr(true),
+			projectReplace: new(true),
 			wantURLsInOrder: []string{
 				"https://r.example.com/#a",
 			},
@@ -437,7 +435,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		},
 		{
 			name:      "WithProjectRegistries + replace_defaults returns only project",
-			opts:      []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://only.example.com"}}, boolPtr(true))},
+			opts:      []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://only.example.com"}}, new(true))},
 			wantRegs:  []string{"https://only.example.com"},
 			wantCount: 1,
 		},
@@ -471,7 +469,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "project replace_defaults=true with no project entries keeps global entries",
 			opts: []Option{
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries(nil, boolPtr(true)),
+				WithProjectRegistries(nil, new(true)),
 			},
 			wantRegs:  []string{"https://glob.example.com"},
 			wantCount: 1,
@@ -480,7 +478,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "project replace_defaults=false overrides global true; defaults restored",
 			opts: []Option{
 				WithGlobalConfig(emptyReplaceAllGlobal),
-				WithProjectRegistries(nil, boolPtr(false)),
+				WithProjectRegistries(nil, new(false)),
 			},
 			// Only assert non-empty — defaults content can change.
 		},
@@ -510,7 +508,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		},
 		{
 			name:    "WithProjectRegistries rejects truly-empty merge",
-			opts:    []Option{WithProjectRegistries(nil, boolPtr(true))},
+			opts:    []Option{WithProjectRegistries(nil, new(true))},
 			wantErr: "empty registry list",
 		},
 		{

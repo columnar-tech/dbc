@@ -800,11 +800,9 @@ func TestInstallLicenseWithoutForceNeverOverwrites(t *testing.T) {
 	for i := range n {
 		src := filepath.Join(t.TempDir(), "columnar.lic")
 		require.NoError(t, os.WriteFile(src, []byte(fmt.Sprintf("license-%d", i)), 0o600))
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			errs[i] = InstallLicenseFromFile(src, false)
-		}()
+		})
 	}
 	wg.Wait()
 

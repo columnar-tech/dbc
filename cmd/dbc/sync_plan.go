@@ -323,7 +323,7 @@ func diagnosticURLEnd(s string, start int, quote byte) int {
 		if c == '?' || c == '#' {
 			queryStart := j
 			if quote != 0 {
-				for ; j < len(s) && !(s[j] == quote && s[j-1] != '\\'); j++ {
+				for ; j < len(s) && (s[j] != quote || s[j-1] == '\\'); j++ {
 				}
 				return j
 			}

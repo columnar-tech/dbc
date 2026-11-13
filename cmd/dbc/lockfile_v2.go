@@ -179,8 +179,7 @@ func validSHA256(s string) bool { return lockHashRE.MatchString(s) }
 
 // strictDecodeError adds the offending keys to go-toml's generic strict-mode error.
 func strictDecodeError(err error) error {
-	var strictErr *toml.StrictMissingError
-	if errors.As(err, &strictErr) {
+	if strictErr, ok := errors.AsType[*toml.StrictMissingError](err); ok {
 		return fmt.Errorf("%w\n%s", err, strictErr.String())
 	}
 	return err

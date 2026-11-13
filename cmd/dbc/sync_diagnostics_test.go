@@ -200,7 +200,7 @@ func (suite *SubcommandTestSuite) TestSyncJSONStreamV1WarningUsesStderr() {
 	suite.Contains(stderr, "plan9_riscv")
 	suite.NotContains(output, "warning")
 	suite.Contains(output, `"kind":"sync.status"`)
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(output), "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}

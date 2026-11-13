@@ -28,3 +28,10 @@ repos:
   rev: bb4666ad77b539a6b4ce4eda7ebb6de553704021 # v1.42.0
   hooks:
     - id: typos
+
+- repo: https://github.com/golangci/golangci-lint
+  rev: 49ff9b7f5e2eca29d113af14fbf722b87b22b50a  # frozen: v2.15.0
+  hooks:
+  - id: golangci-lint
+    entry: bash -c 'golangci-lint run --fix --timeout 5m'
+    types_or: [go, go-mod]
