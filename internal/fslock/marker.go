@@ -42,8 +42,12 @@ const (
 	markerHeartbeat  = markerStaleAfter / 3
 	markerPollEvery  = 10 * time.Millisecond
 
-	// markerDeletePendingGrace bounds how long a create failing as described
-	// in isDeletePending is retried beyond the caller's timeout.
+	// markerDeletePendingGrace bounds how long a create keeps failing as
+	// described in isDeletePending before the error is taken to be a real
+	// permission problem. A pending delete clears within milliseconds, so the
+	// window is measured from the first such failure, independent of the
+	// caller's timeout: a long timeout must not delay a real error, and a
+	// waiter that sees the lock freed just before its deadline still gets it.
 	markerDeletePendingGrace = 250 * time.Millisecond
 )
 
@@ -102,12 +106,7 @@ func markerPath(canonicalPath string) string {
 // known to be dead, which is removed without waiting for it to go stale.
 func acquireMarker(ctx context.Context, marker, path string, timeout time.Duration, owner []byte, ownerIsDead func([]byte) bool) (release func() error, err error) {
 	deadline := time.Now().Add(timeout)
-	// Even a non-blocking attempt waits out a delete in progress: the lock is
-	// free, just not yet creatable.
-	deletePendingDeadline := deadline
-	if grace := time.Now().Add(markerDeletePendingGrace); grace.After(deletePendingDeadline) {
-		deletePendingDeadline = grace
-	}
+	var deletePendingSince time.Time // start of the current run of isDeletePending failures
 	for {
 		f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
@@ -128,9 +127,12 @@ func acquireMarker(ctx context.Context, marker, path string, timeout time.Durati
 		}
 		if isDeletePending(err) {
 			// Another holder just removed its marker and the delete has not
-			// finished. Retry; if the error outlasts the wait, it was a real
-			// permission problem, so report it as one.
-			if time.Now().After(deletePendingDeadline) {
+			// finished: the lock is free, just not yet creatable, so even a
+			// non-blocking attempt retries. If the error outlasts the grace,
+			// it was a real permission problem, so report it as one.
+			if now := time.Now(); deletePendingSince.IsZero() {
+				deletePendingSince = now
+			} else if now.Sub(deletePendingSince) > markerDeletePendingGrace {
 				return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
 			}
 			select {
@@ -140,6 +142,7 @@ func acquireMarker(ctx context.Context, marker, path string, timeout time.Durati
 			}
 			continue
 		}
+		deletePendingSince = time.Time{}
 		if !errors.Is(err, fs.ErrExist) {
 			return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
 		}
