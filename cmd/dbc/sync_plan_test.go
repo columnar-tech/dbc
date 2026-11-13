@@ -617,3 +617,37 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 	})
 }
+
+func TestPlanFallbackRegistryReplay(t *testing.T) {
+	f := newPlanFixture(t)
+	fallbackURL, err := url.Parse("https://fallback.example.com")
+	require.NoError(t, err)
+	f.registries = append(f.registries, dbc.Registry{BaseURL: fallbackURL})
+	originalIndex := f.planner.index
+	f.planner.index = func() ([]dbc.Driver, error) {
+		drivers, err := originalIndex()
+		if err != nil {
+			return nil, err
+		}
+		// pretend there's no versions in the first registry
+		first := drivers[0]
+		first.PkgInfo = nil
+		drivers[0].Registry = &f.registries[1]
+		return []dbc.Driver{first, drivers[0]}, nil
+	}
+	list := listOf(map[string]driverSpec{"alpha": {}})
+	planned, _, err := f.planner.plan(list, parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	// we should have used the fallback registry
+	assert.Equal(t, fallbackURL.String(), planned[0].Entry.Source.URL)
+
+	// swap the registry order
+	f.registries[0], f.registries[1] = f.registries[1], f.registries[0]
+
+	// we should still use the same registry
+	replayed, _, err := f.planner.plan(list, v2Lock(planned[0].Entry))
+	require.NoError(t, err)
+	assert.Equal(t, planned[0].Entry, replayed[0].Entry)
+	assert.Equal(t, 1, f.indexCalls)
+}

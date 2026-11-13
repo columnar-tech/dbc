@@ -26,6 +26,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/pelletier/go-toml/v2"
@@ -178,19 +179,25 @@ func (m addModel) Init() tea.Cmd {
 				result += "\n"
 			}
 
-			drv, err := findDriver(spec.Name, drivers)
+			_, err := findDriver(spec.Name, drivers)
 			if err != nil {
 				return wrapWithRegistryContext(err, registryErrors)
 			}
 
 			if spec.Vers != nil {
 				spec.Vers.IncludePrerelease = m.Pre
-				_, err = drv.GetWithConstraint(spec.Vers, config.PlatformTuple())
+				_, err = dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+					return candidate.GetWithConstraint(spec.Vers, config.PlatformTuple())
+				})
 				if err != nil {
 					return fmt.Errorf("error getting driver: %w", err)
 				}
 			} else {
-				if !m.Pre && !drv.HasNonPrerelease() {
+				pkg, selectionErr := dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+					return candidate.GetPackage(nil, config.PlatformTuple(), m.Pre)
+				})
+				drv := pkg.Driver
+				if selectionErr != nil && !m.Pre && !drv.HasNonPrerelease() {
 					var err error
 					if len(drv.PkgInfo) > 0 {
 						// Has packages, but they're all prereleases
@@ -203,6 +210,9 @@ func (m addModel) Init() tea.Cmd {
 						return wrapWithRegistryContext(err, registryErrors)
 					}
 					return err
+				}
+				if selectionErr != nil {
+					return wrapWithRegistryContext(selectionErr, registryErrors)
 				}
 			}
 

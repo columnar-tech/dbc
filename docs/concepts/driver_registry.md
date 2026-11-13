@@ -85,3 +85,15 @@ folder of your user configuration directory, for example
   help, because no credentials are sent to the mirror.
 
 For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).
+
+When multiple registries publish the same driver, dbc tries their entries in
+registry priority order and uses the first suitable package. A later registry
+is considered when the earlier entry cannot satisfy the requested version,
+or prerelease settings. Once a version is selected, missing platform support
+or empty packages is an error. A newer version in a later registry does not
+supersede a suitable package in an earlier registry. Invalid package metadata
+and download or verification failures do not trigger fallback. Existing v2
+lockfiles retain their registry binding; v1 lockfiles will resolve the
+registry again. Note: in dbc versions <= 0.3.1, a higher-priority registry
+would effectively prevent installing any versions from a lower-priority one,
+even if the version specified would have uniquely specified a registry.
