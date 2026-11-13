@@ -23,7 +23,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/go-faster/yaml"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -637,4 +639,72 @@ func TestSearchPriorityAcrossRegistryTiers(t *testing.T) {
 		"resolved package URL must come from the project tier; got %q", pkg.Path.String())
 	assert.True(t, strings.HasPrefix(pkg.Path.String(), projectTier.URL),
 		"resolved package URL must be rooted at the project tier; got %q", pkg.Path.String())
+}
+
+func TestResolvePackageFirstSuitable(t *testing.T) {
+	decode := func(version string) Driver {
+		d := Driver{
+			Path:     "shared",
+			Registry: &Registry{BaseURL: mustParseURL("http://registry.test")},
+		}
+		require.NoError(t, yaml.Unmarshal([]byte("pkginfo:\n - version: "+version+"\n   packages:\n    - platform: linux_amd64\n"), &d))
+		return d
+	}
+	stable := func(d *Driver) (PkgInfo, error) {
+		return d.GetPackage(nil, "linux_amd64", false)
+	}
+	pkg, err := ResolvePackage([]Driver{
+		decode("2.0.0-beta.1"),
+		decode("0.7.0"),
+	}, "shared", stable)
+	require.NoError(t, err)
+	assert.Equal(t, "0.7.0", pkg.Version.String())
+	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, "shared", stable)
+	require.NoError(t, err)
+	assert.Equal(t, "0.7.0", pkg.Version.String())
+	constraint, err := semver.NewConstraint("=0.7.0")
+	require.NoError(t, err)
+	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
+	require.NoError(t, err)
+	assert.Equal(t, "0.7.0", pkg.Version.String())
+}
+
+func TestResolvePackageEmptyPackageInfo(t *testing.T) {
+	for _, packageInfo := range []string{"", "pkginfo: []\n"} {
+		for _, allowPrerelease := range []bool{false, true} {
+			for _, fallback := range []bool{false, true} {
+				t.Run(fmt.Sprintf("pkginfo=%q/pre=%t/fallback=%t", packageInfo, allowPrerelease, fallback), func(t *testing.T) {
+					empty := Driver{Path: "shared"}
+					require.NoError(t, yaml.Unmarshal([]byte(packageInfo), &empty))
+					drivers := []Driver{empty}
+					registry := &Registry{BaseURL: mustParseURL("https://fallback.test")}
+					if fallback {
+						drivers = append(drivers, Driver{
+							Path: "shared", Registry: registry,
+							PkgInfo: []pkginfo{{
+								Version:  semver.New(1, 0, 0, "", ""),
+								Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}},
+							}},
+						})
+					}
+					var pkg PkgInfo
+					var err error
+					require.NotPanics(t, func() {
+						pkg, err = ResolvePackage(drivers, "shared", func(d *Driver) (PkgInfo, error) {
+							return d.GetPackage(nil, "linux_amd64", allowPrerelease)
+						})
+					})
+					if fallback {
+						require.NoError(t, err)
+						assert.Same(t, registry, pkg.Driver.Registry)
+						assert.Equal(t, "1.0.0", pkg.Version.String())
+					} else {
+						require.EqualError(t, err, "driver `shared` not found")
+						var miss packageMiss
+						assert.ErrorAs(t, err, &miss)
+					}
+				})
+			}
+		}
+	}
 }

@@ -30,3 +30,11 @@ By default, dbc is configured to communicate with two driver registries: the pub
 When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available from each configured registry by downloading its `index.yaml` or using a cached copy.
 
 For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).
+
+When multiple registries publish the same driver, dbc tries their entries in
+registry priority order and uses the first suitable package. A later registry
+is considered when the earlier entry cannot satisfy the requested version,
+platform, or prerelease settings. A newer version in a later registry does not
+supersede a suitable package in an earlier registry. Invalid package metadata
+and download or verification failures do not trigger fallback. Existing
+lockfiles retain their registry binding.

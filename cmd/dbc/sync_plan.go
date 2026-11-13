@@ -245,15 +245,21 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 		sourceURL = drv.Registry.BaseURL
 	}
 
-	var pkg dbc.PkgInfo
-	switch {
-	case pin != nil:
-		pkg, err = drv.GetPackage(pin, p.target, spec.Prerelease == "allow")
-	case spec.Version != nil:
-		pkg, err = drv.GetWithConstraint(spec.Version, p.target)
-	default:
-		pkg, err = drv.GetPackage(nil, p.target, spec.Prerelease == "allow")
+	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		switch {
+		case pin != nil:
+			return candidate.GetPackage(pin, p.target, spec.Prerelease == "allow")
+		case spec.Version != nil:
+			return candidate.GetWithConstraint(spec.Version, p.target)
+		default:
+			return candidate.GetPackage(nil, p.target, spec.Prerelease == "allow")
+		}
+	})
+	drv = pkg.Driver
+	if drv.Registry != nil {
+		sourceURL = drv.Registry.BaseURL
 	}
+
 	if err != nil {
 		return plannedDriver{}, redactRegistryError(err, p.registries, sourceURL)
 	}
