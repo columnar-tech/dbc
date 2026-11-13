@@ -166,7 +166,7 @@ func (m addModel) Init() tea.Cmd {
 		}
 		// Store registry errors to use later if driver is not found
 		// We continue processing if we have some drivers
-		var registryErrors error = registryErr
+		var registryErrors = registryErr
 
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)

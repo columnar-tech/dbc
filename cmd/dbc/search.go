@@ -244,7 +244,7 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors
 
 		type basicResult struct {
 			Drivers []jsonschema.SearchDriverBasic `json:"drivers"`
-			Warning string                          `json:"warning,omitempty"`
+			Warning string                         `json:"warning,omitempty"`
 		}
 
 		res := basicResult{Drivers: driverList}
@@ -293,7 +293,7 @@ func viewDriversJSON(d []dbc.Driver, verbose bool, allowPre bool, registryErrors
 
 	type verboseResult struct {
 		Drivers []jsonschema.SearchDriverVerbose `json:"drivers"`
-		Warning string                            `json:"warning,omitempty"`
+		Warning string                           `json:"warning,omitempty"`
 	}
 
 	res := verboseResult{Drivers: driverList}

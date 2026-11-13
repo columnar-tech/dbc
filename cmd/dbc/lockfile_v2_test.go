@@ -55,11 +55,9 @@ func artifact(tuple string, kind resolution.ArtifactLocationKind, value, hash st
 	return lockedArtifact{Target: target, Format: "tar.gz", Location: resolution.ArtifactLocation{Kind: kind, Value: value}, Hash: hash}
 }
 
-func int64p(n int64) *int64 { return &n }
-
 func TestLockFileV2RoundTrip(t *testing.T) {
 	lf := validV2()
-	lf.Drivers[0].Artifacts[0].Size = int64p(123)
+	lf.Drivers[0].Artifacts[0].Size = new(int64(123))
 	lf.Drivers[0].Artifacts[0].HostRequirements = resolution.HostRequirements{
 		OSMin: "10.15", GLibCMin: "2.17", Libs: []string{"libc.so.6"},
 		Bins: []resolution.NamedRequirement{{Name: "openssl", Min: "3.0"}},

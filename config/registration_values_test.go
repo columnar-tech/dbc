@@ -156,8 +156,7 @@ func TestUpdateRegistrationValuesReportsRollbackFailures(t *testing.T) {
 	if !errors.Is(err, writeErr) || !errors.Is(err, valueRollbackErr) || !errors.Is(err, keyRollbackErr) || !errors.Is(err, errRegistrationRollbackFailed) {
 		t.Fatalf("update error = %v, want primary and rollback errors", err)
 	}
-	var typedErr *registrationRollbackError
-	if !errors.As(err, &typedErr) {
+	if _, ok := errors.AsType[*registrationRollbackError](err); !ok {
 		t.Fatalf("update error type = %T, want *registrationRollbackError", err)
 	}
 	if !keyRolledBack {

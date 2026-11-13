@@ -120,7 +120,7 @@ func TestInstallStatus(t *testing.T) {
 func TestInstallStatus_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.InstallStatus{Status: "installed", Driver: "d", Version: "1", Location: "/x"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"message", "conflict", "checksum"} {
 		if _, ok := m[key]; ok {
@@ -172,7 +172,7 @@ func TestInstallProgressEvent(t *testing.T) {
 func TestInstallProgressEvent_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.InstallProgressEvent{Event: "install.complete", Driver: "d"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"bytes", "total", "checksum"} {
 		if _, ok := m[key]; ok {
@@ -218,7 +218,7 @@ func TestSearchDriverBasic(t *testing.T) {
 func TestSearchDriverBasic_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.SearchDriverBasic{Driver: "d", Description: "desc"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"installed", "registry"} {
 		if _, ok := m[key]; ok {
@@ -275,7 +275,7 @@ func TestSearchResponse_OmitemptyAbsent(t *testing.T) {
 	drivers, _ := json.Marshal([]jsonschema.SearchDriverBasic{})
 	v := jsonschema.SearchResponse{Drivers: json.RawMessage(drivers)}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	if _, ok := m["warning"]; ok {
 		t.Errorf("omitempty field 'warning' should be absent")
@@ -309,7 +309,7 @@ func TestDriverInfo(t *testing.T) {
 func TestDriverInfo_JSONFieldNames(t *testing.T) {
 	v := jsonschema.DriverInfo{Driver: "d", Version: "1", Title: "t", License: "MIT", Description: "desc", Packages: []string{}}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"driver", "version", "title", "license", "description", "docs_url", "packages"} {
 		if _, ok := m[key]; !ok {
@@ -358,7 +358,7 @@ func TestAddResponse(t *testing.T) {
 func TestAddResponse_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.AddResponseDriver{Name: "d"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	if _, ok := m["version_constraint"]; ok {
 		t.Errorf("omitempty field 'version_constraint' should be absent")
@@ -407,7 +407,7 @@ func TestSyncProgressEvent(t *testing.T) {
 func TestSyncProgressEvent_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.SyncProgressEvent{Phase: "resolving", Driver: "d"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"bytes", "total", "version"} {
 		if _, ok := m[key]; ok {
@@ -445,7 +445,7 @@ func TestSyncStatus_EmptySlices(t *testing.T) {
 		Errors:    []jsonschema.SyncError{},
 	}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"installed", "skipped", "errors"} {
 		if _, ok := m[key]; !ok {
@@ -477,7 +477,7 @@ func TestAuthDeviceCodeEvent_JSONFieldNames(t *testing.T) {
 		Interval:                5,
 	}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"verification_uri", "verification_uri_complete", "user_code", "expires_in", "interval"} {
 		if _, ok := m[key]; !ok {
@@ -507,7 +507,7 @@ func TestAuthLoginResponse(t *testing.T) {
 func TestAuthLoginResponse_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.AuthLoginResponse{Status: "success", Registry: "https://r.example.com"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	if _, ok := m["message"]; ok {
 		t.Errorf("omitempty field 'message' should be absent")
@@ -533,7 +533,7 @@ func TestAuthLicenseInstallResponse(t *testing.T) {
 func TestAuthLicenseInstallResponse_JSONFieldNames(t *testing.T) {
 	v := jsonschema.AuthLicenseInstallResponse{Status: "s", LicensePath: "/p"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	for _, key := range []string{"status", "license_path"} {
 		if _, ok := m[key]; !ok {
@@ -587,7 +587,7 @@ func TestAuthRegistryStatus(t *testing.T) {
 func TestAuthRegistryStatus_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.AuthRegistryStatus{URL: "https://r.example.com", Authenticated: false, LicenseValid: false}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	if _, ok := m["auth_type"]; ok {
 		t.Errorf("omitempty field 'auth_type' should be absent")
@@ -635,7 +635,7 @@ func TestErrorResponse(t *testing.T) {
 func TestErrorResponse_OmitemptyAbsent(t *testing.T) {
 	v := jsonschema.ErrorResponse{Code: "err", Message: "msg"}
 	b, _ := json.Marshal(v)
-	var m map[string]interface{}
+	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	if _, ok := m["owner_pid"]; ok {
 		t.Errorf("omitempty field 'owner_pid' should be absent")

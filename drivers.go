@@ -344,7 +344,7 @@ func (h *registryHash) UnmarshalYAML(value *yaml.Node) error {
 		return nil
 	}
 	for _, c := range hexDigest {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return nil
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -435,12 +436,7 @@ func referencedPaths(root string, shared driverMap) ([]string, bool) {
 
 func hasParentTraversal(path string) bool {
 	path = strings.ReplaceAll(path, `\`, "/")
-	for _, component := range strings.Split(path, "/") {
-		if component == ".." {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(path, "/"), "..")
 }
 
 func resolvePackagePath(root, path string) string {
@@ -565,8 +561,8 @@ func canonicalFilesystemPath(path string) (string, bool) {
 					return "", false
 				}
 			}
-			for i := len(suffix) - 1; i >= 0; i-- {
-				resolved = hostpath.Join(resolved, suffix[i])
+			for _, s := range slices.Backward(suffix) {
+				resolved = hostpath.Join(resolved, s)
 			}
 			return hostpath.Clean(resolved), true
 		}
