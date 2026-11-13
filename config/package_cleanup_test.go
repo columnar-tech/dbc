@@ -1071,11 +1071,12 @@ func TestNonDBCCleanupRetainsReservedTransactionGeneration(t *testing.T) {
 			}
 			library := owner.Driver.Shared.Get(PlatformTuple())
 			generation := filepath.Dir(library)
-			if referenceKind == "missing-receipt" {
+			switch referenceKind {
+			case "missing-receipt":
 				if err := os.Remove(filepath.Join(generation, packageInstallReceiptFilename)); err != nil {
 					t.Fatal(err)
 				}
-			} else if referenceKind == "corrupt-receipt" {
+			case "corrupt-receipt":
 				if err := os.WriteFile(filepath.Join(generation, packageInstallReceiptFilename), []byte("invalid"), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -1695,25 +1696,25 @@ func TestInstallPackageLegacyCleanupRespectsReferencesAndUncertainty(t *testing.
 			root := t.TempDir()
 			cfg := Config{Level: ConfigEnv, Location: root}
 			legacyGeneration, legacyLibrary := createLegacyPackageForInstall(t, cfg, "driver", "0.9.0", "legacy")
-			if mode == "sibling reference" {
+			switch mode {
+			case "sibling reference":
 				sibling := DriverInfo{ID: "sibling", Name: "Sibling", Version: semver.MustParse("1.0.0"), Source: "external"}
 				sibling.Driver.Shared.Set(PlatformTuple(), legacyLibrary)
 				if err := createRuntimeRegistrationUnlocked(cfg, root, sibling); err != nil {
 					t.Fatal(err)
 				}
-			} else if mode == "external borrower" {
+			case "external borrower":
 				borrower := DriverInfo{ID: "borrower", Name: "Borrower", Version: semver.MustParse("1.0.0"), Source: "external"}
 				borrower.Driver.Shared.Set(PlatformTuple(), legacyLibrary)
 				if err := CreateManifest(cfg, borrower); err != nil {
 					t.Fatal(err)
 				}
-			} else if mode == "uncertain reference snapshot" {
+			case "uncertain reference snapshot":
 				if err := os.WriteFile(filepath.Join(root, "sibling.toml"), []byte("invalid = ["), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
-			var archive *os.File
-			archive = testPackageArchive(t, "new")
+			var archive = testPackageArchive(t, "new")
 			if _, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{}); err != nil {
 				t.Fatal(err)
 			}

@@ -124,8 +124,8 @@ func TestClientInstall(t *testing.T) {
 		manifest, err := c.Install(t.Context(), cfg, "test-driver-1")
 		require.NoError(t, err)
 		require.NotNil(t, manifest)
-		assert.Equal(t, "test-driver-1", manifest.DriverInfo.ID)
-		assert.NotNil(t, manifest.DriverInfo.Version)
+		assert.Equal(t, "test-driver-1", manifest.ID)
+		assert.NotNil(t, manifest.Version)
 	})
 
 	t.Run("returns error for nonexistent driver", func(t *testing.T) {

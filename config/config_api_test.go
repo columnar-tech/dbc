@@ -115,7 +115,7 @@ func TestInflateTarball(t *testing.T) {
 	t.Run("invalid_gzip", func(t *testing.T) {
 		f, err := os.CreateTemp(t.TempDir(), "bad-*.tar.gz")
 		require.NoError(t, err)
-		_, _ = f.Write([]byte("this is not valid gzip data"))
+		_, _ = f.WriteString("this is not valid gzip data")
 		_, _ = f.Seek(0, io.SeekStart)
 
 		_, err = config.InflateTarball(f, t.TempDir())
@@ -158,13 +158,13 @@ func TestInstallDriver(t *testing.T) {
 		manifest, err := config.InstallDriver(cfg, "test-driver-1", f)
 		require.NoError(t, err)
 
-		assert.Equal(t, "test-driver-1", manifest.DriverInfo.ID)
-		assert.Equal(t, "dbc", manifest.DriverInfo.Source)
-		assert.Equal(t, "Test Driver 1", manifest.DriverInfo.Name)
-		assert.Equal(t, "1.0.0", manifest.DriverInfo.Version.String())
+		assert.Equal(t, "test-driver-1", manifest.ID)
+		assert.Equal(t, "dbc", manifest.Source)
+		assert.Equal(t, "Test Driver 1", manifest.Name)
+		assert.Equal(t, "1.0.0", manifest.Version.String())
 
 		platformTuple := config.PlatformTuple()
-		sharedPath := manifest.DriverInfo.Driver.Shared.Get(platformTuple)
+		sharedPath := manifest.Driver.Shared.Get(platformTuple)
 		assert.NotEmpty(t, sharedPath)
 		assert.FileExists(t, sharedPath)
 	})
@@ -178,7 +178,7 @@ func TestInstallDriver(t *testing.T) {
 
 		f, err := os.CreateTemp(t.TempDir(), "bad-*.tar.gz")
 		require.NoError(t, err)
-		_, _ = f.Write([]byte("not a tarball"))
+		_, _ = f.WriteString("not a tarball")
 		_, _ = f.Seek(0, io.SeekStart)
 
 		_, err = config.InstallDriver(cfg, "bad-driver", f)

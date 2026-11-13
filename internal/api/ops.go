@@ -193,13 +193,13 @@ func Install(ctx context.Context, c *dbc.Client, name string, t Target, opts Ins
 		return Manifest{}, err
 	}
 	out := Manifest{
-		ID:         m.DriverInfo.ID,
-		Name:       m.DriverInfo.Name,
-		Source:     m.DriverInfo.Source,
-		DriverPath: m.DriverInfo.Driver.Shared.Get(config.PlatformTuple()),
+		ID:         m.ID,
+		Name:       m.Name,
+		Source:     m.Source,
+		DriverPath: m.Driver.Shared.Get(config.PlatformTuple()),
 	}
-	if m.DriverInfo.Version != nil {
-		out.Version = m.DriverInfo.Version.String()
+	if m.Version != nil {
+		out.Version = m.Version.String()
 	}
 	return out, nil
 }
