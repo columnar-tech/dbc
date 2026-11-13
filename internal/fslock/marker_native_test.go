@@ -142,3 +142,47 @@ func TestMarkerNameFitsForMaximumLengthLockNames(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Deleting a file on Windows leaves it "delete pending" until the deleting
+// handle closes, and creating it again in that window fails with
+// ERROR_ACCESS_DENIED rather than ERROR_FILE_EXISTS. A holder that releases
+// its marker while another waits for it must not make the waiter fail.
+func TestAcquireMarkerToleratesConcurrentRelease(t *testing.T) {
+	dir := t.TempDir()
+	lockPath := filepath.Join(dir, "test.lock")
+	marker := markerFor(t, lockPath)
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { // a rival holder taking and releasing the marker in a tight loop
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			if err != nil {
+				continue
+			}
+			f.Close()         //nolint:errcheck
+			os.Remove(marker) //nolint:errcheck
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-done
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		release, err := acquireMarker(t.Context(), marker, lockPath, time.Second, nil, nil)
+		if err != nil {
+			t.Fatalf("attempt %d: acquireMarker with a concurrently releasing holder: %v", i, err)
+		}
+		if err := release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

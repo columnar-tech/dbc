@@ -41,7 +41,21 @@ const (
 	markerStaleAfter = 30 * time.Second
 	markerHeartbeat  = markerStaleAfter / 3
 	markerPollEvery  = 10 * time.Millisecond
+
+	// markerDeletePendingGrace bounds how long a create failing as described
+	// in isDeletePending is retried beyond the caller's timeout.
+	markerDeletePendingGrace = 250 * time.Millisecond
 )
+
+// isDeletePending reports whether err, from creating the marker, may mean the
+// marker is still being deleted. Windows keeps a deleted file "delete
+// pending" until the deleting handle closes, and creating it again in that
+// window fails with ERROR_ACCESS_DENIED (EPERM under Node) instead of
+// ERROR_FILE_EXISTS. This happens whenever one holder releases the marker
+// just as another tries to create it.
+func isDeletePending(err error) bool {
+	return hostpath.IsWindows() && errors.Is(err, fs.ErrPermission)
+}
 
 // nativeMarkerOwner is the content of a marker native dbc created. Only the
 // holder of the OS lock creates one, so a native process that holds the OS
@@ -88,6 +102,12 @@ func markerPath(canonicalPath string) string {
 // known to be dead, which is removed without waiting for it to go stale.
 func acquireMarker(ctx context.Context, marker, path string, timeout time.Duration, owner []byte, ownerIsDead func([]byte) bool) (release func() error, err error) {
 	deadline := time.Now().Add(timeout)
+	// Even a non-blocking attempt waits out a delete in progress: the lock is
+	// free, just not yet creatable.
+	deletePendingDeadline := deadline
+	if grace := time.Now().Add(markerDeletePendingGrace); grace.After(deletePendingDeadline) {
+		deletePendingDeadline = grace
+	}
 	for {
 		f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
@@ -105,6 +125,20 @@ func acquireMarker(ctx context.Context, marker, path string, timeout time.Durati
 			// No filesystem (the browser build): nothing outside this runtime
 			// can contend, so the runtime token is the whole lock.
 			return func() error { return nil }, nil
+		}
+		if isDeletePending(err) {
+			// Another holder just removed its marker and the delete has not
+			// finished. Retry; if the error outlasts the wait, it was a real
+			// permission problem, so report it as one.
+			if time.Now().After(deletePendingDeadline) {
+				return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(markerPollEvery):
+			}
+			continue
 		}
 		if !errors.Is(err, fs.ErrExist) {
 			return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
