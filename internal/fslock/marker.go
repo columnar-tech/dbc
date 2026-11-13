@@ -42,22 +42,18 @@ const (
 	markerHeartbeat  = markerStaleAfter / 3
 	markerPollEvery  = 10 * time.Millisecond
 
-	// markerDeletePendingGrace bounds how long a create keeps failing as
-	// described in isDeletePending before the error is taken to be a real
-	// permission problem. A pending delete clears within milliseconds, so the
-	// window is measured from the first such failure, independent of the
-	// caller's timeout: a long timeout must not delay a real error, and a
-	// waiter that sees the lock freed just before its deadline still gets it.
+	// How long acquireMarker retries a create failing as described in
+	// windowsDeleteMaybePending before reporting it as a real permission error.
 	markerDeletePendingGrace = 250 * time.Millisecond
 )
 
-// isDeletePending reports whether err, from creating the marker, may mean the
-// marker is still being deleted. Windows keeps a deleted file "delete
-// pending" until the deleting handle closes, and creating it again in that
-// window fails with ERROR_ACCESS_DENIED (EPERM under Node) instead of
-// ERROR_FILE_EXISTS. This happens whenever one holder releases the marker
-// just as another tries to create it.
-func isDeletePending(err error) bool {
+// windowsDeleteMaybePending reports whether err, from creating or removing the
+// marker, may mean another holder's delete of it is still in progress. On
+// Windows a deleted file stays "delete pending" until the deleting handle
+// closes, and in that window both fail with ERROR_ACCESS_DENIED (EPERM under
+// Node). That looks the same as a real permission error, so callers bound how
+// long they treat it as transient.
+func windowsDeleteMaybePending(err error) bool {
 	return hostpath.IsWindows() && errors.Is(err, fs.ErrPermission)
 }
 
@@ -106,7 +102,7 @@ func markerPath(canonicalPath string) string {
 // known to be dead, which is removed without waiting for it to go stale.
 func acquireMarker(ctx context.Context, marker, path string, timeout time.Duration, owner []byte, ownerIsDead func([]byte) bool) (release func() error, err error) {
 	deadline := time.Now().Add(timeout)
-	var deletePendingSince time.Time // start of the current run of isDeletePending failures
+	var deletePendingSince time.Time
 	for {
 		f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
@@ -125,7 +121,7 @@ func acquireMarker(ctx context.Context, marker, path string, timeout time.Durati
 			// can contend, so the runtime token is the whole lock.
 			return func() error { return nil }, nil
 		}
-		if isDeletePending(err) {
+		if windowsDeleteMaybePending(err) {
 			// Another holder just removed its marker and the delete has not
 			// finished: the lock is free, just not yet creatable, so even a
 			// non-blocking attempt retries. If the error outlasts the grace,
@@ -183,11 +179,11 @@ func removeDeadMarker(marker string, ownerIsDead func([]byte) bool) (bool, error
 	if err != nil || !again.ModTime().Equal(info.ModTime()) {
 		return false, nil
 	}
-	// Another waiter may be removing the same stale marker; its delete
-	// leaves the file delete pending (see isDeletePending), which a second
-	// delete reports as access denied. Either way the marker is going away,
-	// so retry the create, which waits the delete out.
-	if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) && !isDeletePending(err) {
+	// Another waiter may be removing the same stale marker; its delete leaves
+	// the file delete pending (see windowsDeleteMaybePending), which a second
+	// delete reports as access denied. Either way the marker is going away, so
+	// retry the create, which waits the delete out.
+	if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) && !windowsDeleteMaybePending(err) {
 		return false, fmt.Errorf("fslock: remove stale lock marker %s: %w", marker, err)
 	}
 	return true, nil
