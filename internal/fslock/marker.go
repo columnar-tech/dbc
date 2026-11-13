@@ -183,7 +183,11 @@ func removeDeadMarker(marker string, ownerIsDead func([]byte) bool) (bool, error
 	if err != nil || !again.ModTime().Equal(info.ModTime()) {
 		return false, nil
 	}
-	if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	// Another waiter may be removing the same stale marker; its delete
+	// leaves the file delete pending (see isDeletePending), which a second
+	// delete reports as access denied. Either way the marker is going away,
+	// so retry the create, which waits the delete out.
+	if err := os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) && !isDeletePending(err) {
 		return false, fmt.Errorf("fslock: remove stale lock marker %s: %w", marker, err)
 	}
 	return true, nil
