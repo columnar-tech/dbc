@@ -160,7 +160,14 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 		}
 		// Same selection as Client.Install and `dbc install`, so latest is
 		// never a version install would not fetch.
-		if pkg, err := d.GetPackage(nil, platform, false); err == nil && pkg.Path != nil {
+		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			return candidate.GetPackage(nil, platform, false)
+		})
+		if err == nil && pkg.Path != nil {
+			out.Versions = []string{}
+			for _, v := range pkg.Driver.Versions(platform) {
+				out.Versions = append(out.Versions, v.String())
+			}
 			out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
 		}
 		return out, nil

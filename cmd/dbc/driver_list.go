@@ -212,12 +212,14 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
-		drv, ok := dmap[name]
+		_, ok := dmap[name]
 		if !ok {
 			return nil, fmt.Errorf("driver `%s` not found", name)
 		}
 
-		pkg, err := drv.GetWithConstraint(spec.Version, config.PlatformTuple())
+		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
+		})
 		if err != nil {
 			return nil, fmt.Errorf("error finding version for driver %s: %w", name, err)
 		}

@@ -428,14 +428,18 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	return m, func() tea.Msg {
 		if vers != nil {
 			vers.IncludePrerelease = m.Pre
-			pkg, err := d.GetWithConstraint(vers, config.PlatformTuple())
+			pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+				return candidate.GetWithConstraint(vers, config.PlatformTuple())
+			})
 			if err != nil {
 				return err
 			}
 			return pkg
 		}
 
-		pkg, err := d.GetPackage(nil, config.PlatformTuple(), m.Pre)
+		pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			return candidate.GetPackage(nil, config.PlatformTuple(), m.Pre)
+		})
 		if err != nil {
 			if !m.Pre && !d.HasNonPrerelease() {
 				for _, cfg := range config.Get() {
