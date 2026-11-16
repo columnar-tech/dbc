@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/cli/browser"
 	"github.com/columnar-tech/dbc"
 )
@@ -149,7 +150,8 @@ func (m docsModel) FinalOutput() string {
 		} else {
 			docName = m.driver + " driver"
 		}
-		urlMsg := fmt.Sprintf("%s docs are available at the following URL:\n%s", docName, m.urlToOpen)
+		url := lipgloss.NewStyle().Hyperlink(m.urlToOpen).Render(m.urlToOpen)
+		urlMsg := fmt.Sprintf("%s docs are available at the following URL:\n%s", docName, url)
 
 		// Prepend the error to the output if we have one
 		if m.browserOpenError != nil {
