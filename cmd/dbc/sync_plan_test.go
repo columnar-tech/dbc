@@ -541,6 +541,39 @@ func TestPlanOrderIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestPlanLocalErrorsStayReadableWithQueryRegistry(t *testing.T) {
+	queryReg := must(url.Parse("https://registry.example.com?v=1"))
+
+	t.Run("missing version constraint", func(t *testing.T) {
+		f := newPlanFixture(t)
+		f.registries = []dbc.Registry{{BaseURL: queryReg}}
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {Version: constraint(t, "=0.9.0")}}), parsedLockFile{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "0.9.0")
+		assert.NotContains(t, err.Error(), "details are hidden")
+	})
+	t.Run("invalid archive hash when resolving", func(t *testing.T) {
+		f := newPlanFixture(t)
+		f.registries = []dbc.Registry{{BaseURL: queryReg}}
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"bad-current": {}}), parsedLockFile{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid archive hash")
+		assert.NotContains(t, err.Error(), "details are hidden")
+	})
+}
+
+func TestPlanRegistryFetchErrorsStillRedactSecrets(t *testing.T) {
+	f := newPlanFixture(t)
+	f.registries = []dbc.Registry{{BaseURL: must(url.Parse("https://registry.example.com?token=SUPERSECRET"))}}
+	f.planner.index = func() ([]dbc.Driver, error) {
+		return nil, errors.New("registry https://registry.example.com?token=SUPERSECRET: connection refused")
+	}
+	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+	assert.NotContains(t, err.Error(), "SUPERSECRET")
+}
+
 func TestPlanFailsWhenNoRegistryDelivers(t *testing.T) {
 	f := newPlanFixture(t)
 	f.planner.index = func() ([]dbc.Driver, error) { return nil, errors.New("connection refused") }
