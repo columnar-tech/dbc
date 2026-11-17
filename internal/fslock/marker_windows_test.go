@@ -35,13 +35,25 @@ import (
 // as long as the test needs.
 func holdDeletePending(t *testing.T, marker string) windows.Handle {
 	t.Helper()
+	return markDeletePending(t, marker, windows.CREATE_NEW)
+}
+
+// holdExistingDeletePending is holdDeletePending for a marker that already
+// exists, as when another waiter removes a holder's marker as stale.
+func holdExistingDeletePending(t *testing.T, marker string) windows.Handle {
+	t.Helper()
+	return markDeletePending(t, marker, windows.OPEN_EXISTING)
+}
+
+func markDeletePending(t *testing.T, marker string, createMode uint32) windows.Handle {
+	t.Helper()
 	name, err := windows.UTF16PtrFromString(marker)
 	if err != nil {
 		t.Fatal(err)
 	}
 	h, err := windows.CreateFile(name, windows.GENERIC_WRITE|windows.DELETE,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
-		nil, windows.CREATE_NEW, 0, 0)
+		nil, createMode, 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,5 +149,23 @@ func TestAcquireMarkerWithOSLockReportsContentionAtDeadline(t *testing.T) {
 	}
 	if elapsed < timeout {
 		t.Fatalf("acquireMarker gave up after %s; want it to wait out the %s timeout", elapsed, timeout)
+	}
+}
+
+// If another waiter removes a held marker as stale and its delete is still
+// pending when the holder releases, the release must not fail: the marker is
+// already going away, just as if it were gone.
+func TestReleaseToleratesDeletePendingMarker(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "test.lock")
+	marker := markerFor(t, lockPath)
+	release, err := acquireMarker(t.Context(), marker, lockPath, 0, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := holdExistingDeletePending(t, marker)
+	defer windows.CloseHandle(h) //nolint:errcheck
+
+	if err := release(); err != nil {
+		t.Fatalf("release of a marker another waiter is deleting: %v", err)
 	}
 }

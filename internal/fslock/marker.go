@@ -234,7 +234,11 @@ func holdMarker(marker string) func() error {
 		once.Do(func() {
 			close(stop)
 			<-done
-			if rerr := os.Remove(marker); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			// Another waiter may have wrongly taken the marker for stale and
+			// removed it, and that delete may still be pending (see
+			// windowsDeleteMaybePending). Either way the marker is no longer
+			// ours to remove.
+			if rerr := os.Remove(marker); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) && !windowsDeleteMaybePending(rerr) {
 				err = fmt.Errorf("fslock: remove %s: %w", marker, rerr)
 			}
 		})
