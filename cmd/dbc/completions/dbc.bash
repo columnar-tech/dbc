@@ -4,7 +4,7 @@ _dbc() {
     local cur prev words cword
     _init_completion || return
 
-    local subcommands="install uninstall list init add sync search info docs remove completion auth"
+    local subcommands="install uninstall list init add sync lock search info docs remove completion auth"
     local global_opts="--help -h --version --quiet -q"
 
     # Skip leading global options to find the subcommand.
@@ -53,6 +53,9 @@ _dbc() {
             ;;
         sync)
             _dbc_sync_completions
+            ;;
+        lock)
+            _dbc_lock_completions
             ;;
         search)
             _dbc_search_completions
@@ -205,6 +208,30 @@ _dbc_sync_completions() {
 
     if [[ "$cur" == -* ]]; then
         COMPREPLY=($(compgen -W "-h --level -l --path -p --no-verify --json --json-stream-progress" -- "$cur"))
+        return 0
+    fi
+
+    COMPREPLY=()
+}
+
+_dbc_lock_completions() {
+    local cur prev
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    case "$prev" in
+        --path|-p)
+            # Complete .toml files
+            COMPREPLY=($(compgen -f -X '!*.toml' -- "$cur"))
+            if [[ -d "$cur" ]]; then
+                COMPREPLY+=($(compgen -d -- "$cur"))
+            fi
+            return 0
+            ;;
+    esac
+
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "-h --path -p --no-verify --json" -- "$cur"))
         return 0
     fi
 
