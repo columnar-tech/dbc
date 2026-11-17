@@ -16,9 +16,29 @@ package main
 
 import (
 	"net/url"
+	"strings"
 
 	"github.com/columnar-tech/dbc"
 )
+
+// stripRegistryURLs removes credentials from URLs embedded in err without
+// value-based redaction. Use for locally constructed errors.
+func stripRegistryURLs(err error) error {
+	return redactURLSecrets(err, nil)
+}
+
+// redactPackageSelectError redacts registry-published package URLs that may
+// echo configured secrets, and otherwise only strips registry URLs from err.
+func redactPackageSelectError(err error, configured func() ([]dbc.Registry, error), source *url.URL) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "invalid package URL") || strings.Contains(msg, "cannot resolve package URL") {
+		return redactRegistryError(err, configured, source)
+	}
+	return stripRegistryURLs(err)
+}
 
 // redactRegistryError applies value-based redaction only at boundaries that
 // handle registry credentials. Local integrity and lockfile errors need only
