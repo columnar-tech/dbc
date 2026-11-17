@@ -524,8 +524,7 @@ func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Tar
 		_, err = f.Seek(0, io.SeekStart)
 	}
 	if err != nil {
-		var sigErr *signatureVerificationError
-		if errors.As(err, &sigErr) {
+		if sigErr, ok := errors.AsType[*signatureVerificationError](err); ok {
 			return fmt.Errorf("failed to verify signature: %w", sigErr.err)
 		}
 		return fmt.Errorf("failed to inspect downloaded driver %s: %w", pd.Name, err)
