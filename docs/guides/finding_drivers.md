@@ -110,7 +110,8 @@ $ dbc search --verbose
    License: Apache-2.0
    Available Versions:
     ├── 26.7.0
-    ╰── 26.9.0
+    ├── 26.9.0
+    ╰── 26.11.1
 • clickhouse
    Title: ClickHouse Driver
    Description: An ADBC driver for ClickHouse developed by ClickHouse, Inc.
