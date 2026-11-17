@@ -38,7 +38,7 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	if err != nil {
 		return Lock{}, errors.Join(err, lock.releaseOSLock())
 	}
-	release, err := acquireMarker(ctx, markerPath(canonicalPath), path, time.Until(deadline), nativeMarkerOwner, isNativeMarker)
+	release, err := acquireMarker(ctx, markerPath(canonicalPath), path, time.Until(deadline), true, nativeMarkerOwner, isNativeMarker)
 	if err != nil {
 		return Lock{}, errors.Join(err, lock.releaseOSLock())
 	}
