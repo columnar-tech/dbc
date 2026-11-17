@@ -54,8 +54,7 @@ const (
 // Node). That looks the same as a real permission error, so callers bound how
 // long they treat it as transient (see acquireMarker).
 func windowsDeleteMaybePending(err error) bool {
-	// TEMPORARY: disable the fix to check the tests fail in CI; revert before merge.
-	return false && hostpath.IsWindows() && errors.Is(err, fs.ErrPermission)
+	return hostpath.IsWindows() && errors.Is(err, fs.ErrPermission)
 }
 
 // nativeMarkerOwner is the content of a marker native dbc created. Only the
