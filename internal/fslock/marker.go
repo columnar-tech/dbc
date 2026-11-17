@@ -97,10 +97,21 @@ func markerPath(canonicalPath string) string {
 }
 
 // acquireMarker creates marker with owner as its content, waiting up to
-// timeout for another holder's marker to go away or go stale. ownerIsDead,
-// if set, reports whether a marker with the given content belongs to a holder
-// known to be dead, which is removed without waiting for it to go stale.
-func acquireMarker(ctx context.Context, marker, path string, timeout time.Duration, owner []byte, ownerIsDead func([]byte) bool) (release func() error, err error) {
+// timeout for another holder's marker to go away or go stale.
+//
+// ownerIsDead, if set, reports whether a marker with the given content belongs
+// to a holder known to be dead, which is removed without waiting for it to go
+// stale.
+//
+// holdsOSLock is for callers to indicate that they hold the OS lock, which
+// lives in the same directory as marker. When true, the directory is known to
+// be writable, so a create failure as described in windowsDeleteMaybePending is
+// retried until the deadline and then reported as contention. When false, it
+// is retried for markerDeletePendingGrace before being reported as a
+// permission error. Either way, while a delete is pending a call may block for
+// up to markerDeletePendingGrace, even with a zero timeout, and so overrun its
+// timeout by that much.
+func acquireMarker(ctx context.Context, marker, path string, timeout time.Duration, holdsOSLock bool, owner []byte, ownerIsDead func([]byte) bool) (release func() error, err error) {
 	deadline := time.Now().Add(timeout)
 	var deletePendingSince time.Time
 	for {
@@ -124,12 +135,22 @@ func acquireMarker(ctx context.Context, marker, path string, timeout time.Durati
 		if windowsDeleteMaybePending(err) {
 			// Another holder just removed its marker and the delete has not
 			// finished: the lock is free, just not yet creatable, so even a
-			// non-blocking attempt retries. If the error outlasts the grace,
-			// it was a real permission problem, so report it as one.
-			if now := time.Now(); deletePendingSince.IsZero() {
+			// non-blocking attempt retries. Without the OS lock, an error that
+			// outlasts the grace is taken to be a real permission problem and
+			// reported as one. With it, the delete is waited out until the
+			// deadline and then reported as contention.
+			now := time.Now()
+			if deletePendingSince.IsZero() {
 				deletePendingSince = now
-			} else if now.Sub(deletePendingSince) > markerDeletePendingGrace {
-				return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
+			}
+			if now.Sub(deletePendingSince) > markerDeletePendingGrace {
+				if !holdsOSLock {
+					return nil, fmt.Errorf("fslock: create %s: %w", marker, err)
+				}
+				if timeout <= 0 || now.After(deadline) {
+					return nil, fmt.Errorf("fslock: could not acquire lock on %s within %s (%v): %w",
+						path, timeout, err, ErrLockContended)
+				}
 			}
 			select {
 			case <-ctx.Done():

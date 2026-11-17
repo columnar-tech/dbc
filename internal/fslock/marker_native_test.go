@@ -177,7 +177,7 @@ func TestAcquireMarkerToleratesConcurrentRelease(t *testing.T) {
 
 	deadline := time.Now().Add(2 * time.Second)
 	for i := 0; time.Now().Before(deadline); i++ {
-		release, err := acquireMarker(t.Context(), marker, lockPath, time.Second, nil, nil)
+		release, err := acquireMarker(t.Context(), marker, lockPath, time.Second, false, nil, nil)
 		if err != nil {
 			t.Fatalf("attempt %d: acquireMarker with a concurrently releasing holder: %v", i, err)
 		}
