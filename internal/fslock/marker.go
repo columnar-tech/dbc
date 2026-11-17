@@ -49,10 +49,10 @@ const (
 
 // windowsDeleteMaybePending reports whether err, from creating or removing the
 // marker, may mean another holder's delete of it is still in progress. On
-// Windows a deleted file stays "delete pending" until the deleting handle
-// closes, and in that window both fail with ERROR_ACCESS_DENIED (EPERM under
+// Windows a deleted file stays "delete pending" until all open handles to it
+// close, and in that window both fail with ERROR_ACCESS_DENIED (EPERM under
 // Node). That looks the same as a real permission error, so callers bound how
-// long they treat it as transient.
+// long they treat it as transient (see acquireMarker).
 func windowsDeleteMaybePending(err error) bool {
 	return hostpath.IsWindows() && errors.Is(err, fs.ErrPermission)
 }

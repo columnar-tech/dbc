@@ -143,8 +143,8 @@ func TestMarkerNameFitsForMaximumLengthLockNames(t *testing.T) {
 	}
 }
 
-// Deleting a file on Windows leaves it "delete pending" until the deleting
-// handle closes, and creating it again in that window fails with
+// Deleting a file on Windows leaves it "delete pending" until all open
+// handles to it close, and creating it again in that window fails with
 // ERROR_ACCESS_DENIED rather than ERROR_FILE_EXISTS. A holder that releases
 // its marker while another waits for it must not make the waiter fail.
 func TestAcquireMarkerToleratesConcurrentRelease(t *testing.T) {
