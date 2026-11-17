@@ -164,6 +164,11 @@ func TestAcquireMarkerToleratesConcurrentRelease(t *testing.T) {
 			}
 			f, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 			if err != nil {
+				// The waiter holds the marker, so wait briefly instead of retrying
+				// a create that can't succeed. Don't add a delay to the
+				// take-and-release cycle below: running it back to back is what
+				// opens the delete-pending window this test is about.
+				time.Sleep(time.Millisecond)
 				continue
 			}
 			f.Close()         //nolint:errcheck
@@ -175,8 +180,10 @@ func TestAcquireMarkerToleratesConcurrentRelease(t *testing.T) {
 		<-done
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for i := 0; time.Now().Before(deadline); i++ {
+	// Run a fixed number of acquires rather than for a fixed duration. The
+	// rival keeps a core busy while the test runs, so this keeps that short,
+	// and every run does the same amount of work.
+	for i := range 200 {
 		release, err := acquireMarker(t.Context(), marker, lockPath, time.Second, false, nil, nil)
 		if err != nil {
 			t.Fatalf("attempt %d: acquireMarker with a concurrently releasing holder: %v", i, err)
