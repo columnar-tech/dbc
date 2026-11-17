@@ -596,7 +596,8 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), otherFingerprint)
-		assert.Contains(t, err.Error(), "delete the driver's entry")
+		assert.Contains(t, err.Error(), "not trusted")
+		assert.Contains(t, err.Error(), "run `dbc lock`")
 		assert.Zero(t, f.indexCalls)
 		assert.Empty(t, f.boundIndexed)
 	})
@@ -608,7 +609,11 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		spec := driverSpec{Version: constraint(t, ">=1.1")}
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": spec}), v2Lock(d))
 		require.Error(t, err)
+		// The locked version no longer satisfies the constraint, so the driver
+		// is resolved again and would switch to the Columnar key.
 		assert.Contains(t, err.Error(), otherFingerprint)
-		assert.Contains(t, err.Error(), "delete the driver's entry")
+		assert.Contains(t, err.Error(), "would now be verified with a different key")
+		assert.NotContains(t, err.Error(), "not trusted")
+		assert.Contains(t, err.Error(), "run `dbc lock`")
 	})
 }

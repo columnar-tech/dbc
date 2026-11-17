@@ -238,6 +238,12 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 // signerFor returns the key that packages of a driver from the registry with
 // the given identity must verify with. Only the built-in Columnar key exists
 // for now; this is the one place that would choose a key per registry.
+//
+// TODO: choose the key from the registry configuration: the key named by the
+// registry's signing_key, the Columnar key when it is omitted, and no key when
+// it is false, which the lock file records as an explicit unsigned signer
+// type. Until then every registry requires the Columnar key, and --no-verify
+// only skips the verification of one run without changing the pin.
 func (p *syncPlanner) signerFor(name, registryIdentity string) (*dbc.SigningKey, error) {
 	key, err := dbc.ColumnarSigningKey()
 	if err != nil {
@@ -258,17 +264,23 @@ func trustedSigner(name string, sig lockedSigner) (*dbc.SigningKey, error) {
 			return key, nil
 		}
 	}
-	return nil, fmt.Errorf("driver %s: the lock file pins the signing key %s, which is not trusted by this version of dbc; "+
-		"if the change of key is intended, delete the driver's entry from the lock file to lock it again",
-		name, sig.Fingerprint)
+	return nil, fmt.Errorf("driver %s: the lock file pins the signing key %s, which is not trusted by this version of dbc; %s",
+		name, sig.Fingerprint, signerChangeHint)
 }
+
+// signerChangeHint tells how to accept a change of the pinned signing key
+// without editing the lock file by hand.
+//
+// TODO: suggest `dbc lock --upgrade-driver <name>` once it exists, so that
+// the other drivers keep their locked versions.
+const signerChangeHint = "if the change of key is intended, remove the lock file and run `dbc lock` to create it again, " +
+	"which may also select newer versions of the other drivers"
 
 // signerChangedError reports that resolving a driver again would replace the
 // signing key that its lock entry pins.
 func signerChangedError(name string, locked lockedSigner) error {
-	return fmt.Errorf("driver %s: the lock file pins the signing key %s, but its packages would now be verified with a different key; "+
-		"if the change of key is intended, delete the driver's entry from the lock file to lock it again",
-		name, locked.Fingerprint)
+	return fmt.Errorf("driver %s: the lock file pins the signing key %s, but its packages would now be verified with a different key; %s",
+		name, locked.Fingerprint, signerChangeHint)
 }
 
 // lockedSignerOf returns the lock file spelling of the policy for key.

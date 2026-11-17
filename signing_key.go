@@ -28,6 +28,9 @@ import (
 
 // SigningKey is an OpenPGP public key that driver packages are verified with.
 // Its fingerprint and its verifier are derived from the same parsed key.
+// A recorded fingerprint, such as the signer pinned in a lock file, names the
+// key that packages must verify with; it is not evidence that a verification
+// was performed or succeeded.
 type SigningKey struct {
 	fingerprint string
 	verifier    crypto.PGPVerify
