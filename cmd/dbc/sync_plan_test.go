@@ -560,6 +560,90 @@ func TestPlanLocalErrorsStayReadableWithQueryRegistry(t *testing.T) {
 		assert.Contains(t, err.Error(), "invalid archive hash")
 		assert.NotContains(t, err.Error(), "details are hidden")
 	})
+	t.Run("invalid archive hash when completing lock", func(t *testing.T) {
+		f := newPlanFixture(t)
+		d := lockedAlpha("1.0.0", pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB))
+		d.Name = "bad-current"
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"bad-current": {}}), v2Lock(d))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid archive hash")
+		assert.NotContains(t, err.Error(), "details are hidden")
+	})
+}
+
+func TestPlanFromLockRedactsRegistryPublishedPackageURL(t *testing.T) {
+	const token = "SUPERSECRET"
+	regURL := must(url.Parse("https://user:" + token + "@registry.example.com"))
+	f := newPlanFixture(t)
+	f.registries = []dbc.Registry{{BaseURL: regURL}}
+	badIndex := func() ([]dbc.Driver, error) {
+		var decoded struct {
+			Drivers []dbc.Driver `yaml:"drivers"`
+		}
+		if err := yaml.Unmarshal([]byte(`drivers:
+  - name: Alpha
+    path: alpha
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+            url: http://%31.invalid/archive
+`), &decoded); err != nil {
+			return nil, err
+		}
+		for i := range decoded.Drivers {
+			decoded.Drivers[i].Registry = &dbc.Registry{BaseURL: regURL}
+		}
+		return decoded.Drivers, nil
+	}
+	f.planner.registryIndex = func(r dbc.Registry) ([]dbc.Driver, error) {
+		f.boundIndexed = append(f.boundIndexed, r.BaseURL)
+		return badIndex()
+	}
+	macos := pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)
+	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("1.0.0", macos)))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "complete the lock entry")
+	assert.Contains(t, err.Error(), "invalid package URL")
+	assert.NotContains(t, err.Error(), token)
+}
+
+func TestPlanResolveRedactsRegistryPublishedArtifactPath(t *testing.T) {
+	const token = "SUPERSECRET"
+	regURL := must(url.Parse("https://user:" + token + "@registry.example.com"))
+	f := newPlanFixture(t)
+	f.registries = []dbc.Registry{{BaseURL: regURL}}
+	customYAML := `drivers:
+  - name: Leaky
+    path: leaky
+    pkginfo:
+      - version: v1.0.0
+        packages:
+          - platform: linux_amd64
+            url: leaky/` + token + `\bad.tar.gz
+            hash: sha256:` + planHashA + `
+`
+	decode := func() ([]dbc.Driver, error) {
+		var decoded struct {
+			Drivers []dbc.Driver `yaml:"drivers"`
+		}
+		if err := yaml.Unmarshal([]byte(customYAML), &decoded); err != nil {
+			return nil, err
+		}
+		for i := range decoded.Drivers {
+			decoded.Drivers[i].Registry = &dbc.Registry{BaseURL: regURL}
+		}
+		return decoded.Drivers, nil
+	}
+	f.planner.index = func() ([]dbc.Driver, error) {
+		f.indexCalls++
+		return decode()
+	}
+	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"leaky": {}}), parsedLockFile{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot record artifact location")
+	assert.NotContains(t, err.Error(), token)
+	assert.NotContains(t, err.Error(), "user:")
 }
 
 func TestPlanRegistryFetchErrorsStillRedactSecrets(t *testing.T) {

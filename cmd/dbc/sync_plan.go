@@ -206,11 +206,11 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	}
 	pkg, err := drv.GetPackage(v, p.target, true)
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, stripRegistryURLs(err))
+		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, redactPackageSelectError(err, p.registries, bound.BaseURL))
 	}
 	art, err := newLockedArtifact(bound.BaseURL, pkg.Path, p.target, publishedHash(pkg))
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, stripRegistryURLs(err))
+		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
 	d.Artifacts = append(slices.Clone(d.Artifacts), art)
 	return plannedDriver{Name: name, Entry: d, Package: pkg}, nil
@@ -269,7 +269,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	}
 	artifacts, err := p.lockArtifacts(drv, pkg)
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, stripRegistryURLs(err))
+		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, sourceURL))
 	}
 	return plannedDriver{Name: name, Package: pkg, Entry: lockedDriver{
 		Name:      name,
