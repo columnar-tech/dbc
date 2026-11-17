@@ -16,14 +16,12 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/jsonschema"
 	"github.com/columnar-tech/dbc/internal/resolution"
 )
@@ -90,6 +88,12 @@ func (m lockModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		// The project lock is only needed while resolving.
 		defer m.projectLock.release()
+		// TODO: make dbc lock independent of the host platform. The shared
+		// resolution starts from the host's package, so a driver version
+		// without a build for the host fails to lock although dbc lock
+		// installs nothing and the lock file records the artifacts of every
+		// platform. The version choice is also filtered by the host for
+		// version constraints.
 		items, warnings, err := driverListResolution{
 			path:        m.Path,
 			ctx:         m.ctx,
@@ -158,15 +162,8 @@ func (m lockModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = 1
 		m.err = msg
 		if m.jsonOutput {
-			code := "lock_failed"
-			var archiveErr *config.ArchiveHashMismatchError
-			var libraryErr *libraryChecksumError
-			var sizeErr *archiveSizeMismatchError
-			if errors.As(msg, &archiveErr) || errors.As(msg, &libraryErr) || errors.As(msg, &sizeErr) {
-				code = "checksum_failed"
-			}
 			m.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
-				Code:    code,
+				Code:    jsonErrorCode(msg, "lock_failed"),
 				Message: msg.Error(),
 			})
 			return m, tea.Quit

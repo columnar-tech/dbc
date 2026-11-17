@@ -266,6 +266,19 @@ func (e *archiveSizeMismatchError) Error() string {
 	return fmt.Sprintf("driver %s: archive size mismatch: expected %d bytes, got %d", e.Driver, e.Expected, e.Actual)
 }
 
+// jsonErrorCode returns the error code of a JSON error envelope: checksum_failed
+// when an archive does not match the hash, size or library checksum pinned for
+// it, and fallback otherwise.
+func jsonErrorCode(err error, fallback string) string {
+	var archiveErr *config.ArchiveHashMismatchError
+	var libraryErr *libraryChecksumError
+	var sizeErr *archiveSizeMismatchError
+	if errors.As(err, &archiveErr) || errors.As(err, &libraryErr) || errors.As(err, &sizeErr) {
+		return "checksum_failed"
+	}
+	return fallback
+}
+
 // removeDownload closes a downloaded archive and removes its private directory.
 func removeDownload(f *os.File) {
 	if f == nil {
@@ -785,15 +798,8 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		s.status = 1
 		s.err = msg
 		if s.jsonOutput {
-			code := "sync_failed"
-			var archiveErr *config.ArchiveHashMismatchError
-			var libraryErr *libraryChecksumError
-			var sizeErr *archiveSizeMismatchError
-			if errors.As(msg, &archiveErr) || errors.As(msg, &libraryErr) || errors.As(msg, &sizeErr) {
-				code = "checksum_failed"
-			}
 			s.jsonErrorOutput = marshalEnvelope("error", jsonschema.ErrorResponse{
-				Code:    code,
+				Code:    jsonErrorCode(msg, "sync_failed"),
 				Message: msg.Error(),
 			})
 			return s, tea.Quit

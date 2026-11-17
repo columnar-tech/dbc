@@ -286,7 +286,7 @@ type LockedDriver struct {
 type LockStatus struct {
 	// LockFilePath is the filesystem path of the lock file that was written.
 	LockFilePath string `json:"lock_file_path"`
-	// Drivers lists every driver pinned in the lock file, in driver list order.
+	// Drivers lists every driver pinned in the lock file, sorted by name.
 	Drivers []LockedDriver `json:"drivers"`
 }
 
