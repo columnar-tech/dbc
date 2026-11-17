@@ -140,10 +140,10 @@ func TestInstallHelpMentionsVersionConstraints(t *testing.T) {
 
 func TestSubcommandSuggestions(t *testing.T) {
 	tests := []struct {
-		name            string
-		invalidCmd      string
-		wantSuggestion  string
-		hasSuggestion   bool
+		name           string
+		invalidCmd     string
+		wantSuggestion string
+		hasSuggestion  bool
 	}{
 		{
 			name:          "unknown command has no suggestion",

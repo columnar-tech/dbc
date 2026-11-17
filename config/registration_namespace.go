@@ -132,7 +132,7 @@ func collectFileRegistrationSharedMapsExcluding(location, excludedRoot, excluded
 		if err != nil {
 			return nil, false, err
 		}
-		resolvedShared, err := sharedPathsFromRegistrationRoot(location, manifest.DriverInfo.Driver.Shared)
+		resolvedShared, err := sharedPathsFromRegistrationRoot(location, manifest.Driver.Shared)
 		if err != nil {
 			return nil, false, fmt.Errorf("resolve shared paths in registration %s: %w", path, err)
 		}
@@ -265,7 +265,7 @@ func readRegistrationManifest(path, id string) (Manifest, error) {
 	}
 	manifest, decodeErr := decodeManifest(file, id, true)
 	closeErr := file.Close()
-	if decodeErr != nil || closeErr != nil || manifest.DriverInfo.ID != id {
+	if decodeErr != nil || closeErr != nil || manifest.ID != id {
 		cause := errors.Join(decodeErr, closeErr)
 		if cause == nil {
 			cause = errors.New("registration identity does not match its filename")
@@ -283,6 +283,6 @@ func readFileRuntimeRegistration(location, runtimeID string) (DriverInfo, bool) 
 	if err != nil {
 		return DriverInfo{}, false
 	}
-	manifest.DriverInfo.FilePath = location
+	manifest.FilePath = location
 	return manifest.DriverInfo, true
 }

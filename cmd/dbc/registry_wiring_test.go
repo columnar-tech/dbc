@@ -55,10 +55,10 @@ func TestApplyProjectRegistriesRoutesLookup(t *testing.T) {
             url: custom-driver/1.0.0/custom-driver.tar.gz
 `
 
-	var hits int32
+	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-			atomic.AddInt32(&hits, 1)
+			hits.Add(1)
 			w.Header().Set("Content-Type", "application/yaml")
 			w.Write([]byte(indexYAML))
 			return
@@ -104,7 +104,7 @@ func TestApplyProjectRegistriesRoutesLookup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, drivers, 1)
 	assert.Equal(t, "custom-driver", drivers[0].Path)
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&hits), int32(1),
+	assert.GreaterOrEqual(t, hits.Load(), int32(1),
 		"the test registry server should have been hit by the rebuilt client")
 }
 
@@ -273,10 +273,10 @@ func TestAddCmdEndToEndThroughRealClient(t *testing.T) {
             url: e2e-driver/1.0.0/e2e.tar.gz
 `
 
-	var indexHits int32
+	var indexHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-			atomic.AddInt32(&indexHits, 1)
+			indexHits.Add(1)
 			w.Header().Set("Content-Type", "application/yaml")
 			w.Write([]byte(indexYAML))
 			return
@@ -329,7 +329,7 @@ func TestAddCmdEndToEndThroughRealClient(t *testing.T) {
 		t.Fatalf("AddCmd failed: %v", errMsg)
 	}
 
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&indexHits), int32(1),
+	assert.GreaterOrEqual(t, indexHits.Load(), int32(1),
 		"AddCmd.GetModel() should have hit the project-declared registry")
 
 	// And the dbc.toml should have gained the driver entry.
@@ -502,10 +502,10 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
             url: startup-driver/1.0.0/x.tar.gz
 `
 
-	var hits int32
+	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-			atomic.AddInt32(&hits, 1)
+			hits.Add(1)
 			w.Header().Set("Content-Type", "application/yaml")
 			w.Write([]byte(indexYAML))
 			return
@@ -574,7 +574,7 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 	}
 
 	require.NotNil(t, dbcClient, "applyProjectRegistries must have built a client")
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&hits), int32(1),
+	assert.GreaterOrEqual(t, hits.Load(), int32(1),
 		"project-declared registry should have been hit end-to-end")
 }
 
@@ -1075,10 +1075,10 @@ func runInstallModelToCompletion(t *testing.T, m tea.Model) {
 func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
 	indexYAML := installRegistryDriverIndex("install-test-driver", "v1.0.0", "install-test-driver/1.0.0/x.tar.gz")
 
-	var indexHits int32
+	var indexHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-			atomic.AddInt32(&indexHits, 1)
+			indexHits.Add(1)
 			w.Header().Set("Content-Type", "application/yaml")
 			_, _ = w.Write([]byte(indexYAML))
 			return
@@ -1107,7 +1107,7 @@ func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
 
 	runInstallModelToCompletion(t, m)
 
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&indexHits), int32(1),
+	assert.GreaterOrEqual(t, indexHits.Load(), int32(1),
 		"global config registry should have been queried")
 	require.NotNil(t, capturedPkg.Driver.Registry,
 		"downloadPkg should have received a pkg with a Registry pointer")
@@ -1126,10 +1126,10 @@ func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
 func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T) {
 	indexYAML := installRegistryDriverIndex("only-driver", "v1.0.0", "only-driver/1.0.0/x.tar.gz")
 
-	var indexHits int32
+	var indexHits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/index.yaml") {
-			atomic.AddInt32(&indexHits, 1)
+			indexHits.Add(1)
 			w.Header().Set("Content-Type", "application/yaml")
 			_, _ = w.Write([]byte(indexYAML))
 			return
@@ -1162,7 +1162,7 @@ func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T)
 		"replace_defaults=true must drop built-in defaults — expected exactly the configured registry, got %d", len(regs))
 	assert.Equal(t, server.URL, regs[0].BaseURL.String(),
 		"the only remaining registry must be the configured one")
-	assert.GreaterOrEqual(t, atomic.LoadInt32(&indexHits), int32(1),
+	assert.GreaterOrEqual(t, indexHits.Load(), int32(1),
 		"the configured registry must have been queried")
 }
 

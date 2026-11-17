@@ -111,7 +111,7 @@ func (d driverMap) String() string {
 	}
 	var sb strings.Builder
 	for platform, path := range d.platformMap {
-		sb.WriteString(fmt.Sprintf("\t- %s: %s\n", platform, path))
+		fmt.Fprintf(&sb, "\t- %s: %s\n", platform, path)
 	}
 	return sb.String()
 }
@@ -161,7 +161,7 @@ func loadDriverFromManifest(prefix, driverName string) (DriverInfo, error) {
 		return DriverInfo{}, fmt.Errorf("error decoding manifest %s: %w", manifest, err)
 	}
 
-	m.DriverInfo.FilePath = prefix
+	m.FilePath = prefix
 	return m.DriverInfo, nil
 }
 
