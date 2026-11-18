@@ -49,6 +49,10 @@ type clientConfig struct {
 	// When true, registry-config options (global/project) are ignored so
 	// the caller's explicit registry set is used as-is.
 	explicitRegistries bool
+	// urlReplacements holds the rules passed to WithURLReplacements, which
+	// take precedence over the global config's.
+	urlReplacements         []URLReplacement
+	explicitURLReplacements bool
 }
 
 type Option func(*clientConfig)
@@ -62,6 +66,7 @@ type Client struct {
 	uid                uuid.UUID
 	setupOnce          sync.Once
 	credentialResolver func(*url.URL) (*auth.Credential, error)
+	router             *urlRouter
 }
 
 type redirectOrigin struct {
@@ -132,6 +137,15 @@ func NewClient(opts ...Option) (*Client, error) {
 		cfg.userAgent += " " + cfg.userAgentSuffix
 	}
 
+	replacements := cfg.urlReplacements
+	if !cfg.explicitURLReplacements && cfg.globalConfig != nil {
+		replacements = cfg.globalConfig.Network.URLReplacements
+	}
+	router, err := newURLRouter(replacements)
+	if err != nil {
+		return nil, err
+	}
+
 	httpClient := cfg.httpClient
 	if httpClient == nil {
 		httpClient = &http.Client{
@@ -182,6 +196,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		registries:         cfg.registries,
 		userAgent:          cfg.userAgent,
 		credentialResolver: credResolver,
+		router:             router,
 	}, nil
 }
 

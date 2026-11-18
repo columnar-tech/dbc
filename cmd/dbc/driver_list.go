@@ -35,6 +35,9 @@ type DriversList struct {
 	// defaults back on even when the global config set replace_defaults = true.
 	ReplaceDefaults *bool                 `toml:"replace_defaults,omitempty"`
 	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	// Network is decoded only to reject it: network settings are read from
+	// the user config, never from a project's dbc.toml.
+	Network map[string]any `toml:"network,omitempty"`
 }
 
 // registriesChanged reports whether two DriversList values would produce
@@ -118,6 +121,9 @@ func normalizeRegistryURL(raw string) string {
 // through getDriverRegistry see the merged registry list. No-op when neither
 // registries nor replace_defaults are set.
 func applyProjectRegistries(list DriversList) error {
+	if list.Network != nil {
+		return dbc.ErrProjectNetwork
+	}
 	if len(list.Registries) == 0 && list.ReplaceDefaults == nil {
 		return nil
 	}
@@ -188,6 +194,10 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	defer f.Close()
 	if err = toml.NewDecoder(f).Decode(&m); err != nil {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
+	}
+
+	if m.Network != nil {
+		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, dbc.ErrProjectNetwork)
 	}
 
 	// Build a per-call client scoped to this list's registry overrides so

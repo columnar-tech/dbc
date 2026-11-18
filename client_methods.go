@@ -33,12 +33,23 @@ import (
 )
 
 func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, error) {
-	c.setup()
-
 	uri, err := url.Parse(u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
+
+	// Replaced requests are anonymous: no credentials, no telemetry ids.
+	eff, replaced, err := c.router.route(uri)
+	if err != nil {
+		return nil, err
+	}
+	if replaced {
+		return anonymousGet(ctx, c.httpClient, c.router, eff, uri.Path)
+	}
+
+	c.setup()
+	// A redirect must not reach an origin that a rule replaces either.
+	hc := c.router.guardRedirects(c.httpClient, false)
 
 	cred, err := c.getCredential(uri)
 	if err != nil && !os.IsNotExist(err) {
@@ -76,7 +87,7 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +101,7 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to build retry request: %w", err)
 		}
-		resp, err = c.httpClient.Do(req)
+		resp, err = hc.Do(req)
 		if err != nil {
 			return nil, err
 		}
