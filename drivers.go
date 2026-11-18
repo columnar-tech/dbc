@@ -36,7 +36,6 @@ import (
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
 	"github.com/go-faster/yaml"
@@ -233,15 +232,6 @@ func makereq(u string) (resp *http.Response, err error) {
 
 //go:embed columnar.pubkey
 var armoredPubKey string
-
-var getVerifier = sync.OnceValues(func() (crypto.PGPVerify, error) {
-	key, err := crypto.NewKeyFromArmored(armoredPubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	return crypto.PGP().Verify().VerificationKey(key).New()
-})
 
 type ProgressFunc func(written, total int64)
 
@@ -596,20 +586,9 @@ func GetDriverList() ([]Driver, error) {
 // the columnar public key (embedded in the CLI) or an error
 // otherwise.
 func SignedByColumnar(lib, sig io.Reader) error {
-	verifier, err := getVerifier()
+	key, err := ColumnarSigningKey()
 	if err != nil {
 		return err
 	}
-
-	reader, err := verifier.VerifyingReader(lib, sig, crypto.Auto)
-	if err != nil {
-		return err
-	}
-
-	result, err := reader.DiscardAllAndVerifySignature()
-	if err != nil {
-		return err
-	}
-
-	return result.SignatureError()
+	return key.Verify(lib, sig)
 }
