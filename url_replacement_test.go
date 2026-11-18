@@ -494,6 +494,37 @@ func TestURLReplacementEncodedRedirectToReplacedURLRefused(t *testing.T) {
 	assert.Zero(t, f.upstreamHits.Load())
 }
 
+func TestURLReplacementHTTPSDowngradeByCallbackRefused(t *testing.T) {
+	var plainHits atomic.Int32
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		plainHits.Add(1)
+		io.WriteString(w, "plain")
+	}))
+	defer plain.Close()
+	plainURL := mustParseURL(plain.URL)
+	mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/next", http.StatusFound)
+	}))
+	defer mirror.Close()
+
+	hc := mirror.Client()
+	// The redirect target is HTTPS; the callback turns it into HTTP.
+	hc.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		req.URL.Scheme = "http"
+		req.URL.Host = plainURL.Host
+		return nil
+	}
+	c, err := NewClient(
+		WithHTTPClient(hc),
+		WithBaseURL("https://upstream.example"),
+		WithURLReplacements([]URLReplacement{{Prefix: "https://upstream.example", Replacement: mirror.URL}}),
+	)
+	require.NoError(t, err)
+	_, err = c.makeRequest(t.Context(), "https://upstream.example/index.yaml")
+	require.ErrorContains(t, err, "refusing HTTPS to HTTP redirect")
+	assert.Zero(t, plainHits.Load())
+}
+
 // redirector answers every request with a redirect to the URL that target
 // returns for it.
 type redirector struct {

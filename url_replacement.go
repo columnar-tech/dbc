@@ -198,18 +198,18 @@ func (r *urlRouter) guardRedirects(hc *http.Client, replaced bool) *http.Client 
 	if r == nil {
 		return hc
 	}
-	refuseReplaced := func(u *url.URL) error {
-		if _, isReplaced, err := r.route(u); isReplaced || err != nil {
-			return fmt.Errorf("refusing redirect to %s, which a URL replacement rule replaces", u.Host)
+	check := func(req *http.Request, via []*http.Request) error {
+		if replaced && len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
+			return errors.New("refusing HTTPS to HTTP redirect for URL replacement request")
+		}
+		if _, isReplaced, err := r.route(req.URL); isReplaced || err != nil {
+			return fmt.Errorf("refusing redirect to %s, which a URL replacement rule replaces", req.URL.Host)
 		}
 		return nil
 	}
 	guarded := *hc
 	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if replaced && len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
-			return errors.New("refusing HTTPS to HTTP redirect for URL replacement request")
-		}
-		if err := refuseReplaced(req.URL); err != nil {
+		if err := check(req, via); err != nil {
 			return err
 		}
 		if hc.CheckRedirect == nil {
@@ -225,7 +225,7 @@ func (r *urlRouter) guardRedirects(hc *http.Client, replaced bool) *http.Client 
 			return err
 		}
 		// The callback may have changed the URL.
-		return refuseReplaced(req.URL)
+		return check(req, via)
 	}
 	return &guarded
 }
