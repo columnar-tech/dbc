@@ -179,48 +179,31 @@ func (m addModel) Init() tea.Cmd {
 				result += "\n"
 			}
 
-			_, err := findDriver(spec.Name, drivers)
+			requested := driverSpec{Version: spec.Vers}
+			if m.Pre {
+				requested.Prerelease = "allow"
+			}
+			requested = requested.withPrerelease()
+			pkg, err := dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+				return selectProjectPackage(candidate, requested, nil, config.PlatformTuple())
+			})
 			if err != nil {
+				err = redactRegistryError(err, m.getRegistries)
+				switch {
+				case pkg.Driver.Path == "":
+					return wrapWithRegistryContext(err, registryErrors)
+				case spec.Vers != nil:
+					return fmt.Errorf("error getting driver: %w", err)
+				case errors.Is(err, dbc.ErrPackageMiss) && !m.Pre && len(pkg.Driver.PkgInfo) > 0 && !pkg.Driver.HasNonPrerelease():
+					err = fmt.Errorf("driver `%s` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre %s", spec.Name, spec.Name)
+				case errors.Is(err, dbc.ErrPackageMiss) && !m.Pre:
+					err = fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
+				}
 				return wrapWithRegistryContext(err, registryErrors)
 			}
 
-			if spec.Vers != nil {
-				spec.Vers.IncludePrerelease = m.Pre
-				_, err = dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-					return candidate.GetWithConstraint(spec.Vers, config.PlatformTuple())
-				})
-				if err != nil {
-					return fmt.Errorf("error getting driver: %w", err)
-				}
-			} else {
-				pkg, selectionErr := dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-					return candidate.GetPackage(nil, config.PlatformTuple(), m.Pre)
-				})
-				drv := pkg.Driver
-				if selectionErr != nil && !m.Pre && !drv.HasNonPrerelease() {
-					var err error
-					if len(drv.PkgInfo) > 0 {
-						// Has packages, but they're all prereleases
-						err = fmt.Errorf("driver `%s` not found in driver registry index (but prerelease versions filtered out); try: dbc add --pre %s", spec.Name, spec.Name)
-					} else {
-						// No packages. Very unlikely edge case.
-						err = fmt.Errorf("driver `%s` not found in driver registry index", spec.Name)
-					}
-					if registryErrors != nil {
-						return wrapWithRegistryContext(err, registryErrors)
-					}
-					return err
-				}
-				if selectionErr != nil {
-					return wrapWithRegistryContext(selectionErr, registryErrors)
-				}
-			}
-
 			current, ok := m.list.Drivers[spec.Name]
-			m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers}
-			if m.Pre {
-				m.list.Drivers[spec.Name] = driverSpec{Version: spec.Vers, Prerelease: "allow"}
-			}
+			m.list.Drivers[spec.Name] = requested
 
 			new := m.list.Drivers[spec.Name]
 			currentString := func() string {

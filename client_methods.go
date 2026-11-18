@@ -293,7 +293,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		return nil, fmt.Errorf("failed to search for driver %s: %w", driverName, err)
 	}
 
-	pkg, err := ResolvePackage(drivers, driverName, func(d *Driver) (PkgInfo, error) { return d.GetPackage(nil, config.PlatformTuple(), false) })
+	pkg, err := ResolvePackage(drivers, driverName, func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage(config.PlatformTuple(), false) })
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}

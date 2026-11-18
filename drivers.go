@@ -421,6 +421,7 @@ func filter[T any](items iter.Seq[T], predicate func(T) bool) iter.Seq[T] {
 	}
 }
 
+// Driver is a single driver in a registry and its available versions.
 type Driver struct {
 	Registry *Registry `yaml:"-"`
 
@@ -439,33 +440,99 @@ func (d Driver) HasNonPrerelease() bool {
 	})
 }
 
-func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (PkgInfo, error) {
-	if len(d.PkgInfo) == 0 {
-		return PkgInfo{}, packageMiss{fmt.Errorf("no package info available for driver %s", d.Path)}
-	}
-
-	itr := filter(slices.Values(d.PkgInfo), func(p pkginfo) bool {
-		return c.Check(p.Version)
-	})
-
-	var result *pkginfo
-	for pkg := range itr {
-		if result == nil || pkg.Version.GreaterThan(result.Version) {
-			found := pkg
-			result = &found
+func (d Driver) validatePackageVersions() error {
+	for _, pkg := range d.PkgInfo {
+		// TODO: we may want to do other validation
+		if pkg.Version == nil {
+			return fmt.Errorf("invalid package metadata for driver %s: missing version", d.Path)
 		}
 	}
+	return nil
+}
 
-	if result == nil {
-		return PkgInfo{}, packageMiss{fmt.Errorf("no package found for driver %s that satisfies constraints %s", d.Path, c)}
+// GetWithConstraint returns the newest compatible package satisfying c.
+func (d Driver) GetWithConstraint(c *semver.Constraints, platformTuple string) (PkgInfo, error) {
+	return d.latestPackage(c, platformTuple, false)
+}
+
+// GetLatestPackage returns the newest compatible package for the given platform.
+func (d Driver) GetLatestPackage(platform string, allowPrerelease bool) (PkgInfo, error) {
+	return d.latestPackage(nil, platform, allowPrerelease)
+}
+
+// GetLatestVersionAnyPlatform returns the newest eligible version regardless of platform.
+// When constraint is supplied, it determines prerelease eligibility, regardless of allowPrerelease.
+func (d Driver) GetLatestVersionAnyPlatform(constraint *semver.Constraints, allowPrerelease bool) (*semver.Version, error) {
+	if err := d.validatePackageVersions(); err != nil {
+		return nil, err
 	}
+	var latest *semver.Version
+	for pkg := range d.eligiblePackages(constraint, allowPrerelease) {
+		if latest == nil || pkg.Version.GreaterThan(latest) {
+			latest = pkg.Version
+		}
+	}
+	if latest == nil {
+		return nil, d.selectionMiss(constraint)
+	}
+	return latest, nil
+}
 
-	return result.GetPackage(d, platformTuple)
+func (d Driver) eligiblePackages(constraint *semver.Constraints, allowPrerelease bool) iter.Seq[pkginfo] {
+	return filter(slices.Values(d.PkgInfo), func(pkg pkginfo) bool {
+		if constraint != nil {
+			return constraint.Check(pkg.Version)
+		}
+		return allowPrerelease || pkg.Version.Prerelease() == ""
+	})
+}
+
+func (d Driver) selectionMiss(constraint *semver.Constraints) error {
+	switch {
+	case constraint != nil && len(d.PkgInfo) == 0:
+		return packageMiss{fmt.Errorf("no package info available for driver %s", d.Path)}
+	case constraint != nil:
+		return packageMiss{fmt.Errorf("no package found for driver %s that satisfies constraints %s", d.Path, constraint)}
+	case len(d.PkgInfo) > 0:
+		// TODO: it may also be possible there's no packages for this platform?
+		return packageMiss{fmt.Errorf("driver `%s` not found (but prerelease versions filtered out); try: dbc install --pre %s", d.Path, d.Path)}
+	default:
+		return packageMiss{fmt.Errorf("driver `%s` not found", d.Path)}
+	}
+}
+
+func (d Driver) latestPackage(constraint *semver.Constraints, platform string, allowPrerelease bool) (PkgInfo, error) {
+	if err := d.validatePackageVersions(); err != nil {
+		return PkgInfo{}, err
+	}
+	var latest pkginfo
+	var eligible bool
+	for pkg := range d.eligiblePackages(constraint, allowPrerelease) {
+		eligible = true
+		if latest.Version != nil && !pkg.Version.GreaterThan(latest.Version) {
+			continue
+		}
+		if slices.ContainsFunc(pkg.Packages, func(entry pkgEntry) bool {
+			return entry.PlatformTuple == platform
+		}) {
+			latest = pkg
+		}
+	}
+	if !eligible {
+		return PkgInfo{}, d.selectionMiss(constraint)
+	}
+	if latest.Version == nil {
+		return PkgInfo{}, fmt.Errorf("no package found for platform '%s'", platform)
+	}
+	return latest.GetPackage(d, platform)
 }
 
 func (d Driver) Versions(platformTuple string) semver.Collection {
 	versions := make(semver.Collection, 0, len(d.PkgInfo))
 	for _, pkg := range d.PkgInfo {
+		if pkg.Version == nil {
+			continue
+		}
 		for _, p := range pkg.Packages {
 			if p.PlatformTuple == platformTuple {
 				versions = append(versions, pkg.Version)
@@ -478,6 +545,9 @@ func (d Driver) Versions(platformTuple string) semver.Collection {
 }
 
 func (d Driver) GetPackage(version *semver.Version, platformTuple string, allowPrerelease bool) (PkgInfo, error) {
+	if err := d.validatePackageVersions(); err != nil {
+		return PkgInfo{}, err
+	}
 	pkglist := d.PkgInfo
 
 	// Filter prereleases when no specific stable version is requested.
@@ -602,12 +672,19 @@ func SignedByColumnar(lib, sig io.Reader) error {
 	return key.Verify(lib, sig)
 }
 
+// ErrPackageMiss indicates that a registry entry has no eligible version.
+var ErrPackageMiss = errors.New("no eligible package version")
+
 // packageMiss marks a selection miss that permits registry fallback.
 type packageMiss struct{ error }
 
-// ResolvePackage tries matching driver entries in order, stopping on success
-// or an artifact error. Platform availability never permits fallback.
-// If all entries miss, it returns the first selection error.
+func (e packageMiss) Is(target error) bool { return target == ErrPackageMiss }
+
+// ResolvePackage tries matching driver entries in order, advancing only on
+// ErrPackageMiss. The returned package identifies the selected driver on
+// success or a terminal error. If all matching entries miss, it identifies
+// the first matching driver and returns that entry's error. If no entry
+// matches, it returns a zero package and a driver-not-found error.
 func ResolvePackage(drivers []Driver, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
 	var first PkgInfo
 	var firstErr error
@@ -617,9 +694,10 @@ func ResolvePackage(drivers []Driver, name string, selectPackage func(*Driver) (
 		}
 		pkg, err := selectPackage(&d)
 		if err == nil {
+			pkg.Driver = d
 			return pkg, nil
 		}
-		if _, ok := errors.AsType[packageMiss](err); !ok {
+		if !errors.Is(err, ErrPackageMiss) {
 			return PkgInfo{Driver: d}, err
 		}
 		if firstErr == nil {

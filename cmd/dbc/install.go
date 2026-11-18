@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -416,32 +417,21 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	}
 
 	m.Driver = driverName
-	_, err = findDriver(m.Driver, list)
-	if err != nil {
-		// If we have registry errors, enhance the error message
-		if m.registryErrors != nil {
-			return m, errCmd("could not find driver: %w\n\nNote: Some driver registries were unavailable:\n%s", err, m.registryErrors.Error())
-		}
-		return m, errCmd("could not find driver: %w", err)
+	if vers != nil {
+		vers.IncludePrerelease = m.Pre
 	}
-
 	return m, func() tea.Msg {
-		if vers != nil {
-			vers.IncludePrerelease = m.Pre
-			pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-				return candidate.GetWithConstraint(vers, config.PlatformTuple())
-			})
-			if err != nil {
-				return err
-			}
-			return pkg
-		}
-
 		pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-			return candidate.GetPackage(nil, config.PlatformTuple(), m.Pre)
+			if vers != nil {
+				return candidate.GetWithConstraint(vers, config.PlatformTuple())
+			}
+			return candidate.GetLatestPackage(config.PlatformTuple(), m.Pre)
 		})
 		if err != nil {
-			if !m.Pre && !pkg.Driver.HasNonPrerelease() {
+			if pkg.Driver.Path == "" {
+				return wrapWithRegistryContext(fmt.Errorf("could not find driver: %w", err), m.registryErrors)
+			}
+			if vers == nil && errors.Is(err, dbc.ErrPackageMiss) && !m.Pre && !pkg.Driver.HasNonPrerelease() {
 				for _, cfg := range config.Get() {
 					if di, ok := cfg.Drivers[driverName]; ok && di.Version != nil && di.Version.Prerelease() != "" {
 						return fmt.Errorf("driver `%s` is already installed (version %s); only pre-release versions are available for this driver; to update, use: dbc install --pre %s", driverName, di.Version, driverName)

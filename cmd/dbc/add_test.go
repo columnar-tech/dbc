@@ -699,3 +699,69 @@ func (suite *SubcommandTestSuite) TestAdd_JSON_RegistryFailure() {
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "add_failed", "network unreachable")
 }
+
+func TestInstallHostCompatibleSelection(t *testing.T) {
+	primary := addSelectionTestDriver(t, fmt.Sprintf(`pkginfo:
+ - version: 2.0.0
+   packages: []
+ - version: 1.0.0
+   packages: [{platform: %s}]
+`, config.PlatformTuple()))
+	fallback := addSelectionTestDriver(t, fmt.Sprintf("pkginfo: [{version: 2.0.0, packages: [{platform: %s}]}]", config.PlatformTuple()))
+	for _, request := range []string{"shared", "shared>=1.0.0"} {
+		_, cmd := (progressiveInstallModel{Driver: request}).searchForDriver([]dbc.Driver{primary, fallback})
+		msg := cmd()
+		require.IsType(t, dbc.PkgInfo{}, msg)
+		assert.Equal(t, "1.0.0", msg.(dbc.PkgInfo).Version.String())
+	}
+	_, cmd := (progressiveInstallModel{Driver: "shared=2.0.0"}).searchForDriver([]dbc.Driver{primary, fallback})
+	msg := cmd()
+	require.Implements(t, (*error)(nil), msg)
+	assert.EqualError(t, msg.(error), fmt.Sprintf("no package found for platform '%s'", config.PlatformTuple()))
+
+	prerelease := addSelectionTestDriver(t, fmt.Sprintf("pkginfo: [{version: 3.0.0-beta.1, packages: [{platform: %s}]}]", config.PlatformTuple()))
+	_, cmd = (progressiveInstallModel{Driver: "shared", Pre: true}).searchForDriver([]dbc.Driver{prerelease, fallback})
+	msg = cmd()
+	require.IsType(t, dbc.PkgInfo{}, msg)
+	assert.Equal(t, "3.0.0-beta.1", msg.(dbc.PkgInfo).Version.String())
+}
+
+func (suite *SubcommandTestSuite) TestProjectCommandsRequireArtifactForNewestVersion() {
+	path := filepath.Join(suite.tempdir, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(path, []byte("[drivers.shared]\nversion = '>=1.0.0'\n"), 0o600))
+	driver := addSelectionTestDriver(suite.T(), fmt.Sprintf(`pkginfo:
+ - version: 2.0.0
+   packages: []
+ - version: 1.0.0
+   packages: [{platform: %s}]
+`, config.PlatformTuple()))
+	base := testBaseModel()
+	base.getDriverRegistry = func() ([]dbc.Driver, error) { return []dbc.Driver{driver}, nil }
+
+	for _, model := range []tea.Model{
+		AddCmd{Path: path, Driver: []string{"shared>=1.0.0"}}.GetModelCustom(base),
+		LockCmd{Path: path}.GetModelCustom(base),
+		SyncCmd{Path: path}.GetModelCustom(base),
+	} {
+		suite.Contains(suite.runCmdErr(model), "no packages available for version 2.0.0")
+	}
+}
+
+func TestAddRejectsMissingVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dbc.toml")
+	original := []byte("[drivers]\n")
+	require.NoError(t, os.WriteFile(path, original, 0o600))
+	drivers := []dbc.Driver{
+		addSelectionTestDriver(t, "pkginfo: [{}]"),
+		addSelectionTestDriver(t, fmt.Sprintf("pkginfo: [{version: 1.0.0, packages: [{platform: %s}]}]", config.PlatformTuple())),
+	}
+	model := AddCmd{Path: path, Driver: []string{"shared"}, Pre: true}.GetModelCustom(baseModel{
+		getDriverRegistry: func() ([]dbc.Driver, error) { return drivers, nil },
+	})
+	msg := model.Init()()
+	require.Implements(t, (*error)(nil), msg)
+	assert.ErrorContains(t, msg.(error), "missing version")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, data)
+}

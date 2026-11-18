@@ -185,6 +185,15 @@ type driverSpec struct {
 	Version    *semver.Constraints `toml:"version"`
 }
 
+func (spec driverSpec) withPrerelease() driverSpec {
+	if spec.Version != nil && spec.Prerelease == "allow" {
+		constraint := *spec.Version
+		constraint.IncludePrerelease = true
+		spec.Version = &constraint
+	}
+	return spec
+}
+
 func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	var m DriversList
 	f, err := os.Open(fname)
@@ -214,23 +223,19 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return nil, err
 	}
 
-	// create mapping to avoid multiple loops through
-	dmap := make(map[string]dbc.Driver)
-	for _, driver := range drivers {
-		dmap[driver.Path] = driver
-	}
-
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
-		_, ok := dmap[name]
-		if !ok {
-			return nil, fmt.Errorf("driver `%s` not found", name)
-		}
-
+		spec = spec.withPrerelease()
 		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-			return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
+			if spec.Version != nil {
+				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
+			}
+			return candidate.GetLatestPackage(config.PlatformTuple(), spec.Prerelease == "allow")
 		})
 		if err != nil {
+			if pkg.Driver.Path == "" {
+				return nil, fmt.Errorf("driver `%s` not found", name)
+			}
 			return nil, fmt.Errorf("error finding version for driver %s: %w", name, err)
 		}
 
