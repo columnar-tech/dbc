@@ -15,12 +15,15 @@
 package dbc
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -318,27 +321,34 @@ func TestMakeRequestURLReplacement(t *testing.T) {
 		assert.Empty(t, f.mirrorReqs[0].Header.Get("Accept"))
 	})
 
-	t.Run("401 does not ask the resolver or refresh", func(t *testing.T) {
-		f := newMirrorFixture(t, func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusUnauthorized)
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(fmt.Sprintf("%d does not ask the resolver or refresh", status), func(t *testing.T) {
+			f := newMirrorFixture(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+			})
+			var lookups atomic.Int32
+			c, err := NewClient(
+				WithBaseURL(f.upstream.URL),
+				WithURLReplacements(f.rules()),
+				WithCredentialResolver(func(*url.URL) (*auth.Credential, error) {
+					lookups.Add(1)
+					return nil, nil
+				}),
+			)
+			require.NoError(t, err)
+			_, err = c.makeRequest(t.Context(), f.upstream.URL+"/index.yaml")
+			require.ErrorIs(t, err, ErrURLReplacementUnauthorized)
+			// Logging in or a license cannot help: nothing is sent to the
+			// mirror with credentials.
+			assert.NotErrorIs(t, err, ErrUnauthorized)
+			assert.NotErrorIs(t, err, ErrUnauthorizedColumnar)
+			assert.Contains(t, err.Error(), strings.TrimPrefix(f.mirror.URL, "http://")+"/prefix/index.yaml")
+			assert.Contains(t, err.Error(), http.StatusText(status))
+			assert.Zero(t, lookups.Load())
+			assert.Equal(t, int32(1), f.mirrorHits.Load(), "no retry")
+			assert.Zero(t, f.upstreamHits.Load())
 		})
-		var lookups atomic.Int32
-		c, err := NewClient(
-			WithBaseURL(f.upstream.URL),
-			WithURLReplacements(f.rules()),
-			WithCredentialResolver(func(*url.URL) (*auth.Credential, error) {
-				lookups.Add(1)
-				return nil, nil
-			}),
-		)
-		require.NoError(t, err)
-		_, err = c.makeRequest(t.Context(), f.upstream.URL+"/index.yaml")
-		require.ErrorIs(t, err, ErrUnauthorized)
-		assert.Contains(t, err.Error(), strings.TrimPrefix(f.mirror.URL, "http://")+"/prefix/index.yaml")
-		assert.Zero(t, lookups.Load())
-		assert.Equal(t, int32(1), f.mirrorHits.Load(), "no retry")
-		assert.Zero(t, f.upstreamHits.Load())
-	})
+	}
 
 	t.Run("canonical query is refused before sending", func(t *testing.T) {
 		f := newMirrorFixture(t, nil)
@@ -482,6 +492,168 @@ func TestURLReplacementEncodedRedirectToReplacedURLRefused(t *testing.T) {
 	require.ErrorContains(t, err, "refusing redirect")
 	assert.Equal(t, int32(1), f.mirrorHits.Load())
 	assert.Zero(t, f.upstreamHits.Load())
+}
+
+// redirector answers every request with a redirect to the URL that target
+// returns for it.
+type redirector struct {
+	*httptest.Server
+	hits atomic.Int32
+}
+
+func newRedirector(t *testing.T, target func(r *http.Request) string) *redirector {
+	t.Helper()
+	rd := &redirector{}
+	rd.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rd.hits.Add(1)
+		http.Redirect(w, r, target(r), http.StatusFound)
+	}))
+	t.Cleanup(rd.Close)
+	return rd
+}
+
+// A site that no rule replaces must not be able to send a request to an
+// origin the user replaced either.
+func TestURLReplacementRedirectFromUnreplacedURLRefused(t *testing.T) {
+	t.Run("direct", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		other := newRedirector(t, func(*http.Request) string { return f.upstream.URL + "/pkg.tar.gz" })
+		c, err := NewClient(WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		_, err = c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.ErrorContains(t, err, "refusing redirect")
+		assert.Equal(t, int32(1), other.hits.Load())
+		assert.Zero(t, f.upstreamHits.Load())
+		assert.Zero(t, f.mirrorHits.Load())
+	})
+
+	t.Run("through an intermediate hop", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		hop := newRedirector(t, func(*http.Request) string { return f.upstream.URL + "/pkg.tar.gz" })
+		other := newRedirector(t, func(*http.Request) string { return hop.URL + "/next" })
+		c, err := NewClient(WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		_, err = c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.ErrorContains(t, err, "refusing redirect")
+		assert.Equal(t, int32(1), hop.hits.Load())
+		assert.Zero(t, f.upstreamHits.Load())
+		assert.Zero(t, f.mirrorHits.Load())
+	})
+
+	t.Run("target with a query", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		other := newRedirector(t, func(*http.Request) string { return f.upstream.URL + "/pkg.tar.gz?token=x" })
+		c, err := NewClient(WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		_, err = c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.ErrorContains(t, err, "refusing redirect")
+		assert.Zero(t, f.upstreamHits.Load())
+		assert.Zero(t, f.mirrorHits.Load())
+	})
+
+	t.Run("redirects elsewhere are still followed", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, "final")
+		}))
+		t.Cleanup(final.Close)
+		other := newRedirector(t, func(*http.Request) string { return final.URL + "/pkg.tar.gz" })
+		c, err := NewClient(WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		rsp, err := c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.NoError(t, err)
+		assert.Equal(t, "final", readBody(t, rsp))
+		assert.Zero(t, f.upstreamHits.Load())
+		assert.Zero(t, f.mirrorHits.Load())
+	})
+
+	t.Run("nil CheckRedirect keeps the limit of 10 redirects", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		var other *redirector
+		other = newRedirector(t, func(*http.Request) string { return other.URL + "/again" })
+		c, err := NewClient(
+			WithHTTPClient(&http.Client{}),
+			WithBaseURL(other.URL),
+			WithURLReplacements(f.rules()),
+		)
+		require.NoError(t, err)
+
+		_, err = c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.ErrorContains(t, err, "stopped after 10 redirects")
+		assert.Equal(t, int32(10), other.hits.Load())
+	})
+
+	t.Run("CheckRedirect errors are kept", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		final := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, "final")
+		}))
+		t.Cleanup(final.Close)
+		other := newRedirector(t, func(*http.Request) string { return final.URL + "/pkg.tar.gz" })
+		hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("caller refused")
+		}}
+		c, err := NewClient(WithHTTPClient(hc), WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		_, err = c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.ErrorContains(t, err, "caller refused")
+	})
+
+	t.Run("CheckRedirect may stop with the last response", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		other := newRedirector(t, func(*http.Request) string { return "/elsewhere" })
+		hc := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
+		c, err := NewClient(WithHTTPClient(hc), WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		rsp, err := c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.NoError(t, err)
+		rsp.Body.Close()
+		assert.Equal(t, http.StatusFound, rsp.StatusCode)
+		assert.Equal(t, int32(1), other.hits.Load())
+	})
+
+	t.Run("CheckRedirect may not change the URL to a replaced one", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		other := newRedirector(t, func(*http.Request) string { return "/elsewhere" })
+		upstream := mustParseURL(f.upstream.URL + "/pkg.tar.gz")
+		hc := &http.Client{CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			req.URL = upstream
+			return nil
+		}}
+		c, err := NewClient(WithHTTPClient(hc), WithBaseURL(other.URL), WithURLReplacements(f.rules()))
+		require.NoError(t, err)
+
+		_, err = c.makeRequest(t.Context(), other.URL+"/pkg.tar.gz")
+		require.ErrorContains(t, err, "refusing redirect")
+		assert.Zero(t, f.upstreamHits.Load())
+		assert.Zero(t, f.mirrorHits.Load())
+	})
+
+	t.Run("deprecated package-level functions", func(t *testing.T) {
+		f := newMirrorFixture(t, nil)
+		other := newRedirector(t, func(*http.Request) string { return f.upstream.URL + "/pkg.tar.gz" })
+		t.Cleanup(func() { _ = SetDefaultURLReplacements(nil) })
+		require.NoError(t, SetDefaultURLReplacements(f.rules()))
+		origClient := DefaultClient
+		DefaultClient = &http.Client{CheckRedirect: checkRedirect}
+		t.Cleanup(func() { DefaultClient = origClient })
+
+		pkg := PkgInfo{Path: mustParseURL(other.URL + "/pkg.tar.gz")}
+		_, err := pkg.DownloadPackage(nil)
+		require.ErrorContains(t, err, "refusing redirect")
+		assert.Equal(t, int32(1), other.hits.Load())
+		assert.Zero(t, f.upstreamHits.Load())
+		assert.Zero(t, f.mirrorHits.Load())
+		assert.Equal(t, reflect.ValueOf(checkRedirect).Pointer(), reflect.ValueOf(DefaultClient.CheckRedirect).Pointer(), "DefaultClient is not modified")
+	})
 }
 
 func TestURLReplacementHTTPSDowngradeRefused(t *testing.T) {

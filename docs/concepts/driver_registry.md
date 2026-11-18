@@ -70,16 +70,18 @@ folder of your user configuration directory, for example
   so a mirror cannot change a driver unnoticed while signature verification is
   on or the archive hash is pinned in `dbc.lock`.
 - dbc does not fall back to the original URL when the mirror fails, and refuses
-  a redirect from the mirror back to a URL that a rule replaces. Native Go
-  clients also reject HTTPS-to-HTTP redirects for replaced requests. In Wasm,
-  the browser's `fetch` follows redirects internally, so dbc cannot apply these
-  redirect checks.
+  any redirect to a URL that a rule replaces, whether it comes from the mirror
+  or from a site that no rule replaces. Native Go clients also reject
+  HTTPS-to-HTTP redirects for replaced requests. In Wasm, the browser's `fetch`
+  follows redirects internally, so dbc cannot apply these redirect checks.
 - `dbc.lock` and `dbc.toml` keep the original registry URLs, so a lock file
   created behind a mirror can be shared with people who use the registry
   directly and the other way round.
 - Only the user `config.toml` can set this. A `dbc.toml` with a `network` table
   is rejected, so a project cannot redirect your requests.
 - Mirrors that require authentication, and registries whose URL has a query
-  string, are not supported yet.
+  string, are not supported yet. If the mirror answers 401 or 403, dbc reports
+  that the mirror refused access; logging in with `dbc auth login` does not
+  help, because no credentials are sent to the mirror.
 
 For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).

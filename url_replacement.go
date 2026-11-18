@@ -51,6 +51,12 @@ type NetworkConfig struct {
 // replacement rules.
 var ErrInvalidURLReplacement = errors.New("invalid URL replacement")
 
+// ErrURLReplacementUnauthorized is wrapped by the error returned when the
+// target of a URL replacement answers 401 or 403. Replaced requests never send
+// credentials, so logging in to the original registry does not help. It does
+// not wrap ErrUnauthorized.
+var ErrURLReplacementUnauthorized = errors.New("URL replacement target refused access; dbc does not send credentials to URL replacement targets")
+
 // urlRule is a validated URLReplacement.
 type urlRule struct {
 	origin redirectOrigin
@@ -167,7 +173,7 @@ func anonymousGet(ctx context.Context, hc *http.Client, r *urlRouter, eff *url.U
 	if canonicalPath == "/index.yaml" {
 		req.Header.Set("Accept", "application/yaml")
 	}
-	resp, err := r.withoutRedirectsToReplaced(hc).Do(req)
+	resp, err := r.guardRedirects(hc, true).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request to %s (URL replacement): %w", where, err)
 	}
@@ -176,30 +182,50 @@ func anonymousGet(ctx context.Context, hc *http.Client, r *urlRouter, eff *url.U
 		return resp, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
 		resp.Body.Close()
-		return nil, fmt.Errorf("%s: %w", where, ErrUnauthorized)
+		return nil, fmt.Errorf("request to %s (URL replacement): %s: %w", where, resp.Status, ErrURLReplacementUnauthorized)
 	}
 	resp.Body.Close()
 	return nil, fmt.Errorf("request to %s (URL replacement): %s", where, resp.Status)
 }
 
-// withoutRedirectsToReplaced returns a copy of hc that keeps hc's redirect
-// policy and additionally refuses redirects to URLs that a rule replaces.
-func (r *urlRouter) withoutRedirectsToReplaced(hc *http.Client) *http.Client {
-	guarded := *hc
-	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
-			return errors.New("refusing HTTPS to HTTP redirect for URL replacement request")
-		}
-		if _, replaced, err := r.route(req.URL); replaced || err != nil {
-			return fmt.Errorf("refusing redirect to %s, which a URL replacement rule replaces", req.URL.Host)
-		}
-		if hc.CheckRedirect != nil {
-			return hc.CheckRedirect(req, via)
-		}
-		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
+// guardRedirects returns hc itself when r is nil. Otherwise it returns a copy
+// of hc that keeps hc's redirect policy and additionally refuses redirects to
+// URLs that a rule replaces, so that neither a mirror nor a site the user did
+// not replace can send a request to an origin the user replaced. For replaced
+// requests (replaced is true) it also refuses HTTPS to HTTP redirects. hc is
+// not modified.
+func (r *urlRouter) guardRedirects(hc *http.Client, replaced bool) *http.Client {
+	if r == nil {
+		return hc
+	}
+	refuseReplaced := func(u *url.URL) error {
+		if _, isReplaced, err := r.route(u); isReplaced || err != nil {
+			return fmt.Errorf("refusing redirect to %s, which a URL replacement rule replaces", u.Host)
 		}
 		return nil
+	}
+	guarded := *hc
+	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if replaced && len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
+			return errors.New("refusing HTTPS to HTTP redirect for URL replacement request")
+		}
+		if err := refuseReplaced(req.URL); err != nil {
+			return err
+		}
+		if hc.CheckRedirect == nil {
+			// net/http's default policy.
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		if err := hc.CheckRedirect(req, via); err != nil {
+			// Includes http.ErrUseLastResponse, which must reach net/http
+			// unwrapped.
+			return err
+		}
+		// The callback may have changed the URL.
+		return refuseReplaced(req.URL)
 	}
 	return &guarded
 }

@@ -334,6 +334,9 @@ func formatErr(err error) string {
 		return errStyle.Render("Could not download license, trial has expired")
 	case errors.Is(err, auth.ErrNoTrialLicense):
 		return errStyle.Render("Could not download license, trial not started")
+	case errors.Is(err, dbc.ErrURLReplacementUnauthorized):
+		return errStyle.Render("Error: "+err.Error()) + "\n" +
+			msgStyle.Render("The URL replacement target is configured in network.url_replacements of your user config. Check that it allows anonymous access.")
 	case errors.Is(err, dbc.ErrUnauthorized):
 		return errStyle.Render(err.Error()) + "\n" +
 			msgStyle.Render("Did you run `dbc auth login`?")

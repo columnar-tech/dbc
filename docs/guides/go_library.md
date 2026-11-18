@@ -78,8 +78,10 @@ under a prefix to a mirror instead; see [Mirrors](../concepts/driver_registry.md
 `dbc.WithGlobalConfig` applies the `network.url_replacements` rules of the
 loaded `config.toml` the same way, and `dbc.LoadGlobalConfig` and `dbc.NewClient`
 return an error for invalid rules. Replacements apply with `WithBaseURL` and
-`WithRegistries` too. Requests that were replaced are anonymous. The deprecated
-package-level functions use `dbc.SetDefaultURLReplacements`.
+`WithRegistries` too. Requests that were replaced are anonymous, and a 401 or
+403 from the mirror returns an error wrapping `dbc.ErrURLReplacementUnauthorized`
+rather than `dbc.ErrUnauthorized`. The deprecated package-level functions use
+`dbc.SetDefaultURLReplacements`.
 
 ## Explicit registry overrides
 

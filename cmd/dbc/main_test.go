@@ -85,6 +85,15 @@ func TestFormatErr(t *testing.T) {
 	}
 }
 
+func TestFormatErrURLReplacementUnauthorized(t *testing.T) {
+	err := fmt.Errorf("failed to fetch drivers: request to mirror.example/index.yaml (URL replacement): 403 Forbidden: %w", dbc.ErrURLReplacementUnauthorized)
+	got := formatErr(err)
+	require.Contains(t, got, "403 Forbidden")
+	require.Contains(t, got, "network.url_replacements")
+	require.NotContains(t, got, "dbc auth login")
+	require.NotContains(t, got, "license")
+}
+
 func TestCmdStatus(t *testing.T) {
 	tests := []struct {
 		name   string
