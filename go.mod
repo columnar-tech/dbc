@@ -16,7 +16,7 @@ module github.com/columnar-tech/dbc
 
 go 1.26.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	charm.land/bubbles/v2 v2.2.1
@@ -36,7 +36,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/stretchr/testify v1.12.1
 	github.com/zeroshade/machine-id v0.0.0-20251223181436-930511047eef
-	golang.org/x/sys v0.49.0
+	golang.org/x/sys v0.50.0
 )
 
 require (

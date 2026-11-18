@@ -70,7 +70,7 @@ func validArchiveSHA256(s string) bool {
 		return false
 	}
 	for _, c := range s {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
@@ -195,8 +195,8 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 		return Manifest{}, &ArchiveHashMismatchError{Expected: options.ExpectedArchiveSHA256, Actual: archiveSHA256}
 	}
 
-	manifest.DriverInfo.ID = runtimeID
-	manifest.DriverInfo.Source = "dbc"
+	manifest.ID = runtimeID
+	manifest.Source = "dbc"
 	generationPrefix, err := packageGenerationPrefix(runtimeID)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package generation name: %w", err)

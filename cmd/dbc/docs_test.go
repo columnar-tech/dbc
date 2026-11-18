@@ -56,10 +56,10 @@ func (suite *SubcommandTestSuite) TestDocsDriverFoundWithDocsNoOpen() {
 	openBrowserFunc = mockOpenBrowserSuccess
 	lastOpenedURL = ""
 
-	m := DocsCmd{Driver: "test-driver-1", NoOpen: true}.GetModel()
-	output := suite.runCmdErr(m)
+	m := DocsCmd{Driver: "test-driver-docs-url", NoOpen: true}.GetModel()
+	output := suite.runCmd(m)
 
-	suite.Contains(output, "")
+	suite.Contains(output, "test-driver-docs-url driver docs are available at the following URL:\nhttp://example.com")
 	suite.Equal("", lastOpenedURL, "browser should not be opened with --no-open")
 }
 
