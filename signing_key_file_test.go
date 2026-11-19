@@ -174,15 +174,30 @@ func TestPublicKeyFileBaseIsNotResolvedThroughSymlinks(t *testing.T) {
 }
 
 func TestPublicKeyFilePolicyEqual(t *testing.T) {
-	a, err := newSigningKeyFile("/keys/a.asc", "")
+	dir := t.TempDir()
+	a, err := newSigningKeyFile(filepath.Join(dir, "a.asc"), "")
 	require.NoError(t, err)
-	a2, err := newSigningKeyFile("a.asc", "/keys/dbc.toml")
+	a2, err := newSigningKeyFile("a.asc", filepath.Join(dir, "dbc.toml"))
 	require.NoError(t, err)
-	b, err := newSigningKeyFile("/keys/b.asc", "")
+	b, err := newSigningKeyFile(filepath.Join(dir, "b.asc"), "")
 	require.NoError(t, err)
 	policy := func(f *signingKeyFile) RegistrySigningPolicy {
 		return RegistrySigningPolicy{kind: signingFromFile, file: f}
 	}
 	assert.True(t, policy(a).Equal(policy(a2)))
 	assert.False(t, policy(a).Equal(policy(b)))
+}
+
+// On Windows, a path rooted without a drive, or with a drive but not rooted,
+// depends on the current drive or directory, so it is rejected rather than
+// joined to the directory of the configuration file.
+func TestPublicKeyFileRejectsDriveDependentPaths(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows has drive-relative paths")
+	}
+	definedIn := filepath.Join(t.TempDir(), "dbc.toml")
+	for _, name := range []string{`\keys\a.asc`, `/keys/a.asc`, `C:keys\a.asc`} {
+		_, err := newSigningKeyFile(name, definedIn)
+		assert.ErrorContains(t, err, "absolute path with a drive", name)
+	}
 }

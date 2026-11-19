@@ -45,6 +45,12 @@ func newSigningKeyFile(name, definedIn string) (*signingKeyFile, error) {
 		return nil, errors.New("public_key_file is not supported in the browser; use public_key")
 	}
 	if !filepath.IsAbs(name) {
+		// On Windows, "\keys\a.asc" and "C:keys\a.asc" are neither absolute
+		// nor relative to a directory: they depend on the current drive or
+		// on the current directory of a drive.
+		if filepath.VolumeName(name) != "" || (name != "" && os.IsPathSeparator(name[0])) {
+			return nil, fmt.Errorf("public_key_file %q must be an absolute path with a drive or a path relative to the configuration file", name)
+		}
 		if definedIn == "" || !filepath.IsAbs(definedIn) {
 			return nil, fmt.Errorf("public_key_file %q is relative, but the configuration was not read from a file it could be relative to", name)
 		}
