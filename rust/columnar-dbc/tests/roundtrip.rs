@@ -15,7 +15,7 @@ mod common;
 
 use columnar_dbc::{
     install_license, license_path, list_installed, login, logout, uninstall, Client, ClientConfig, Credential,
-    CredentialStore, Error, InstallLocation, InstallOptions, Registry, RegistryConfig,
+    CredentialStore, Error, InstallLocation, InstallOptions, Registry, RegistryConfig, SigningKey,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -208,6 +208,19 @@ fn explicit_registry_list_searches_every_entry() {
     assert_eq!(result.drivers.len(), 2, "{result:?}");
     assert!(result.drivers.iter().all(|d| d.path == "test-driver-1"));
     assert_eq!(result.warning, None);
+}
+
+#[test]
+fn explicit_registry_signing_key() {
+    let Some(_root) = isolated("explicit_registry_signing_key") else { return };
+    let unsigned = ClientConfig::default()
+        .registries(vec![Registry::new(common::serve()).signing_key(SigningKey::Unsigned)])
+        .credential_store(CredentialStore::None);
+    assert!(Client::with_config(&unsigned).is_ok());
+    let invalid = ClientConfig::default()
+        .registries(vec![Registry::new(common::serve()).signing_key(SigningKey::PublicKey("not a key".into()))])
+        .credential_store(CredentialStore::None);
+    assert!(Client::with_config(&invalid).is_err());
 }
 
 #[test]

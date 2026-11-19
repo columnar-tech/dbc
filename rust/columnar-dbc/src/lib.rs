@@ -70,7 +70,7 @@ impl Client {
     /// without reading them; combining both explicit options is an error.
     pub fn with_config(config: &ClientConfig) -> Result<Self, Error> {
         let option_key = |key: &'static CStr| Cow::Borrowed(key);
-        let capacity = 11 + 2 * config.registries.as_ref().map_or(0, Vec::len);
+        let capacity = 11 + 3 * config.registries.as_ref().map_or(0, Vec::len);
         let mut options = Vec::with_capacity(capacity);
         let mut option = |key: Cow<'static, CStr>, value: &str| -> Result<(), Error> {
             options.push((key, cstring(value)?));
@@ -100,6 +100,13 @@ impl Client {
                 option(cstring(format!("{registry_prefix}{i}.url"))?.into(), &registry.url)?;
                 if let Some(name) = &registry.name {
                     option(cstring(format!("{registry_prefix}{i}.name"))?.into(), name)?;
+                }
+                if let Some(signing_key) = &registry.signing_key {
+                    let value = match signing_key {
+                        SigningKey::PublicKey(key) => key.as_str(),
+                        SigningKey::Unsigned => "false",
+                    };
+                    option(cstring(format!("{registry_prefix}{i}.signing_key"))?.into(), value)?;
                 }
             }
         }
