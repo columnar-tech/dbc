@@ -193,7 +193,7 @@ func (c *ProjectConfig) Validate() error {
 func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string) ([]Registry, error) {
 	policies := make(map[string]RegistrySigningPolicy, len(keys))
 	for _, name := range slices.Sorted(maps.Keys(keys)) {
-		policy, err := signingPolicyFromDefinition(name, keys[name])
+		policy, err := signingPolicyFromDefinition(name, keys[name], path)
 		if err != nil {
 			return nil, fmt.Errorf("signing key %q: %w", name, err)
 		}
@@ -215,9 +215,11 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 	return registries, nil
 }
 
-// signingPolicyFromDefinition checks one [signing_keys.<name>] definition and
-// returns the policy that a registry naming it gets.
-func signingPolicyFromDefinition(name string, def SigningKeyDefinition) (RegistrySigningPolicy, error) {
+// signingPolicyFromDefinition checks one [signing_keys.<name>] definition of
+// the configuration file at path and returns the policy that a registry
+// naming it gets. An inline public_key is parsed now; a public_key_file is
+// only read when a registry needs its key.
+func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path string) (RegistrySigningPolicy, error) {
 	switch {
 	case name == "":
 		return RegistrySigningPolicy{}, errors.New("name must not be empty")
@@ -232,7 +234,11 @@ func signingPolicyFromDefinition(name string, def SigningKeyDefinition) (Registr
 	case def.PublicKey != nil && *def.PublicKey == "":
 		return RegistrySigningPolicy{}, errors.New("public_key must not be empty")
 	case def.PublicKeyFile != nil:
-		return RegistrySigningPolicy{}, errors.New("public_key_file is not supported yet")
+		file, err := newSigningKeyFile(*def.PublicKeyFile, path)
+		if err != nil {
+			return RegistrySigningPolicy{}, err
+		}
+		return RegistrySigningPolicy{kind: signingFromFile, file: file, name: name}, nil
 	}
 	key, err := newArmoredSigningKey(*def.PublicKey)
 	if err != nil {

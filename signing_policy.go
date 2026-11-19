@@ -25,6 +25,7 @@ const (
 	signingColumnar signingPolicyKind = iota
 	signingWithKey
 	signingUnsigned
+	signingFromFile
 )
 
 // RegistrySigningPolicy says how the driver packages of a registry are
@@ -34,6 +35,7 @@ const (
 type RegistrySigningPolicy struct {
 	kind signingPolicyKind
 	key  *SigningKey
+	file *signingKeyFile
 	// name is the [signing_keys] definition the policy came from, if any.
 	name string
 }
@@ -62,17 +64,23 @@ func (p RegistrySigningPolicy) validate() error {
 
 // Equal reports whether p and q verify packages in the same way. Two keys
 // are the same only when their certificates are identical, so a new subkey
-// or revocation of the same primary key makes them differ. The name of the
-// definition a key came from does not matter.
+// or revocation of the same primary key makes them differ. Two keys read
+// from files are the same when the files are. The name of the definition a
+// key came from does not matter.
 func (p RegistrySigningPolicy) Equal(q RegistrySigningPolicy) bool {
 	if p.kind != q.kind {
 		return false
 	}
-	if p.kind == signingWithKey {
+	switch p.kind {
+	case signingWithKey:
 		if p.key == nil || q.key == nil {
 			return p.key == q.key
 		}
 		return p.key.digest == q.key.digest
+	case signingFromFile:
+		// The content of the files is not read here; a file that a
+		// configuration names is the same setting even when it changes.
+		return p.file.path == q.file.path
 	}
 	return true
 }
@@ -82,7 +90,7 @@ func (p RegistrySigningPolicy) String() string {
 	switch p.kind {
 	case signingUnsigned:
 		return "unsigned"
-	case signingWithKey:
+	case signingWithKey, signingFromFile:
 		if p.name != "" {
 			return fmt.Sprintf("signing key %q", p.name)
 		}
@@ -96,8 +104,9 @@ func (p RegistrySigningPolicy) String() string {
 
 // ResolveSigningKey returns the key that the driver packages of the registry
 // must be verified with. It returns (nil, nil) only for an Unsigned registry;
-// any failure to produce a key is an error, so a caller never falls back to
-// another key or to no verification.
+// any failure to produce a key, such as a public_key_file that cannot be
+// read, is an error, so a caller never falls back to another key or to no
+// verification. A public_key_file is read once per client.
 func (r Registry) ResolveSigningKey() (*SigningKey, error) {
 	p := r.Signing
 	if err := p.validate(); err != nil {
@@ -110,6 +119,12 @@ func (r Registry) ResolveSigningKey() (*SigningKey, error) {
 		return nil, nil
 	case signingWithKey:
 		return p.key, nil
+	case signingFromFile:
+		key, err := p.file.load()
+		if err != nil && p.name != "" {
+			err = fmt.Errorf("signing key %q: %w", p.name, err)
+		}
+		return key, err
 	default:
 		return nil, fmt.Errorf("unknown signing policy %d", p.kind)
 	}

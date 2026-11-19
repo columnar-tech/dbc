@@ -1,0 +1,181 @@
+// Copyright 2026 Columnar Technologies Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+//go:build !js || dbcnode
+
+package dbc
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// keyFileProject writes a dbc.toml in dir whose registry names a key read from
+// file, as written in public_key_file.
+func keyFileProject(t *testing.T, dir, file string) string {
+	t.Helper()
+	path := filepath.Join(dir, "dbc.toml")
+	content := "[signing_keys.acme]\ntype = \"openpgp\"\npublic_key_file = " + strconv.Quote(file) + "\n" +
+		"[[registries]]\nurl = \"https://acme.example.com\"\nsigning_key = \"acme\"\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+func resolveFirstKey(t *testing.T, cfg *ProjectConfig) (*SigningKey, error) {
+	t.Helper()
+	c, err := NewClient(WithProjectConfig(cfg))
+	require.NoError(t, err)
+	return c.Registries()[0].ResolveSigningKey()
+}
+
+func TestPublicKeyFileRelativeToTheConfig(t *testing.T) {
+	key := generateTestKey(t, "acme")
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "keys"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "keys", "acme.asc"), []byte(publicArmored(t, key)), 0o600))
+	path := keyFileProject(t, dir, filepath.Join("keys", "acme.asc"))
+
+	// The working directory does not matter.
+	t.Chdir(t.TempDir())
+	cfg, err := LoadProjectConfig(path)
+	require.NoError(t, err)
+	got, err := resolveFirstKey(t, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
+}
+
+func TestPublicKeyFileAbsoluteAndBinary(t *testing.T) {
+	key := generateTestKey(t, "acme")
+	keyPath := filepath.Join(t.TempDir(), "acme.gpg")
+	require.NoError(t, os.WriteFile(keyPath, publicBinary(t, key), 0o600))
+	cfg, err := LoadProjectConfig(keyFileProject(t, t.TempDir(), keyPath))
+	require.NoError(t, err)
+	got, err := resolveFirstKey(t, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
+}
+
+// A key file is read only when a registry needs its key, so a missing file
+// does not stop loading the configuration or building a client; using the
+// key is an error, not a fallback to another key.
+func TestPublicKeyFileIsReadWhenUsed(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := LoadProjectConfig(keyFileProject(t, dir, "missing.asc"))
+	require.NoError(t, err)
+	got, err := resolveFirstKey(t, cfg)
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	assert.ErrorContains(t, err, `signing key "acme"`)
+	assert.ErrorContains(t, err, filepath.Join(dir, "missing.asc"))
+}
+
+// The file is read once per client, so all packages of one operation are
+// verified with the same certificate.
+func TestPublicKeyFileIsReadOnce(t *testing.T) {
+	key := generateTestKey(t, "acme")
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "acme.asc")
+	require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, key)), 0o600))
+	cfg, err := LoadProjectConfig(keyFileProject(t, dir, "acme.asc"))
+	require.NoError(t, err)
+	c, err := NewClient(WithProjectConfig(cfg))
+	require.NoError(t, err)
+
+	first, err := c.Registries()[0].ResolveSigningKey()
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(keyPath))
+	second, err := c.Registries()[0].ResolveSigningKey()
+	require.NoError(t, err)
+	assert.Same(t, first, second)
+}
+
+func TestPublicKeyFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	large := filepath.Join(dir, "large.asc")
+	require.NoError(t, os.WriteFile(large, make([]byte, maxSigningKeySize+1), 0o600))
+	invalid := filepath.Join(dir, "invalid.asc")
+	require.NoError(t, os.WriteFile(invalid, []byte("not a key"), 0o600))
+
+	for _, tt := range []struct {
+		name, file, want string
+	}{
+		{"directory", dir, "not a regular file"},
+		{"too large", large, "larger than"},
+		{"not a key", invalid, "armored PGP PUBLIC KEY BLOCK"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := LoadProjectConfig(keyFileProject(t, t.TempDir(), tt.file))
+			require.NoError(t, err)
+			_, err = resolveFirstKey(t, cfg)
+			assert.ErrorContains(t, err, tt.want)
+			assert.ErrorContains(t, err, tt.file)
+		})
+	}
+
+	path := filepath.Join(t.TempDir(), "dbc.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[signing_keys.acme]\ntype = \"openpgp\"\npublic_key_file = \"\"\n"), 0o600))
+	_, err := LoadProjectConfig(path)
+	assert.ErrorContains(t, err, "public_key_file must not be empty")
+}
+
+// A relative public_key_file needs the file that defines it; a configuration
+// built in memory has none.
+func TestRelativePublicKeyFileNeedsAConfigFile(t *testing.T) {
+	file := "acme.asc"
+	cfg := &ProjectConfig{
+		Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "acme"}},
+		SigningKeys: map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKeyFile: &file}},
+	}
+	_, err := NewClient(WithProjectConfig(cfg))
+	assert.ErrorContains(t, err, "is relative")
+}
+
+// The base of a relative public_key_file is the directory of the config file
+// as named, not the target of a symbolic link to it.
+func TestPublicKeyFileBaseIsNotResolvedThroughSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symbolic links needs privileges on Windows")
+	}
+	key := generateTestKey(t, "acme")
+	real, link := t.TempDir(), t.TempDir()
+	path := keyFileProject(t, real, "acme.asc")
+	require.NoError(t, os.Symlink(path, filepath.Join(link, "dbc.toml")))
+	require.NoError(t, os.WriteFile(filepath.Join(link, "acme.asc"), []byte(publicArmored(t, key)), 0o600))
+
+	cfg, err := LoadProjectConfig(filepath.Join(link, "dbc.toml"))
+	require.NoError(t, err)
+	got, err := resolveFirstKey(t, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
+}
+
+func TestPublicKeyFilePolicyEqual(t *testing.T) {
+	a, err := newSigningKeyFile("/keys/a.asc", "")
+	require.NoError(t, err)
+	a2, err := newSigningKeyFile("a.asc", "/keys/dbc.toml")
+	require.NoError(t, err)
+	b, err := newSigningKeyFile("/keys/b.asc", "")
+	require.NoError(t, err)
+	policy := func(f *signingKeyFile) RegistrySigningPolicy {
+		return RegistrySigningPolicy{kind: signingFromFile, file: f}
+	}
+	assert.True(t, policy(a).Equal(policy(a2)))
+	assert.False(t, policy(a).Equal(policy(b)))
+}
