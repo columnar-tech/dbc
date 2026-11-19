@@ -17,6 +17,7 @@ package dbc
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -136,10 +137,15 @@ func dearmorPublicKey(data []byte) ([]byte, error) {
 	if string(lines[last]) != end {
 		return nil, errors.New("signing key has data after the end of the armored block")
 	}
-	for i := 1; i < last-1; i++ {
-		if bytes.HasPrefix(lines[i], []byte("=")) {
+	var checksum []byte
+	for i := 1; i < last; i++ {
+		if !bytes.HasPrefix(lines[i], []byte("=")) {
+			continue
+		}
+		if i != last-1 {
 			return nil, errors.New("signing key has data after the checksum of the armored block")
 		}
+		checksum = lines[i]
 	}
 
 	block, err := armor.Decode(bytes.NewReader(text))
@@ -153,7 +159,38 @@ func dearmorPublicKey(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not decode armored signing key: %w", err)
 	}
+	// The armor decoder does not check the optional checksum, so it is
+	// checked here when present.
+	if checksum != nil {
+		want, err := base64.StdEncoding.DecodeString(string(checksum[1:]))
+		if err != nil || len(want) != 3 {
+			return nil, errors.New("signing key has a malformed armor checksum")
+		}
+		got := crc24(payload)
+		if !bytes.Equal(want, []byte{byte(got >> 16), byte(got >> 8), byte(got)}) {
+			return nil, errors.New("signing key does not match its armor checksum")
+		}
+	}
 	return payload, nil
+}
+
+// crc24 is the checksum of OpenPGP ASCII armor (RFC 9580, section 6.1).
+func crc24(data []byte) uint32 {
+	const (
+		init = 0xb704ce
+		poly = 0x1864cfb
+	)
+	crc := uint32(init)
+	for _, b := range data {
+		crc ^= uint32(b) << 16
+		for range 8 {
+			crc <<= 1
+			if crc&0x1000000 != 0 {
+				crc ^= poly
+			}
+		}
+	}
+	return crc & 0xffffff
 }
 
 // checkCertificatePackets checks that payload is exactly one certificate:

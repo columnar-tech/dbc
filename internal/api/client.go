@@ -77,7 +77,25 @@ func (r Registry) signingPolicy() (dbc.RegistrySigningPolicy, error) {
 		}
 		return dbc.SignWith(key), nil
 	}
-	return dbc.RegistrySigningPolicy{}, fmt.Errorf("must be an ASCII-armored OpenPGP public key or false, not %s", r.SigningKey)
+	return dbc.RegistrySigningPolicy{}, fmt.Errorf("must be an ASCII-armored OpenPGP public key or false, not %s", jsonKind(value))
+}
+
+// jsonKind names the kind of a decoded JSON value, without its content.
+func jsonKind(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "true"
+	case float64:
+		return "a number"
+	case string:
+		return "a string"
+	case []any:
+		return "an array"
+	default:
+		return "an object"
+	}
 }
 
 // ClientConfig configures a client. The zero value loads the user's global

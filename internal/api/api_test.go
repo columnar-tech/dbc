@@ -1097,10 +1097,11 @@ func TestNewClientExplicitRegistrySigningKey(t *testing.T) {
 	assert.Equal(t, fingerprint, key.Fingerprint())
 	assert.True(t, regs[2].Signing.IsUnsigned())
 
-	for _, value := range []string{`true`, `null`, `""`, `1`, `{}`, `"not a key"`} {
+	for _, value := range []string{`true`, `null`, `""`, `1`, `{"secret": "do not echo"}`, `"not a key"`} {
 		_, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{
 			{URL: "https://acme.test", SigningKey: json.RawMessage(value)},
 		}}, nil)
 		assert.ErrorContains(t, err, "registries[0].signingKey", value)
+		assert.NotContains(t, err.Error(), "do not echo")
 	}
 }

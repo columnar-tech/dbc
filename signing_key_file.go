@@ -20,21 +20,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 )
 
 // signingKeyFile is a public_key_file of a [signing_keys] definition. The file
-// is read the first time a registry that names the definition needs its key,
-// so a missing file only fails the operations that use it. The key read then
-// is kept for the life of the client, so that one operation verifies all of
-// its packages with the same certificate.
+// is read only when a registry that names the definition needs its key, so a
+// missing file only fails the operations that use it. It is read again on
+// every use, so a long-lived client sees an updated certificate; an
+// operation that must verify all of its packages with one certificate keeps
+// the key it got first.
 type signingKeyFile struct {
 	// path is the absolute path of the file.
 	path string
-
-	once sync.Once
-	key  *SigningKey
-	err  error
 }
 
 // newSigningKeyFile resolves name, as written in public_key_file, against the
@@ -58,16 +54,15 @@ func newSigningKeyFile(name, definedIn string) (*signingKeyFile, error) {
 }
 
 func (f *signingKeyFile) load() (*SigningKey, error) {
-	f.once.Do(func() {
-		data, err := readSigningKeyFile(f.path)
-		if err == nil {
-			f.key, err = NewSigningKey(data)
-		}
-		if err != nil {
-			f.err = fmt.Errorf("public_key_file %s: %w", f.path, err)
-		}
-	})
-	return f.key, f.err
+	data, err := readSigningKeyFile(f.path)
+	if err != nil {
+		return nil, fmt.Errorf("public_key_file %s: %w", f.path, err)
+	}
+	key, err := NewSigningKey(data)
+	if err != nil {
+		return nil, fmt.Errorf("public_key_file %s: %w", f.path, err)
+	}
+	return key, nil
 }
 
 // readSigningKeyFile reads a regular file of at most maxSigningKeySize bytes.

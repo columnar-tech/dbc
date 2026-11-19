@@ -16,6 +16,7 @@ package dbc
 
 import (
 	"bytes"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"slices"
@@ -190,6 +191,8 @@ func TestNewSigningKeyRejectsAmbiguousInput(t *testing.T) {
 		{"trailing byte", append(slices.Clone(binA), 0x00), "invalid OpenPGP public key"},
 		{"subkey only", slices.Concat(pubPackets[len(pubPackets)-2:]...), "start with a primary public key"},
 		{"data after the checksum", []byte(strings.Replace(armorPublic(t, binA), "-----END", "=AAAA\nextra\n-----END", 1)), "after the checksum"},
+		{"malformed checksum", []byte(withChecksum(armorPublic(t, binA), "=!!!!")), "malformed armor checksum"},
+		{"wrong checksum", []byte(withChecksum(armorPublic(t, binA), "=AAAA")), "does not match its armor checksum"},
 		{"truncated padding packet", append(slices.Clone(binA), 0xd5, 0x05, 0x00, 0x00), "unexpected EOF"},
 		{"partial body length", append(slices.Clone(binA), 0xd5, 0xe1, 0x00), "partial body length"},
 		{"length beyond int32", append(slices.Clone(binA), 0xd5, 0xff, 0xff, 0xff, 0xff, 0xff), "unexpected EOF"},
@@ -203,6 +206,32 @@ func TestNewSigningKeyRejectsAmbiguousInput(t *testing.T) {
 			assert.ErrorContains(t, err, tt.want)
 		})
 	}
+}
+
+// withChecksum replaces or adds the checksum line of an armored block.
+func withChecksum(armored, checksum string) string {
+	lines := strings.Split(strings.TrimSpace(armored), "\n")
+	end := len(lines) - 1
+	if strings.HasPrefix(lines[end-1], "=") {
+		lines = slices.Delete(lines, end-1, end)
+		end--
+	}
+	lines = slices.Insert(lines, end, checksum)
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func TestArmoredSigningKeyChecksum(t *testing.T) {
+	key := generateTestKey(t, "crc")
+	bin := publicBinary(t, key)
+	got := crc24(bin)
+	sum := base64.StdEncoding.EncodeToString([]byte{byte(got >> 16), byte(got >> 8), byte(got)})
+	parsed, err := NewSigningKey([]byte(withChecksum(armorPublic(t, bin), "="+sum)))
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), parsed.Fingerprint())
+
+	// The checksum of the Columnar key, made by another implementation.
+	_, err = ColumnarSigningKey()
+	assert.NoError(t, err)
 }
 
 func mustArmor(t *testing.T, key *crypto.Key) string {

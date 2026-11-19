@@ -780,3 +780,29 @@ func TestPlanUsesTheKeyOfTheRegistry(t *testing.T) {
 		assert.ErrorIs(t, err, os.ErrNotExist)
 	})
 }
+
+// One plan verifies all drivers of a registry with the same certificate,
+// even when the key file changes while the plan runs.
+func TestPlanLoadsTheKeyOfARegistryOnce(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "acme.asc")
+	require.NoError(t, os.WriteFile(keyPath, []byte(armoredTestKey(t, "first")), 0o600))
+	listPath := filepath.Join(dir, "dbc.toml")
+	require.NoError(t, os.WriteFile(listPath, []byte(
+		"[signing_keys.acme]\ntype = 'openpgp'\npublic_key_file = 'acme.asc'\n"+
+			"[[registries]]\nurl = '"+planRegistryURL.String()+"'\nsigning_key = 'acme'\n"), 0o600))
+	cfg, err := dbc.LoadProjectConfig(listPath)
+	require.NoError(t, err)
+	c, err := dbc.NewClient(dbc.WithProjectConfig(cfg))
+	require.NoError(t, err)
+	f := signedRegistryFixture(t, c.Registries()[0].Signing)
+	bound, err := f.planner.bind("alpha", "https://registry.example.com")
+	require.NoError(t, err)
+
+	first, err := f.planner.signerFor("alpha", bound)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(keyPath, []byte(armoredTestKey(t, "second")), 0o600))
+	second, err := f.planner.signerFor("beta", bound)
+	require.NoError(t, err)
+	assert.Same(t, first.key, second.key)
+}

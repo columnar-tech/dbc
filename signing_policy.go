@@ -62,11 +62,12 @@ func (p RegistrySigningPolicy) validate() error {
 	return nil
 }
 
-// Equal reports whether p and q verify packages in the same way. Two keys
-// are the same only when their certificates are identical, so a new subkey
-// or revocation of the same primary key makes them differ. Two keys read
-// from files are the same when the files are. The name of the definition a
-// key came from does not matter.
+// Equal reports whether p and q select the same signing configuration. Two
+// keys given directly are the same only when their certificates are
+// identical, so a new subkey or revocation of the same primary key makes
+// them differ. Two keys read from files are the same when the paths are; the
+// files are not read. The name of the definition a key came from does not
+// matter.
 func (p RegistrySigningPolicy) Equal(q RegistrySigningPolicy) bool {
 	if p.kind != q.kind {
 		return false
@@ -106,7 +107,8 @@ func (p RegistrySigningPolicy) String() string {
 // must be verified with. It returns (nil, nil) only for an Unsigned registry;
 // any failure to produce a key, such as a public_key_file that cannot be
 // read, is an error, so a caller never falls back to another key or to no
-// verification. A public_key_file is read once per client.
+// verification. A public_key_file is read on every call; a caller that must
+// verify several packages with the same certificate keeps the returned key.
 func (r Registry) ResolveSigningKey() (*SigningKey, error) {
 	p := r.Signing
 	if err := p.validate(); err != nil {

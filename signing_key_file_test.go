@@ -86,9 +86,9 @@ func TestPublicKeyFileIsReadWhenUsed(t *testing.T) {
 	assert.ErrorContains(t, err, filepath.Join(dir, "missing.asc"))
 }
 
-// The file is read once per client, so all packages of one operation are
-// verified with the same certificate.
-func TestPublicKeyFileIsReadOnce(t *testing.T) {
+// The file is read on every use, so a long-lived client sees a key file that
+// is added, fixed or updated later.
+func TestPublicKeyFileIsReadOnEveryUse(t *testing.T) {
 	key := generateTestKey(t, "acme")
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "acme.asc")
@@ -100,10 +100,17 @@ func TestPublicKeyFileIsReadOnce(t *testing.T) {
 
 	first, err := c.Registries()[0].ResolveSigningKey()
 	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), first.Fingerprint())
+
 	require.NoError(t, os.Remove(keyPath))
+	_, err = c.Registries()[0].ResolveSigningKey()
+	assert.ErrorIs(t, err, os.ErrNotExist)
+
+	other := generateTestKey(t, "other")
+	require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, other)), 0o600))
 	second, err := c.Registries()[0].ResolveSigningKey()
 	require.NoError(t, err)
-	assert.Same(t, first, second)
+	assert.Equal(t, other.GetFingerprint(), second.Fingerprint())
 }
 
 func TestPublicKeyFileErrors(t *testing.T) {
