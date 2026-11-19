@@ -19,6 +19,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -44,6 +45,39 @@ type Credential struct {
 type Registry struct {
 	URL  string `json:"url"`
 	Name string `json:"name,omitempty"`
+	// SigningKey selects how the registry's driver packages are verified:
+	// omitted for the built-in Columnar key, a string holding an
+	// ASCII-armored OpenPGP public key for that key, or false for a registry
+	// whose packages are not signed. Any other value, including null and an
+	// empty string, is an error.
+	SigningKey json.RawMessage `json:"signingKey,omitempty"`
+}
+
+// signingPolicy returns the policy that r.SigningKey selects.
+func (r Registry) signingPolicy() (dbc.RegistrySigningPolicy, error) {
+	if len(r.SigningKey) == 0 {
+		return dbc.RegistrySigningPolicy{}, nil
+	}
+	var value any
+	if err := json.Unmarshal(r.SigningKey, &value); err != nil {
+		return dbc.RegistrySigningPolicy{}, err
+	}
+	switch v := value.(type) {
+	case bool:
+		if !v {
+			return dbc.Unsigned(), nil
+		}
+	case string:
+		if v == "" {
+			return dbc.RegistrySigningPolicy{}, fmt.Errorf("must not be empty")
+		}
+		key, err := dbc.NewArmoredSigningKey(v)
+		if err != nil {
+			return dbc.RegistrySigningPolicy{}, err
+		}
+		return dbc.SignWith(key), nil
+	}
+	return dbc.RegistrySigningPolicy{}, fmt.Errorf("must be an ASCII-armored OpenPGP public key or false, not %s", r.SigningKey)
 }
 
 // ClientConfig configures a client. The zero value loads the user's global
@@ -90,7 +124,11 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid registries[%d].url: %w", i, err)
 			}
-			registries[i] = dbc.Registry{BaseURL: u, Name: r.Name}
+			signing, err := r.signingPolicy()
+			if err != nil {
+				return nil, fmt.Errorf("invalid registries[%d].signingKey: %w", i, err)
+			}
+			registries[i] = dbc.Registry{BaseURL: u, Name: r.Name, Signing: signing}
 		}
 		opts = append(opts, dbc.WithRegistries(registries))
 	default:

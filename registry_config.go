@@ -240,7 +240,7 @@ func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path str
 		}
 		return RegistrySigningPolicy{kind: signingFromFile, file: file, name: name}, nil
 	}
-	key, err := newArmoredSigningKey(*def.PublicKey)
+	key, err := NewArmoredSigningKey(*def.PublicKey)
 	if err != nil {
 		return RegistrySigningPolicy{}, fmt.Errorf("public_key: %w", err)
 	}

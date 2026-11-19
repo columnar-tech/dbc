@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -560,7 +562,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		f := newPlanFixture(t)
 		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
 		require.NoError(t, err)
-		assert.Same(t, columnar, planned[0].Signer)
+		assert.Same(t, columnar, planned[0].Signer.key)
 		assert.Equal(t, lockedSigner{Type: lockSignerOpenPGP, Fingerprint: columnar.Fingerprint()}, planned[0].Entry.Signer)
 	})
 
@@ -577,7 +579,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
 		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 		require.NoError(t, err)
-		assert.Same(t, columnar, planned[0].Signer)
+		assert.Same(t, columnar, planned[0].Signer.key)
 		assert.Zero(t, f.indexCalls)
 	})
 
@@ -587,7 +589,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 		require.NoError(t, err)
 		assert.Equal(t, testSigner, planned[0].Entry.Signer)
-		assert.Same(t, columnar, planned[0].Signer)
+		assert.Same(t, columnar, planned[0].Signer.key)
 	})
 
 	t.Run("an untrusted pin fails before any registry access", func(t *testing.T) {
@@ -597,7 +599,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), otherFingerprint)
-		assert.Contains(t, err.Error(), "not trusted")
+		assert.Contains(t, err.Error(), "the configuration of its registry selects the signing key "+columnar.Fingerprint())
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 		assert.Zero(t, f.indexCalls)
 		assert.Empty(t, f.boundIndexed)
@@ -613,8 +615,8 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		// The locked version no longer satisfies the constraint, so the driver
 		// is resolved again and would switch to the Columnar key.
 		assert.Contains(t, err.Error(), otherFingerprint)
-		assert.Contains(t, err.Error(), "would now be verified with a different key")
-		assert.NotContains(t, err.Error(), "not trusted")
+		assert.Contains(t, err.Error(), "would now be verified with the signing key "+columnar.Fingerprint())
+		assert.NotContains(t, err.Error(), "configuration of its registry selects")
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 	})
 }
@@ -671,5 +673,110 @@ func TestPlanFallbackRegistryReplay(t *testing.T) {
 	require.Len(t, f.boundIndexed, 1)
 	assert.Equal(t, fallbackURL.String(), f.boundIndexed[0].String())
 	assert.Equal(t, 1, f.indexCalls)
+}
 
+// signedRegistryFixture is a plan fixture whose one registry has the given
+// signing policy.
+func signedRegistryFixture(t *testing.T, policy dbc.RegistrySigningPolicy) *planFixture {
+	f := newPlanFixture(t)
+	f.registries = []dbc.Registry{{BaseURL: planRegistryURL, Signing: policy}}
+	return f
+}
+
+func testSigningKey(t *testing.T, name string) *dbc.SigningKey {
+	t.Helper()
+	key, err := dbc.NewSigningKey([]byte(armoredTestKey(t, name)))
+	require.NoError(t, err)
+	return key
+}
+
+func TestPlanUsesTheKeyOfTheRegistry(t *testing.T) {
+	acme := testSigningKey(t, "acme")
+	alpha := listOf(map[string]driverSpec{"alpha": {}})
+
+	t.Run("a custom key is recorded and replayed", func(t *testing.T) {
+		f := signedRegistryFixture(t, dbc.SignWith(acme))
+		planned, _, err := f.planner.plan(alpha, parsedLockFile{})
+		require.NoError(t, err)
+		assert.Same(t, acme, planned[0].Signer.key)
+		assert.Equal(t, lockedSigner{Type: lockSignerOpenPGP, Fingerprint: acme.Fingerprint()}, planned[0].Entry.Signer)
+
+		replayed, _, err := f.planner.plan(alpha, v2Lock(planned[0].Entry))
+		require.NoError(t, err)
+		assert.Same(t, acme, replayed[0].Signer.key)
+	})
+
+	t.Run("an unsigned registry is recorded as none and not verified", func(t *testing.T) {
+		f := signedRegistryFixture(t, dbc.Unsigned())
+		planned, _, err := f.planner.plan(alpha, parsedLockFile{})
+		require.NoError(t, err)
+		assert.True(t, planned[0].Signer.unsigned)
+		assert.Equal(t, lockedSigner{Type: lockSignerNone}, planned[0].Entry.Signer)
+		assert.Nil(t, signatureVerifier(planned[0].Signer, false))
+
+		replayed, _, err := f.planner.plan(alpha, v2Lock(planned[0].Entry))
+		require.NoError(t, err)
+		assert.True(t, replayed[0].Signer.unsigned)
+	})
+
+	// A lock entry cannot turn verification off or change the key on its
+	// own: replaying it needs the configuration to select the same signer.
+	for _, tt := range []struct {
+		name           string
+		locked, config dbc.RegistrySigningPolicy
+		want           string
+	}{
+		{"none locked, key configured", dbc.Unsigned(), dbc.SignWith(acme), "pins no signing key (an unsigned registry), but the configuration of its registry selects the signing key " + acme.Fingerprint()},
+		{"key locked, unsigned configured", dbc.SignWith(acme), dbc.Unsigned(), "selects no signing key"},
+		{"custom key locked, Columnar configured", dbc.SignWith(acme), dbc.RegistrySigningPolicy{}, "pins the signing key " + acme.Fingerprint()},
+		{"key locked, other key configured", dbc.SignWith(acme), dbc.SignWith(testSigningKey(t, "other")), "pins the signing key " + acme.Fingerprint()},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			planned, _, err := signedRegistryFixture(t, tt.locked).planner.plan(alpha, parsedLockFile{})
+			require.NoError(t, err)
+			f := signedRegistryFixture(t, tt.config)
+			_, _, err = f.planner.plan(alpha, v2Lock(planned[0].Entry))
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Zero(t, f.indexCalls)
+			assert.Empty(t, f.boundIndexed)
+		})
+	}
+
+	t.Run("resolving again may not switch to unsigned", func(t *testing.T) {
+		planned, _, err := signedRegistryFixture(t, dbc.SignWith(acme)).planner.plan(alpha, parsedLockFile{})
+		require.NoError(t, err)
+		d := planned[0].Entry
+		// The locked version no longer satisfies the constraint, so the
+		// driver is resolved again.
+		d.Version = "1.0.0"
+		spec := driverSpec{Version: constraint(t, ">=1.1")}
+		_, _, err = signedRegistryFixture(t, dbc.Unsigned()).planner.plan(listOf(map[string]driverSpec{"alpha": spec}), v2Lock(d))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "would now be verified with no signing key")
+	})
+
+	t.Run("a key that cannot be loaded fails before any registry access", func(t *testing.T) {
+		dir := t.TempDir()
+		listPath := filepath.Join(dir, "dbc.toml")
+		require.NoError(t, os.WriteFile(listPath, []byte(
+			"[signing_keys.acme]\ntype = 'openpgp'\npublic_key_file = 'missing.asc'\n"+
+				"[[registries]]\nurl = '"+planRegistryURL.String()+"'\nsigning_key = 'acme'\n"), 0o600))
+		cfg, err := dbc.LoadProjectConfig(listPath)
+		require.NoError(t, err)
+		project, err := dbc.NewClient(dbc.WithProjectConfig(cfg))
+		require.NoError(t, err)
+		f := signedRegistryFixture(t, project.Registries()[0].Signing)
+		planned, _, err := signedRegistryFixture(t, dbc.RegistrySigningPolicy{}).planner.plan(alpha, parsedLockFile{})
+		require.NoError(t, err)
+		_, _, err = f.planner.plan(alpha, v2Lock(planned[0].Entry))
+		require.Error(t, err)
+		assert.ErrorIs(t, err, os.ErrNotExist)
+		assert.Contains(t, err.Error(), "could not load the signing key")
+		assert.Zero(t, f.indexCalls)
+		assert.Empty(t, f.boundIndexed)
+
+		_, _, err = f.planner.plan(alpha, parsedLockFile{})
+		assert.ErrorIs(t, err, os.ErrNotExist)
+	})
 }

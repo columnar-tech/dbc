@@ -67,9 +67,9 @@ func TestSigningKeyVerifiesOnlyItsOwnSignatures(t *testing.T) {
 	a, b := generateTestKey(t, "a"), generateTestKey(t, "b")
 	sig := detachedSign(t, a, data)
 
-	keyA, err := newArmoredSigningKey(publicArmored(t, a))
+	keyA, err := NewArmoredSigningKey(publicArmored(t, a))
 	require.NoError(t, err)
-	keyB, err := newArmoredSigningKey(publicArmored(t, b))
+	keyB, err := NewArmoredSigningKey(publicArmored(t, b))
 	require.NoError(t, err)
 
 	assert.Equal(t, a.GetFingerprint(), keyA.Fingerprint())
@@ -90,7 +90,7 @@ func TestSigningKeySubkeySignature(t *testing.T) {
 	sig, err := os.ReadFile(filepath.Join(dir, "payload.txt.sig"))
 	require.NoError(t, err)
 
-	key, err := newArmoredSigningKey(string(armored))
+	key, err := NewArmoredSigningKey(string(armored))
 	require.NoError(t, err)
 	assert.Equal(t, "9b96d38c4b87a17f1f4b1fa7e0ff4c99f17a9538", key.Fingerprint())
 	assert.NoError(t, key.Verify(bytes.NewReader(payload), bytes.NewReader(sig)))
@@ -99,10 +99,10 @@ func TestSigningKeySubkeySignature(t *testing.T) {
 func TestNewSigningKeyRejectsPrivateKey(t *testing.T) {
 	private, err := generateTestKey(t, "private").Armor()
 	require.NoError(t, err)
-	_, err = newArmoredSigningKey(private)
+	_, err = NewArmoredSigningKey(private)
 	assert.ErrorContains(t, err, "private")
 
-	_, err = newArmoredSigningKey("not a key")
+	_, err = NewArmoredSigningKey("not a key")
 	assert.Error(t, err)
 }
 
@@ -213,6 +213,6 @@ func mustArmor(t *testing.T, key *crypto.Key) string {
 }
 
 func TestArmoredSigningKeyRejectsBinary(t *testing.T) {
-	_, err := newArmoredSigningKey(string(publicBinary(t, generateTestKey(t, "binary"))))
+	_, err := NewArmoredSigningKey(string(publicBinary(t, generateTestKey(t, "binary"))))
 	assert.ErrorContains(t, err, "ASCII-armored")
 }

@@ -354,10 +354,10 @@ func (suite *SubcommandTestSuite) TestLockVerifiesWithThePlannedKey() {
 	_, err := m.fetch(pd)
 	suite.ErrorContains(err, "no signing key", "a driver without a planned key is not verified with another key")
 
-	var err2 error
-	pd.Signer, err2 = dbc.ColumnarSigningKey()
+	key, err2 := dbc.ColumnarSigningKey()
 	suite.Require().NoError(err2)
+	pd.Signer = packageSigner{key: key}
 	item, err := m.fetch(pd)
 	suite.Require().NoError(err)
-	suite.Same(pd.Signer, item.Signer)
+	suite.Same(key, item.Signer.key)
 }

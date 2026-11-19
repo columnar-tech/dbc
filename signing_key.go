@@ -89,9 +89,9 @@ func NewSigningKey(data []byte) (*SigningKey, error) {
 	return &SigningKey{fingerprint: key.GetFingerprint(), verifier: verifier, digest: sha256.Sum256(payload)}, nil
 }
 
-// newArmoredSigningKey is NewSigningKey for input that must be ASCII armored,
+// NewArmoredSigningKey is NewSigningKey for input that must be ASCII armored,
 // such as a key written inline in a configuration file.
-func newArmoredSigningKey(armored string) (*SigningKey, error) {
+func NewArmoredSigningKey(armored string) (*SigningKey, error) {
 	if !isArmored([]byte(armored)) {
 		return nil, errors.New("signing key must be an ASCII-armored OpenPGP public key")
 	}
@@ -261,7 +261,7 @@ func packetSize(b []byte) (int, error) {
 }
 
 var columnarSigningKey = sync.OnceValues(func() (*SigningKey, error) {
-	return newArmoredSigningKey(armoredPubKey)
+	return NewArmoredSigningKey(armoredPubKey)
 })
 
 // ColumnarSigningKey returns the Columnar public key that is embedded in the

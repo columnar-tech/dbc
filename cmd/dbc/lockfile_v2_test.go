@@ -130,6 +130,9 @@ func TestReadLockFileV2Invalid(t *testing.T) {
 		{"legacy revision field", hdr + "revision = 1\n", "revision"},
 		{"legacy table", drv(validArtifact()) + "[drivers.legacy]\nvalue = 'old'\n", "legacy"},
 		{"unknown signer type", strings.Replace(drv(validArtifact()), "type = 'openpgp'", "type = 'x509'", 1), "unknown signer type"},
+		{"unsigned signer with fingerprint", strings.Replace(drv(validArtifact()), "type = 'openpgp'", "type = 'none'", 1), "takes no fingerprint"},
+		{"unsigned signer with empty fingerprint", strings.Replace(strings.Replace(drv(validArtifact()), "type = 'openpgp'", "type = 'none'", 1), testSigner.Fingerprint, "", 1), "takes no fingerprint"},
+		{"openpgp signer without fingerprint", strings.Replace(drv(validArtifact()), "fingerprint = '"+testSigner.Fingerprint+"'\n", "", 1), "malformed signer fingerprint"},
 		{"short fingerprint", strings.Replace(drv(validArtifact()), testSigner.Fingerprint, "ab7766e9", 1), "fingerprint"},
 		{"uppercase fingerprint", strings.Replace(drv(validArtifact()), testSigner.Fingerprint, strings.ToUpper(testSigner.Fingerprint), 1), "fingerprint"},
 		{"non-hex fingerprint", strings.Replace(drv(validArtifact()), testSigner.Fingerprint, strings.Repeat("g", 40), 1), "fingerprint"},
@@ -224,6 +227,22 @@ func TestLockFileV2AcceptsV6Fingerprint(t *testing.T) {
 	lf.Drivers[0].Signer.Fingerprint = strings.Repeat("0123456789abcdef", 4)
 	p := filepath.Join(t.TempDir(), "dbc.lock")
 	require.NoError(t, writeLockFileV2(p, lf))
+	got, err := readLockFile(p)
+	require.NoError(t, err)
+	assert.Equal(t, lf.Drivers[0].Signer, got.V2.Drivers[0].Signer)
+}
+
+// An unsigned registry's driver is locked with type "none" and no
+// fingerprint key at all.
+func TestLockFileV2UnsignedSigner(t *testing.T) {
+	lf := validV2()
+	lf.Drivers[0].Signer = lockedSigner{Type: lockSignerNone}
+	p := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileV2(p, lf))
+	data, err := os.ReadFile(p)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "type = 'none'")
+	assert.NotContains(t, string(data), "fingerprint")
 	got, err := readLockFile(p)
 	require.NoError(t, err)
 	assert.Equal(t, lf.Drivers[0].Signer, got.V2.Drivers[0].Signer)

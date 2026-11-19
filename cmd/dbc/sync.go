@@ -244,7 +244,7 @@ type syncItem struct {
 	File *os.File
 	// Signer is the key the lock pins for the driver; the package signature is
 	// verified with it.
-	Signer *dbc.SigningKey
+	Signer packageSigner
 }
 
 // libraryChecksumError reports an archive whose driver library differs from
@@ -485,13 +485,14 @@ func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target
 	return f, nil
 }
 
-// signatureVerifier returns the verifier of the package signature with key, or
-// nil when noVerify is set. Its failures are marked with
-// signatureVerificationError.
-func signatureVerifier(key *dbc.SigningKey, noVerify bool) config.PackageVerifier {
-	if noVerify {
+// signatureVerifier returns the verifier of the package signature with the
+// signer's key, or nil when noVerify is set or the registry is declared
+// unsigned. Its failures are marked with signatureVerificationError.
+func signatureVerifier(signer packageSigner, noVerify bool) config.PackageVerifier {
+	if noVerify || signer.unsigned {
 		return nil
 	}
+	key := signer.key
 	return func(stagingDir string, manifest config.Manifest) error {
 		if key == nil {
 			return &signatureVerificationError{err: errors.New("no signing key is available to verify the package")}

@@ -17,6 +17,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/columnar-tech/dbc/internal/api"
@@ -103,6 +104,19 @@ func TestClientConfig(t *testing.T) {
 		}, cfg)
 	})
 
+	t.Run("registry signing keys", func(t *testing.T) {
+		cfg, err := clientConfig(
+			[]string{"registry.0.url", "registry.0.signing_key", "registry.1.url", "registry.1.signing_key", "registry.2.url"},
+			[]string{"https://acme.test", "-----BEGIN PGP PUBLIC KEY BLOCK-----\n...", "https://unsigned.test", "false", "https://columnar.test"},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, []api.Registry{
+			{URL: "https://acme.test", SigningKey: json.RawMessage(`"-----BEGIN PGP PUBLIC KEY BLOCK-----\n..."`)},
+			{URL: "https://unsigned.test", SigningKey: json.RawMessage(`false`)},
+			{URL: "https://columnar.test"},
+		}, cfg.Registries)
+	})
+
 	t.Run("empty registry url", func(t *testing.T) {
 		_, err := clientConfig([]string{"registry.0.url"}, []string{""})
 		require.ErrorContains(t, err, "registry.0.url is required")
@@ -114,6 +128,7 @@ func TestClientConfig(t *testing.T) {
 	}{
 		{"duplicate url", []string{"registry.0.url", "registry.0.url"}},
 		{"duplicate name", []string{"registry.0.url", "registry.0.name", "registry.0.name"}},
+		{"duplicate signing key", []string{"registry.0.url", "registry.0.signing_key", "registry.0.signing_key"}},
 		{"gap", []string{"registry.0.url", "registry.2.url"}},
 		{"starts at one", []string{"registry.1.url"}},
 		{"name without url", []string{"registry.0.name"}},
