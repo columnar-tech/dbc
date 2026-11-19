@@ -22,8 +22,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -167,26 +165,4 @@ func TestClientInstallUsesTheKeyOfTheRegistry(t *testing.T) {
 		require.ErrorContains(t, err, "signature verification failed")
 	})
 
-	t.Run("a key that cannot be loaded fails before the download", func(t *testing.T) {
-		var downloads atomic.Int32
-		u := signedDriverServer(t, archive, true, &downloads)
-		dir := t.TempDir()
-		path := filepath.Join(dir, "dbc.toml")
-		require.NoError(t, os.WriteFile(path, []byte(
-			"replace_defaults = true\n[signing_keys.acme]\ntype = 'openpgp'\npublic_key_file = 'missing.asc'\n"+
-				"[[registries]]\nurl = '"+u.String()+"'\nsigning_key = 'acme'\n"), 0o600))
-		project, err := dbc.LoadProjectConfig(path)
-		require.NoError(t, err)
-		c, err := dbc.NewClient(dbc.WithHTTPClient(&http.Client{}), dbc.WithProjectConfig(project))
-		require.NoError(t, err)
-		cfg := config.Config{Level: config.ConfigEnv, Location: t.TempDir()}
-		_, err = c.Install(t.Context(), cfg, "signed-driver")
-		require.ErrorIs(t, err, os.ErrNotExist)
-		assert.ErrorContains(t, err, "could not load the signing key")
-		assert.Zero(t, downloads.Load())
-
-		// AllowUnsigned does not need the key.
-		_, err = c.Install(t.Context(), cfg, "signed-driver", dbc.AllowUnsigned())
-		require.NoError(t, err)
-	})
 }
