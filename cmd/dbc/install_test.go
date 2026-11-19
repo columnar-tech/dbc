@@ -941,3 +941,79 @@ func (m *installStateObservedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *installStateObservedModel) View() tea.View {
 	return m.model.View()
 }
+
+// registryWithSigning returns a driver registry whose drivers come from a
+// registry with the given signing policy.
+func registryWithSigning(policy dbc.RegistrySigningPolicy) func() ([]dbc.Driver, error) {
+	return func() ([]dbc.Driver, error) {
+		drivers, err := getTestDriverRegistry()
+		if err != nil {
+			return nil, err
+		}
+		registry := testRegistry
+		registry.Signing = policy
+		for i := range drivers {
+			drivers[i].Registry = &registry
+		}
+		return drivers, nil
+	}
+}
+
+func (suite *SubcommandTestSuite) TestInstallUsesTheKeyOfTheRegistry() {
+	t := suite.T()
+	other, err := dbc.NewSigningKey([]byte(armoredTestKey(t, "other")))
+	suite.Require().NoError(err)
+
+	// test-driver-1 is signed with the Columnar key, so another key that its
+	// registry selects rejects it.
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
+		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.SignWith(other)), downloadPkg: downloadTestPkg}))
+	out := suite.runCmdErr(m)
+	suite.Contains(out, "signature verification failed")
+	suite.driverIsNotInstalled("test-driver-1")
+}
+
+func (suite *SubcommandTestSuite) TestInstallFromUnsignedRegistry() {
+	// A package without a signature installs without --no-verify when its
+	// registry is declared unsigned.
+	m := InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel}.
+		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.Unsigned()), downloadPkg: downloadTestPkg}))
+	suite.Contains(suite.runCmd(m), "Installed test-driver-no-sig")
+	suite.driverIsInstalled("test-driver-no-sig", false)
+
+	// With the Columnar key, the same package needs --no-verify.
+	m = InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel}.
+		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.RegistrySigningPolicy{}), downloadPkg: downloadTestPkg}))
+	suite.Contains(suite.runCmdErr(m), "signature file")
+}
+
+func (suite *SubcommandTestSuite) TestInstallSigningKeyFailsBeforeDownload() {
+	t := suite.T()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(path, []byte(
+		"replace_defaults = true\n[signing_keys.acme]\ntype = 'openpgp'\npublic_key_file = 'missing.asc'\n"+
+			"[[registries]]\nurl = '"+testRegistry.BaseURL.String()+"'\nsigning_key = 'acme'\n"), 0o600))
+	project, err := dbc.LoadProjectConfig(path)
+	suite.Require().NoError(err)
+	client, err := dbc.NewClient(dbc.WithProjectConfig(project))
+	suite.Require().NoError(err)
+
+	var downloads int
+	base := withRegistries(baseModel{
+		getDriverRegistry: registryWithSigning(client.Registries()[0].Signing),
+		downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
+			downloads++
+			return downloadTestPkg(pkg)
+		},
+	})
+	out := suite.runCmdErr(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(base))
+	suite.Contains(out, "could not load the signing key of its registry")
+	suite.Contains(out, "missing.asc")
+	suite.Zero(downloads)
+	suite.driverIsNotInstalled("test-driver-1")
+
+	// --no-verify does not need the key.
+	suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, NoVerify: true}.GetModelCustom(base))
+	suite.Equal(1, downloads)
+}

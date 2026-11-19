@@ -806,3 +806,48 @@ func TestPlanLoadsTheKeyOfARegistryOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, first.key, second.key)
 }
+
+// When the first registry has no version of a driver and a later one is
+// selected, the key of the selected registry is recorded and pinned.
+func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
+	acme := testSigningKey(t, "acme")
+	fallbackURL := must(url.Parse("https://fallback.example.com"))
+	alpha := listOf(map[string]driverSpec{"alpha": {}})
+	fixture := func(t *testing.T, fallback dbc.RegistrySigningPolicy) *planFixture {
+		f := newPlanFixture(t)
+		f.registries = append(f.registries, dbc.Registry{BaseURL: fallbackURL, Signing: fallback})
+		originalIndex := f.planner.index
+		f.planner.index = func() ([]dbc.Driver, error) {
+			drivers, err := originalIndex()
+			if err != nil {
+				return nil, err
+			}
+			first := drivers[0]
+			first.PkgInfo = nil
+			drivers[0].Registry = &dbc.Registry{BaseURL: fallbackURL}
+			return []dbc.Driver{first, drivers[0]}, nil
+		}
+		return f
+	}
+
+	f := fixture(t, dbc.SignWith(acme))
+	planned, _, err := f.planner.plan(alpha, parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	assert.Equal(t, fallbackURL.String(), planned[0].Entry.Source.URL)
+	assert.Same(t, acme, planned[0].Signer.key)
+	assert.Equal(t, lockedSigner{Type: lockSignerOpenPGP, Fingerprint: acme.Fingerprint()}, planned[0].Entry.Signer)
+
+	// Replay keeps the registry and its key, also when the order changes.
+	f.registries[0], f.registries[1] = f.registries[1], f.registries[0]
+	replayed, _, err := f.planner.plan(alpha, v2Lock(planned[0].Entry))
+	require.NoError(t, err)
+	assert.Same(t, acme, replayed[0].Signer.key)
+
+	// The key of the first registry does not apply to the fallback one.
+	f = fixture(t, dbc.RegistrySigningPolicy{})
+	f.registries[0].Signing = dbc.SignWith(acme)
+	_, _, err = f.planner.plan(alpha, v2Lock(planned[0].Entry))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pins the signing key "+acme.Fingerprint())
+}
