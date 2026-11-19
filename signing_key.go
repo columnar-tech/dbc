@@ -210,25 +210,28 @@ func packetSize(b []byte) (int, error) {
 	if b[0]&0x80 == 0 {
 		return 0, errors.New("packet header does not have its high bit set")
 	}
-	var header, body int
+	// The body length is kept in a uint64 until it is known to fit in b, so
+	// that a four-octet length cannot overflow an int on 32-bit platforms.
+	var header int
+	var body uint64
 	if b[0]&0x40 != 0 {
 		// OpenPGP format.
 		if len(b) < 2 {
 			return 0, io.ErrUnexpectedEOF
 		}
-		switch first := int(b[1]); {
+		switch first := uint64(b[1]); {
 		case first < 192:
 			header, body = 2, first
 		case first < 224:
 			if len(b) < 3 {
 				return 0, io.ErrUnexpectedEOF
 			}
-			header, body = 3, (first-192)<<8+int(b[2])+192
+			header, body = 3, (first-192)<<8+uint64(b[2])+192
 		case first == 255:
 			if len(b) < 6 {
 				return 0, io.ErrUnexpectedEOF
 			}
-			header, body = 6, int(binary.BigEndian.Uint32(b[2:6]))
+			header, body = 6, uint64(binary.BigEndian.Uint32(b[2:6]))
 		default:
 			return 0, errors.New("packet uses a partial body length")
 		}
@@ -248,13 +251,13 @@ func packetSize(b []byte) (int, error) {
 			return 0, io.ErrUnexpectedEOF
 		}
 		for _, c := range b[1:header] {
-			body = body<<8 | int(c)
+			body = body<<8 | uint64(c)
 		}
 	}
-	if body > len(b)-header {
+	if body > uint64(len(b)-header) {
 		return 0, io.ErrUnexpectedEOF
 	}
-	return header + body, nil
+	return header + int(body), nil
 }
 
 var columnarSigningKey = sync.OnceValues(func() (*SigningKey, error) {

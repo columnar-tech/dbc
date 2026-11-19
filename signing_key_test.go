@@ -192,6 +192,8 @@ func TestNewSigningKeyRejectsAmbiguousInput(t *testing.T) {
 		{"data after the checksum", []byte(strings.Replace(armorPublic(t, binA), "-----END", "=AAAA\nextra\n-----END", 1)), "after the checksum"},
 		{"truncated padding packet", append(slices.Clone(binA), 0xd5, 0x05, 0x00, 0x00), "unexpected EOF"},
 		{"partial body length", append(slices.Clone(binA), 0xd5, 0xe1, 0x00), "partial body length"},
+		{"length beyond int32", append(slices.Clone(binA), 0xd5, 0xff, 0xff, 0xff, 0xff, 0xff), "unexpected EOF"},
+		{"legacy length beyond int32", append(slices.Clone(binA), 0x8a, 0xff, 0xff, 0xff, 0xff), "unexpected EOF"},
 		{"empty", nil, "does not contain a public key"},
 		{"too large", bytes.Repeat([]byte{' '}, maxSigningKeySize+1), "larger than"},
 	}
