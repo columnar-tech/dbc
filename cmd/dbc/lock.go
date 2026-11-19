@@ -88,12 +88,8 @@ func (m lockModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		// The project lock is only needed while resolving.
 		defer m.projectLock.release()
-		// TODO: make dbc lock independent of the host platform. The shared
-		// resolution starts from the host's package, so a driver version
-		// without a build for the host fails to lock although dbc lock
-		// installs nothing and the lock file records the artifacts of every
-		// platform. The version choice is also filtered by the host for
-		// version constraints.
+		// TODO: allow locking a selected version without a host artifact.
+		// The shared planner still requires one even when lock installs nothing.
 		items, warnings, err := driverListResolution{
 			path:        m.Path,
 			ctx:         m.ctx,

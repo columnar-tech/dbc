@@ -446,18 +446,18 @@ func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
 	serverB := makeServer("driver-b", &hitsB)
 	defer serverB.Close()
 
-	writeList := func(t *testing.T, registryURL, drvName string) string {
+	writeList := func(t *testing.T, registryURL, drvName, spec string) string {
 		t.Helper()
 		p := t.TempDir() + "/dbc.toml"
 		content := "replace_defaults = true\n\n" +
 			"[[registries]]\nurl = '" + registryURL + "'\n\n" +
-			"[drivers]\n[drivers." + drvName + "]\nversion = '>=1.0.0'\n"
+			"[drivers]\n[drivers." + drvName + "]\n" + spec
 		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
 		return p
 	}
 
 	// Call 1: dbc.toml pointing at server A.
-	pkgs, err := GetDriverList(writeList(t, serverA.URL, "driver-a"))
+	pkgs, err := GetDriverList(writeList(t, serverA.URL, "driver-a", "version = '>=1.0.0'\n"))
 	require.NoError(t, err)
 	require.Len(t, pkgs, 1)
 	assert.Equal(t, "driver-a", pkgs[0].Driver.Path)
@@ -465,7 +465,7 @@ func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
 
 	// Call 2: a DIFFERENT dbc.toml pointing at server B. If GetDriverList
 	// leaked registry state from call 1, server B wouldn't be hit.
-	pkgs, err = GetDriverList(writeList(t, serverB.URL, "driver-b"))
+	pkgs, err = GetDriverList(writeList(t, serverB.URL, "driver-b", ""))
 	require.NoError(t, err)
 	require.Len(t, pkgs, 1)
 	assert.Equal(t, "driver-b", pkgs[0].Driver.Path)

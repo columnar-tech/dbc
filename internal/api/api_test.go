@@ -174,6 +174,65 @@ func TestResolve(t *testing.T) {
 	})
 }
 
+func TestResolveSelectedRegistry(t *testing.T) {
+	isolateUserState(t)
+	tarball, err := os.ReadFile(filepath.Join("..", "..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	serve := func(packages string) api.Registry {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/index.yaml":
+				fmt.Fprint(w, "drivers:\n - name: Shared\n   path: shared\n   pkginfo:\n"+packages)
+			case "/driver.tar.gz":
+				w.Write(tarball)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		t.Cleanup(server.Close)
+		return api.Registry{URL: server.URL}
+	}
+	host := config.PlatformTuple()
+	primary := serve(fmt.Sprintf("    - version: 3.0.0-beta.1\n      packages: [{platform: %s}]\n", host))
+	for _, badHash := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid hash=%t", badHash), func(t *testing.T) {
+			hash := ""
+			if badHash {
+				hash = ", hash: 'sha256:invalid'"
+			}
+			selected := serve(fmt.Sprintf("    - version: 2.0.0\n      packages: []\n    - version: 1.0.0\n      packages: [{platform: %s, url: driver.tar.gz%s}]\n", host, hash))
+			c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{primary, selected}}, &http.Client{})
+			require.NoError(t, err)
+			result, err := api.Resolve(t.Context(), c, "shared", host)
+			require.NoError(t, err)
+			assert.Equal(t, "shared", result.Path)
+			assert.Equal(t, []string{"1.0.0"}, result.Versions)
+			installed, err := api.Install(t.Context(), c, "shared", api.Target{Location: t.TempDir()}, api.InstallOptions{})
+			if badHash {
+				assert.Nil(t, result.Latest)
+				require.ErrorContains(t, err, "invalid archive hash")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result.Latest)
+			assert.Equal(t, selected.URL+"/driver.tar.gz", result.Latest.URL)
+			assert.Equal(t, result.Latest.Version, installed.Version)
+		})
+	}
+
+	t.Run("missing version", func(t *testing.T) {
+		selected := serve(fmt.Sprintf("    - packages: [{platform: %s}]\n    - version: 1.0.0\n      packages: [{platform: %s}]\n", host, host))
+		fallback := serve(fmt.Sprintf("    - version: 2.0.0\n      packages: [{platform: %s}]\n", host))
+		c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{selected, fallback}}, &http.Client{})
+		require.NoError(t, err)
+		result, err := api.Resolve(t.Context(), c, "shared", host)
+		require.NoError(t, err)
+		assert.Equal(t, "shared", result.Path)
+		assert.Equal(t, []string{"1.0.0"}, result.Versions)
+		assert.Nil(t, result.Latest)
+	})
+}
+
 func TestInstallListUninstall(t *testing.T) {
 	c := newClient(t)
 	target := api.Target{Location: t.TempDir()}
@@ -325,10 +384,7 @@ func TestSearchPartialFailureEmptyIndex(t *testing.T) {
 	assert.NotEmpty(t, res.Warning)
 }
 
-// latest is the package Install would fetch: the newest stable version
-// overall. When that version has no package for the platform, Install fails,
-// so latest is absent even though an older version lists the platform.
-func TestResolveLatestMatchesInstall(t *testing.T) {
+func TestResolveUsesRequestedPlatform(t *testing.T) {
 	isolateUserState(t)
 	const index = `drivers:
   - name: Test Driver
@@ -357,7 +413,9 @@ func TestResolveLatestMatchesInstall(t *testing.T) {
 	res, err := api.Resolve(t.Context(), c, "test-driver", "linux_amd64")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1.0.0"}, res.Versions)
-	assert.Nil(t, res.Latest)
+	require.NotNil(t, res.Latest)
+	assert.Equal(t, "1.0.0", res.Latest.Version)
+	assert.Equal(t, srv.URL+"/test-driver/1.0.0/linux.tar.gz", res.Latest.URL)
 }
 
 func TestClientConfigWireFormat(t *testing.T) {

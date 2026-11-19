@@ -101,10 +101,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		warnings []string
 	)
 	for _, name := range slices.Sorted(maps.Keys(list.Drivers)) {
-		spec := list.Drivers[name]
-		if spec.Version != nil && spec.Prerelease == "allow" {
-			spec.Version.IncludePrerelease = true
-		}
+		spec := list.Drivers[name].withPrerelease()
 
 		var (
 			oldSigner lockedSigner
@@ -301,6 +298,19 @@ func (p *syncPlanner) bind(name, identity string) (boundRegistry, error) {
 	return bound, nil
 }
 
+// selectProjectPackage looks up the host artifact for the pinned or newest eligible version.
+func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Version, platform string) (dbc.PkgInfo, error) {
+	version := pin
+	if version == nil {
+		var err error
+		version, err = driver.GetLatestVersionAnyPlatform(spec.Version, spec.Prerelease == "allow")
+		if err != nil {
+			return dbc.PkgInfo{}, err
+		}
+	}
+	return driver.GetPackage(version, platform, true)
+}
+
 // resolve picks the package for a driver from the merged registries, keeping
 // pin (a version from a v1 lock file) when it is set.
 func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version) (plannedDriver, error) {
@@ -308,25 +318,18 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	drv, err := findDriver(name, drivers)
-	if err != nil {
-		return plannedDriver{}, wrapWithRegistryContext(err, p.registryErr)
-	}
+	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		return selectProjectPackage(candidate, spec, pin, p.target)
+	})
+	drv := pkg.Driver
 	var sourceURL *url.URL
 	if drv.Registry != nil {
 		sourceURL = drv.Registry.BaseURL
 	}
-
-	var pkg dbc.PkgInfo
-	switch {
-	case pin != nil:
-		pkg, err = drv.GetPackage(pin, p.target, spec.Prerelease == "allow")
-	case spec.Version != nil:
-		pkg, err = drv.GetWithConstraint(spec.Version, p.target)
-	default:
-		pkg, err = drv.GetPackage(nil, p.target, spec.Prerelease == "allow")
-	}
 	if err != nil {
+		if drv.Path == "" {
+			return plannedDriver{}, wrapWithRegistryContext(err, p.registryErr)
+		}
 		return plannedDriver{}, redactRegistryError(err, p.registries, sourceURL)
 	}
 
@@ -345,7 +348,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	}
 	artifacts, err := p.lockArtifacts(drv, pkg)
 	if err != nil {
-		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, drv.Registry.BaseURL))
+		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, sourceURL))
 	}
 	return plannedDriver{Name: name, Package: pkg, Signer: signer, Entry: lockedDriver{
 		Name:      name,

@@ -491,6 +491,7 @@ func TestPlanV1Lock(t *testing.T) {
 		wantProof   string
 		wantWarning []string
 	}{
+		{"explicit prerelease keeps pin", func(t *testing.T) driverSpec { return driverSpec{Version: constraint(t, "=2.0.0-beta.1")} }, info("2.0.0-beta.1", planTarget), "2.0.0-beta.1", checksum, nil},
 		{"same platform keeps pin and proof", func(*testing.T) driverSpec { return driverSpec{} }, info("1.0.0", planTarget), "1.0.0", checksum, nil},
 		{"other platform drops proof", func(*testing.T) driverSpec { return driverSpec{} }, info("1.0.0", "macos_arm64"), "1.0.0", "",
 			[]string{"alpha", "macos_arm64", "not recorded for this platform"}},
@@ -616,4 +617,59 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		assert.NotContains(t, err.Error(), "not trusted")
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 	})
+}
+
+func TestPlanFallbackRegistryReplay(t *testing.T) {
+	f := newPlanFixture(t)
+	fallbackURL, err := url.Parse("https://fallback.example.com")
+	require.NoError(t, err)
+	f.registries = append(f.registries, dbc.Registry{BaseURL: fallbackURL})
+	fallbackRegistry := f.registries[1]
+	originalIndex := f.planner.index
+	f.planner.index = func() ([]dbc.Driver, error) {
+		drivers, err := originalIndex()
+		if err != nil {
+			return nil, err
+		}
+		// pretend there's no versions in the first registry
+		first := drivers[0]
+		first.PkgInfo = nil
+		drivers[0].Registry = &fallbackRegistry
+		return []dbc.Driver{first, drivers[0]}, nil
+	}
+	list := listOf(map[string]driverSpec{"alpha": {}})
+	planned, _, err := f.planner.plan(list, parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	// we should have used the fallback registry
+	assert.Equal(t, fallbackURL.String(), planned[0].Entry.Source.URL)
+
+	// swap the registry order
+	f.registries[0], f.registries[1] = f.registries[1], f.registries[0]
+
+	// we should still use the same registry
+	replayed, _, err := f.planner.plan(list, v2Lock(planned[0].Entry))
+	require.NoError(t, err)
+	assert.Equal(t, planned[0].Entry, replayed[0].Entry)
+	assert.Equal(t, 1, f.indexCalls)
+
+	incomplete := planned[0].Entry
+	incomplete.Artifacts = nil
+	boundIndex := f.planner.registryIndex
+	f.planner.registryIndex = func(registry dbc.Registry) ([]dbc.Driver, error) {
+		drivers, err := boundIndex(registry)
+		for i := range drivers {
+			drivers[i].Registry = &registry
+		}
+		return drivers, err
+	}
+	completed, _, err := f.planner.plan(list, v2Lock(incomplete))
+	require.NoError(t, err)
+	require.Len(t, completed, 1)
+	assert.Equal(t, planned[0].Entry.Version, completed[0].Entry.Version)
+	assert.Equal(t, planned[0].Entry.Source, completed[0].Entry.Source)
+	require.Len(t, f.boundIndexed, 1)
+	assert.Equal(t, fallbackURL.String(), f.boundIndexed[0].String())
+	assert.Equal(t, 1, f.indexCalls)
+
 }
