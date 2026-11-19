@@ -84,4 +84,65 @@ folder of your user configuration directory, for example
   that the mirror refused access; logging in with `dbc auth login` does not
   help, because no credentials are sent to the mirror.
 
+## Signing keys
+
+{{ since_version('v0.4.0') }}
+
+dbc verifies the signature of every driver it installs. By default it uses the
+Columnar public key that is built into dbc, which signs the packages of the
+default registries. A registry that publishes drivers signed with another
+OpenPGP key names that key with `signing_key`, in your user `config.toml` or in
+a project's `dbc.toml`:
+
+```toml
+[signing_keys.acme]
+type = "openpgp"
+public_key_file = "keys/acme.asc"
+
+[[registries]]
+url = "https://drivers.acme.example.com"
+signing_key = "acme"
+```
+
+- `signing_key` names a `[signing_keys.<name>]` table in the same file. A name
+  is never looked up in another file, so a project cannot use a key that is only
+  defined in your user config, and the other way round. When `signing_key` is
+  omitted, the registry's packages are verified with the Columnar key, also when
+  the user config declares the same registry with another key: the entry of the
+  file that declares the registry first (the project, then the user config) is
+  used as a whole.
+- `signing_key = false` declares that the registry's packages are not signed.
+  They are installed without a signature check; the archive hash that the
+  registry publishes is still checked.
+- A `[signing_keys.<name>]` table has `type = "openpgp"` and exactly one of
+  `public_key`, an ASCII-armored public key written in the file, and
+  `public_key_file`, the path of a file holding the key, armored or binary.
+  A relative path is relative to the directory of the file that defines it,
+  whatever the working directory; `~` and environment variables are not
+  expanded. The name `columnar` is reserved for the built-in key.
+- The key must be exactly one public key (certificate): private keys, files with
+  several keys such as a keyring, and data after the key are rejected. Export
+  the one key you trust, for example with
+  `gpg --export --armor <fingerprint> > keys/acme.asc`.
+- A key written inline is checked when the file is loaded. A key file is read
+  only when a registry that names it is used, so a missing file does not stop
+  commands that do not need it; for those that do, it is an error, never a
+  fallback to another key.
+- In a project, prefer keys that travel with the project: written inline or in a
+  file next to `dbc.toml` under version control. An absolute path such as
+  `/usr/share/keyrings/acme.gpg` works, but only on machines that have the file;
+  keep such paths in your user config.
+
+`dbc.lock` records the fingerprint of the key that each driver's packages must
+verify with, or `type = "none"` for a registry declared unsigned. `dbc sync`
+and `dbc lock` refuse to use a lock entry when the configuration of its
+registry now selects a different key, also with `--no-verify`, so changing the
+key of a registry needs the lock file to be created again. The fingerprint
+identifies the primary key only: a new signing subkey or a revocation of the
+same primary key does not change it, and is used as soon as the key file or
+inline key is updated.
+
+The browser build of the bindings cannot read key files; give explicit
+registries their key inline instead (see [Go Library](../guides/go_library.md#signing-keys)).
+
 For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).

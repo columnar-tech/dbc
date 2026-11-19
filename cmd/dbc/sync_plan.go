@@ -257,9 +257,11 @@ func (s packageSigner) locked() lockedSigner {
 // A key that cannot be loaded, such as a missing public_key_file, is an
 // error rather than a fallback to another key.
 //
-// The signer of each registry is looked up once per plan, so that all the
-// drivers of one sync or lock are verified with the same certificate even
-// when the key is read from a file that changes meanwhile.
+// The signer of each registry is looked up once per plan, so that wherever
+// one sync or lock checks a signature it uses the same certificate, even
+// when the key is read from a file that changes meanwhile. This does not
+// make dbc lock verify more: it still records a published archive hash
+// without downloading the archive.
 func (p *syncPlanner) signerFor(name string, bound boundRegistry) (packageSigner, error) {
 	identity, err := canonicalRegistryIdentity(bound.BaseURL)
 	if err != nil {
