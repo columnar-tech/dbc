@@ -59,7 +59,7 @@ func TestNewDBCClientSendsUserAgent(t *testing.T) {
 			t.Cleanup(func() { userAgentSuffix = prev })
 			userAgentSuffix = tt.suffix
 
-			c, err := newDBCClient(nil, nil)
+			c, err := newDBCClient(nil)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, c.UserAgent())
 

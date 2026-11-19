@@ -18,8 +18,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -33,11 +35,44 @@ type DriversList struct {
 	// ReplaceDefaults is a tri-state: nil means "inherit from global config",
 	// &true replaces both global and built-in default registries, &false forces
 	// defaults back on even when the global config set replace_defaults = true.
-	ReplaceDefaults *bool                 `toml:"replace_defaults,omitempty"`
-	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	ReplaceDefaults *bool `toml:"replace_defaults,omitempty"`
+	// SigningKeys are the keys that Registries can name in signing_key.
+	SigningKeys map[string]dbc.SigningKeyDefinition `toml:"signing_keys,omitempty"`
+	Drivers     map[string]driverSpec               `toml:"drivers" comment:"dbc driver list"`
 	// Network is decoded only to reject it: network settings are read from
 	// the user config, never from a project's dbc.toml.
 	Network map[string]any `toml:"network,omitempty"`
+
+	// path is the absolute path of the file the list was decoded from. A
+	// relative public_key_file is resolved against its directory.
+	path string
+}
+
+// decodeDriverList decodes a driver list read from the file at path.
+func decodeDriverList(r io.Reader, path string) (DriversList, error) {
+	var list DriversList
+	if err := toml.NewDecoder(r).Decode(&list); err != nil {
+		return DriversList{}, err
+	}
+	list.path = path
+	if abs, err := filepath.Abs(path); err == nil {
+		list.path = abs
+	}
+	return list, nil
+}
+
+// projectConfig returns the registry configuration of the list, or nil when
+// it declares none, so that the global config and the defaults apply as is.
+func (l DriversList) projectConfig() *dbc.ProjectConfig {
+	if len(l.Registries) == 0 && l.ReplaceDefaults == nil && len(l.SigningKeys) == 0 {
+		return nil
+	}
+	return &dbc.ProjectConfig{
+		Registries:      l.Registries,
+		ReplaceDefaults: l.ReplaceDefaults,
+		SigningKeys:     l.SigningKeys,
+		Path:            l.path,
+	}
 }
 
 // registriesChanged reports whether two DriversList values would produce
@@ -49,43 +84,50 @@ type DriversList struct {
 // correctly NOT treated as drift.
 //
 // Implemented by running both lists through the same newDBCClient merge
-// path and comparing the resulting normalized URL sets. Display-only
-// fields like RegistryEntry.Name are ignored because they don't appear
-// in the merged URL comparison.
+// path and comparing the resulting normalized URLs and the signing policy
+// of each registry. Display-only fields like RegistryEntry.Name and signing
+// key definitions that no registry names are ignored.
 func registriesChanged(a, b DriversList) bool {
-	urlsA, errA := effectiveRegistryURLs(a)
-	urlsB, errB := effectiveRegistryURLs(b)
+	regsA, errA := effectiveRegistries(a)
+	regsB, errB := effectiveRegistries(b)
 	// If either side fails to produce a merged set (e.g. invalid config),
 	// treat as changed so the command aborts rather than writing against
 	// a config we can't analyze.
 	if errA != nil || errB != nil {
-		return errA != errB
-	}
-	if len(urlsA) != len(urlsB) {
 		return true
 	}
-	for i := range urlsA {
-		if urlsA[i] != urlsB[i] {
+	if len(regsA) != len(regsB) {
+		return true
+	}
+	for i := range regsA {
+		if regsA[i].url != regsB[i].url || !regsA[i].signing.Equal(regsB[i].signing) {
 			return true
 		}
 	}
 	return false
 }
 
-// effectiveRegistryURLs returns the normalized URL list the client would
-// use after merging the given DriversList with the current global config
-// and built-in defaults. It builds a throwaway client via newDBCClient
-// so merge semantics stay in sync with what NewClient actually uses.
-func effectiveRegistryURLs(list DriversList) ([]string, error) {
-	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+type effectiveRegistry struct {
+	url     string
+	signing dbc.SigningPolicy
+}
+
+// effectiveRegistries returns the registries, with normalized URLs, that the
+// client would use after merging the given DriversList with the current
+// global config and built-in defaults. It builds a throwaway client via
+// newDBCClient so merge semantics stay in sync with what NewClient actually
+// uses.
+func effectiveRegistries(list DriversList) ([]effectiveRegistry, error) {
+	c, err := newDBCClient(list.projectConfig())
 	if err != nil {
 		return nil, err
 	}
 	regs := c.Registries()
-	out := make([]string, len(regs))
+	out := make([]effectiveRegistry, len(regs))
 	for i, r := range regs {
+		out[i].signing = r.Signing
 		if r.BaseURL != nil {
-			out[i] = normalizeRegistryURL(r.BaseURL.String())
+			out[i].url = normalizeRegistryURL(r.BaseURL.String())
 		}
 	}
 	return out, nil
@@ -124,10 +166,11 @@ func applyProjectRegistries(list DriversList) error {
 	if list.Network != nil {
 		return dbc.ErrProjectNetwork
 	}
-	if len(list.Registries) == 0 && list.ReplaceDefaults == nil {
+	project := list.projectConfig()
+	if project == nil {
 		return nil
 	}
-	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	c, err := newDBCClient(project)
 	if err != nil {
 		return fmt.Errorf("error configuring project registries: %w", err)
 	}
@@ -173,8 +216,8 @@ func applyProjectRegistriesFromCWD() error {
 	}
 	defer f.Close()
 
-	var list DriversList
-	if err := toml.NewDecoder(f).Decode(&list); err != nil {
+	list, err := decodeDriverList(f, p)
+	if err != nil {
 		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
 	}
 	return applyProjectRegistries(list)
@@ -195,13 +238,13 @@ func (spec driverSpec) withPrerelease() driverSpec {
 }
 
 func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
-	var m DriversList
 	f, err := os.Open(fname)
 	if err != nil {
 		return nil, fmt.Errorf("error opening driver list %s: %w", fname, err)
 	}
 	defer f.Close()
-	if err = toml.NewDecoder(f).Decode(&m); err != nil {
+	m, err := decodeDriverList(f, fname)
+	if err != nil {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
@@ -214,7 +257,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	// dbc.toml to another. Unlike add/sync (which own the process for one
 	// command), GetDriverList is a library helper that may be called
 	// multiple times.
-	client, err := newDBCClient(m.Registries, m.ReplaceDefaults)
+	client, err := newDBCClient(m.projectConfig())
 	if err != nil {
 		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}

@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc/config"
 )
@@ -36,15 +39,43 @@ type SigningKey struct {
 	verifier    crypto.PGPVerify
 }
 
-// newSigningKey parses one armored OpenPGP public key. Private key material is
-// rejected.
-func newSigningKey(armored string) (*SigningKey, error) {
-	key, err := crypto.NewKeyFromArmored(armored)
+// maxSigningKeySize bounds the size of a public key given inline or read from
+// a file. Real certificates are a few kilobytes.
+const maxSigningKeySize = 1 << 20
+
+const (
+	publicKeyArmorType  = "PGP PUBLIC KEY BLOCK"
+	privateKeyArmorType = "PGP PRIVATE KEY BLOCK"
+)
+
+var errPrivateKey = errors.New("signing key must be a public key, not a private key")
+
+// NewSigningKey parses one OpenPGP certificate (a public key), given in ASCII
+// armor or in binary form. The input must hold exactly one primary public key
+// together with its user IDs, subkeys and signatures, and nothing else:
+// private key material, a second primary key, more than one armored block,
+// unknown packets and trailing data are all rejected rather than skipped.
+func NewSigningKey(data []byte) (*SigningKey, error) {
+	if len(data) > maxSigningKeySize {
+		return nil, fmt.Errorf("signing key is larger than %d bytes", maxSigningKeySize)
+	}
+	payload := data
+	if isArmored(data) {
+		var err error
+		if payload, err = dearmorPublicKey(data); err != nil {
+			return nil, err
+		}
+	}
+	if err := checkCertificatePackets(payload); err != nil {
+		return nil, err
+	}
+
+	key, err := crypto.NewKey(payload)
 	if err != nil {
 		return nil, fmt.Errorf("could not parse signing key: %w", err)
 	}
 	if key.IsPrivate() {
-		return nil, errors.New("signing key must be a public key, not a private key")
+		return nil, errPrivateKey
 	}
 	verifier, err := crypto.PGP().Verify().VerificationKey(key).New()
 	if err != nil {
@@ -53,8 +84,98 @@ func newSigningKey(armored string) (*SigningKey, error) {
 	return &SigningKey{fingerprint: key.GetFingerprint(), verifier: verifier}, nil
 }
 
+// newArmoredSigningKey is NewSigningKey for input that must be ASCII armored,
+// such as a key written inline in a configuration file.
+func newArmoredSigningKey(armored string) (*SigningKey, error) {
+	if !isArmored([]byte(armored)) {
+		return nil, errors.New("signing key must be an ASCII-armored OpenPGP public key")
+	}
+	return NewSigningKey([]byte(armored))
+}
+
+// isArmored reports whether data is text, and so must be ASCII armor. The
+// first byte of a binary OpenPGP packet always has its high bit set.
+func isArmored(data []byte) bool {
+	text := bytes.TrimLeft(data, " \t\r\n")
+	return len(text) > 0 && text[0]&0x80 == 0
+}
+
+// dearmorPublicKey decodes the one armored public key block in data. Only
+// whitespace may surround the block. The armor decoder would skip leading
+// text and stop after the first block, so both are checked here.
+func dearmorPublicKey(data []byte) ([]byte, error) {
+	text := bytes.TrimSpace(data)
+	begin := []byte("-----BEGIN " + publicKeyArmorType + "-----")
+	end := []byte("-----END " + publicKeyArmorType + "-----")
+	if bytes.HasPrefix(text, []byte("-----BEGIN "+privateKeyArmorType+"-----")) {
+		return nil, errPrivateKey
+	}
+	if !bytes.HasPrefix(text, begin) {
+		return nil, fmt.Errorf("signing key must be an armored %s", publicKeyArmorType)
+	}
+	if bytes.Count(text, []byte("-----BEGIN ")) != 1 || bytes.Count(text, []byte("-----END ")) != 1 {
+		return nil, errors.New("signing key must contain exactly one armored block")
+	}
+	if !bytes.HasSuffix(text, end) {
+		return nil, errors.New("signing key has data after the end of the armored block")
+	}
+
+	block, err := armor.Decode(bytes.NewReader(text))
+	if err != nil {
+		return nil, fmt.Errorf("could not decode armored signing key: %w", err)
+	}
+	if block.Type != publicKeyArmorType {
+		return nil, fmt.Errorf("signing key must be an armored %s", publicKeyArmorType)
+	}
+	payload, err := io.ReadAll(block.Body)
+	if err != nil {
+		return nil, fmt.Errorf("could not decode armored signing key: %w", err)
+	}
+	return payload, nil
+}
+
+// checkCertificatePackets checks that payload is exactly one certificate:
+// a primary public key followed only by the packets that belong to it. The
+// key ring readers of the OpenPGP libraries skip packets they do not
+// understand, so the whole input is walked here and every packet is checked.
+func checkCertificatePackets(payload []byte) error {
+	r := bytes.NewReader(payload)
+	primary := false
+	for {
+		p, err := packet.Read(r)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("invalid OpenPGP public key: %w", err)
+		}
+		switch p := p.(type) {
+		case *packet.PrivateKey:
+			return errPrivateKey
+		case *packet.PublicKey:
+			if !p.IsSubkey {
+				if primary {
+					return errors.New("signing key must contain exactly one public key, but it contains more than one")
+				}
+				primary = true
+				continue
+			}
+		case *packet.UserId, *packet.UserAttribute, *packet.Signature, packet.Padding:
+		default:
+			return fmt.Errorf("signing key contains an unexpected OpenPGP packet (%T)", p)
+		}
+		if !primary {
+			return errors.New("signing key must start with a primary public key")
+		}
+	}
+	if !primary {
+		return errors.New("signing key does not contain a public key")
+	}
+	return nil
+}
+
 var columnarSigningKey = sync.OnceValues(func() (*SigningKey, error) {
-	return newSigningKey(armoredPubKey)
+	return newArmoredSigningKey(armoredPubKey)
 })
 
 // ColumnarSigningKey returns the Columnar public key that is embedded in the

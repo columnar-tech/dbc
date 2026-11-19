@@ -18,8 +18,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,9 +66,9 @@ func TestSigningKeyVerifiesOnlyItsOwnSignatures(t *testing.T) {
 	a, b := generateTestKey(t, "a"), generateTestKey(t, "b")
 	sig := detachedSign(t, a, data)
 
-	keyA, err := newSigningKey(publicArmored(t, a))
+	keyA, err := newArmoredSigningKey(publicArmored(t, a))
 	require.NoError(t, err)
-	keyB, err := newSigningKey(publicArmored(t, b))
+	keyB, err := newArmoredSigningKey(publicArmored(t, b))
 	require.NoError(t, err)
 
 	assert.Equal(t, a.GetFingerprint(), keyA.Fingerprint())
@@ -86,7 +89,7 @@ func TestSigningKeySubkeySignature(t *testing.T) {
 	sig, err := os.ReadFile(filepath.Join(dir, "payload.txt.sig"))
 	require.NoError(t, err)
 
-	key, err := newSigningKey(string(armored))
+	key, err := newArmoredSigningKey(string(armored))
 	require.NoError(t, err)
 	assert.Equal(t, "9b96d38c4b87a17f1f4b1fa7e0ff4c99f17a9538", key.Fingerprint())
 	assert.NoError(t, key.Verify(bytes.NewReader(payload), bytes.NewReader(sig)))
@@ -95,9 +98,115 @@ func TestSigningKeySubkeySignature(t *testing.T) {
 func TestNewSigningKeyRejectsPrivateKey(t *testing.T) {
 	private, err := generateTestKey(t, "private").Armor()
 	require.NoError(t, err)
-	_, err = newSigningKey(private)
+	_, err = newArmoredSigningKey(private)
 	assert.ErrorContains(t, err, "private")
 
-	_, err = newSigningKey("not a key")
+	_, err = newArmoredSigningKey("not a key")
 	assert.Error(t, err)
+}
+
+func publicBinary(t *testing.T, key *crypto.Key) []byte {
+	t.Helper()
+	pub, err := key.GetPublicKey()
+	require.NoError(t, err)
+	return pub
+}
+
+// splitPackets returns the raw bytes of each OpenPGP packet in data.
+func splitPackets(t *testing.T, data []byte) [][]byte {
+	t.Helper()
+	r := bytes.NewReader(data)
+	var out [][]byte
+	for r.Len() > 0 {
+		start := len(data) - r.Len()
+		_, err := packet.Read(r)
+		require.NoError(t, err)
+		out = append(out, data[start:len(data)-r.Len()])
+	}
+	return out
+}
+
+func armorPublic(t *testing.T, payload []byte) string {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := armor.Encode(&buf, "PGP PUBLIC KEY BLOCK", nil)
+	require.NoError(t, err)
+	_, err = w.Write(payload)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	return buf.String()
+}
+
+func TestNewSigningKeyAcceptsArmoredAndBinary(t *testing.T) {
+	key := generateTestKey(t, "both")
+	fromArmor, err := NewSigningKey([]byte("\n  " + publicArmored(t, key) + "\n\n"))
+	require.NoError(t, err)
+	fromBinary, err := NewSigningKey(publicBinary(t, key))
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), fromArmor.Fingerprint())
+	assert.Equal(t, key.GetFingerprint(), fromBinary.Fingerprint())
+
+	data := []byte("driver library bytes")
+	assert.NoError(t, fromBinary.Verify(bytes.NewReader(data), bytes.NewReader(detachedSign(t, key, data))))
+}
+
+func TestNewSigningKeyRejectsAmbiguousInput(t *testing.T) {
+	a, b := generateTestKey(t, "a"), generateTestKey(t, "b")
+	binA, binB := publicBinary(t, a), publicBinary(t, b)
+	armoredA := publicArmored(t, a)
+
+	privateBinary, err := a.Serialize()
+	require.NoError(t, err)
+	// A certificate whose subkey packet carries secret key material: the
+	// public packets of the primary key followed by the private subkey and
+	// its binding signature.
+	pubPackets, privPackets := splitPackets(t, binA), splitPackets(t, privateBinary)
+	require.Len(t, pubPackets, len(privPackets))
+	var secretSubkey []byte
+	for _, p := range pubPackets[:len(pubPackets)-2] {
+		secretSubkey = append(secretSubkey, p...)
+	}
+	for _, p := range privPackets[len(privPackets)-2:] {
+		secretSubkey = append(secretSubkey, p...)
+	}
+	marker := []byte{0xca, 0x03, 'P', 'G', 'P'}
+
+	tests := []struct {
+		name  string
+		input []byte
+		want  string
+	}{
+		{"two certificates", append(slices.Clone(binA), binB...), "more than one"},
+		{"two armored blocks", []byte(armoredA + publicArmored(t, b)), "exactly one armored block"},
+		{"text before the armor", []byte("comment\n" + armoredA), "armored PGP PUBLIC KEY BLOCK"},
+		{"text after the armor", []byte(armoredA + "trailing\n"), "after the end"},
+		{"private key", privateBinary, "private"},
+		{"private armored key", []byte(mustArmor(t, a)), "private"},
+		{"private subkey", secretSubkey, "private"},
+		{"unknown packet", append(slices.Clone(binA), marker...), "unexpected OpenPGP packet"},
+		{"armored unknown packet", []byte(armorPublic(t, append(slices.Clone(binA), marker...))), "unexpected OpenPGP packet"},
+		{"truncated", binA[:len(binA)-1], "invalid OpenPGP public key"},
+		{"trailing byte", append(slices.Clone(binA), 0x00), "invalid OpenPGP public key"},
+		{"subkey only", slices.Concat(pubPackets[len(pubPackets)-2:]...), "start with a primary public key"},
+		{"empty", nil, "does not contain a public key"},
+		{"too large", bytes.Repeat([]byte{' '}, maxSigningKeySize+1), "larger than"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewSigningKey(tt.input)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+func mustArmor(t *testing.T, key *crypto.Key) string {
+	t.Helper()
+	armored, err := key.Armor()
+	require.NoError(t, err)
+	return armored
+}
+
+func TestArmoredSigningKeyRejectsBinary(t *testing.T) {
+	_, err := newArmoredSigningKey(string(publicBinary(t, generateTestKey(t, "binary"))))
+	assert.ErrorContains(t, err, "ASCII-armored")
 }

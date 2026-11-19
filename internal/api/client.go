@@ -110,11 +110,11 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 			return nil, fmt.Errorf("invalid registryConfig %q: expected default or none", cfg.RegistryConfig)
 		}
 		if cfg.ProjectFile != "" {
-			registries, replaceDefaults, err := dbc.LoadProjectRegistries(cfg.ProjectFile)
+			project, err := dbc.LoadProjectConfig(cfg.ProjectFile)
 			if err != nil {
 				return nil, err
 			}
-			opts = append(opts, dbc.WithProjectRegistries(registries, replaceDefaults))
+			opts = append(opts, dbc.WithProjectConfig(project))
 		}
 	}
 	if cfg.UserAgentSuffix != "" {

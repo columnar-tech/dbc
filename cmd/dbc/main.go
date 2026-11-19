@@ -95,7 +95,7 @@ var (
 )
 
 func newDefaultClient() (*dbc.Client, error) {
-	return newDBCClient(nil, nil)
+	return newDBCClient(nil)
 }
 
 // authHTTPClient returns an *http.Client suitable for auth flows (device-code
@@ -129,10 +129,10 @@ func setUserAgentSuffix(suffix string) {
 	}
 }
 
-// newDBCClient builds a client with the given project registry overrides.
-// Callers pass nil/nil for process-wide operations (search, info, install);
-// project commands (add, sync, remove) pass the values parsed from dbc.toml.
-func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
+// newDBCClient builds a client with the given project registry configuration.
+// Callers pass nil for process-wide operations (search, info, install);
+// project commands (add, sync, remove) pass the one parsed from dbc.toml.
+func newDBCClient(project *dbc.ProjectConfig) (*dbc.Client, error) {
 	if startupRegistryConfigErr != nil {
 		return nil, startupRegistryConfigErr
 	}
@@ -145,8 +145,8 @@ func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool)
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
 	} else {
-		if projectRegs != nil || projectReplaceDefaults != nil {
-			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
+		if project != nil {
+			opts = append(opts, dbc.WithProjectConfig(project))
 		}
 	}
 
