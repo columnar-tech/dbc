@@ -16,6 +16,8 @@ package dbc
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -37,6 +39,9 @@ import (
 type SigningKey struct {
 	fingerprint string
 	verifier    crypto.PGPVerify
+	// digest is the SHA-256 of the certificate's packets, which tells two
+	// versions of the same primary key apart (new subkeys or revocations).
+	digest [sha256.Size]byte
 }
 
 // maxSigningKeySize bounds the size of a public key given inline or read from
@@ -81,7 +86,7 @@ func NewSigningKey(data []byte) (*SigningKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not use signing key: %w", err)
 	}
-	return &SigningKey{fingerprint: key.GetFingerprint(), verifier: verifier}, nil
+	return &SigningKey{fingerprint: key.GetFingerprint(), verifier: verifier, digest: sha256.Sum256(payload)}, nil
 }
 
 // newArmoredSigningKey is NewSigningKey for input that must be ASCII armored,
@@ -101,23 +106,40 @@ func isArmored(data []byte) bool {
 }
 
 // dearmorPublicKey decodes the one armored public key block in data. Only
-// whitespace may surround the block. The armor decoder would skip leading
-// text and stop after the first block, so both are checked here.
+// whitespace may surround the block. The armor decoder skips text before a
+// block, stops reading at the checksum line and ignores what follows the
+// first block, so the layout of the lines is checked here: the BEGIN line
+// first, the END line last, and a checksum line only right before the END
+// line.
 func dearmorPublicKey(data []byte) ([]byte, error) {
 	text := bytes.TrimSpace(data)
-	begin := []byte("-----BEGIN " + publicKeyArmorType + "-----")
-	end := []byte("-----END " + publicKeyArmorType + "-----")
+	begin := "-----BEGIN " + publicKeyArmorType + "-----"
+	end := "-----END " + publicKeyArmorType + "-----"
 	if bytes.HasPrefix(text, []byte("-----BEGIN "+privateKeyArmorType+"-----")) {
 		return nil, errPrivateKey
 	}
-	if !bytes.HasPrefix(text, begin) {
+	if !bytes.HasPrefix(text, []byte(begin)) {
 		return nil, fmt.Errorf("signing key must be an armored %s", publicKeyArmorType)
 	}
 	if bytes.Count(text, []byte("-----BEGIN ")) != 1 || bytes.Count(text, []byte("-----END ")) != 1 {
 		return nil, errors.New("signing key must contain exactly one armored block")
 	}
-	if !bytes.HasSuffix(text, end) {
+
+	lines := bytes.Split(text, []byte("\n"))
+	for i := range lines {
+		lines[i] = bytes.TrimSpace(lines[i])
+	}
+	last := len(lines) - 1
+	if string(lines[0]) != begin {
+		return nil, errors.New("signing key has data after the BEGIN line of the armored block")
+	}
+	if string(lines[last]) != end {
 		return nil, errors.New("signing key has data after the end of the armored block")
+	}
+	for i := 1; i < last-1; i++ {
+		if bytes.HasPrefix(lines[i], []byte("=")) {
+			return nil, errors.New("signing key has data after the checksum of the armored block")
+		}
 	}
 
 	block, err := armor.Decode(bytes.NewReader(text))
@@ -137,14 +159,20 @@ func dearmorPublicKey(data []byte) ([]byte, error) {
 // checkCertificatePackets checks that payload is exactly one certificate:
 // a primary public key followed only by the packets that belong to it. The
 // key ring readers of the OpenPGP libraries skip packets they do not
-// understand, so the whole input is walked here and every packet is checked.
+// understand, so the whole input is split into packets here, and each
+// packet must be parsed completely from its own bytes.
 func checkCertificatePackets(payload []byte) error {
-	r := bytes.NewReader(payload)
 	primary := false
-	for {
+	for rest := payload; len(rest) > 0; {
+		size, err := packetSize(rest)
+		if err != nil {
+			return fmt.Errorf("invalid OpenPGP public key: %w", err)
+		}
+		r := bytes.NewReader(rest[:size])
+		rest = rest[size:]
 		p, err := packet.Read(r)
-		if errors.Is(err, io.EOF) {
-			break
+		if err == nil && r.Len() != 0 {
+			err = errors.New("packet has unparsed data")
 		}
 		if err != nil {
 			return fmt.Errorf("invalid OpenPGP public key: %w", err)
@@ -172,6 +200,61 @@ func checkCertificatePackets(payload []byte) error {
 		return errors.New("signing key does not contain a public key")
 	}
 	return nil
+}
+
+// packetSize returns the length of the OpenPGP packet at the start of b,
+// header included (RFC 9580, section 4.2). Partial body lengths and the
+// indeterminate length of the legacy format are only used by data packets,
+// so they are rejected here.
+func packetSize(b []byte) (int, error) {
+	if b[0]&0x80 == 0 {
+		return 0, errors.New("packet header does not have its high bit set")
+	}
+	var header, body int
+	if b[0]&0x40 != 0 {
+		// OpenPGP format.
+		if len(b) < 2 {
+			return 0, io.ErrUnexpectedEOF
+		}
+		switch first := int(b[1]); {
+		case first < 192:
+			header, body = 2, first
+		case first < 224:
+			if len(b) < 3 {
+				return 0, io.ErrUnexpectedEOF
+			}
+			header, body = 3, (first-192)<<8+int(b[2])+192
+		case first == 255:
+			if len(b) < 6 {
+				return 0, io.ErrUnexpectedEOF
+			}
+			header, body = 6, int(binary.BigEndian.Uint32(b[2:6]))
+		default:
+			return 0, errors.New("packet uses a partial body length")
+		}
+	} else {
+		// Legacy format.
+		switch b[0] & 3 {
+		case 0:
+			header = 2
+		case 1:
+			header = 3
+		case 2:
+			header = 5
+		default:
+			return 0, errors.New("packet has an indeterminate length")
+		}
+		if len(b) < header {
+			return 0, io.ErrUnexpectedEOF
+		}
+		for _, c := range b[1:header] {
+			body = body<<8 | int(c)
+		}
+	}
+	if body > len(b)-header {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return header + body, nil
 }
 
 var columnarSigningKey = sync.OnceValues(func() (*SigningKey, error) {

@@ -53,7 +53,7 @@ type Registry struct {
 	BaseURL *url.URL
 	// Signing says which key the registry's driver packages are verified
 	// with. The zero value is the built-in Columnar key.
-	Signing SigningPolicy
+	Signing RegistrySigningPolicy
 }
 
 func mustParseURL(u string) *url.URL {

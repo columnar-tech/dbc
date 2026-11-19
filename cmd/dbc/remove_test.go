@@ -16,6 +16,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"github.com/columnar-tech/dbc/internal/jsonschema"
@@ -129,4 +130,42 @@ func (suite *SubcommandTestSuite) TestRemove_JSON_DriverNotFound() {
 	}.GetModelCustom(baseModel{getDriverRegistry: getTestDriverRegistry, downloadPkg: downloadTestPkg})
 	out := suite.runCmdErr(m)
 	suite.assertJSONErrorEnvelope(out, "remove_failed")
+}
+
+// dbc remove writes dbc.toml back, so it checks the registry configuration
+// first instead of rewriting a file with an invalid signing key setting.
+func (suite *SubcommandTestSuite) TestRemoveRejectsInvalidSigningKey() {
+	path := filepath.Join(suite.tempdir, "dbc.toml")
+	content := "[[registries]]\nurl = 'https://acme.example.com'\nsigning_key = 'missing'\n\n[drivers.test-driver-1]\n"
+	suite.Require().NoError(os.WriteFile(path, []byte(content), 0o600))
+
+	m := RemoveCmd{Path: path, Driver: "test-driver-1"}.GetModelCustom(testBaseModel())
+	out := suite.runCmdErr(m)
+	suite.Contains(out, `signing_key "missing" is not defined`)
+
+	data, err := os.ReadFile(path)
+	suite.Require().NoError(err)
+	suite.Equal(content, string(data))
+}
+
+// The signing key settings survive dbc remove writing dbc.toml back.
+func (suite *SubcommandTestSuite) TestRemoveKeepsSigningKeys() {
+	path := filepath.Join(suite.tempdir, "dbc.toml")
+	armored := armoredTestKey(suite.T(), "acme")
+	content := "[signing_keys.acme]\ntype = 'openpgp'\npublic_key = '''\n" + armored + "'''\n\n" +
+		"[[registries]]\nurl = 'https://acme.example.com'\nsigning_key = 'acme'\n\n" +
+		"[[registries]]\nurl = 'https://unsigned.example.com'\nsigning_key = false\n\n" +
+		"[drivers.test-driver-1]\n[drivers.test-driver-2]\n"
+	suite.Require().NoError(os.WriteFile(path, []byte(content), 0o600))
+
+	m := RemoveCmd{Path: path, Driver: "test-driver-1"}.GetModelCustom(testBaseModel())
+	suite.runCmd(m)
+
+	list, err := openAndDecodeDriverList(path)
+	suite.Require().NoError(err)
+	suite.Equal("acme", list.Registries[0].SigningKey)
+	suite.Equal(false, list.Registries[1].SigningKey)
+	suite.Require().Contains(list.SigningKeys, "acme")
+	suite.Equal(armored, *list.SigningKeys["acme"].PublicKey)
+	suite.NotContains(list.Drivers, "test-driver-1")
 }

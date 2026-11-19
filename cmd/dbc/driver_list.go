@@ -48,7 +48,9 @@ type DriversList struct {
 	path string
 }
 
-// decodeDriverList decodes a driver list read from the file at path.
+// decodeDriverList decodes a driver list read from the file at path and
+// checks its registry configuration, so that a command never works with,
+// or writes back, registries or signing keys that are invalid.
 func decodeDriverList(r io.Reader, path string) (DriversList, error) {
 	var list DriversList
 	if err := toml.NewDecoder(r).Decode(&list); err != nil {
@@ -57,6 +59,11 @@ func decodeDriverList(r io.Reader, path string) (DriversList, error) {
 	list.path = path
 	if abs, err := filepath.Abs(path); err == nil {
 		list.path = abs
+	}
+	if project := list.projectConfig(); project != nil {
+		if err := project.Validate(); err != nil {
+			return DriversList{}, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	return list, nil
 }
@@ -109,7 +116,7 @@ func registriesChanged(a, b DriversList) bool {
 
 type effectiveRegistry struct {
 	url     string
-	signing dbc.SigningPolicy
+	signing dbc.RegistrySigningPolicy
 }
 
 // effectiveRegistries returns the registries, with normalized URLs, that the

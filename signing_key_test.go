@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ProtonMail/go-crypto/openpgp/armor"
@@ -188,6 +189,9 @@ func TestNewSigningKeyRejectsAmbiguousInput(t *testing.T) {
 		{"truncated", binA[:len(binA)-1], "invalid OpenPGP public key"},
 		{"trailing byte", append(slices.Clone(binA), 0x00), "invalid OpenPGP public key"},
 		{"subkey only", slices.Concat(pubPackets[len(pubPackets)-2:]...), "start with a primary public key"},
+		{"data after the checksum", []byte(strings.Replace(armorPublic(t, binA), "-----END", "=AAAA\nextra\n-----END", 1)), "after the checksum"},
+		{"truncated padding packet", append(slices.Clone(binA), 0xd5, 0x05, 0x00, 0x00), "unexpected EOF"},
+		{"partial body length", append(slices.Clone(binA), 0xd5, 0xe1, 0x00), "partial body length"},
 		{"empty", nil, "does not contain a public key"},
 		{"too large", bytes.Repeat([]byte{' '}, maxSigningKeySize+1), "larger than"},
 	}

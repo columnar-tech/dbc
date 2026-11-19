@@ -165,7 +165,7 @@ func TestMergedRegistryKeepsTheSigningPolicyOfItsTier(t *testing.T) {
 	regs := c.Registries()
 	require.GreaterOrEqual(t, len(regs), 2)
 	assert.Equal(t, "https://shared.example.com", regs[0].BaseURL.String())
-	assert.True(t, regs[0].Signing.Equal(SigningPolicy{}), "the project entry selects the Columnar key")
+	assert.True(t, regs[0].Signing.Equal(RegistrySigningPolicy{}), "the project entry selects the Columnar key")
 	assert.Equal(t, "https://user-only.example.com", regs[1].BaseURL.String())
 	assert.Equal(t, `signing key "acme"`, regs[1].Signing.String())
 }
@@ -198,7 +198,7 @@ func TestExplicitRegistrySigningPolicy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, key, got)
 
-	for _, policy := range []SigningPolicy{SignWith(nil), SignWith(&SigningKey{})} {
+	for _, policy := range []RegistrySigningPolicy{SignWith(nil), SignWith(&SigningKey{})} {
 		_, err = NewClient(WithRegistries([]Registry{{BaseURL: u, Signing: policy}}))
 		assert.ErrorContains(t, err, "has no key")
 		_, err = Registry{BaseURL: u, Signing: policy}.ResolveSigningKey()
@@ -211,12 +211,29 @@ func TestSigningPolicyEqual(t *testing.T) {
 	require.NoError(t, err)
 	b, err := NewSigningKey([]byte(publicArmored(t, generateTestKey(t, "b"))))
 	require.NoError(t, err)
-	assert.True(t, SigningPolicy{}.Equal(SigningPolicy{}))
+	assert.True(t, RegistrySigningPolicy{}.Equal(RegistrySigningPolicy{}))
 	assert.True(t, Unsigned().Equal(Unsigned()))
 	assert.True(t, SignWith(a).Equal(SignWith(a)))
 	assert.False(t, SignWith(a).Equal(SignWith(b)))
-	assert.False(t, SignWith(a).Equal(SigningPolicy{}))
-	assert.False(t, Unsigned().Equal(SigningPolicy{}))
+	assert.False(t, SignWith(a).Equal(RegistrySigningPolicy{}))
+	assert.False(t, Unsigned().Equal(RegistrySigningPolicy{}))
+
+	// The same primary key with one more packet, as after adding a subkey or
+	// a revocation, is a different certificate.
+	key := generateTestKey(t, "c")
+	c1, err := NewSigningKey(publicBinary(t, key))
+	require.NoError(t, err)
+	padding := []byte{0xd5, 0x02, 0x00, 0x00}
+	c2, err := NewSigningKey(append(publicBinary(t, key), padding...))
+	require.NoError(t, err)
+	require.Equal(t, c1.Fingerprint(), c2.Fingerprint())
+	assert.False(t, SignWith(c1).Equal(SignWith(c2)))
+}
+
+func TestProjectConfigValidate(t *testing.T) {
+	assert.NoError(t, (&ProjectConfig{}).Validate())
+	err := (&ProjectConfig{Registries: []RegistryEntry{{URL: "https://a.example.com", SigningKey: true}}}).Validate()
+	assert.ErrorContains(t, err, "signing_key = true")
 }
 
 // signing_key = false must survive a decode and encode round trip, which the

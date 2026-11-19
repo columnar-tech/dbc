@@ -164,12 +164,24 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 
 // absPath returns path made absolute, so that a relative public_key_file
 // keeps its base when the working directory changes. The path is not
-// resolved through symbolic links.
+// resolved through symbolic links. An empty path, a configuration that does
+// not come from a file, stays empty.
 func absPath(path string) string {
+	if path == "" {
+		return ""
+	}
 	if abs, err := filepath.Abs(path); err == nil {
 		return abs
 	}
 	return path
+}
+
+// Validate checks the registry entries and signing key definitions of the
+// project on their own, without merging them with other configuration or
+// reading key files.
+func (c *ProjectConfig) Validate() error {
+	_, err := registriesFromEntries(c.Registries, c.SigningKeys, c.Path)
+	return err
 }
 
 // registriesFromEntries validates the registry entries and signing key
@@ -179,7 +191,7 @@ func absPath(path string) string {
 // definitions of the same file. path is the file the configuration was read
 // from, or empty when it was built in memory.
 func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string) ([]Registry, error) {
-	policies := make(map[string]SigningPolicy, len(keys))
+	policies := make(map[string]RegistrySigningPolicy, len(keys))
 	for _, name := range slices.Sorted(maps.Keys(keys)) {
 		policy, err := signingPolicyFromDefinition(name, keys[name])
 		if err != nil {
@@ -190,16 +202,13 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 
 	registries := make([]Registry, 0, len(entries))
 	for _, e := range entries {
-		if err := validateRegistryEntry(e); err != nil {
+		u, err := parseRegistryEntryURL(e)
+		if err != nil {
 			return nil, err
 		}
 		policy, err := entrySigningPolicy(e.SigningKey, policies)
 		if err != nil {
 			return nil, fmt.Errorf("registry %s: %w", e.URL, err)
-		}
-		u, err := url.Parse(e.URL)
-		if err != nil {
-			return nil, fmt.Errorf("invalid registry URL %w", err)
 		}
 		registries = append(registries, Registry{Name: e.Name, BaseURL: u, Signing: policy})
 	}
@@ -208,66 +217,67 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 
 // signingPolicyFromDefinition checks one [signing_keys.<name>] definition and
 // returns the policy that a registry naming it gets.
-func signingPolicyFromDefinition(name string, def SigningKeyDefinition) (SigningPolicy, error) {
+func signingPolicyFromDefinition(name string, def SigningKeyDefinition) (RegistrySigningPolicy, error) {
 	switch {
 	case name == "":
-		return SigningPolicy{}, errors.New("name must not be empty")
+		return RegistrySigningPolicy{}, errors.New("name must not be empty")
 	case name == reservedSigningKeyName:
-		return SigningPolicy{}, fmt.Errorf("the name %q is reserved for the built-in Columnar key, which is used when signing_key is omitted", name)
+		return RegistrySigningPolicy{}, fmt.Errorf("the name %q is reserved for the built-in Columnar key, which is used when signing_key is omitted", name)
 	case def.Type == "":
-		return SigningPolicy{}, fmt.Errorf("type is required; the supported type is %q", SigningKeyTypeOpenPGP)
+		return RegistrySigningPolicy{}, fmt.Errorf("type is required; the supported type is %q", SigningKeyTypeOpenPGP)
 	case def.Type != SigningKeyTypeOpenPGP:
-		return SigningPolicy{}, fmt.Errorf("unsupported type %q; the supported type is %q", def.Type, SigningKeyTypeOpenPGP)
+		return RegistrySigningPolicy{}, fmt.Errorf("unsupported type %q; the supported type is %q", def.Type, SigningKeyTypeOpenPGP)
 	case (def.PublicKey == nil) == (def.PublicKeyFile == nil):
-		return SigningPolicy{}, errors.New("exactly one of public_key and public_key_file must be set")
+		return RegistrySigningPolicy{}, errors.New("exactly one of public_key and public_key_file must be set")
 	case def.PublicKey != nil && *def.PublicKey == "":
-		return SigningPolicy{}, errors.New("public_key must not be empty")
+		return RegistrySigningPolicy{}, errors.New("public_key must not be empty")
 	case def.PublicKeyFile != nil:
-		return SigningPolicy{}, errors.New("public_key_file is not supported yet")
+		return RegistrySigningPolicy{}, errors.New("public_key_file is not supported yet")
 	}
 	key, err := newArmoredSigningKey(*def.PublicKey)
 	if err != nil {
-		return SigningPolicy{}, fmt.Errorf("public_key: %w", err)
+		return RegistrySigningPolicy{}, fmt.Errorf("public_key: %w", err)
 	}
-	return SigningPolicy{kind: signingWithKey, key: key, name: name}, nil
+	return RegistrySigningPolicy{kind: signingWithKey, key: key, name: name}, nil
 }
 
 // entrySigningPolicy returns the policy that a registry entry's signing_key
 // selects, looking a name up in the policies of the same file.
-func entrySigningPolicy(value any, policies map[string]SigningPolicy) (SigningPolicy, error) {
+func entrySigningPolicy(value any, policies map[string]RegistrySigningPolicy) (RegistrySigningPolicy, error) {
 	switch v := value.(type) {
 	case nil:
-		return SigningPolicy{}, nil
+		return RegistrySigningPolicy{}, nil
 	case bool:
 		if v {
-			return SigningPolicy{}, errors.New("signing_key = true is not valid; name a [signing_keys] definition, omit signing_key for the Columnar key, or set it to false for an unsigned registry")
+			return RegistrySigningPolicy{}, errors.New("signing_key = true is not valid; name a [signing_keys] definition, omit signing_key for the Columnar key, or set it to false for an unsigned registry")
 		}
 		return Unsigned(), nil
 	case string:
 		switch {
 		case v == "":
-			return SigningPolicy{}, errors.New("signing_key must not be empty")
+			return RegistrySigningPolicy{}, errors.New("signing_key must not be empty")
 		case v == reservedSigningKeyName:
-			return SigningPolicy{}, errors.New(`signing_key = "columnar" is not valid; omit signing_key to use the built-in Columnar key`)
+			return RegistrySigningPolicy{}, errors.New(`signing_key = "columnar" is not valid; omit signing_key to use the built-in Columnar key`)
 		}
 		policy, ok := policies[v]
 		if !ok {
-			return SigningPolicy{}, fmt.Errorf("signing_key %q is not defined in [signing_keys] of the same file", v)
+			return RegistrySigningPolicy{}, fmt.Errorf("signing_key %q is not defined in [signing_keys] of the same file", v)
 		}
 		return policy, nil
 	default:
-		return SigningPolicy{}, fmt.Errorf("signing_key must be the name of a [signing_keys] definition or false, not %T", value)
+		return RegistrySigningPolicy{}, fmt.Errorf("signing_key must be the name of a [signing_keys] definition or false, not %T", value)
 	}
 }
 
-func validateRegistryEntry(e RegistryEntry) error {
+func parseRegistryEntryURL(e RegistryEntry) (*url.URL, error) {
 	if e.URL == "" {
-		return errors.New("registry entry has empty url")
+		return nil, errors.New("registry entry has empty url")
 	}
-	if _, err := registryurl.Parse(e.URL); err != nil {
-		return fmt.Errorf("invalid registry URL %w", err)
+	u, err := registryurl.Parse(e.URL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid registry URL %w", err)
 	}
-	return nil
+	return u, nil
 }
 
 // mergeRegistries combines project, global, and default registries into a
