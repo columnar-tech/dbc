@@ -88,9 +88,10 @@ folder of your user configuration directory, for example
 
 {{ since_version('v0.4.0') }}
 
-dbc verifies the signature of every driver it installs. By default it uses the
-Columnar public key that is built into dbc, which signs the packages of the
-default registries. A registry that publishes drivers signed with another
+Unless `--no-verify` is set, dbc verifies the signature of the drivers it
+installs from a registry, except for registries declared unsigned (see below).
+By default it uses the Columnar public key that is built into dbc, which signs
+the packages of the default registries. A registry that publishes drivers signed with another
 OpenPGP key names that key with `signing_key`, in your user `config.toml` or in
 a project's `dbc.toml`:
 
