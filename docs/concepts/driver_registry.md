@@ -88,62 +88,71 @@ folder of your user configuration directory, for example
 
 {{ since_version('v0.4.0') }}
 
-Unless `--no-verify` is set, dbc verifies the signature of the drivers it
-installs from a registry, except for registries declared unsigned (see below).
-By default it uses the Columnar public key that is built into dbc, which signs
-the packages of the default registries. A registry that publishes drivers signed with another
-OpenPGP key names that key with `signing_key`, in your user `config.toml` or in
-a project's `dbc.toml`:
+Unless you pass `--no-verify`, dbc checks the signature of the drivers it
+installs from a registry (except for registries declared unsigned, see below).
+Drivers from the default registries are signed by Columnar, whose public key is
+built into dbc. If you add a registry whose drivers are signed with another
+OpenPGP key, name that key with `signing_key`, in your user `config.toml` or in
+a project's `dbc.toml`.
+
+You can write the public key in the file itself. This example works as is: it
+configures the default public registry, at its own URL, with Columnar's key
+(the same key that is built into dbc). For your own registry, use the key of
+whoever signs its drivers.
 
 ```toml
-[signing_keys.acme]
-type = "openpgp"
-public_key_file = "keys/acme.asc"
-
 [[registries]]
-url = "https://drivers.acme.example.com"
-signing_key = "acme"
+url = "https://dbc-cdn.columnar.tech"
+signing_key = "columnar-release"
+
+[signing_keys.columnar-release]
+type = "openpgp"
+public_key = '''
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEaBUI6BYJKwYBBAHaRw8BAQdAh53LbNNOSjtg9fpT3pOy4M21CGZcxVAajlNz
+g7+hQPO0S0NvbHVtbmFyIFRlY2hub2xvZ2llcywgSW5jIChTaWduaW5nIEtleSBm
+b3IgQ29sdW1uYXIpIDxoZWxsb0Bjb2x1bW5hci50ZWNoPoiTBBMWCgA7FiEEq3dm
+6bNBKZ68f0XdgqvQozo8nkgFAmgVCOgCGwMFCwkIBwICIgIGFQoJCAsCBBYCAwEC
+HgcCF4AACgkQgqvQozo8nkgSrgD/Xrp9hgzXqo06UOyxNREWdcOtSkk4ztfCbfFx
+Vns0J9QA/0wdIk4u7s6VpTttG53KC3h2+rbv9pnBTkPu6kWqSp0EuDgEaBUI6BIK
+KwYBBAGXVQEFAQEHQHiCjDY7RXWnTBzut8b8raD95XO34Y630cI+uxvEOX5VAwEI
+B4h4BBgWCgAgFiEEq3dm6bNBKZ68f0XdgqvQozo8nkgFAmgVCOgCGwwACgkQgqvQ
+ozo8nkiwAQD+ISJowm+PCvEueTxWy2zbDmVO5CArdovL0wBgxAEqMDYBAIbQWYfd
+dBcEhefDXhP/ZcbdsjznfjBSZYzK4FFyPxkE
+=/096
+-----END PGP PUBLIC KEY BLOCK-----
+'''
 ```
 
-- `signing_key` names a `[signing_keys.<name>]` table in the same file. A name
-  is never looked up in another file, so a project cannot use a key that is only
-  defined in your user config, and the other way round. When `signing_key` is
-  omitted, the registry's packages are verified with the Columnar key, also when
-  the user config declares the same registry with another key: the entry of the
-  file that declares the registry first (the project, then the user config) is
-  used as a whole.
-- `signing_key = false` declares that the registry's packages are not signed.
-  They are installed without a signature check; the archive hash that the
-  registry publishes is still checked.
-- A `[signing_keys.<name>]` table has `type = "openpgp"` and exactly one of
-  `public_key`, an ASCII-armored public key written in the file, and
-  `public_key_file`, the path of a file holding the key, armored or binary.
-  A relative path is relative to the directory of the file that defines it,
-  whatever the working directory; `~` and environment variables are not
-  expanded. The name `columnar` is reserved for the built-in key.
-- The key must be exactly one public key (certificate): private keys, files with
-  several keys such as a keyring, and data after the key are rejected. Export
-  the one key you trust, for example with
-  `gpg --export --armor <fingerprint> > keys/acme.asc`.
-- A key written inline is checked when the file is loaded. A key file is read
-  only when a registry that names it is used, so a missing file does not stop
-  commands that do not need it; for those that do, it is an error, never a
-  fallback to another key.
-- In a project, prefer keys that travel with the project: written inline or in a
-  file next to `dbc.toml` under version control. An absolute path such as
-  `/usr/share/keyrings/acme.gpg` works, but only on machines that have the file;
-  keep such paths in your user config.
+Or keep the key in its own file, armored or binary. A relative path is relative
+to the file that contains it:
 
-`dbc.lock` records the fingerprint of the key that each driver's packages must
-verify with, or `type = "none"` for a registry declared unsigned. `dbc sync`
-and `dbc lock` refuse to use a lock entry when the configuration of its
-registry now selects a different key, also with `--no-verify`, so changing the
-key of a registry needs the lock file to be created again. The fingerprint
-identifies the primary key only: a new signing subkey or a revocation of the
-same primary key does not change it, and is used as soon as the key file or
-inline key is updated.
+```toml
+[[registries]]
+url = "https://drivers.example.com"
+signing_key = "example"
 
-The browser build of the bindings cannot read key files; give explicit
-registries their key inline instead (see [Go Library](../guides/go_library.md#signing-keys)).
+[signing_keys.example]
+type = "openpgp"
+public_key_file = "keys/example.asc"
+```
+
+- The key must be a single public key. Export only the key you trust, for
+  example with `gpg --export --armor <fingerprint> > keys/example.asc`; a
+  keyring with several keys is rejected.
+- `signing_key` refers to a key defined in the same file. A project cannot use a
+  key from your user config, and the other way round.
+- Without `signing_key`, the registry is checked with Columnar's key.
+- `signing_key = false` declares a registry whose drivers are not signed. dbc
+  installs them without a signature check, but still checks the archive hash
+  that the registry publishes.
+- In a project, keep the key inline or in a file committed next to `dbc.toml`,
+  so that everyone who uses the project has it.
+
+`dbc lock` records in `dbc.lock` which key each driver must be signed with, or
+that its registry is unsigned. If you later point a registry at a different key
+or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
+`--no-verify`; delete `dbc.lock` and run `dbc lock` again to accept the new key.
 
 For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).

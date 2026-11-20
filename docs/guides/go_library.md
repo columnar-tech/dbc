@@ -116,19 +116,14 @@ on that path.
 
 ## Signing keys
 
-Each `dbc.Registry` has a `Signing` policy that says how its driver packages
-are verified. The zero value uses the built-in Columnar key. For registries
-loaded from configuration files, the policy follows the file's `signing_key`
-and `[signing_keys]` settings (see
-[Signing keys](../concepts/driver_registry.md#signing-keys)). A relative
-`public_key_file` is resolved against `GlobalConfig.Path` or
-`ProjectConfig.Path`, which the loaders set; a configuration built in memory
-without a path cannot use one.
-
-For explicit registries, set the policy yourself:
+Each `dbc.Registry` has a `Signing` policy. The zero value uses Columnar's
+built-in key; registries loaded from configuration files follow their
+`signing_key` setting (see
+[Signing keys](../concepts/driver_registry.md#signing-keys)). For explicit
+registries, set it yourself:
 
 ```go
-key, err := dbc.NewSigningKey(publicKeyBytes) // armored or binary
+key, err := dbc.NewSigningKey(publicKeyBytes) // one public key, armored or binary
 if err != nil {
     return err
 }
@@ -138,18 +133,11 @@ client, err := dbc.NewClient(dbc.WithRegistries([]dbc.Registry{
 }))
 ```
 
-`dbc.NewSigningKey` accepts exactly one public key (certificate) and rejects
-private keys, several keys and trailing data. `NewClient` rejects an invalid
-policy such as `dbc.SignWith(nil)`. `Registry.ResolveSigningKey` returns the
-key to verify with, `nil` for an unsigned registry, or an error, for example
-when a key file cannot be read; it never falls back to another key. A key file
-is read again on every call.
-
-The bindings take the same setting on explicit registries as `signingKey`: an
-ASCII-armored public key, or `false` for an unsigned registry. Omitting it
-selects the Columnar key; any other value, including `null` and an empty
-string, is an error. The C API takes it as the `registry.<n>.signing_key`
-option, where the string `false` declares an unsigned registry.
+The bindings take the same setting as `signingKey` on explicit registries: an
+ASCII-armored public key, or `false` for an unsigned registry. The C API takes
+it as the `registry.<n>.signing_key` option, with the string `"false"` for an
+unsigned registry. The browser build cannot read
+`public_key_file`, so give it the key inline.
 
 ## Differences from language bindings
 
