@@ -432,7 +432,7 @@ func (suite *SubcommandTestSuite) TestSyncInstallFailureKeepsWrittenLock() {
 	listPath := suite.writeDriverList("test-driver-no-sig")
 	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel()))
 	suite.Contains(out, "failed to verify signature")
-	suite.assertLockedArchive("test-driver-no-sig", "1.0.0", "test-driver-no-sig.tar.gz")
+	suite.assertLockedArchive("test-driver-no-sig", "1.1.0", "test-driver-no-sig.tar.gz")
 	suite.driverIsNotInstalled("test-driver-no-sig")
 }
 
