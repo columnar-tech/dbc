@@ -70,7 +70,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerbose() {
 		"Available Versions:\n    ╰── 1.0.0\n"+
 		"• test-driver-no-sig\n   Title: Test Driver No Signature\n   "+
 		"Description: Driver manifest missing Files.signature entry\n   License: Apache-2.0\n   "+
-		"Available Versions:\n    ╰── 1.0.0\n"+
+		"Available Versions:\n    ╰── 1.1.0\n"+
 		"• test-driver-invalid-manifest\n   Title: Test Driver Invalid Manifest\n   "+
 		"Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n   License: Apache-2.0\n   "+
 		"Available Versions:\n    ╰── 1.0.0\n"+
@@ -104,7 +104,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithInstalled() {
 		"   Description: Driver manifest missing Files.signature entry\n"+
 		"   License: Apache-2.0\n"+
 		"   Available Versions:\n"+
-		"    ╰── 1.0.0\n"+
+		"    ╰── 1.1.0\n"+
 		"• test-driver-invalid-manifest\n"+
 		"   Title: Test Driver Invalid Manifest\n"+
 		"   Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n"+
@@ -179,7 +179,7 @@ func (suite *SubcommandTestSuite) TestSearchCmdVerboseWithPre() {
 		"Available Versions:\n    ╰── 1.0.0\n"+
 		"• test-driver-no-sig\n   Title: Test Driver No Signature\n   "+
 		"Description: Driver manifest missing Files.signature entry\n   License: Apache-2.0\n   "+
-		"Available Versions:\n    ╰── 1.0.0\n"+
+		"Available Versions:\n    ╰── 1.1.0\n"+
 		"• test-driver-invalid-manifest\n   Title: Test Driver Invalid Manifest\n   "+
 		"Description: This is test driver with an invalid manifest. See https://github.com/columnar-tech/dbc/issues/37.\n   License: Apache-2.0\n   "+
 		"Available Versions:\n    ╰── 1.0.0\n"+

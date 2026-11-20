@@ -359,6 +359,15 @@ func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {
 	}.GetModelCustom(
 		testBaseModel())
 	suite.validateOutput("✓ test-driver-no-sig-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(m))
+
+	// The locked version matches the installed package, so it is reused.
+	var counters syncCounters
+	m = SyncCmd{
+		Path:     filepath.Join(suite.tempdir, "dbc.toml"),
+		NoVerify: true,
+	}.GetModelCustom(counters.counted(testBaseModel()))
+	suite.validateOutput("✓ test-driver-no-sig-1.1.0 already installed\r\n\rDone!\r\n", "", suite.runCmd(m))
+	suite.Zero(counters.downloads)
 }
 
 func (suite *SubcommandTestSuite) TestSyncPartialRegistryFailure() {
