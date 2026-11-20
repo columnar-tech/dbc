@@ -110,16 +110,16 @@ func (suite *SubcommandTestSuite) assertSignedRoundTrip(policy, changed dbc.Regi
 	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(signedBase(policy, archive)))
 	suite.Equal(want, suite.lockedDriverEntry("test-driver-no-sig").Signer)
 
-	suite.runCmd(SyncCmd{Path: listPath}.GetModelCustom(signedBase(policy, archive)))
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(signedBase(policy, archive)))
 	suite.driverIsInstalled("test-driver-no-sig", false)
 
 	var reuse syncCounters
-	suite.runCmd(SyncCmd{Path: listPath}.GetModelCustom(reuse.counted(signedBase(policy, archive))))
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(reuse.counted(signedBase(policy, archive))))
 	suite.Zero(reuse.downloads, "an installed driver is reused")
 
 	lock := suite.readLockBytes()
 	var rejected syncCounters
-	out := suite.runCmdErr(SyncCmd{Path: listPath, NoVerify: true}.GetModelCustom(rejected.counted(signedBase(changed, archive))))
+	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel, NoVerify: true}.GetModelCustom(rejected.counted(signedBase(changed, archive))))
 	suite.Contains(out, "dbc lock")
 	suite.Zero(rejected.downloads)
 	suite.Equal(lock, suite.readLockBytes(), "the lock file must stay untouched")
