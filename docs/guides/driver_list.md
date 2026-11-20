@@ -111,7 +111,7 @@ It resolves the driver list the same way `dbc sync` does and keeps existing comp
 
 `dbc sync` automatically creates a lockfile file in the same directory as the driver list. By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.
 
-The lockfile records, for each driver, the exact version, the signing key its packages must verify with, the registry it came from, and the SHA-256 hash of the archive for each platform:
+The lockfile records, for each driver, the exact version and where its packages come from:
 
 ```console
 $ cat dbc.lock
@@ -156,9 +156,21 @@ kind = 'registry-path'
 value = 'mysql/v0.1.0/mysql_macos_arm64_v0.1.0.tar.gz'
 ```
 
-The `signer` table names the expected signer of the driver: its packages must verify with the OpenPGP key whose primary key (certificate) fingerprint is recorded, in lowercase hex. A signing subkey of that key is accepted, so a renewed subkey keeps working, but replacing the primary key requires updating the entry. The key is the one that the configuration of the driver's registry selects: the key built into `dbc` for the default registries, or the key named by the registry's `signing_key` (see [Signing keys](../concepts/driver_registry.md#signing-keys)). A driver from a registry declared unsigned with `signing_key = false` has `type = 'none'` and no fingerprint. The table is a policy, not evidence that a signature was verified: whether a verification happened on a machine is recorded with the installed driver.
+The top-level `version = 2` is the version of the lockfile format. Each `[[drivers]]` entry has:
 
-Unless `--no-verify` is set, `dbc sync` verifies the drivers it reuses or installs with the pinned key, and `dbc sync` and `dbc lock` verify the archives they download with it. If the lockfile pins a key that the configuration of the driver's registry no longer selects, or a driver that is resolved again would use a different key than the one pinned, dbc fails before downloading anything, installing anything or changing the lockfile, and never falls back to another key. `--no-verify` skips the signature verification of that run, but it does not change or bypass the pin. To accept a different key, remove the lockfile and run `dbc lock` to create it again; this may also select newer versions of the other drivers.
+- `version`: the exact version of the driver.
+- `signer`: the key that the driver's packages must be signed with.
+- `source`: the registry the driver comes from. Later runs of `dbc sync` keep using that registry.
+- `artifacts`: the SHA-256 hash and location of the archive for each platform.
+
+The `signer` is the key that the driver's registry is configured with: the key built into dbc for the default registries, or the registry's `signing_key` (see [Signing keys](../concepts/driver_registry.md#signing-keys)). For a registry declared unsigned with `signing_key = false`, it is:
+
+```toml
+[drivers.signer]
+type = 'none'
+```
+
+`dbc sync` and `dbc lock` check every package they download or reuse against this key, unless `--no-verify` is set. If the configuration of the registry no longer selects the recorded key, they stop before downloading or installing anything, also with `--no-verify`. To accept the new key, delete the lockfile and run `dbc lock` again; this may also select newer versions of the other drivers.
 
 The signature only covers the driver library file; other contents of the archive, such as the manifest, are covered only by the archive hash.
 
