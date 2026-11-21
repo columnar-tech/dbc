@@ -389,7 +389,13 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	// A driver with a source is resolved from one complete index. Any other
+	// driver needs every registry's index, so a failed one is passed on.
+	var indexErr error
+	if target == nil {
+		indexErr = p.registryErr
+	}
+	pkg, err := dbc.ResolvePackage(drivers, indexErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return selectProjectPackage(candidate, spec, pin, p.target)
 	})
 	drv := pkg.Driver
@@ -403,6 +409,8 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 			return plannedDriver{}, fmt.Errorf("driver %s is not in %s (%s), which the driver list takes it from", name, target.source, target.identity)
 		case target != nil:
 			return plannedDriver{}, fmt.Errorf("driver %s from %s: %w", name, target.source, redactRegistryError(err, p.registries, sourceURL))
+		case isSelectionError(err):
+			return plannedDriver{}, fmt.Errorf("%w\n%s", redactRegistryError(err, p.registries), sourceHint)
 		case drv.Path == "":
 			return plannedDriver{}, wrapWithRegistryContext(err, p.registryErr)
 		}

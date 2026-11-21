@@ -26,6 +26,20 @@ import (
 	"github.com/columnar-tech/dbc/internal/registryurl"
 )
 
+// isSelectionError reports whether err is an error of dbc.ResolvePackage
+// that choosing the registry explicitly avoids: an incomplete index or
+// registries with different signers that list the driver.
+func isSelectionError(err error) bool {
+	var conflict *dbc.SignerConflictError
+	return errors.Is(err, dbc.ErrIncompleteIndex) || errors.As(err, &conflict)
+}
+
+// Hints that tell how to choose the registry of a driver explicitly.
+const (
+	sourceHint   = "to resolve the driver from one registry only, set its source in dbc.toml, for example source = { type = \"registry\", url = \"https://dbc-cdn.columnar.tech\" }"
+	registryHint = "to take the driver from one registry only, pass --registry with the name or URL of that registry"
+)
+
 // sourceTypeRegistry is the only driver source type: a registry that is
 // part of the registry configuration.
 const sourceTypeRegistry = "registry"

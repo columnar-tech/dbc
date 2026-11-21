@@ -477,13 +477,18 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 		vers.IncludePrerelease = m.Pre
 	}
 	return m, func() tea.Msg {
-		pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		// With --registry, list is that registry's complete index; otherwise
+		// a failed registry makes the merged index incomplete.
+		pkg, err := dbc.ResolvePackage(list, m.registryErrors, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if vers != nil {
 				return candidate.GetWithConstraint(vers, config.PlatformTuple())
 			}
 			return candidate.GetLatestPackage(config.PlatformTuple(), m.Pre)
 		})
 		if err != nil {
+			if isSelectionError(err) {
+				return fmt.Errorf("%w\n%s", redactRegistryError(err, m.getRegistries), registryHint)
+			}
 			if pkg.Driver.Path == "" && m.registrySource != nil {
 				return fmt.Errorf("could not find driver: driver `%s` is not in %s", driverName, m.registrySource)
 			}
