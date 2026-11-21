@@ -220,16 +220,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	// GetPackage ignores build metadata, so keep only the versions spelled
-	// as in the lock: the install checks the package against that spelling.
-	exact := drv.PkgInfo[:0:0]
-	for _, info := range drv.PkgInfo {
-		if info.Version == nil || info.Version.String() == v.String() {
-			exact = append(exact, info)
-		}
-	}
-	drv.PkgInfo = exact
-	pkg, err := drv.GetPackage(v, p.target, true)
+	pkg, err := withExactVersion(drv, v).GetPackage(v, p.target, true)
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
@@ -307,6 +298,21 @@ func (p *syncPlanner) bind(name, identity string) (boundRegistry, error) {
 	return bound, nil
 }
 
+// withExactVersion returns d with only the versions spelled as v, so that
+// GetPackage, which ignores build metadata, picks the package of exactly v:
+// installs check the package against that spelling. Versions without a
+// value are kept for GetPackage to report.
+func withExactVersion(d dbc.Driver, v *semver.Version) dbc.Driver {
+	exact := d.PkgInfo[:0:0]
+	for _, info := range d.PkgInfo {
+		if info.Version == nil || info.Version.String() == v.String() {
+			exact = append(exact, info)
+		}
+	}
+	d.PkgInfo = exact
+	return d
+}
+
 // selectProjectPackage looks up the host artifact for the pinned or newest eligible version.
 func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Version, platform string) (dbc.PkgInfo, error) {
 	version := pin
@@ -317,7 +323,7 @@ func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Versi
 			return dbc.PkgInfo{}, err
 		}
 	}
-	return driver.GetPackage(version, platform, true)
+	return withExactVersion(*driver, version).GetPackage(version, platform, true)
 }
 
 // resolve picks the package for a driver from the merged registries, keeping
