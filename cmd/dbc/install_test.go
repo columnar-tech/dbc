@@ -993,17 +993,18 @@ func (suite *SubcommandTestSuite) TestInstallUsesTheKeyOfTheRegistry() {
 }
 
 func (suite *SubcommandTestSuite) TestInstallFromUnsignedRegistry() {
-	// A package without a signature installs without --no-verify when its
-	// registry is declared unsigned.
+	// With the Columnar key, a package without a signature needs --no-verify.
 	m := InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel}.
+		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.RegistrySigningPolicy{}), downloadPkg: downloadTestPkg}))
+	suite.Contains(suite.runCmdErr(m), "signature file")
+	suite.driverIsNotInstalled("test-driver-no-sig")
+
+	// The same package installs without --no-verify when its registry is
+	// declared unsigned.
+	m = InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel}.
 		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.Unsigned()), downloadPkg: downloadTestPkg}))
 	suite.Contains(suite.runCmd(m), "Installed test-driver-no-sig")
 	suite.driverIsInstalled("test-driver-no-sig", false)
-
-	// With the Columnar key, the same package needs --no-verify.
-	m = InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel}.
-		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.RegistrySigningPolicy{}), downloadPkg: downloadTestPkg}))
-	suite.Contains(suite.runCmdErr(m), "signature file")
 }
 
 func (suite *SubcommandTestSuite) TestInstallSigningKeyFailsBeforeDownload() {

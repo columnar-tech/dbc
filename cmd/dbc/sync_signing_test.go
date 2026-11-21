@@ -51,7 +51,7 @@ func (suite *SubcommandTestSuite) signedArchiveFile() (string, *dbc.SigningKey) 
 		name string
 		body []byte
 	}{
-		{"MANIFEST", []byte("name = 'Test Driver No Sig'\nversion = '1.0.0'\n\n[Files]\ndriver = 'acme.so'\nsignature = 'acme.so.sig'\n")},
+		{"MANIFEST", []byte("name = 'Test Driver No Sig'\nversion = '1.1.0'\n\n[Files]\ndriver = 'acme.so'\nsignature = 'acme.so.sig'\n")},
 		{"acme.so", lib},
 		{"acme.so.sig", sig},
 	} {
