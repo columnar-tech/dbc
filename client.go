@@ -185,6 +185,9 @@ func NewClient(opts ...Option) (*Client, error) {
 			}
 			globalReplace = cfg.globalConfig.ReplaceDefaults
 		}
+		if err := checkProjectRedeclarations(projectRegs, globalRegs, globalReplace, cfg.registries); err != nil {
+			return nil, err
+		}
 		merged := mergeRegistries(projectRegs, projectReplace, globalRegs, globalReplace, cfg.registries)
 		if len(merged) == 0 {
 			return nil, fmt.Errorf("registry configuration produced an empty registry list; replace_defaults requires at least one [[registries]] entry")

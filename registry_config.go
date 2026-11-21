@@ -286,6 +286,80 @@ func parseRegistryEntryURL(e RegistryEntry) (*url.URL, error) {
 	return u, nil
 }
 
+// registryURLKey returns a canonical form of a registry URL that collapses
+// only truly no-op differences: scheme/host casing, trailing-slash on the
+// path, and fragments. Query, userinfo, and path segments are preserved
+// because they change the effective registry endpoint (tenant selectors,
+// credential-bearing URLs, path-mounted registries) and must be treated as
+// distinct registries.
+func registryURLKey(u *url.URL) string {
+	cp := *u
+	cp.Scheme = strings.ToLower(cp.Scheme)
+	cp.Host = strings.ToLower(cp.Host)
+	cp.Path = strings.TrimRight(cp.Path, "/")
+	cp.Fragment = ""
+	cp.RawFragment = ""
+	return cp.String()
+}
+
+// checkProjectRedeclarations rejects a project registry that declares the URL
+// of a registry from the user's config, or of a built-in default registry,
+// with a different signing policy. A project's dbc.toml can add registries,
+// but it cannot change how a registry that the user or dbc already trusts is
+// verified. The user's config is compared first; the defaults are compared
+// unless the user's config replaces them, since a project's replace_defaults
+// does not lift this check. Policies are the same when they verify with the
+// same certificate; an inline copy of the Columnar key is the same as the
+// built-in key. Policies that read a key file are never the same, because the
+// files are not read here; the project's declaration has to be removed
+// instead.
+func checkProjectRedeclarations(projectRegs, globalRegs []Registry, globalReplaceDefaults bool, defaults []Registry) error {
+	trusted := globalRegs
+	if !globalReplaceDefaults {
+		trusted = append(slices.Clip(globalRegs), defaults...)
+	}
+	declared := make(map[string]Registry)
+	for _, r := range trusted {
+		if r.BaseURL == nil {
+			continue
+		}
+		key := registryURLKey(r.BaseURL)
+		if _, ok := declared[key]; !ok {
+			declared[key] = r
+		}
+	}
+	for _, p := range projectRegs {
+		if p.BaseURL == nil {
+			continue
+		}
+		existing, ok := declared[registryURLKey(p.BaseURL)]
+		if !ok {
+			continue
+		}
+		same, err := p.Signing.sameKeyWithoutFiles(existing.Signing)
+		if err != nil {
+			return fmt.Errorf("registry %s: %w", registryURLForMessage(p.BaseURL), err)
+		}
+		if same {
+			continue
+		}
+		return fmt.Errorf("registry %s in the project is also declared by the user config or by dbc's defaults, with %s; a project cannot change how that registry is verified (it declares %s), so remove it from the project's registries",
+			registryURLForMessage(p.BaseURL), existing.Signing, p.Signing)
+	}
+	return nil
+}
+
+// registryURLForMessage returns u without the user information and query,
+// which can hold credentials, for use in error messages.
+func registryURLForMessage(u *url.URL) string {
+	cp := *u
+	cp.User = nil
+	cp.RawQuery = ""
+	cp.Fragment = ""
+	cp.RawFragment = ""
+	return cp.String()
+}
+
 // mergeRegistries combines project, global, and default registries into a
 // deduplicated list in priority order: project first, then global, then
 // built-in defaults (unless either global or project overrides with
@@ -306,28 +380,12 @@ func mergeRegistries(
 	seen := make(map[string]bool)
 	var result []Registry
 
-	// urlKey returns a canonical form that collapses only truly no-op
-	// differences: scheme/host casing, trailing-slash on the path, and
-	// fragments. Query, userinfo, and path segments are preserved because
-	// they change the effective registry endpoint (tenant selectors,
-	// credential-bearing URLs, path-mounted registries) and must be
-	// treated as distinct registries here.
-	urlKey := func(u *url.URL) string {
-		cp := *u
-		cp.Scheme = strings.ToLower(cp.Scheme)
-		cp.Host = strings.ToLower(cp.Host)
-		cp.Path = strings.TrimRight(cp.Path, "/")
-		cp.Fragment = ""
-		cp.RawFragment = ""
-		return cp.String()
-	}
-
 	add := func(registries []Registry) {
 		for _, r := range registries {
 			if r.BaseURL == nil {
 				continue
 			}
-			key := urlKey(r.BaseURL)
+			key := registryURLKey(r.BaseURL)
 			if seen[key] {
 				continue
 			}

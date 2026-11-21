@@ -86,6 +86,28 @@ func (p RegistrySigningPolicy) Equal(q RegistrySigningPolicy) bool {
 	return true
 }
 
+// sameKeyWithoutFiles reports whether p and q verify with the same
+// certificate, or are both Unsigned, comparing the built-in Columnar key and
+// an inline copy of it as the same. A policy that reads a key file is never
+// the same as another, because the file is not read here.
+func (p RegistrySigningPolicy) sameKeyWithoutFiles(q RegistrySigningPolicy) (bool, error) {
+	if p.kind == signingFromFile || q.kind == signingFromFile {
+		return false, nil
+	}
+	if p.IsUnsigned() || q.IsUnsigned() {
+		return p.IsUnsigned() && q.IsUnsigned(), nil
+	}
+	pk, err := Registry{Signing: p}.ResolveSigningKey()
+	if err != nil {
+		return false, err
+	}
+	qk, err := Registry{Signing: q}.ResolveSigningKey()
+	if err != nil {
+		return false, err
+	}
+	return pk.digest == qk.digest, nil
+}
+
 // String describes the policy for messages.
 func (p RegistrySigningPolicy) String() string {
 	switch p.kind {

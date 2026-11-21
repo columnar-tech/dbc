@@ -146,28 +146,117 @@ func TestSigningKeyNamesAreScopedToTheirFile(t *testing.T) {
 	assert.ErrorContains(t, err, `signing_key "acme" is not defined`)
 }
 
-// When the project and the user config declare the same registry, the
-// project's entry is used whole, including its signing policy, even when it
-// omits signing_key.
-func TestMergedRegistryKeepsTheSigningPolicyOfItsTier(t *testing.T) {
+// A project can declare a registry that the user config or dbc's defaults
+// also declare only with the same signing policy; it cannot change how that
+// registry is verified.
+func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 	armored := publicArmored(t, generateTestKey(t, "acme"))
-	keys := map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKey: &armored}}
-	global := &GlobalConfig{
-		Registries: []RegistryEntry{
-			{URL: "https://shared.example.com", SigningKey: "acme"},
-			{URL: "https://user-only.example.com", SigningKey: "acme"},
-		},
-		SigningKeys: keys,
+	other := publicArmored(t, generateTestKey(t, "other"))
+	keyFile := filepath.Join(t.TempDir(), "acme.asc")
+	require.NoError(t, os.WriteFile(keyFile, []byte(armored), 0o600))
+	inline := func(armored string) map[string]SigningKeyDefinition {
+		return map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKey: &armored}}
 	}
-	project := &ProjectConfig{Registries: []RegistryEntry{{URL: "https://shared.example.com"}}}
-	c, err := NewClient(WithGlobalConfig(global), WithProjectConfig(project))
-	require.NoError(t, err)
-	regs := c.Registries()
-	require.GreaterOrEqual(t, len(regs), 2)
-	assert.Equal(t, "https://shared.example.com", regs[0].BaseURL.String())
-	assert.True(t, regs[0].Signing.Equal(RegistrySigningPolicy{}), "the project entry selects the Columnar key")
-	assert.Equal(t, "https://user-only.example.com", regs[1].BaseURL.String())
-	assert.Equal(t, `signing key "acme"`, regs[1].Signing.String())
+	fromFile := map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKeyFile: &keyFile}}
+	userAcme := func(keys map[string]SigningKeyDefinition) *GlobalConfig {
+		return &GlobalConfig{
+			Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "acme"}},
+			SigningKeys: keys,
+		}
+	}
+	replace := true
+
+	tests := []struct {
+		name    string
+		global  *GlobalConfig
+		project *ProjectConfig
+		wantErr bool
+	}{
+		{
+			name:    "project omits the key of a user registry",
+			global:  userAcme(inline(armored)),
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://acme.example.com"}}},
+			wantErr: true,
+		},
+		{
+			name:    "project declares a user registry unsigned",
+			global:  userAcme(inline(armored)),
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://ACME.example.com/", SigningKey: false}}},
+			wantErr: true,
+		},
+		{
+			name:   "project declares another key for a user registry",
+			global: userAcme(inline(armored)),
+			project: &ProjectConfig{
+				Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "acme"}},
+				SigningKeys: inline(other),
+			},
+			wantErr: true,
+		},
+		{
+			name:   "project declares the same key for a user registry",
+			global: userAcme(inline(armored)),
+			project: &ProjectConfig{
+				Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "mine"}},
+				SigningKeys: map[string]SigningKeyDefinition{"mine": inline(armored)["acme"]},
+			},
+		},
+		{
+			name:   "key files are not compared",
+			global: userAcme(fromFile),
+			project: &ProjectConfig{
+				Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "acme"}},
+				SigningKeys: fromFile,
+			},
+			wantErr: true,
+		},
+		{
+			name:    "project declares the default registry unsigned",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}}},
+			wantErr: true,
+		},
+		{
+			name: "project replace_defaults does not lift the check",
+			project: &ProjectConfig{
+				Registries:      []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}},
+				ReplaceDefaults: &replace,
+			},
+			wantErr: true,
+		},
+		{
+			name:    "project declares the default registry with the Columnar key",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech"}}},
+		},
+		{
+			name: "project declares the default registry with an inline Columnar key",
+			project: &ProjectConfig{
+				Registries:  []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: "columnar-release"}},
+				SigningKeys: map[string]SigningKeyDefinition{"columnar-release": {Type: SigningKeyTypeOpenPGP, PublicKey: &armoredPubKey}},
+			},
+		},
+		{
+			name: "user config replaces the defaults",
+			global: &GlobalConfig{
+				Registries:      []RegistryEntry{{URL: "https://mirror.example.com"}},
+				ReplaceDefaults: true,
+			},
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := []Option{WithProjectConfig(tt.project)}
+			if tt.global != nil {
+				opts = append(opts, WithGlobalConfig(tt.global))
+			}
+			_, err := NewClient(opts...)
+			if tt.wantErr {
+				assert.ErrorContains(t, err, "a project cannot change how that registry is verified")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestLoadGlobalConfigSigningKeys(t *testing.T) {
