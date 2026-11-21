@@ -210,6 +210,8 @@ func projectRegistryWarning(list DriversList) string {
 type driverSpec struct {
 	Prerelease string              `toml:"prerelease,omitempty"`
 	Version    *semver.Constraints `toml:"version"`
+	// Source, when set, is the only registry the driver is resolved from.
+	Source *driverSource `toml:"source,inline,omitempty"`
 }
 
 func (spec driverSpec) withPrerelease() driverSpec {
@@ -245,14 +247,53 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}
-	drivers, err := client.Search(context.Background(), "")
-	if err != nil {
-		return nil, err
+	if err := validateDriverSources(m); err != nil {
+		return nil, fmt.Errorf("error in driver list %s: %w", fname, err)
+	}
+
+	// The merged index is only needed for drivers without a source; a
+	// driver with a source is resolved from that registry's index alone.
+	var merged []dbc.Driver
+	mergedLoaded := false
+	sourceIndexes := map[string][]dbc.Driver{}
+	indexFor := func(name string, spec driverSpec) ([]dbc.Driver, error) {
+		if spec.Source == nil {
+			if !mergedLoaded {
+				drivers, err := client.Search(context.Background(), "")
+				if err != nil {
+					return nil, err
+				}
+				merged, mergedLoaded = drivers, true
+			}
+			return merged, nil
+		}
+		target, err := spec.Source.target(m.Registries)
+		if err != nil {
+			return nil, fmt.Errorf("driver %s: %w", name, err)
+		}
+		if drivers, ok := sourceIndexes[target.identity]; ok {
+			return drivers, nil
+		}
+		reg, err := target.bind(client.Registries())
+		if err != nil {
+			return nil, fmt.Errorf("driver %s: %w", name, err)
+		}
+		drivers, err := fetchRegistryIndex(reg)
+		if err != nil {
+			return nil, fmt.Errorf("could not fetch the index of registry %s, which driver %s is taken from: %w",
+				target.identity, name, redactURLSecrets(err, registrySecrets(client.Registries())))
+		}
+		sourceIndexes[target.identity] = drivers
+		return drivers, nil
 	}
 
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
 		spec = spec.withPrerelease()
+		drivers, err := indexFor(name, spec)
+		if err != nil {
+			return nil, err
+		}
 		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if spec.Version != nil {
 				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
@@ -260,6 +301,9 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 			return candidate.GetLatestPackage(config.PlatformTuple(), spec.Prerelease == "allow")
 		})
 		if err != nil {
+			if pkg.Driver.Path == "" && spec.Source != nil {
+				return nil, fmt.Errorf("driver `%s` not found in %s", name, spec.Source)
+			}
 			if pkg.Driver.Path == "" {
 				return nil, fmt.Errorf("driver `%s` not found", name)
 			}

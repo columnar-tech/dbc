@@ -66,10 +66,8 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	// here, because a project's dbc.toml may supply the entries at NewClient
 	// time. The "zero resulting registries" case is enforced after merging in
 	// NewClient so both library and CLI callers share the same semantics.
-	for _, entry := range cfg.Registries {
-		if err := validateRegistryEntry(entry); err != nil {
-			return nil, fmt.Errorf("%s: %w", configPath, err)
-		}
+	if err := validateRegistryEntries(cfg.Registries); err != nil {
+		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
 
 	if _, err := newURLRouter(cfg.Network.URLReplacements); err != nil {
@@ -108,12 +106,30 @@ func LoadProjectRegistries(path string) ([]RegistryEntry, bool, error) {
 	if cfg.Network != nil {
 		return nil, false, fmt.Errorf("%s: %w", path, ErrProjectNetwork)
 	}
-	for _, entry := range cfg.Registries {
-		if err := validateRegistryEntry(entry); err != nil {
-			return nil, false, fmt.Errorf("%s: %w", path, err)
-		}
+	if err := validateRegistryEntries(cfg.Registries); err != nil {
+		return nil, false, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg.Registries, cfg.ExcludeBuiltinRegistries, nil
+}
+
+// validateRegistryEntries validates the registries declared in one file. A
+// name identifies a registry within its file, so it must not repeat there;
+// the same name in the user config and in a project is allowed.
+func validateRegistryEntries(entries []RegistryEntry) error {
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if err := validateRegistryEntry(e); err != nil {
+			return err
+		}
+		if e.Name == "" {
+			continue
+		}
+		if seen[e.Name] {
+			return fmt.Errorf("registry name %q is declared more than once", e.Name)
+		}
+		seen[e.Name] = true
+	}
+	return nil
 }
 
 func validateRegistryEntry(e RegistryEntry) error {

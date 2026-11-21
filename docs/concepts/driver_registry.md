@@ -44,7 +44,7 @@ The global `config.toml` lives in your user config directory:
 - macOS: `~/Library/Application Support/Columnar/dbc/config.toml`
 - Windows: `%AppData%\Columnar\dbc\config.toml`
 
-Both files use the same `[[registries]]` syntax. Each entry requires a `url` (which must be an `http` or `https` URL) and may include an optional `name` that is shown as a `[name]` tag in `dbc search` output:
+Both files use the same `[[registries]]` syntax. Each entry requires a `url` (which must be an `http` or `https` URL) and may include an optional `name`, unique within the file, that is shown as a `[name]` tag in `dbc search` output:
 
 ```toml
 [[registries]]
@@ -61,6 +61,8 @@ dbc uses the registries in this order, highest priority first:
 3. Built-in registries
 
 A URL that appears more than once is used only once, at its highest-priority position. When more than one registry publishes a driver with the same name, dbc installs it from the highest-priority registry that has a version matching the request.
+
+To take a driver from one registry only, set its [`source`](../reference/driver_list.md#source) in the driver list, or pass `--registry` to [`dbc add`](../reference/cli.md#add) or [`dbc install`](../reference/cli.md#install). A `name` in `[[registries]]` lets a source refer to the registry; it is also shown as the registry's `[name]` tag in `dbc search` output, taking precedence over the name the registry's index gives itself.
 
 ### Excluding the built-in registries
 
