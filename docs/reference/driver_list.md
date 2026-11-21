@@ -116,6 +116,6 @@ Optional. A short label for the registry, shown as a `[name]` tag in `dbc search
 
 ### `exclude_builtin_registries`
 
-Optional. When `true`, dbc's built-in registries are not used; the registries configured in this file and in the global `config.toml` still are. When omitted or `false`, the built-in registries are used unless the global `config.toml` sets `exclude_builtin_registries = true`, which a driver list cannot override.
+Optional. When `true`, dbc's built-in registries are not used; the registries configured in this file and in the global `config.toml` still are. When omitted or `false`, the built-in registries are used unless the global `config.toml` sets `exclude_builtin_registries = true`, which a driver list cannot override. dbc warns when a driver list sets `false` while the global `config.toml` excludes the built-in registries.
 
 See [Configuring registries](../concepts/driver_registry.md#configuring-registries) for the full priority order across project, global, and built-in registries.

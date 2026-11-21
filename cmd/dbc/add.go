@@ -159,6 +159,9 @@ func (m addModel) Init() tea.Cmd {
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
 		}
+		if warning := projectRegistryWarning(m.list); warning != "" {
+			fmt.Fprintln(os.Stderr, warning)
+		}
 
 		drivers, registryErr := m.getDriverRegistry()
 		// If we have no drivers and there's an error, fail immediately

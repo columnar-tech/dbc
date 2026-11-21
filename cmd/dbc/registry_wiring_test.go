@@ -92,7 +92,7 @@ func TestApplyProjectRegistriesRoutesLookup(t *testing.T) {
 
 	list := DriversList{
 		Registries:               []dbc.RegistryEntry{{URL: server.URL, Name: "test"}},
-		ExcludeBuiltinRegistries: true,
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 	require.NotSame(t, initial, dbcClient, "expected applyProjectRegistries to swap the client")
@@ -130,7 +130,7 @@ func TestApplyProjectRegistriesFalseKeepsGlobalExclusion(t *testing.T) {
 	// built-in registries must stay excluded.
 	list := DriversList{
 		Registries:               []dbc.RegistryEntry{{URL: "https://project.example.com"}},
-		ExcludeBuiltinRegistries: false,
+		ExcludeBuiltinRegistries: new(false),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 	require.NotNil(t, dbcClient)
@@ -161,7 +161,7 @@ func TestApplyProjectRegistriesExcludeWithoutEntries(t *testing.T) {
 	require.NoError(t, err)
 	dbcClient = initial
 
-	require.NoError(t, applyProjectRegistries(DriversList{ExcludeBuiltinRegistries: true}))
+	require.NoError(t, applyProjectRegistries(DriversList{ExcludeBuiltinRegistries: new(true)}))
 	require.NotSame(t, initial, dbcClient)
 	regs := dbcClient.Registries()
 	require.Len(t, regs, 1)
@@ -184,7 +184,7 @@ func TestApplyProjectRegistriesNoopWhenBaseURLSet(t *testing.T) {
 
 	list := DriversList{
 		Registries:               []dbc.RegistryEntry{{URL: "https://should-be-ignored.example.com"}},
-		ExcludeBuiltinRegistries: true,
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 
@@ -1374,7 +1374,7 @@ func TestApplyProjectRegistriesProjectExcludeBuiltinKeepsGlobal(t *testing.T) {
 	}
 	list := DriversList{
 		Registries:               []dbc.RegistryEntry{{URL: projectURL, Name: "project"}},
-		ExcludeBuiltinRegistries: true,
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 	require.NotNil(t, dbcClient)
@@ -1424,7 +1424,7 @@ func TestProjectRegistryShadowsGlobalOnDriverNameConflict(t *testing.T) {
 	}
 	list := DriversList{
 		Registries:               []dbc.RegistryEntry{{URL: projectServer.URL, Name: "project"}},
-		ExcludeBuiltinRegistries: true,
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 
