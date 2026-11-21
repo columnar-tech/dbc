@@ -755,17 +755,36 @@ func (suite *SubcommandTestSuite) TestInstall_JSONProgressStream() {
 	suite.True(hasDownloadStart, "expected download.start event")
 }
 
-func (suite *SubcommandTestSuite) TestInstall_NoVerifyJSONProgressKeepsVerificationEventsOrdered() {
+// Without a signature check, the JSON progress has no verify.start or
+// verify.complete event, and the result says that the signature was not
+// verified.
+func (suite *SubcommandTestSuite) TestInstall_NoVerifyJSONHasNoVerificationEvents() {
 	m := InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel, NoVerify: true, JsonStreamProgress: true}.
+		GetModelCustom(testBaseModel())
+	out := suite.runCmd(m)
+
+	suite.NotContains(out, `"event":"verify.start"`)
+	suite.NotContains(out, `"event":"verify.complete"`)
+	extractIndex := strings.Index(out, `"event":"extract.complete"`)
+	manifestIndex := strings.Index(out, `"event":"manifest.create"`)
+	suite.Require().GreaterOrEqual(extractIndex, 0, "expected extract.complete progress event")
+	suite.Less(extractIndex, manifestIndex, "progress events should stay ordered")
+	suite.Contains(out, `"kind":"install.status"`)
+	suite.Contains(out, `"signature_verified":false`)
+}
+
+// With a signature check, verify.start comes before verify.complete, and the
+// result says that the signature was verified.
+func (suite *SubcommandTestSuite) TestInstall_JSONReportsVerifiedSignature() {
+	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, JsonStreamProgress: true}.
 		GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 
 	startIndex := strings.Index(out, `"event":"verify.start"`)
 	completeIndex := strings.Index(out, `"event":"verify.complete"`)
 	suite.Require().GreaterOrEqual(startIndex, 0, "expected verify.start progress event")
-	suite.Require().GreaterOrEqual(completeIndex, 0, "expected verify.complete progress event")
 	suite.Less(startIndex, completeIndex, "verification progress events should stay ordered")
-	suite.Contains(out, `"kind":"install.status"`)
+	suite.Contains(out, `"signature_verified":true`)
 }
 
 func (suite *SubcommandTestSuite) TestInstallVerificationPhaseIsReportedBeforeVerifierCompletes() {

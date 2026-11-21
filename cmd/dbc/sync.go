@@ -578,6 +578,8 @@ func archiveDigests(f *os.File, withLibrary bool, checks archiveChecks) (archive
 type installedDrvMsg struct {
 	info        config.DriverInfo
 	postInstall []string
+	// signatureVerified is whether the package signature was verified.
+	signatureVerified bool
 }
 
 type alreadyInstalledDrvMsg struct {
@@ -615,6 +617,7 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 				}
 			}
 			options.SignatureVerifier = signatureVerifier(item.Signer, s.NoVerify)
+			signatureVerified := options.SignatureVerifier != nil
 			manifest, err := s.installPackage(s.ctx, cfg, item.Name, item.File, options)
 			// Remove the archive before reporting: the program may exit as soon
 			// as the last result arrives.
@@ -634,8 +637,9 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 			}
 
 			program.Send(installedDrvMsg{
-				info:        manifest.DriverInfo,
-				postInstall: manifest.PostInstall.Messages,
+				info:              manifest.DriverInfo,
+				postInstall:       manifest.PostInstall.Messages,
+				signatureVerified: signatureVerified,
 			})
 		}()
 		return nil
@@ -747,8 +751,9 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 	case installedDrvMsg:
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
-			Name:    msg.info.ID,
-			Version: msg.info.Version.String(),
+			Name:              msg.info.ID,
+			Version:           msg.info.Version.String(),
+			SignatureVerified: &msg.signatureVerified,
 		})
 
 		if s.jsonStreamProgress {
@@ -761,7 +766,11 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var printCmd tea.Cmd
 		if !s.jsonOutput {
-			printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
+			if msg.signatureVerified {
+				printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
+			} else {
+				printCmd = tea.Printf("%s %s-%s (signature not verified)", checkMark, msg.info.ID, msg.info.Version)
+			}
 
 			if len(msg.postInstall) > 0 {
 				for _, m := range msg.postInstall {

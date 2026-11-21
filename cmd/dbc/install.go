@@ -114,6 +114,8 @@ func (c InstallCmd) GetModel() tea.Model {
 
 type packageInstallResultMsg struct {
 	Manifest config.Manifest
+	// SignatureVerified is whether the package signature was verified.
+	SignatureVerified bool
 }
 
 type installVerificationStartedMsg struct{}
@@ -215,6 +217,9 @@ type progressiveInstallModel struct {
 	// signer is how a package from a registry is verified, selected from
 	// the registry's configuration before the download.
 	signer packageSigner
+	// signatureVerified is whether the installed package's signature was
+	// verified.
+	signatureVerified bool
 }
 
 type driversWithRegistryError struct {
@@ -314,10 +319,11 @@ func (m progressiveInstallModel) FinalOutput() string {
 	var b strings.Builder
 	if m.state == stDone {
 		installStatus := jsonschema.InstallStatus{
-			Status:   "installed",
-			Driver:   m.Driver,
-			Version:  m.DriverPackage.Version.String(),
-			Location: m.cfg.PrimaryLocation(),
+			Status:            "installed",
+			Driver:            m.Driver,
+			Version:           m.DriverPackage.Version.String(),
+			Location:          m.cfg.PrimaryLocation(),
+			SignatureVerified: &m.signatureVerified,
 		}
 		if m.hasConflict() {
 			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
@@ -552,7 +558,7 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 		if err != nil {
 			return err
 		}
-		return packageInstallResultMsg{Manifest: manifest}
+		return packageInstallResultMsg{Manifest: manifest, SignatureVerified: verifier != nil}
 	}
 }
 
@@ -616,8 +622,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.verificationStarted = true
 		m = m.addEvent("extract.complete")
-		m = m.addEvent("verify.start")
 		if !m.skipsVerification() {
+			m = m.addEvent("verify.start")
 			m.state = stVerifying
 		}
 		return m, nil
@@ -627,7 +633,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.postInstallMessage = strings.Join(msg.Manifest.PostInstall.Messages, "\n")
 		m.installedDriverInfo = msg.Manifest.DriverInfo
-		m = m.addEvent("verify.complete")
+		m.signatureVerified = msg.SignatureVerified
+		if msg.SignatureVerified {
+			m = m.addEvent("verify.complete")
+		}
 		m = m.addEvent("manifest.create")
 		m.state = stDone
 		return m, tea.Quit

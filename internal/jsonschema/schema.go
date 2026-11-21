@@ -57,6 +57,10 @@ type InstallStatus struct {
 	Conflict string `json:"conflict,omitempty"`
 	// Checksum is the hex-encoded checksum of the installed artifact (added for T7).
 	Checksum string `json:"checksum,omitempty"`
+	// SignatureVerified reports whether the signature of the installed
+	// package was verified: false with --no-verify and for a registry declared
+	// unsigned. It is omitted when nothing was installed.
+	SignatureVerified *bool `json:"signature_verified,omitempty"`
 }
 
 // InstallProgressEvent is a single line in the NDJSON progress stream emitted
@@ -67,7 +71,8 @@ type InstallProgressEvent struct {
 	// "download.start", "download.progress", "download.complete",
 	// "extract.start", "extract.complete",
 	// "verify.start", "verify.complete", "verify.checksum.ok", "verify.checksum.mismatch",
-	// "manifest.create", "install.complete".
+	// "manifest.create", "install.complete". verify.start and verify.complete
+	// are only emitted when the package signature is verified.
 	Event string `json:"event"`
 	// Driver is the driver identifier being installed.
 	Driver string `json:"driver"`
@@ -249,6 +254,10 @@ type SyncedDriver struct {
 	Name string `json:"name"`
 	// Version is the version that was installed or already present.
 	Version string `json:"version"`
+	// SignatureVerified reports, for a newly installed driver, whether the
+	// signature of its package was verified: false with --no-verify and for a
+	// registry declared unsigned. It is omitted for a skipped driver.
+	SignatureVerified *bool `json:"signature_verified,omitempty"`
 }
 
 // SyncError records a driver that failed to install during sync.
