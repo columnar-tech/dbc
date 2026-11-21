@@ -683,12 +683,96 @@ type packageMiss struct{ error }
 
 func (e packageMiss) Is(target error) bool { return target == ErrPackageMiss }
 
+// RegistryIndexError is the error for a registry whose index could not be
+// read. Client.Search joins one per failed registry.
+type RegistryIndexError struct {
+	Registry Registry
+	Err      error
+}
+
+func (e *RegistryIndexError) Error() string {
+	return fmt.Sprintf("registry %s: %v", e.Registry.BaseURL, e.Err)
+}
+
+func (e *RegistryIndexError) Unwrap() error { return e.Err }
+
+// ErrDriverNameConflict is returned by ResolvePackage when it would select a
+// driver from a registry that is not verified with the Columnar key, while a
+// registry that is verified with the Columnar key also serves that name, or
+// might serve it because its index could not be read.
+var ErrDriverNameConflict = errors.New("driver name conflict")
+
 // ResolvePackage tries matching driver entries in order, advancing only on
 // ErrPackageMiss. The returned package identifies the selected driver on
 // success or a terminal error. If all matching entries miss, it identifies
 // the first matching driver and returns that entry's error. If no entry
 // matches, it returns a zero package and a driver-not-found error.
-func ResolvePackage(drivers []Driver, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
+//
+// searchErr is the error that the search for drivers returned with them, if
+// any. A registry with its own signing key, or one declared unsigned, is
+// trusted only for the driver names that no registry verified with the
+// Columnar key serves: selecting such a driver fails with
+// ErrDriverNameConflict when a registry verified with the Columnar key also
+// lists the name, or when the index of such a registry could not be read
+// (searchErr holds a RegistryIndexError for it), whether or not that registry
+// has an eligible version. A lock file that pins a source is not resolved
+// again, so this applies only when a driver's source is first selected.
+func ResolvePackage(drivers []Driver, searchErr error, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
+	pkg, err := resolvePackage(drivers, name, selectPackage)
+	if err != nil {
+		return pkg, err
+	}
+	if err := checkDriverNameScope(pkg.Driver, drivers, searchErr); err != nil {
+		return PkgInfo{Driver: pkg.Driver}, err
+	}
+	return pkg, nil
+}
+
+// checkDriverNameScope implements the driver name rule of ResolvePackage for
+// selected.
+func checkDriverNameScope(selected Driver, drivers []Driver, searchErr error) error {
+	if selected.Registry == nil || selected.Registry.Signing.isColumnar() {
+		return nil
+	}
+	from := selected.Registry
+	for _, d := range drivers {
+		if d.Path != selected.Path || d.Registry == nil || d.Registry == from || !d.Registry.Signing.isColumnar() {
+			continue
+		}
+		return fmt.Errorf("%w: driver `%s` would be installed from registry %s, which is checked with %s, but registry %s, checked with the Columnar signing key, also serves it; a registry with its own signing key cannot provide a driver that a Columnar-signed registry provides",
+			ErrDriverNameConflict, selected.Path, registryURLForMessage(from.BaseURL), from.Signing, registryURLForMessage(d.Registry.BaseURL))
+	}
+	for _, e := range registryIndexErrors(searchErr) {
+		if e.Registry.Signing.isColumnar() {
+			return fmt.Errorf("%w: driver `%s` would be installed from registry %s, which is checked with %s, but the index of registry %s, checked with the Columnar signing key, could not be read to confirm that it does not serve the same driver",
+				ErrDriverNameConflict, selected.Path, registryURLForMessage(from.BaseURL), from.Signing, registryURLForMessage(e.Registry.BaseURL))
+		}
+	}
+	return nil
+}
+
+// registryIndexErrors returns every RegistryIndexError in the tree of err.
+func registryIndexErrors(err error) []*RegistryIndexError {
+	if err == nil {
+		return nil
+	}
+	if e, ok := err.(*RegistryIndexError); ok {
+		return []*RegistryIndexError{e}
+	}
+	switch u := err.(type) {
+	case interface{ Unwrap() []error }:
+		var out []*RegistryIndexError
+		for _, inner := range u.Unwrap() {
+			out = append(out, registryIndexErrors(inner)...)
+		}
+		return out
+	case interface{ Unwrap() error }:
+		return registryIndexErrors(u.Unwrap())
+	}
+	return nil
+}
+
+func resolvePackage(drivers []Driver, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
 	var first PkgInfo
 	var firstErr error
 	for _, d := range drivers {

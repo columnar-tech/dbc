@@ -150,7 +150,7 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 	if searchErr != nil && allRegistriesFailed(c, searchErr) {
 		return ResolveResult{}, searchErr
 	}
-	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	pkg, err := dbc.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return candidate.GetLatestPackage(platform, false)
 	})
 	if pkg.Driver.Path != "" {

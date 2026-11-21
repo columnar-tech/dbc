@@ -86,6 +86,24 @@ func (p RegistrySigningPolicy) Equal(q RegistrySigningPolicy) bool {
 	return true
 }
 
+// isColumnar reports whether p verifies with the Columnar key: the built-in
+// key, or a copy of it given inline or in a key file. A key file that cannot
+// be read is not the Columnar key.
+func (p RegistrySigningPolicy) isColumnar() bool {
+	switch p.kind {
+	case signingColumnar:
+		return true
+	case signingUnsigned:
+		return false
+	}
+	key, err := Registry{Signing: p}.ResolveSigningKey()
+	if err != nil || key == nil {
+		return false
+	}
+	columnar, err := ColumnarSigningKey()
+	return err == nil && key.digest == columnar.digest
+}
+
 // sameKeyWithoutFiles reports whether p and q verify with the same
 // certificate, or are both Unsigned, comparing the built-in Columnar key and
 // an inline copy of it as the same. A policy that reads a key file is never

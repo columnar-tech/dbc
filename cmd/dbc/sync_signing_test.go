@@ -19,8 +19,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc"
@@ -136,4 +138,45 @@ func (suite *SubcommandTestSuite) TestSyncWithCustomSigningKey() {
 func (suite *SubcommandTestSuite) TestSyncWithUnsignedRegistry() {
 	archive, key := suite.signedArchiveFile()
 	suite.assertSignedRoundTrip(dbc.Unsigned(), dbc.SignWith(key), archive, lockedSigner{Type: lockSignerNone})
+}
+
+// shadowedBase is signedBase with a second registry, verified with the
+// Columnar key, that also lists every driver of the first.
+func shadowedBase(policy dbc.RegistrySigningPolicy, archive string) baseModel {
+	base := signedBase(policy, archive)
+	custom, _ := base.getRegistries()
+	columnar := testRegistry
+	columnar.BaseURL = must(url.Parse("https://columnar-signed.example.com"))
+	customIndex := base.getDriverRegistry
+	index := func() ([]dbc.Driver, error) {
+		drivers, err := customIndex()
+		for _, d := range slices.Clone(drivers) {
+			d.Registry = &columnar
+			drivers = append(drivers, d)
+		}
+		return drivers, err
+	}
+	base.getDriverRegistry = index
+	base.getRegistries = func() ([]dbc.Registry, error) { return append(custom, columnar), nil }
+	base.getRegistryIndex = func(r dbc.Registry) ([]dbc.Driver, error) {
+		drivers, err := index()
+		return slices.DeleteFunc(drivers, func(d dbc.Driver) bool { return d.Registry.BaseURL.String() != r.BaseURL.String() }), err
+	}
+	return base
+}
+
+// A registry with its own key cannot newly provide a driver name that a
+// Columnar-signed registry also serves. A lock file made before the
+// Columnar-signed registry listed the name is still replayed.
+func (suite *SubcommandTestSuite) TestLockRejectsAnOwnKeyForAColumnarDriverName() {
+	archive, key := suite.signedArchiveFile()
+	listPath := suite.writeDriverList("test-driver-no-sig")
+
+	out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(shadowedBase(dbc.SignWith(key), archive)))
+	suite.Contains(out, "driver name conflict")
+	suite.NoFileExists(filepath.Join(filepath.Dir(listPath), "dbc.lock"))
+
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(signedBase(dbc.SignWith(key), archive)))
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(shadowedBase(dbc.SignWith(key), archive)))
+	suite.driverIsInstalled("test-driver-no-sig", false)
 }

@@ -347,7 +347,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	pkg, err := dbc.ResolvePackage(drivers, p.registryErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return selectProjectPackage(candidate, spec, pin, p.target)
 	})
 	drv := pkg.Driver
