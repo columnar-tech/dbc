@@ -38,6 +38,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 )
@@ -687,8 +688,12 @@ type RegistryIndexError struct {
 	Err      error
 }
 
+// Error names the registry without credentials. The cause is redacted too:
+// an HTTP error repeats the request URL with the registry's user information
+// and query. Unwrap still returns the original cause.
 func (e *RegistryIndexError) Error() string {
-	return fmt.Sprintf("registry %s: %v", registryLabel(&Registry{BaseURL: e.Registry}), e.Err)
+	msg := fmt.Sprintf("registry %s: %v", registryLabel(&Registry{BaseURL: e.Registry}), e.Err)
+	return registryurl.Redact(msg, registryurl.Secrets([]*url.URL{e.Registry}))
 }
 
 func (e *RegistryIndexError) Unwrap() error { return e.Err }
@@ -741,6 +746,18 @@ func registryLabel(r *Registry) string {
 // registrySignerIdentity identifies the signer whose key verifies the
 // packages of a registry. Every registry is verified with the built-in
 // Columnar key for now.
+//
+// TODO: once a registry can name its own signing key, derive the identity
+// from its signing policy:
+//   - a key: a digest of the whole configured certificate, not only of the
+//     primary key, since subkeys and revocations change which signatures it
+//     accepts;
+//   - an unsigned registry: an identity of its own (for example from its
+//     registry identity), so that two unsigned registries never count as the
+//     same signer and a driver name they share is a conflict;
+//   - a key file: read it only when several registries list the name, and
+//     use the certificate read here for the verification and the lock pin of
+//     the same operation.
 func registrySignerIdentity(*Registry) (string, error) {
 	return "the Columnar signing key", nil
 }

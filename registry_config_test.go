@@ -971,3 +971,28 @@ func TestSearchAndInstallReportEachFailedRegistry(t *testing.T) {
 		})
 	}
 }
+
+// TestRegistryIndexErrorHidesURLSecrets pins that a failed registry's
+// credentials do not appear in the error, also where the HTTP client repeats
+// the request URL.
+func TestRegistryIndexErrorHidesURLSecrets(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	unreachable := "http://user:hunter22@" + server.Listener.Addr().String() + "/r?token=supersecret"
+	server.Close()
+
+	c, err := NewClient(WithRegistries([]Registry{{BaseURL: mustParseURL(unreachable)}}))
+	require.NoError(t, err)
+	_, err = c.Search(t.Context(), "")
+	require.Error(t, err)
+	var indexErr *RegistryIndexError
+	require.ErrorAs(t, err, &indexErr)
+	assert.Contains(t, indexErr.Unwrap().Error(), "supersecret", "the cause itself is kept for errors.Is and errors.As")
+	for _, secret := range []string{"supersecret", "hunter22", "user:"} {
+		assert.NotContains(t, err.Error(), secret)
+	}
+	assert.Contains(t, err.Error(), "/r")
+
+	_, err = c.Install(t.Context(), config.Config{}, "x")
+	require.ErrorIs(t, err, ErrIncompleteIndex)
+	assert.NotContains(t, err.Error(), "supersecret")
+}
