@@ -272,6 +272,20 @@ func (suite *SubcommandTestSuite) TestFailedHashUpgradeKeepsExistingInstall() {
 	suite.Contains(out, "archive SHA-256 mismatch")
 }
 
+func (suite *SubcommandTestSuite) TestVersionMismatchUpgradeKeepsExistingInstall() {
+	// The v1.1.0 entry points to an archive that declares 1.0.0.
+	v1 := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	out := suite.assertFailedUpgradeKeepsInstall(
+		InstallCmd{Driver: "test-driver-1=1.1.0"},
+		baseModel{
+			getDriverRegistry: upgradeRegistry(v1, v1),
+			downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
+				return os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+			},
+		})
+	suite.Contains(out, "driver test-driver-1: the package declares version 1.0.0, but version 1.1.0 was selected")
+}
+
 func (suite *SubcommandTestSuite) TestFailedSignatureUpgradeKeepsExistingInstall() {
 	tampered := testArchiveSHA256(suite, "test-driver-1.1-tampered.tar.gz")
 	out := suite.assertFailedUpgradeKeepsInstall(

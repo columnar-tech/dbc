@@ -96,6 +96,31 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	suite.Equal(oldLibraryBytes, currentLibraryBytes)
 }
 
+func (suite *SubcommandTestSuite) TestSyncRejectsPackageWithUnexpectedVersion() {
+	listPath := filepath.Join(suite.tempdir, "dbc.toml")
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel()))
+	old := suite.getInstalledDriver("test-driver-1")
+	oldLibraryBytes, err := os.ReadFile(old.Driver.Shared.Get(config.PlatformTuple()))
+	suite.Require().NoError(err)
+
+	// Selecting 1.1.0 but downloading an archive that declares 1.0.0.
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.1.0'\n"), 0o644))
+	base := testBaseModel()
+	base.downloadPkg = func(dbc.PkgInfo) (*os.File, error) {
+		return openTestdataCopy("test-driver-1.tar.gz")
+	}
+	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(base))
+	suite.Contains(out, "driver test-driver-1: the package declares version 1.0.0, but version 1.1.0 was selected")
+
+	current := suite.getInstalledDriver("test-driver-1")
+	suite.Equal("1.0.0", current.Version.String())
+	suite.Equal(old.Driver.Shared.Get(config.PlatformTuple()), current.Driver.Shared.Get(config.PlatformTuple()))
+	currentLibraryBytes, err := os.ReadFile(current.Driver.Shared.Get(config.PlatformTuple()))
+	suite.Require().NoError(err)
+	suite.Equal(oldLibraryBytes, currentLibraryBytes)
+}
+
 func (suite *SubcommandTestSuite) TestSyncReplacementUsesTransactionAndShadowsSecondaryRoot() {
 	secondary := filepath.Join(suite.tempdir, "secondary")
 	suite.Require().NoError(os.MkdirAll(secondary, 0o755))
