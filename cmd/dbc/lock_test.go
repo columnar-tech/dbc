@@ -121,7 +121,7 @@ func (suite *SubcommandTestSuite) TestLockSignatureFailureWithoutLockWritesNothi
 func (suite *SubcommandTestSuite) TestLockNoVerifyRecordsUnsignedArchive() {
 	listPath := suite.writeDriverList("test-driver-no-sig")
 	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(testBaseModel()))
-	suite.assertLockedArchive("test-driver-no-sig", "1.0.0", "test-driver-no-sig.tar.gz")
+	suite.assertLockedArchive("test-driver-no-sig", "1.1.0", "test-driver-no-sig.tar.gz")
 	suite.driverIsNotInstalled("test-driver-no-sig")
 }
 
