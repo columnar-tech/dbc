@@ -427,6 +427,12 @@ func (suite *SubcommandTestSuite) TestInstallFromARegistryReplacesTheSameVersion
 	suite.Len(downloads, 2)
 }
 
+// TestIsSelectionError covers the hint for an error that only an explicit
+// registry avoids.
+//
+// TODO: test a signer conflict end to end through add, install, lock and
+// sync once registries can name their own signing key; until then every
+// registry has the same signer and no conflict can occur in the CLI.
 func TestIsSelectionError(t *testing.T) {
 	conflict := &dbc.SignerConflictError{Name: "x"}
 	assert.True(t, isSelectionError(fmt.Errorf("wrapped: %w", conflict)))
