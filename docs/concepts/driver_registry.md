@@ -29,6 +29,63 @@ By default, dbc is configured to communicate with two driver registries: the pub
 
 When you run a command like [`dbc search`](../reference/cli.md#search) or [`dbc install`](../reference/cli.md#install), dbc gets information about the drivers that are available from each configured registry by downloading its `index.yaml` or using a cached copy.
 
+## Configuring registries
+
+{{ since_version('v0.4.0') }}
+
+Alongside the built-in registries, you can configure dbc to use additional driver registries at two levels:
+
+- **Global**: a `config.toml` in your user config directory applies to every dbc command.
+- **Project**: a `[[registries]]` section in a project's [`dbc.toml`](../reference/driver_list.md#registries) applies to dbc commands run in that project.
+
+The global `config.toml` lives in your user config directory:
+
+- Linux: `~/.config/columnar/dbc/config.toml`
+- macOS: `~/Library/Application Support/Columnar/dbc/config.toml`
+- Windows: `%AppData%\Columnar\dbc\config.toml`
+
+Both files use the same `[[registries]]` syntax. Each entry requires a `url` (which must be an `http` or `https` URL) and may include an optional `name` that is shown as a `[name]` tag in `dbc search` output:
+
+```toml
+[[registries]]
+url = "https://my-registry.example.com"
+name = "my-registry"
+```
+
+### Priority and conflicts
+
+dbc uses the registries in this order, highest priority first:
+
+1. Project registries (`dbc.toml`)
+2. Global registries (`config.toml`)
+3. Built-in registries
+
+A URL that appears more than once is used only once, at its highest-priority position. When more than one registry publishes a driver with the same name, dbc installs it from the highest-priority registry that has a version matching the request.
+
+### Excluding the built-in registries
+
+Set `exclude_builtin_registries = true` to remove the built-in registries and use only the registries you configure:
+
+```toml
+exclude_builtin_registries = true
+
+[[registries]]
+url = "https://my-registry.example.com"
+name = "my-registry"
+```
+
+- The built-in registries are excluded when either the global `config.toml` or the project's `dbc.toml` sets `exclude_builtin_registries = true`. A project cannot bring them back with `false` once the global config excludes them; commands that read the project's `dbc.toml` then print a warning that its `false` has no effect.
+- Only the built-in registries are removed. Global and project `[[registries]]` entries stay, including an entry that names a built-in registry's URL.
+- dbc reports an error if no registry is left, for example when `exclude_builtin_registries = true` is set and neither file has a `[[registries]]` entry.
+
+### Which commands use which registries
+
+- Global `config.toml` registries are used by **every** dbc command.
+- Project `dbc.toml` registries are used by the commands that manage or discover drivers for the current project — [`dbc add`](../reference/cli.md#add), [`dbc sync`](../reference/cli.md#sync), [`dbc search`](../reference/cli.md#search), [`dbc info`](../reference/cli.md#info), and [`dbc docs`](../reference/cli.md#docs) — which read `dbc.toml` from the current directory.
+- [`dbc install`](../reference/cli.md#install) installs into a user- or system-level [config level](../reference/config_level.md) rather than the project, so it uses only the global and built-in registries and does not read a project `dbc.toml`.
+
+Setting the [`DBC_BASE_URL`](../reference/environment_variables.md#dbc_base_url) environment variable overrides all registry configuration and points dbc at a single registry.
+
 ## Mirrors
 
 {{ since_version('v0.4.0') }}

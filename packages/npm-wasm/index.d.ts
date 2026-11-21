@@ -96,7 +96,7 @@ export interface DbcOptions {
    */
   registryConfig?: "default" | "none";
   /**
-   * Node-only path to a project dbc.toml. Reads registries and replace_defaults;
+   * Node-only path to a project dbc.toml. Reads registries and exclude_builtin_registries;
    * a missing file rejects loadDbc. Ignored when a nonempty baseURL or an explicit
    * registries list is supplied. The experimental browser build rejects it
    * unless one of those options takes precedence.

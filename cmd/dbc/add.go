@@ -159,6 +159,9 @@ func (m addModel) Init() tea.Cmd {
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
 		}
+		if warning := projectRegistryWarning(m.list); warning != "" {
+			fmt.Fprintln(os.Stderr, warning)
+		}
 
 		drivers, registryErr := m.getDriverRegistry()
 		// If we have no drivers and there's an error, fail immediately
@@ -261,7 +264,7 @@ func (m addModel) Init() tea.Cmd {
 
 		// Merge ONLY the driver entries this invocation actually added or
 		// replaced onto whatever is on disk. Leaving untouched drivers,
-		// registries, and replace_defaults alone preserves concurrent
+		// registries, and exclude_builtin_registries alone preserves concurrent
 		// `dbc remove`/`dbc add` edits that landed while we were doing
 		// the unlocked registry lookup above.
 		if current.Drivers == nil {

@@ -30,11 +30,13 @@ import (
 
 type DriversList struct {
 	Registries []dbc.RegistryEntry `toml:"registries,omitempty"`
-	// ReplaceDefaults is a tri-state: nil means "inherit from global config",
-	// &true replaces both global and built-in default registries, &false forces
-	// defaults back on even when the global config set replace_defaults = true.
-	ReplaceDefaults *bool                 `toml:"replace_defaults,omitempty"`
-	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	// ExcludeBuiltinRegistries removes dbc's built-in registries. It is
+	// combined with the global config's setting with a logical OR, so false
+	// cannot bring back built-in registries that the global config excludes.
+	// It is a pointer only to tell an explicit false, which is kept when the
+	// file is written back and warned about, from an omitted key.
+	ExcludeBuiltinRegistries *bool                 `toml:"exclude_builtin_registries,omitempty"`
+	Drivers                  map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 	// Network is decoded only to reject it: network settings are read from
 	// the user config, never from a project's dbc.toml.
 	Network map[string]any `toml:"network,omitempty"`
@@ -44,9 +46,9 @@ type DriversList struct {
 // a different EFFECTIVE registry resolution when combined with the
 // current process-wide globalRegistryConfig and built-in defaults. This
 // is what the client actually uses to resolve drivers, so changes that
-// the merge would collapse (e.g. flipping nil → &false when defaults
-// were already inherited, or removing an exact duplicate entry) are
-// correctly NOT treated as drift.
+// the merge would collapse (e.g. flipping exclude_builtin_registries when
+// the global config already excludes the built-in registries, or removing
+// an exact duplicate entry) are correctly NOT treated as drift.
 //
 // Implemented by running both lists through the same newDBCClient merge
 // path and comparing the resulting normalized URL sets. Display-only
@@ -77,7 +79,7 @@ func registriesChanged(a, b DriversList) bool {
 // and built-in defaults. It builds a throwaway client via newDBCClient
 // so merge semantics stay in sync with what NewClient actually uses.
 func effectiveRegistryURLs(list DriversList) ([]string, error) {
-	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	c, err := newDBCClient(list.Registries, list.excludeBuiltin())
 	if err != nil {
 		return nil, err
 	}
@@ -119,15 +121,15 @@ func normalizeRegistryURL(raw string) string {
 // applyProjectRegistries rebuilds the process-wide dbc client with the
 // registry overrides declared in the project's dbc.toml, so subsequent calls
 // through getDriverRegistry see the merged registry list. No-op when neither
-// registries nor replace_defaults are set.
+// registries nor exclude_builtin_registries are set.
 func applyProjectRegistries(list DriversList) error {
 	if list.Network != nil {
 		return dbc.ErrProjectNetwork
 	}
-	if len(list.Registries) == 0 && list.ReplaceDefaults == nil {
+	if len(list.Registries) == 0 && !list.excludeBuiltin() {
 		return nil
 	}
-	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	c, err := newDBCClient(list.Registries, list.excludeBuiltin())
 	if err != nil {
 		return fmt.Errorf("error configuring project registries: %w", err)
 	}
@@ -140,7 +142,7 @@ func applyProjectRegistries(list DriversList) error {
 // process-wide client, so read-only discovery commands (search, info, docs)
 // resolve drivers against the same registry set that `dbc add`/`dbc sync` use
 // in the same project. This keeps behavior consistent between project-level and
-// global config: a project that adds registries or sets replace_defaults
+// global config: a project that adds registries or sets exclude_builtin_registries
 // affects what those commands can see, not just add/sync.
 //
 // A missing dbc.toml is not an error — these commands must still work outside a
@@ -177,7 +179,32 @@ func applyProjectRegistriesFromCWD() error {
 	if err := toml.NewDecoder(f).Decode(&list); err != nil {
 		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
 	}
-	return applyProjectRegistries(list)
+	if err := applyProjectRegistries(list); err != nil {
+		return err
+	}
+	if warning := projectRegistryWarning(list); warning != "" {
+		fmt.Fprintln(os.Stderr, warning)
+	}
+	return nil
+}
+
+// excludeBuiltin reports whether the driver list excludes the built-in
+// registries.
+func (list DriversList) excludeBuiltin() bool {
+	return list.ExcludeBuiltinRegistries != nil && *list.ExcludeBuiltinRegistries
+}
+
+// projectRegistryWarning returns a warning when the driver list sets
+// exclude_builtin_registries = false but the user config excludes the
+// built-in registries, so the project's setting has no effect; otherwise "".
+func projectRegistryWarning(list DriversList) string {
+	if list.ExcludeBuiltinRegistries == nil || *list.ExcludeBuiltinRegistries {
+		return ""
+	}
+	if os.Getenv("DBC_BASE_URL") != "" || globalRegistryConfig == nil || !globalRegistryConfig.ExcludeBuiltinRegistries {
+		return ""
+	}
+	return "warning: exclude_builtin_registries = false in dbc.toml has no effect because the user config sets exclude_builtin_registries = true"
 }
 
 type driverSpec struct {
@@ -214,7 +241,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	// dbc.toml to another. Unlike add/sync (which own the process for one
 	// command), GetDriverList is a library helper that may be called
 	// multiple times.
-	client, err := newDBCClient(m.Registries, m.ReplaceDefaults)
+	client, err := newDBCClient(m.Registries, m.excludeBuiltin())
 	if err != nil {
 		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}

@@ -20,6 +20,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -48,10 +49,10 @@ func TestLoadGlobalConfig(t *testing.T) {
 		wantNil     bool
 		wantErr     string          // substring; "" means no error
 		wantEntries []RegistryEntry // expected ordered contents of cfg.Registries on success
-		wantReplace bool
+		wantExclude bool
 	}{
 		{
-			name: "two registries, no replace_defaults",
+			name: "two registries, no exclude_builtin_registries",
 			toml: `
 [[registries]]
 url = "https://example.com/registry"
@@ -66,15 +67,15 @@ url = "https://other.example.org"
 			},
 		},
 		{
-			name: "replace_defaults true with one registry",
+			name: "exclude_builtin_registries true with one registry",
 			toml: `
-replace_defaults = true
+exclude_builtin_registries = true
 
 [[registries]]
 url = "https://custom.registry.io"
 `,
 			wantEntries: []RegistryEntry{{URL: "https://custom.registry.io"}},
-			wantReplace: true,
+			wantExclude: true,
 		},
 		{
 			name:     "missing config.toml returns nil,nil",
@@ -82,9 +83,9 @@ url = "https://custom.registry.io"
 			wantNil:  true,
 		},
 		{
-			name:        "replace_defaults=true with no entries accepted (project may supply)",
-			toml:        "replace_defaults = true\n",
-			wantReplace: true,
+			name:        "exclude_builtin_registries=true with no entries accepted (project may supply)",
+			toml:        "exclude_builtin_registries = true\n",
+			wantExclude: true,
 		},
 		{
 			name:    "invalid URL rejected",
@@ -132,7 +133,7 @@ url = "https://custom.registry.io"
 			}
 			require.NotNil(t, cfg)
 			assert.Equal(t, tc.wantEntries, cfg.Registries)
-			assert.Equal(t, tc.wantReplace, cfg.ReplaceDefaults)
+			assert.Equal(t, tc.wantExclude, cfg.ExcludeBuiltinRegistries)
 		})
 	}
 }
@@ -142,7 +143,7 @@ func TestLoadProjectRegistries(t *testing.T) {
 		name        string
 		toml        string
 		wantEntries []RegistryEntry
-		wantReplace *bool
+		wantExclude bool
 		wantErr     string
 	}{
 		{
@@ -159,11 +160,11 @@ prerelease = ["not", "a", "string"]
 `,
 			wantEntries: []RegistryEntry{{URL: "https://project.test", Name: "Project"}, {URL: "https://second.test"}},
 		},
-		{name: "empty project inherits replacement", toml: ""},
-		{name: "explicit false", toml: "replace_defaults = false\n", wantReplace: new(false)},
-		{name: "true without registries is resolved after merging", toml: "replace_defaults = true\n", wantReplace: new(true)},
+		{name: "empty project keeps built-in registries", toml: ""},
+		{name: "explicit false", toml: "exclude_builtin_registries = false\n"},
+		{name: "true without registries is resolved after merging", toml: "exclude_builtin_registries = true\n", wantExclude: true},
 		{name: "malformed TOML", toml: "[[registries", wantErr: "invalid"},
-		{name: "wrong replacement type", toml: "replace_defaults = \"false\"\n", wantErr: "invalid"},
+		{name: "wrong exclusion type", toml: "exclude_builtin_registries = \"false\"\n", wantErr: "invalid"},
 		{name: "empty registry URL", toml: "[[registries]]\nurl = \"\"\n", wantErr: "empty url"},
 		{name: "malformed registry URL", toml: "[[registries]]\nurl = \"http://bad host\"\n", wantErr: "invalid registry URL"},
 		{name: "missing host", toml: "[[registries]]\nurl = \"https:///onlypath\"\n", wantErr: "missing host"},
@@ -172,28 +173,28 @@ prerelease = ["not", "a", "string"]
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "dbc.toml")
 			require.NoError(t, os.WriteFile(path, []byte(tc.toml), 0o600))
-			entries, replace, err := LoadProjectRegistries(path)
+			entries, exclude, err := LoadProjectRegistries(path)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				assert.ErrorContains(t, err, path)
 				assert.Nil(t, entries)
-				assert.Nil(t, replace)
+				assert.False(t, exclude)
 				return
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantEntries, entries)
-			assert.Equal(t, tc.wantReplace, replace)
+			assert.Equal(t, tc.wantExclude, exclude)
 		})
 	}
 }
 
 func TestLoadProjectRegistriesMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dbc.toml")
-	entries, replace, err := LoadProjectRegistries(path)
+	entries, exclude, err := LoadProjectRegistries(path)
 	require.ErrorIs(t, err, os.ErrNotExist)
 	assert.ErrorContains(t, err, path)
 	assert.Nil(t, entries)
-	assert.Nil(t, replace)
+	assert.False(t, exclude)
 }
 
 func TestMergeRegistries(t *testing.T) {
@@ -205,9 +206,8 @@ func TestMergeRegistries(t *testing.T) {
 	tests := []struct {
 		name            string
 		project         []RegistryEntry
-		projectReplace  *bool
 		global          []RegistryEntry
-		globalReplace   bool
+		excludeBuiltin  bool
 		defaults        []Registry
 		wantURLsInOrder []string
 		wantFirstName   string // optional: assert Name of result[0]
@@ -244,10 +244,10 @@ func TestMergeRegistries(t *testing.T) {
 			},
 		},
 		{
-			name:           "project replace_defaults drops defaults",
+			name:           "excluding built-in registries keeps project and global entries",
 			project:        []RegistryEntry{{URL: "https://proj.example.com"}},
-			projectReplace: new(true),
 			global:         []RegistryEntry{{URL: "https://glob.example.com"}},
+			excludeBuiltin: true,
 			defaults:       defaults,
 			wantURLsInOrder: []string{
 				"https://proj.example.com",
@@ -255,25 +255,23 @@ func TestMergeRegistries(t *testing.T) {
 			},
 		},
 		{
-			name:          "global replace_defaults honored when project nil",
-			global:        []RegistryEntry{{URL: "https://only.example.com"}},
-			globalReplace: true,
-			defaults:      defaults,
+			name:           "excluding built-in registries with only global entries",
+			global:         []RegistryEntry{{URL: "https://only.example.com"}},
+			excludeBuiltin: true,
+			defaults:       defaults,
 			wantURLsInOrder: []string{
 				"https://only.example.com",
 			},
 		},
 		{
-			name:           "project replace_defaults=false overrides global true",
-			projectReplace: new(false),
-			global:         []RegistryEntry{{URL: "https://g.example.com"}},
-			globalReplace:  true,
+			name:           "an entry with a built-in URL is kept when built-in registries are excluded",
+			global:         []RegistryEntry{{URL: "https://default-a.example.com", Name: "explicit"}},
+			excludeBuiltin: true,
 			defaults:       defaults,
 			wantURLsInOrder: []string{
-				"https://g.example.com",
 				"https://default-a.example.com",
-				"https://default-b.example.com",
 			},
+			wantFirstName: "explicit",
 		},
 		{
 			name:     "duplicate URLs dedupe, first wins",
@@ -335,7 +333,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://r.example.com?tenant=a"},
 				{URL: "https://r.example.com?tenant=b"},
 			},
-			projectReplace: new(true),
+			excludeBuiltin: true,
 			wantURLsInOrder: []string{
 				"https://r.example.com?tenant=a",
 				"https://r.example.com?tenant=b",
@@ -347,7 +345,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://u1@r.example.com"},
 				{URL: "https://u2@r.example.com"},
 			},
-			projectReplace: new(true),
+			excludeBuiltin: true,
 			wantURLsInOrder: []string{
 				"https://u1@r.example.com",
 				"https://u2@r.example.com",
@@ -359,7 +357,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://r.example.com/tenant-a"},
 				{URL: "https://r.example.com/tenant-b"},
 			},
-			projectReplace: new(true),
+			excludeBuiltin: true,
 			wantURLsInOrder: []string{
 				"https://r.example.com/tenant-a",
 				"https://r.example.com/tenant-b",
@@ -371,7 +369,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://R.Example.COM/path/"},
 				{URL: "HTTPS://r.example.com/path"},
 			},
-			projectReplace: new(true),
+			excludeBuiltin: true,
 			wantURLsInOrder: []string{
 				"https://R.Example.COM/path/", // first wins; kept verbatim
 			},
@@ -382,7 +380,7 @@ func TestMergeRegistries(t *testing.T) {
 				{URL: "https://r.example.com/#a"},
 				{URL: "https://r.example.com/#b"},
 			},
-			projectReplace: new(true),
+			excludeBuiltin: true,
 			wantURLsInOrder: []string{
 				"https://r.example.com/#a",
 			},
@@ -405,7 +403,7 @@ func TestMergeRegistries(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := mergeRegistries(tc.project, tc.projectReplace, tc.global, tc.globalReplace, tc.defaults)
+			got := mergeRegistries(tc.project, tc.global, tc.excludeBuiltin, tc.defaults)
 			assert.Equal(t, tc.wantURLsInOrder, urls(got))
 			if tc.wantFirstName != "" {
 				require.NotEmpty(t, got)
@@ -417,7 +415,11 @@ func TestMergeRegistries(t *testing.T) {
 
 func TestNewClientWithRegistryOptions(t *testing.T) {
 	nonEmptyGlobal := &GlobalConfig{Registries: []RegistryEntry{{URL: "https://glob.example.com"}}}
-	emptyReplaceAllGlobal := &GlobalConfig{ReplaceDefaults: true}
+	emptyExcludeGlobal := &GlobalConfig{ExcludeBuiltinRegistries: true}
+	excludeGlobal := &GlobalConfig{
+		Registries:               []RegistryEntry{{URL: "https://glob.example.com"}},
+		ExcludeBuiltinRegistries: true,
+	}
 
 	tests := []struct {
 		name    string
@@ -428,16 +430,20 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		// An empty slice means "any non-empty list is fine".
 		wantRegs  []string
 		wantCount int // 0 => any count >= 1 accepted
+		// wantBuiltin, when set, asserts whether the built-in registries
+		// are in the list.
+		wantBuiltin *bool
 	}{
 		{
-			name:      "WithProjectRegistries merges with defaults",
-			opts:      []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, nil)},
-			wantRegs:  []string{"https://proj.example.com"},
-			wantCount: 0,
+			name:        "WithProjectRegistries merges with defaults",
+			opts:        []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false)},
+			wantRegs:    []string{"https://proj.example.com"},
+			wantCount:   0,
+			wantBuiltin: new(true),
 		},
 		{
-			name:      "WithProjectRegistries + replace_defaults returns only project",
-			opts:      []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://only.example.com"}}, new(true))},
+			name:      "WithProjectRegistries + exclude_builtin_registries returns only project",
+			opts:      []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://only.example.com"}}, true)},
 			wantRegs:  []string{"https://only.example.com"},
 			wantCount: 1,
 		},
@@ -452,7 +458,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			opts: []Option{
 				WithBaseURL("https://only-base.example.com"),
 				WithGlobalConfig(&GlobalConfig{Registries: []RegistryEntry{{URL: "https://ignored.example.com"}}}),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://ignored2.example.com"}}, nil),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://ignored2.example.com"}}, false),
 			},
 			wantRegs:  []string{"https://only-base.example.com"},
 			wantCount: 1,
@@ -462,55 +468,81 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			opts: []Option{
 				WithRegistries([]Registry{{BaseURL: mustParseURL("https://explicit.example.com")}}),
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, nil),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
 			},
 			wantRegs:  []string{"https://explicit.example.com"},
 			wantCount: 1,
 		},
 		{
-			name: "project replace_defaults=true with no project entries keeps global entries",
+			name: "project exclude_builtin_registries=true with no project entries keeps global entries",
 			opts: []Option{
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries(nil, new(true)),
+				WithProjectRegistries(nil, true),
 			},
 			wantRegs:  []string{"https://glob.example.com"},
 			wantCount: 1,
 		},
 		{
-			name: "project replace_defaults=false overrides global true; defaults restored",
+			name: "global true + project false keeps the built-in registries excluded",
 			opts: []Option{
-				WithGlobalConfig(emptyReplaceAllGlobal),
-				WithProjectRegistries(nil, new(false)),
+				WithGlobalConfig(excludeGlobal),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
 			},
-			// Only assert non-empty — defaults content can change.
+			wantRegs:    []string{"https://proj.example.com", "https://glob.example.com"},
+			wantCount:   2,
+			wantBuiltin: new(false),
 		},
 		{
-			name:    "global replace_defaults=true + no project entries → empty merge rejected",
-			opts:    []Option{WithGlobalConfig(emptyReplaceAllGlobal)},
+			name: "global false + project true excludes the built-in registries",
+			opts: []Option{
+				WithGlobalConfig(nonEmptyGlobal),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, true),
+			},
+			wantRegs:    []string{"https://proj.example.com", "https://glob.example.com"},
+			wantCount:   2,
+			wantBuiltin: new(false),
+		},
+		{
+			name: "global false + project false keeps the built-in registries",
+			opts: []Option{
+				WithGlobalConfig(nonEmptyGlobal),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
+			},
+			wantRegs:    []string{"https://proj.example.com", "https://glob.example.com"},
+			wantBuiltin: new(true),
+		},
+		{
+			name:    "global true + project false with no entries → empty merge rejected",
+			opts:    []Option{WithGlobalConfig(emptyExcludeGlobal), WithProjectRegistries(nil, false)},
 			wantErr: "empty registry list",
 		},
 		{
-			name: "global replace_defaults=true + project supplies entries → accepted",
+			name:    "global exclude_builtin_registries=true + no project entries → empty merge rejected",
+			opts:    []Option{WithGlobalConfig(emptyExcludeGlobal)},
+			wantErr: "empty registry list",
+		},
+		{
+			name: "global exclude_builtin_registries=true + project supplies entries → accepted",
 			opts: []Option{
-				WithGlobalConfig(emptyReplaceAllGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, nil),
+				WithGlobalConfig(emptyExcludeGlobal),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
 			},
 			wantRegs:  []string{"https://proj.example.com"},
 			wantCount: 1,
 		},
 		{
 			name:    "WithProjectRegistries rejects empty URL",
-			opts:    []Option{WithProjectRegistries([]RegistryEntry{{URL: ""}}, nil)},
+			opts:    []Option{WithProjectRegistries([]RegistryEntry{{URL: ""}}, false)},
 			wantErr: "empty url",
 		},
 		{
 			name:    "WithProjectRegistries rejects non-http scheme",
-			opts:    []Option{WithProjectRegistries([]RegistryEntry{{URL: "ftp://example.com"}}, nil)},
+			opts:    []Option{WithProjectRegistries([]RegistryEntry{{URL: "ftp://example.com"}}, false)},
 			wantErr: "scheme must be http or https",
 		},
 		{
 			name:    "WithProjectRegistries rejects truly-empty merge",
-			opts:    []Option{WithProjectRegistries(nil, new(true))},
+			opts:    []Option{WithProjectRegistries(nil, true)},
 			wantErr: "empty registry list",
 		},
 		{
@@ -542,6 +574,12 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			for i, want := range tc.wantRegs {
 				require.Greater(t, len(regs), i)
 				assert.Equal(t, want, regs[i].BaseURL.String())
+			}
+			if tc.wantBuiltin != nil {
+				got := slices.ContainsFunc(regs, func(r Registry) bool {
+					return r.BaseURL.String() == "https://dbc-cdn.columnar.tech"
+				})
+				assert.Equal(t, *tc.wantBuiltin, got)
 			}
 		})
 	}

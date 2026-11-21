@@ -56,7 +56,7 @@ func setupTestIndexRegistry(t *testing.T) string {
 
 func TestUnmarshalDriverList(t *testing.T) {
 	registryURL := setupTestIndexRegistry(t)
-	registryHeader := "replace_defaults = true\n\n[[registries]]\nurl = '" + registryURL + "'\n\n"
+	registryHeader := "exclude_builtin_registries = true\n\n[[registries]]\nurl = '" + registryURL + "'\n\n"
 
 	tests := []struct {
 		name     string
@@ -181,8 +181,6 @@ version = '>=1.0.0'
 }
 
 func TestRegistriesChanged(t *testing.T) {
-	bp := func(b bool) *bool { return &b }
-
 	t.Run("identical lists compare equal", func(t *testing.T) {
 		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
 		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
@@ -241,20 +239,22 @@ func TestRegistriesChanged(t *testing.T) {
 		assert.True(t, registriesChanged(a, b))
 	})
 
-	t.Run("replace_defaults tri-state differences compare unequal", func(t *testing.T) {
-		a := DriversList{ReplaceDefaults: bp(true), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
-		b := DriversList{ReplaceDefaults: bp(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+	t.Run("exclude_builtin_registries differences compare unequal", func(t *testing.T) {
+		a := DriversList{ExcludeBuiltinRegistries: new(true), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		b := DriversList{ExcludeBuiltinRegistries: new(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
 		assert.True(t, registriesChanged(a, b),
-			"replace_defaults=true drops built-in defaults; the merged sets differ")
+			"exclude_builtin_registries=true drops the built-in registries; the merged sets differ")
 	})
 
-	t.Run("nil vs explicit false replace_defaults compare equal (no-op flip)", func(t *testing.T) {
-		// When no global config is loaded, nil and &false both mean
-		// "keep defaults" — the merged registry set is identical.
-		a := DriversList{ReplaceDefaults: nil, Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
-		b := DriversList{ReplaceDefaults: bp(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+	t.Run("project exclude_builtin_registries flip is a no-op when the global config excludes them", func(t *testing.T) {
+		saved := globalRegistryConfig
+		t.Cleanup(func() { globalRegistryConfig = saved })
+		globalRegistryConfig = &dbc.GlobalConfig{ExcludeBuiltinRegistries: true}
+
+		a := DriversList{ExcludeBuiltinRegistries: new(true), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
+		b := DriversList{ExcludeBuiltinRegistries: new(false), Registries: []dbc.RegistryEntry{{URL: "https://r.example.com"}}}
 		assert.False(t, registriesChanged(a, b),
-			"flipping unset→explicit-false without a global override doesn't change the merged set")
+			"the global exclusion already removes the built-in registries, so the merged sets are equal")
 	})
 
 	t.Run("exact duplicate entries collapse (mergeRegistries dedupes)", func(t *testing.T) {
@@ -290,7 +290,7 @@ func TestDriversListRegistries(t *testing.T) {
 		require.NoError(t, toml.Unmarshal([]byte(content), &list))
 		assert.Len(t, list.Drivers, 1)
 		assert.Empty(t, list.Registries)
-		assert.Nil(t, list.ReplaceDefaults)
+		assert.Nil(t, list.ExcludeBuiltinRegistries)
 	})
 
 	t.Run("dbc.toml with drivers AND registries decodes both", func(t *testing.T) {
@@ -303,19 +303,17 @@ func TestDriversListRegistries(t *testing.T) {
 		assert.Equal(t, "Custom", list.Registries[0].Name)
 	})
 
-	t.Run("replace_defaults = false is preserved as explicit false (tri-state)", func(t *testing.T) {
-		content := "replace_defaults = false\n[drivers]"
+	t.Run("exclude_builtin_registries = false is kept as an explicit false", func(t *testing.T) {
+		content := "exclude_builtin_registries = false\n[drivers]"
 		var list DriversList
 		require.NoError(t, toml.Unmarshal([]byte(content), &list))
-		require.NotNil(t, list.ReplaceDefaults)
-		assert.False(t, *list.ReplaceDefaults)
+		assert.Equal(t, new(false), list.ExcludeBuiltinRegistries, "an explicit false is kept")
 	})
 
-	t.Run("replace_defaults = true parses as explicit true", func(t *testing.T) {
-		content := "replace_defaults = true\n[[registries]]\nurl = \"https://a.example.com\"\n[drivers]"
+	t.Run("exclude_builtin_registries = true parses as true", func(t *testing.T) {
+		content := "exclude_builtin_registries = true\n[[registries]]\nurl = \"https://a.example.com\"\n[drivers]"
 		var list DriversList
 		require.NoError(t, toml.Unmarshal([]byte(content), &list))
-		require.NotNil(t, list.ReplaceDefaults)
-		assert.True(t, *list.ReplaceDefaults)
+		assert.Equal(t, new(true), list.ExcludeBuiltinRegistries)
 	})
 }

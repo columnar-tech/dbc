@@ -30,8 +30,8 @@ A missing global file returns `(nil, nil)`; other read errors, invalid TOML,
 and malformed registry entries return errors.
 
 Use `dbc.LoadProjectRegistries(path)` to read only the `registries` and
-`replace_defaults` settings from a project's `dbc.toml`, without decoding its
-driver specifications. Pass the returned entries and replacement flag to
+`exclude_builtin_registries` settings from a project's `dbc.toml`, without
+decoding its driver specifications. Pass the returned entries and flag to
 `dbc.WithProjectRegistries`. A missing explicitly named project file is an
 error, as are invalid TOML and malformed registry entries.
 
@@ -46,13 +46,13 @@ func newConfiguredClient(configDir, projectFile string) (*dbc.Client, error) {
     if err != nil {
         return nil, err
     }
-    entries, replaceDefaults, err := dbc.LoadProjectRegistries(projectFile)
+    entries, excludeBuiltin, err := dbc.LoadProjectRegistries(projectFile)
     if err != nil {
         return nil, err
     }
     return dbc.NewClient(
         dbc.WithGlobalConfig(global),
-        dbc.WithProjectRegistries(entries, replaceDefaults),
+        dbc.WithProjectRegistries(entries, excludeBuiltin),
     )
 }
 ```
@@ -60,15 +60,16 @@ func newConfiguredClient(configDir, projectFile string) (*dbc.Client, error) {
 When these configuration options apply, registries are merged in priority
 order: project entries first, then global entries, then built-in defaults.
 Duplicate registry URLs are removed, retaining the highest-priority entry.
-`replace_defaults = true` omits the built-in defaults, not the global entries.
-An omitted project replacement flag inherits the global setting; an explicit
-`false` restores the built-in registries even if the global setting is `true`.
+`exclude_builtin_registries = true` omits the built-in defaults, not the global
+or project entries. The built-in defaults are omitted when either the global
+or the project setting is `true`, so a project cannot bring back built-in
+registries that the global config excludes.
 
 Both loaders validate registry URLs: each must be nonempty, have a host, and
 use `http` or `https`. `dbc.NewClient` also validates entries supplied directly
 through `dbc.WithGlobalConfig` and `dbc.WithProjectRegistries` when those
 options apply. It returns an error if the merged configuration produces no
-registries. The loaders do not reject `replace_defaults = true` with no entries
+registries. The loaders do not reject `exclude_builtin_registries = true` with no entries
 on its own, because the other configuration layer may supply entries.
 
 ## URL replacements

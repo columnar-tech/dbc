@@ -395,6 +395,9 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 		registryIndex: r.base.getRegistryIndex,
 	}
 	planned, warnings, err := planner.plan(list, existing)
+	if warning := projectRegistryWarning(list); warning != "" {
+		warnings = append([]string{warning}, warnings...)
+	}
 	if err != nil {
 		return nil, warnings, err
 	}
