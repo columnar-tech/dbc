@@ -158,6 +158,7 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 		return map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKey: &armored}}
 	}
 	fromFile := map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKeyFile: &keyFile}}
+	relFile := "acme.asc"
 	userAcme := func(keys map[string]SigningKeyDefinition) *GlobalConfig {
 		return &GlobalConfig{
 			Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "acme"}},
@@ -206,7 +207,8 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			global: userAcme(fromFile),
 			project: &ProjectConfig{
 				Registries:  []RegistryEntry{{URL: "https://acme.example.com", SigningKey: "acme"}},
-				SigningKeys: fromFile,
+				SigningKeys: map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKeyFile: &relFile}},
+				Path:        filepath.Join(filepath.Dir(keyFile), "dbc.toml"),
 			},
 			wantErr: true,
 		},

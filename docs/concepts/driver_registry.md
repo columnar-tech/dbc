@@ -126,7 +126,9 @@ dBcEhefDXhP/ZcbdsjznfjBSZYzK4FFyPxkE
 ```
 
 Or keep the key in its own file, armored or binary. A relative path is relative
-to the file that contains it:
+to the file that contains it. In a project's `dbc.toml`, the path must be
+relative and stay inside the directory of `dbc.toml` (also through symbolic
+links); only your user `config.toml` can name a key file elsewhere:
 
 ```toml
 [[registries]]

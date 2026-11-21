@@ -108,7 +108,7 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	// here, because a project's dbc.toml may supply the entries at NewClient
 	// time. The "zero resulting registries" case is enforced after merging in
 	// NewClient so both library and CLI callers share the same semantics.
-	if _, err := registriesFromEntries(cfg.Registries, cfg.SigningKeys, cfg.Path); err != nil {
+	if _, err := registriesFromEntries(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
 		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
 
@@ -156,7 +156,7 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		SigningKeys:     cfg.SigningKeys,
 		Path:            absPath(path),
 	}
-	if _, err := registriesFromEntries(project.Registries, project.SigningKeys, project.Path); err != nil {
+	if _, err := registriesFromEntries(project.Registries, project.SigningKeys, project.Path, true); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return project, nil
@@ -180,7 +180,7 @@ func absPath(path string) string {
 // project on their own, without merging them with other configuration or
 // reading key files.
 func (c *ProjectConfig) Validate() error {
-	_, err := registriesFromEntries(c.Registries, c.SigningKeys, c.Path)
+	_, err := registriesFromEntries(c.Registries, c.SigningKeys, c.Path, true)
 	return err
 }
 
@@ -189,11 +189,12 @@ func (c *ProjectConfig) Validate() error {
 // their signing policies. Every definition is checked, including ones that
 // no registry names; a signing_key name is looked up only in keys, the
 // definitions of the same file. path is the file the configuration was read
-// from, or empty when it was built in memory.
-func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string) ([]Registry, error) {
+// from, or empty when it was built in memory. project is true for a
+// project's dbc.toml, whose key files must be inside the project directory.
+func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, error) {
 	policies := make(map[string]RegistrySigningPolicy, len(keys))
 	for _, name := range slices.Sorted(maps.Keys(keys)) {
-		policy, err := signingPolicyFromDefinition(name, keys[name], path)
+		policy, err := signingPolicyFromDefinition(name, keys[name], path, project)
 		if err != nil {
 			return nil, fmt.Errorf("signing key %q: %w", name, err)
 		}
@@ -218,8 +219,9 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 // signingPolicyFromDefinition checks one [signing_keys.<name>] definition of
 // the configuration file at path and returns the policy that a registry
 // naming it gets. An inline public_key is parsed now; a public_key_file is
-// only read when a registry needs its key.
-func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path string) (RegistrySigningPolicy, error) {
+// only read when a registry needs its key. project is as for
+// registriesFromEntries.
+func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path string, project bool) (RegistrySigningPolicy, error) {
 	switch {
 	case name == "":
 		return RegistrySigningPolicy{}, errors.New("name must not be empty")
@@ -234,7 +236,7 @@ func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path str
 	case def.PublicKey != nil && *def.PublicKey == "":
 		return RegistrySigningPolicy{}, errors.New("public_key must not be empty")
 	case def.PublicKeyFile != nil:
-		file, err := newSigningKeyFile(*def.PublicKeyFile, path)
+		file, err := newSigningKeyFile(*def.PublicKeyFile, path, project)
 		if err != nil {
 			return RegistrySigningPolicy{}, err
 		}

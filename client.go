@@ -170,7 +170,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		var projectRegs []Registry
 		var projectReplace *bool
 		if cfg.project != nil {
-			projectRegs, err = registriesFromEntries(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path)
+			projectRegs, err = registriesFromEntries(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
 			if err != nil {
 				return nil, err
 			}
@@ -179,7 +179,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		var globalRegs []Registry
 		var globalReplace bool
 		if cfg.globalConfig != nil {
-			globalRegs, err = registriesFromEntries(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path)
+			globalRegs, err = registriesFromEntries(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
 			if err != nil {
 				return nil, err
 			}
