@@ -247,6 +247,9 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "key files are not compared" && !keyFilesSupported {
+				t.Skip("the browser build has no key files")
+			}
 			opts := []Option{WithProjectConfig(tt.project)}
 			if tt.global != nil {
 				opts = append(opts, WithGlobalConfig(tt.global))
