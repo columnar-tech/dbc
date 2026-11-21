@@ -44,9 +44,9 @@ type DriversList struct {
 // a different EFFECTIVE registry resolution when combined with the
 // current process-wide globalRegistryConfig and built-in defaults. This
 // is what the client actually uses to resolve drivers, so changes that
-// the merge would collapse (e.g. flipping nil → &false when defaults
-// were already inherited, or removing an exact duplicate entry) are
-// correctly NOT treated as drift.
+// the merge would collapse (e.g. flipping exclude_builtin_registries when
+// the global config already excludes the built-in registries, or removing
+// an exact duplicate entry) are correctly NOT treated as drift.
 //
 // Implemented by running both lists through the same newDBCClient merge
 // path and comparing the resulting normalized URL sets. Display-only
