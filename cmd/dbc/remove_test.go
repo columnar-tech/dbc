@@ -168,4 +168,11 @@ func (suite *SubcommandTestSuite) TestRemoveKeepsSigningKeys() {
 	suite.Require().Contains(list.SigningKeys, "acme")
 	suite.Equal(armored, *list.SigningKeys["acme"].PublicKey)
 	suite.NotContains(list.Drivers, "test-driver-1")
+
+	// The inline key is written back as a multi-line string, not as one line
+	// of escaped newlines.
+	written, err := os.ReadFile(path)
+	suite.Require().NoError(err)
+	suite.Contains(string(written), "public_key = \"\"\"\n-----BEGIN PGP PUBLIC KEY BLOCK-----\n\n")
+	suite.NotContains(string(written), `\n`)
 }

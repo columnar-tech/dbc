@@ -55,7 +55,7 @@ const reservedSigningKeyName = "columnar"
 // it.
 type SigningKeyDefinition struct {
 	Type          string  `toml:"type"`
-	PublicKey     *string `toml:"public_key,omitempty"`
+	PublicKey     *string `toml:"public_key,multiline,omitempty"`
 	PublicKeyFile *string `toml:"public_key_file,omitempty"`
 }
 
