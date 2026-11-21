@@ -307,49 +307,73 @@ func registryURLKey(u *url.URL) string {
 	return cp.String()
 }
 
-// checkProjectRedeclarations rejects a project registry that declares the URL
-// of a registry from the user's config, or of a built-in default registry,
-// with a different signing policy. A project's dbc.toml can add registries,
-// but it cannot change how a registry that the user or dbc already trusts is
-// verified. The user's config is compared first; the defaults are compared
-// unless the user's config replaces them, since a project's replace_defaults
+// registryTrustKey returns the identity of a registry URL for the signing
+// trust boundary. Like the source identity of a lock file, it leaves out the
+// user information, query and fragment, so a registry that differs only in
+// them (for example a tenant selected with a query parameter) is the same
+// registry here, although it is a separate endpoint for merging. The default
+// port of the scheme is also left out.
+func registryTrustKey(u *url.URL) string {
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Host)
+	if port := u.Port(); (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		host = strings.TrimSuffix(host, ":"+port)
+	}
+	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
+}
+
+// checkProjectRedeclarations rejects a project registry that declares a
+// registry from the user's config, or a built-in default registry, with a
+// different signing policy. A project's dbc.toml can add registries, but it
+// cannot change how a registry that the user or dbc already trusts is
+// verified. Registries are compared by registryTrustKey, so a project cannot
+// get around this with another query or user information; when several
+// trusted registries share the key, the project's declaration must match all
+// of them. The defaults are compared unless the user's config replaces them
+// or declares the same endpoint itself, since a project's replace_defaults
 // does not lift this check. Policies are the same when they verify with the
 // same certificate; an inline copy of the Columnar key is the same as the
 // built-in key. Policies that read a key file are never the same, because the
 // files are not read here; the project's declaration has to be removed
 // instead.
 func checkProjectRedeclarations(projectRegs, globalRegs []Registry, globalReplaceDefaults bool, defaults []Registry) error {
-	trusted := globalRegs
+	trusted := slices.Clip(globalRegs)
 	if !globalReplaceDefaults {
-		trusted = append(slices.Clip(globalRegs), defaults...)
+		overridden := make(map[string]bool)
+		for _, r := range globalRegs {
+			if r.BaseURL != nil {
+				overridden[registryURLKey(r.BaseURL)] = true
+			}
+		}
+		for _, r := range defaults {
+			if r.BaseURL != nil && !overridden[registryURLKey(r.BaseURL)] {
+				trusted = append(trusted, r)
+			}
+		}
 	}
-	declared := make(map[string]Registry)
+	declared := make(map[string][]Registry)
 	for _, r := range trusted {
 		if r.BaseURL == nil {
 			continue
 		}
-		key := registryURLKey(r.BaseURL)
-		if _, ok := declared[key]; !ok {
-			declared[key] = r
-		}
+		key := registryTrustKey(r.BaseURL)
+		declared[key] = append(declared[key], r)
 	}
 	for _, p := range projectRegs {
 		if p.BaseURL == nil {
 			continue
 		}
-		existing, ok := declared[registryURLKey(p.BaseURL)]
-		if !ok {
-			continue
+		for _, existing := range declared[registryTrustKey(p.BaseURL)] {
+			same, err := p.Signing.sameKeyWithoutFiles(existing.Signing)
+			if err != nil {
+				return fmt.Errorf("registry %s: %w", registryURLForMessage(p.BaseURL), err)
+			}
+			if same {
+				continue
+			}
+			return fmt.Errorf("registry %s in the project is also declared by the user config or by dbc's defaults, with %s; a project cannot change how that registry is verified (it declares %s), so remove it from the project's registries",
+				registryURLForMessage(p.BaseURL), existing.Signing, p.Signing)
 		}
-		same, err := p.Signing.sameKeyWithoutFiles(existing.Signing)
-		if err != nil {
-			return fmt.Errorf("registry %s: %w", registryURLForMessage(p.BaseURL), err)
-		}
-		if same {
-			continue
-		}
-		return fmt.Errorf("registry %s in the project is also declared by the user config or by dbc's defaults, with %s; a project cannot change how that registry is verified (it declares %s), so remove it from the project's registries",
-			registryURLForMessage(p.BaseURL), existing.Signing, p.Signing)
 	}
 	return nil
 }

@@ -153,7 +153,8 @@ public_key_file = "keys/example.asc"
   this only for a registry you trust as a whole.
 - A project's `dbc.toml` cannot change how a registry from your user config or
   a default registry is checked: declaring the same URL with another key, or
-  unsigned, is an error. It can still add registries with their own keys or
+  unsigned, is an error, also when the URL only adds a query or user
+  information. It can still add registries with their own keys or
   unsigned, so review changes to its registries and signing keys like code.
 - In a project, keep the key inline or in a file committed next to `dbc.toml`,
   so that everyone who uses the project has it.

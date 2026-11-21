@@ -226,6 +226,53 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "a query is the same registry",
+			project: &ProjectConfig{
+				Registries:      []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/?tenant=example", SigningKey: false}},
+				ReplaceDefaults: &replace,
+			},
+			wantErr: true,
+		},
+		{
+			name:    "user information is the same registry",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://someone@dbc-cdn.columnar.tech", SigningKey: false}}},
+			wantErr: true,
+		},
+		{
+			name:    "a query tenant with the same policy",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/?tenant=example"}}},
+		},
+		{
+			name:    "another path is another registry",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/other", SigningKey: false}}},
+		},
+		{
+			name: "user tenants with different policies",
+			global: &GlobalConfig{
+				Registries: []RegistryEntry{
+					{URL: "https://acme.example.com/?tenant=a", SigningKey: "acme"},
+					{URL: "https://acme.example.com/?tenant=b", SigningKey: false},
+				},
+				SigningKeys: inline(armored),
+			},
+			project: &ProjectConfig{
+				Registries:  []RegistryEntry{{URL: "https://acme.example.com/?tenant=c", SigningKey: "acme"}},
+				SigningKeys: inline(armored),
+			},
+			wantErr: true,
+		},
+		{
+			name: "user config overrides a default with its own key",
+			global: &GlobalConfig{
+				Registries:  []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: "acme"}},
+				SigningKeys: inline(armored),
+			},
+			project: &ProjectConfig{
+				Registries:  []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/", SigningKey: "acme"}},
+				SigningKeys: inline(armored),
+			},
+		},
+		{
 			name:    "the default port is the same registry",
 			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech:443/", SigningKey: false}}},
 			wantErr: true,
