@@ -16,6 +16,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -424,4 +425,12 @@ func (suite *SubcommandTestSuite) TestInstallFromARegistryReplacesTheSameVersion
 	// Without --registry an installed version is still kept.
 	suite.runCmd(InstallCmd{Driver: "test-driver-1=1.0.0", Level: suite.configLevel}.GetModelCustom(base))
 	suite.Len(downloads, 2)
+}
+
+func TestIsSelectionError(t *testing.T) {
+	conflict := &dbc.SignerConflictError{Name: "x"}
+	assert.True(t, isSelectionError(fmt.Errorf("wrapped: %w", conflict)))
+	assert.True(t, isSelectionError(fmt.Errorf("wrapped: %w", dbc.ErrIncompleteIndex)))
+	assert.False(t, isSelectionError(dbc.ErrPackageMiss))
+	assert.False(t, isSelectionError(errors.New("driver `x` not found")))
 }

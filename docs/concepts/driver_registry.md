@@ -60,7 +60,9 @@ dbc uses the registries in this order, highest priority first:
 2. Global registries (`config.toml`)
 3. Built-in registries
 
-A URL that appears more than once is used only once, at its highest-priority position. When more than one registry publishes a driver with the same name, dbc installs it from the highest-priority registry that has a version matching the request.
+A URL that appears more than once is used only once, at its highest-priority position. When more than one registry publishes a driver with the same name, dbc installs it from the highest-priority registry that has a version matching the request. This fallback only happens between registries whose packages are verified with the same signing key: if registries with different keys publish the same driver name, whatever their versions, dbc reports an error instead of choosing one, so adding a registry cannot silently change who signs a driver.
+
+To choose where a driver comes from, dbc needs the index of every configured registry, since any of them might publish the driver. If one cannot be fetched or read (for example because access is denied, it is not found, the request times out or the server fails), [`dbc add`](../reference/cli.md#add), [`dbc install`](../reference/cli.md#install), [`dbc lock`](../reference/cli.md#lock) and [`dbc sync`](../reference/cli.md#sync) stop with an error that names the registry instead of resolving from the others. Drivers that are already in `dbc.lock`, drivers with a source and installs with `--registry` are not affected, and [`dbc search`](../reference/cli.md#search) still lists the drivers of the registries it could reach.
 
 To take a driver from one registry only, set its [`source`](../reference/driver_list.md#source) in the driver list, or pass `--registry` to [`dbc add`](../reference/cli.md#add) or [`dbc install`](../reference/cli.md#install). A `name` in `[[registries]]` lets a source refer to the registry; it is also shown as the registry's `[name]` tag in `dbc search` output, taking precedence over the name the registry's index gives itself.
 

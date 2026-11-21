@@ -18,7 +18,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -101,16 +103,22 @@ func TestAddFallbackMetadataError(t *testing.T) {
 				if partialFailure {
 					registryErr = fmt.Errorf("registry unavailable: DNS resolution failed")
 				}
+				want := metadata.want
+				if partialFailure {
+					want = "cannot resolve driver shared"
+				}
 				model := AddCmd{Path: path, Driver: []string{"shared"}}.GetModelCustom(baseModel{
 					getDriverRegistry: func() ([]dbc.Driver, error) { return drivers, registryErr },
 				})
 				msg := model.Init()()
 				selectionErr, ok := msg.(error)
 				require.True(t, ok, "expected metadata error, got %T", msg)
-				assert.Contains(t, selectionErr.Error(), metadata.want)
+				assert.Contains(t, selectionErr.Error(), want)
 				assert.NotContains(t, selectionErr.Error(), "--pre")
 				if partialFailure {
-					assert.Contains(t, selectionErr.Error(), "Some driver registries were unavailable")
+					// The failed registry might list the driver too, so no
+					// version is selected from the others.
+					assert.Contains(t, selectionErr.Error(), "needs the index of every configured registry")
 					assert.Contains(t, selectionErr.Error(), registryErr.Error())
 				}
 				data, err := os.ReadFile(path)
@@ -422,64 +430,33 @@ version = '=0.9.0-alpha.1'
 `, string(data))
 }
 
+// TestAddPartialRegistryFailure pins that dbc add does not choose a registry
+// while one registry's index is missing: that registry might list the same
+// driver with another signer. Whether the reachable registries list the
+// driver does not matter.
 func (suite *SubcommandTestSuite) TestAddPartialRegistryFailure() {
-	// Initialize driver list
-	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
-	suite.runCmd(m)
+	for _, driver := range []string{"test-driver-1", "nonexistent-driver"} {
+		suite.Run(driver, func() {
+			suite.Require().NoError(os.WriteFile(filepath.Join(suite.tempdir, "dbc.toml"), []byte("[drivers]\n"), 0o644))
+			partialFailingRegistry := func() ([]dbc.Driver, error) {
+				drivers, _ := getTestDriverRegistry()
+				return drivers, &dbc.RegistryIndexError{Registry: must(url.Parse("https://cdn-fallback.example.com")), Err: errors.New("DNS resolution failed")}
+			}
+			m := AddCmd{
+				Path:   filepath.Join(suite.tempdir, "dbc.toml"),
+				Driver: []string{driver},
+			}.GetModelCustom(withRegistries(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg}))
 
-	// Test that add command handles partial registry failure gracefully
-	// (one registry succeeds, another fails - returns both drivers and error)
-	partialFailingRegistry := func() ([]dbc.Driver, error) {
-		// Get drivers from the test registry (simulating one successful registry)
-		drivers, _ := getTestDriverRegistry()
-		// But also return an error (simulating another registry that failed)
-		return drivers, fmt.Errorf("registry https://cdn-fallback.example.com: failed to fetch driver registry: DNS resolution failed")
+			out := suite.runCmdErr(m)
+			suite.Contains(out, "needs the index of every configured registry")
+			suite.Contains(out, "registry https://cdn-fallback.example.com: DNS resolution failed")
+			suite.Contains(out, "pass --registry")
+
+			data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
+			suite.Require().NoError(err)
+			suite.NotContains(string(data), driver)
+		})
 	}
-
-	// Should succeed if the requested driver is found in the available drivers
-	m = AddCmd{
-		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
-		Driver: []string{"test-driver-1"},
-		Pre:    false,
-	}.GetModelCustom(
-		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
-
-	suite.runCmd(m)
-	// Should succeed without printing the registry error
-
-	// Verify the file was updated correctly
-	data, err := os.ReadFile(filepath.Join(suite.tempdir, "dbc.toml"))
-	suite.Require().NoError(err)
-	suite.Contains(string(data), "[drivers.test-driver-1]")
-}
-
-func (suite *SubcommandTestSuite) TestAddPartialRegistryFailureDriverNotFound() {
-	// Initialize driver list
-	m := InitCmd{Path: filepath.Join(suite.tempdir, "dbc.toml")}.GetModel()
-	suite.runCmd(m)
-
-	// Test that add command shows registry errors when the requested driver is not found
-	partialFailingRegistry := func() ([]dbc.Driver, error) {
-		// Get drivers from the test registry (simulating one successful registry)
-		drivers, _ := getTestDriverRegistry()
-		// But also return an error (simulating another registry that failed)
-		return drivers, fmt.Errorf("registry https://cdn-fallback.example.com: failed to fetch driver registry: DNS resolution failed")
-	}
-
-	// Should fail with enhanced error message if the requested driver is not found
-	m = AddCmd{
-		Path:   filepath.Join(suite.tempdir, "dbc.toml"),
-		Driver: []string{"nonexistent-driver"},
-		Pre:    false,
-	}.GetModelCustom(
-		baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
-
-	out := suite.runCmdErr(m)
-	// Should show the driver not found error AND the registry error
-	suite.Contains(out, "driver `nonexistent-driver` not found")
-	suite.Contains(out, "Note: Some driver registries were unavailable")
-	suite.Contains(out, "failed to fetch driver registry")
-	suite.Contains(out, "DNS resolution failed")
 }
 
 func (suite *SubcommandTestSuite) TestAddCompleteRegistryFailure() {
