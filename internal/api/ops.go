@@ -146,13 +146,20 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 	if platform == "" {
 		platform = config.PlatformTuple()
 	}
+	// Choosing the registry needs every index: a failed registry is an
+	// error even when another one lists the driver.
 	drivers, searchErr := c.Search(ctx, name)
-	if searchErr != nil && allRegistriesFailed(c, searchErr) {
-		return ResolveResult{}, searchErr
-	}
-	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	pkg, err := dbc.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return candidate.GetLatestPackage(platform, false)
 	})
+	var conflict *dbc.SignerConflictError
+	switch {
+	case errors.Is(err, dbc.ErrIncompleteIndex), errors.As(err, &conflict):
+		return ResolveResult{}, err
+	case err != nil && pkg.Driver.Path != "" && !errors.Is(err, dbc.ErrPackageMiss):
+		return ResolveResult{}, err
+	}
+	// Without an eligible version the driver's versions are still reported.
 	if pkg.Driver.Path != "" {
 		out := ResolveResult{Path: pkg.Driver.Path, Platform: platform, Versions: []string{}}
 		for _, v := range pkg.Driver.Versions(platform) {
@@ -162,9 +169,6 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 			out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
 		}
 		return out, nil
-	}
-	if searchErr != nil {
-		return ResolveResult{}, fmt.Errorf("driver %q not found in reachable registries; some registries failed: %w", name, searchErr)
 	}
 	return ResolveResult{}, fmt.Errorf("driver %q not found", name)
 }

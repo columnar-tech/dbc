@@ -38,6 +38,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 )
@@ -680,12 +681,133 @@ type packageMiss struct{ error }
 
 func (e packageMiss) Is(target error) bool { return target == ErrPackageMiss }
 
-// ResolvePackage tries matching driver entries in order, advancing only on
-// ErrPackageMiss. The returned package identifies the selected driver on
-// success or a terminal error. If all matching entries miss, it identifies
-// the first matching driver and returns that entry's error. If no entry
-// matches, it returns a zero package and a driver-not-found error.
-func ResolvePackage(drivers []Driver, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
+// RegistryIndexError reports that the index of one registry could not be
+// fetched or parsed. Client.Search joins one per failed registry.
+type RegistryIndexError struct {
+	Registry *url.URL
+	Err      error
+}
+
+// Error names the registry without credentials. The cause is redacted too:
+// an HTTP error repeats the request URL with the registry's user information
+// and query. Unwrap still returns the original cause.
+func (e *RegistryIndexError) Error() string {
+	msg := fmt.Sprintf("registry %s: %v", registryLabel(&Registry{BaseURL: e.Registry}), e.Err)
+	return registryurl.Redact(msg, registryurl.Secrets([]*url.URL{e.Registry}))
+}
+
+func (e *RegistryIndexError) Unwrap() error { return e.Err }
+
+// ErrIncompleteIndex is returned by ResolvePackage when the index of a
+// registry is missing. Choosing where a driver comes from compares every
+// registry that lists the driver, so it needs the index of every registry,
+// also of those that turn out not to list it.
+var ErrIncompleteIndex = errors.New("choosing where a driver comes from needs the index of every configured registry")
+
+// SignerConflictError is returned by ResolvePackage when registries whose
+// packages are verified with different signers list the same driver name.
+// A fallback from one registry to another is only allowed between
+// registries with the same signer, so the registry has to be chosen
+// explicitly.
+type SignerConflictError struct {
+	Name string
+	// Registries are the registries that list the driver, in priority order.
+	Registries []*Registry
+	// Signers are the signer identities of Registries, in the same order.
+	Signers []string
+}
+
+func (e *SignerConflictError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "driver `%s` is published by registries whose packages are verified with different signers:", e.Name)
+	for i, r := range e.Registries {
+		fmt.Fprintf(&b, " %s (%s)", registryLabel(r), e.Signers[i])
+		if i < len(e.Registries)-1 {
+			b.WriteString(",")
+		}
+	}
+	return b.String()
+}
+
+// registryLabel names a registry in messages without its user information,
+// query or fragment, which may hold credentials.
+func registryLabel(r *Registry) string {
+	if r == nil || r.BaseURL == nil {
+		return "unknown registry"
+	}
+	u := *r.BaseURL
+	u.User, u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = nil, "", false, "", ""
+	if r.Name != "" {
+		return fmt.Sprintf("%s [%s]", u.String(), r.Name)
+	}
+	return u.String()
+}
+
+// registrySignerIdentity identifies the signer whose key verifies the
+// packages of a registry. Every registry is verified with the built-in
+// Columnar key for now.
+//
+// TODO: once a registry can name its own signing key, derive the identity
+// from its signing policy:
+//   - a key: a digest of the whole configured certificate, not only of the
+//     primary key, since subkeys and revocations change which signatures it
+//     accepts;
+//   - an unsigned registry: an identity of its own (for example from its
+//     registry identity), so that two unsigned registries never count as the
+//     same signer and a driver name they share is a conflict;
+//   - a key file: read it only when several registries list the name, and
+//     use the certificate read here for the verification and the lock pin of
+//     the same operation.
+func registrySignerIdentity(*Registry) (string, error) {
+	return "the Columnar signing key", nil
+}
+
+// ResolvePackage chooses the package of a driver that is not pinned yet.
+// drivers is the merged index of the registries in priority order, and
+// indexErr the error Client.Search returned with it: any failed registry
+// makes the index incomplete, which is an error (ErrIncompleteIndex)
+// whether or not that registry would list the driver.
+//
+// All registries that list the driver, whatever their versions and
+// platforms, must verify their packages with the same signer; otherwise it
+// returns a SignerConflictError. Among them, matching entries are tried in
+// order, advancing only on ErrPackageMiss. The returned package identifies
+// the selected driver on success or a terminal error. If all matching
+// entries miss, it identifies the first matching driver and returns that
+// entry's error. If no entry matches, it returns a zero package and a
+// driver-not-found error.
+//
+// To resolve from one registry only, pass that registry's index alone.
+func ResolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
+	return resolvePackage(drivers, indexErr, name, selectPackage, registrySignerIdentity)
+}
+
+func resolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error), signerOf func(*Registry) (string, error)) (PkgInfo, error) {
+	if indexErr != nil {
+		return PkgInfo{}, fmt.Errorf("cannot resolve driver %s: %w:\n%w", name, ErrIncompleteIndex, indexErr)
+	}
+
+	var (
+		candidates []*Registry
+		signers    []string
+	)
+	for _, d := range drivers {
+		if d.Path != name || slices.Contains(candidates, d.Registry) {
+			continue
+		}
+		signer, err := signerOf(d.Registry)
+		if err != nil {
+			return PkgInfo{Driver: d}, fmt.Errorf("driver %s: %s: %w", name, registryLabel(d.Registry), err)
+		}
+		candidates = append(candidates, d.Registry)
+		signers = append(signers, signer)
+	}
+	for _, s := range signers[min(1, len(signers)):] {
+		if s != signers[0] {
+			return PkgInfo{}, &SignerConflictError{Name: name, Registries: candidates, Signers: signers}
+		}
+	}
+
 	var first PkgInfo
 	var firstErr error
 	for _, d := range drivers {

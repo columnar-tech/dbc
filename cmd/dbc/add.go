@@ -257,7 +257,12 @@ func (m addModel) Init() tea.Cmd {
 			} else if drivers, err = mergedIndex(); err != nil {
 				return err
 			}
-			pkg, err := dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			// Only the merged index of all registries can be incomplete.
+			var indexErr error
+			if target == nil {
+				indexErr = registryErrors
+			}
+			pkg, err := dbc.ResolvePackage(drivers, indexErr, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 				return selectProjectPackage(candidate, requested, nil, config.PlatformTuple())
 			})
 			if err != nil && target != nil {
@@ -269,6 +274,8 @@ func (m addModel) Init() tea.Cmd {
 			if err != nil {
 				err = redactRegistryError(err, m.getRegistries)
 				switch {
+				case isSelectionError(err):
+					return fmt.Errorf("%w\n%s", err, registryHint)
 				case pkg.Driver.Path == "":
 					return wrapWithRegistryContext(err, registryErrors)
 				case spec.Vers != nil:

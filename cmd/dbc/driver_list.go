@@ -294,7 +294,8 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		// indexFor already fails on an incomplete index.
+		pkg, err := dbc.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if spec.Version != nil {
 				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
 			}

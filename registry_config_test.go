@@ -15,6 +15,7 @@
 package dbc
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -724,23 +725,23 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	pkg, err := ResolvePackage([]Driver{
 		decode("2.0.0-beta.1"),
 		decode("0.7.0"),
-	}, "shared", stable)
+	}, nil, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	prerelease := decode("2.0.0-beta.1")
 	_, err = prerelease.GetLatestPackage("linux_amd64", false)
 	require.ErrorIs(t, err, ErrPackageMiss)
-	pkg, err = ResolvePackage([]Driver{prerelease, decode("0.7.0")}, "shared", func(d *Driver) (PkgInfo, error) {
+	pkg, err = ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", true)
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0-beta.1", pkg.Version.String())
-	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, "shared", stable)
+	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	constraint, err := semver.NewConstraint("=0.7.0")
 	require.NoError(t, err)
-	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
+	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 }
@@ -766,7 +767,7 @@ func TestResolvePackageEmptyPackageInfo(t *testing.T) {
 					var pkg PkgInfo
 					var err error
 					require.NotPanics(t, func() {
-						pkg, err = ResolvePackage(drivers, "shared", func(d *Driver) (PkgInfo, error) {
+						pkg, err = ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 							return d.GetLatestPackage("linux_amd64", allowPrerelease)
 						})
 					})
@@ -800,7 +801,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 				func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) },
 				func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(c, "linux_amd64") },
 			} {
-				pkg, err := ResolvePackage(drivers, "shared", selectPackage)
+				pkg, err := ResolvePackage(drivers, nil, "shared", selectPackage)
 				require.NoError(t, err)
 				assert.Equal(t, "1.0.0", pkg.Version.String())
 				assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -811,7 +812,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 			assert.Equal(t, "2.0.0", latest.String())
 			exact, err := semver.NewConstraint("=2.0.0")
 			require.NoError(t, err)
-			pkg, err := ResolvePackage(drivers, "shared", func(d *Driver) (PkgInfo, error) {
+			pkg, err := ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 				return d.GetWithConstraint(exact, "linux_amd64")
 			})
 			require.EqualError(t, err, "no package found for platform 'linux_amd64'")
@@ -842,7 +843,7 @@ func TestResolvePackageMissingVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pkg, err := ResolvePackage([]Driver{first, fallback}, "shared", selectPackage)
+			pkg, err := ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
 			require.EqualError(t, err, "invalid package metadata for driver shared: missing version")
 			assert.NotErrorIs(t, err, ErrPackageMiss)
 			assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -873,4 +874,125 @@ func TestSearchPrefersTheConfiguredRegistryName(t *testing.T) {
 		require.Len(t, drivers, 1)
 		assert.Equal(t, tc.want, drivers[0].Registry.Name)
 	}
+}
+
+func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
+	first := &Registry{Name: "first", BaseURL: mustParseURL("https://user:secret@first.test/r?token=t")}
+	second := &Registry{BaseURL: mustParseURL("https://second.test")}
+	third := &Registry{BaseURL: mustParseURL("https://third.test")}
+	driver := func(r *Registry, versions ...string) Driver {
+		d := Driver{Path: "shared", Registry: r}
+		for _, v := range versions {
+			d.PkgInfo = append(d.PkgInfo, pkginfo{Version: semver.MustParse(v), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}})
+		}
+		return d
+	}
+	signers := map[*Registry]string{first: "key A", second: "key A", third: "key B"}
+	signerOf := func(r *Registry) (string, error) { return signers[r], nil }
+	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
+
+	// The same signer: the #584 fallback from a registry without a matching
+	// version to the next one still works.
+	pkg, err := resolvePackage([]Driver{driver(first), driver(second, "1.0.0"), {Path: "other", Registry: third}}, nil, "shared", latest, signerOf)
+	require.NoError(t, err)
+	assert.Same(t, second, pkg.Driver.Registry)
+
+	// Different signers conflict even when only one registry has a version,
+	// and before any package is selected.
+	selected := false
+	_, err = resolvePackage([]Driver{driver(first, "1.0.0"), driver(third)}, nil, "shared", func(d *Driver) (PkgInfo, error) {
+		selected = true
+		return latest(d)
+	}, signerOf)
+	var conflict *SignerConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.False(t, selected)
+	assert.Equal(t, []*Registry{first, third}, conflict.Registries)
+	assert.Equal(t, []string{"key A", "key B"}, conflict.Signers)
+	assert.Contains(t, err.Error(), "https://first.test/r [first] (key A), https://third.test (key B)")
+	assert.NotContains(t, err.Error(), "secret")
+	assert.NotContains(t, err.Error(), "token")
+
+	// A failure to identify a signer is an error.
+	_, err = resolvePackage([]Driver{driver(first, "1.0.0")}, nil, "shared", latest, func(*Registry) (string, error) {
+		return "", errors.New("cannot read the key")
+	})
+	assert.ErrorContains(t, err, "cannot read the key")
+
+	// The built-in identity is the same for every registry.
+	pkg, err = ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
+	require.NoError(t, err)
+	assert.Same(t, third, pkg.Driver.Registry)
+}
+
+func TestResolvePackageRequiresEveryIndex(t *testing.T) {
+	listed := Driver{Path: "shared", Registry: &Registry{BaseURL: mustParseURL("https://first.test")},
+		PkgInfo: []pkginfo{{Version: semver.MustParse("1.0.0"), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}}}}
+	indexErr := errors.Join(&RegistryIndexError{Registry: mustParseURL("https://second.test"), Err: ErrUnauthorized})
+	_, err := ResolvePackage([]Driver{listed}, indexErr, "shared", func(d *Driver) (PkgInfo, error) {
+		t.Fatal("no package may be selected from an incomplete index")
+		return PkgInfo{}, nil
+	})
+	require.ErrorIs(t, err, ErrIncompleteIndex)
+	require.ErrorIs(t, err, ErrUnauthorized)
+	var indexError *RegistryIndexError
+	require.ErrorAs(t, err, &indexError)
+	assert.Equal(t, "https://second.test", indexError.Registry.String())
+}
+
+func TestSearchAndInstallReportEachFailedRegistry(t *testing.T) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "drivers:\n  - path: x\n    name: X\n")
+	}))
+	t.Cleanup(ok.Close)
+	for _, status := range []int{http.StatusNotFound, http.StatusGone, http.StatusInternalServerError} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+			}))
+			t.Cleanup(failing.Close)
+			c, err := NewClient(WithRegistries([]Registry{
+				{BaseURL: mustParseURL(ok.URL)},
+				{BaseURL: mustParseURL(failing.URL)},
+			}))
+			require.NoError(t, err)
+
+			drivers, err := c.Search(t.Context(), "")
+			assert.Len(t, drivers, 1, "search keeps the partial result")
+			var indexErr *RegistryIndexError
+			require.ErrorAs(t, err, &indexErr)
+			assert.Equal(t, failing.URL, indexErr.Registry.String())
+
+			// Install of a driver that the reachable registry lists still
+			// fails: the failed registry might list it as well.
+			_, err = c.Install(t.Context(), config.Config{}, "x")
+			require.ErrorIs(t, err, ErrIncompleteIndex)
+			assert.ErrorContains(t, err, failing.URL)
+		})
+	}
+}
+
+// TestRegistryIndexErrorHidesURLSecrets pins that a failed registry's
+// credentials do not appear in the error, also where the HTTP client repeats
+// the request URL.
+func TestRegistryIndexErrorHidesURLSecrets(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	unreachable := "http://user:hunter22@" + server.Listener.Addr().String() + "/r?token=supersecret"
+	server.Close()
+
+	c, err := NewClient(WithRegistries([]Registry{{BaseURL: mustParseURL(unreachable)}}))
+	require.NoError(t, err)
+	_, err = c.Search(t.Context(), "")
+	require.Error(t, err)
+	var indexErr *RegistryIndexError
+	require.ErrorAs(t, err, &indexErr)
+	assert.Contains(t, indexErr.Unwrap().Error(), "supersecret", "the cause itself is kept for errors.Is and errors.As")
+	for _, secret := range []string{"supersecret", "hunter22", "user:"} {
+		assert.NotContains(t, err.Error(), secret)
+	}
+	assert.Contains(t, err.Error(), "/r")
+
+	_, err = c.Install(t.Context(), config.Config{}, "x")
+	require.ErrorIs(t, err, ErrIncompleteIndex)
+	assert.NotContains(t, err.Error(), "supersecret")
 }
