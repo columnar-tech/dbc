@@ -173,12 +173,13 @@ or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
   from.
 - The signature covers only the driver library. The manifest and the other
   files in the archive, which are installed next to the library, are covered
-  only by the archive hash. Until `dbc.lock` records that hash, it comes from
-  the same registry as the archive.
+  only by the archive hash. Until `dbc.lock` records that hash, it is the hash
+  the registry publishes, or the hash of the archive as downloaded when the
+  registry publishes none; neither tells who made the archive.
 - The signature does not name the driver or its version, so a registry can
   serve a library signed by its key under another name or version.
-- An expired key does not stop anything: a signature made while the key was
-  valid still verifies after the key expires. A revocation takes effect only
+- An expired key does not stop anything: a signature dated while the key was
+  valid can still verify after the key expires. A revocation takes effect only
   once the certificate in your configuration includes it. If a key leaks,
   update the configured certificate with the revocation, or replace or remove
   the key.
