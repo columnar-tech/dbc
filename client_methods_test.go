@@ -51,6 +51,8 @@ func newInstallTestServer(t *testing.T) *httptest.Server {
 
 	tarballData, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
 	require.NoError(t, err)
+	tarball11Data, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.1.tar.gz"))
+	require.NoError(t, err)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -58,6 +60,11 @@ func newInstallTestServer(t *testing.T) *httptest.Server {
 			w.Header().Set("Content-Type", "application/yaml")
 			w.Write(indexData)
 		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
+			tarballData := tarballData
+			if strings.Contains(r.URL.Path, "/1.1.0/") {
+				// Serve an archive that declares the version the index lists.
+				tarballData = tarball11Data
+			}
 			w.Header().Set("Content-Type", "application/gzip")
 			w.Header().Set("Content-Length", fmt.Sprint(len(tarballData)))
 			w.Write(tarballData)

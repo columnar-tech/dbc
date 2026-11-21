@@ -44,7 +44,9 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lock
 	groups := map[resolution.Target][]dbc.PackageInfo{}
 	checkedCurrent := false
 	for _, version := range drv.AllVersions() {
-		if version.Version == nil || !version.Version.Equal(current.Version) {
+		// Compare the spelling: Equal ignores build metadata, and installs
+		// check the package against the locked spelling.
+		if version.Version == nil || version.Version.String() != current.Version.String() {
 			continue
 		}
 		for _, pkg := range version.Packages {
@@ -77,7 +79,7 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lock
 		if len(packages) != 1 || unrecordableRelativePackageURL(packages[0].URL) {
 			continue
 		}
-		pkg, err := drv.GetPackage(current.Version, packages[0].Platform, true)
+		pkg, err := withExactVersion(drv, current.Version).GetPackage(current.Version, packages[0].Platform, true)
 		if err != nil || publishedHash(pkg) == "" {
 			continue
 		}

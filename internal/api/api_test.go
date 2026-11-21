@@ -79,6 +79,8 @@ func fixtureServer(t *testing.T) string {
 	require.NoError(t, err)
 	tarball, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.tar.gz"))
 	require.NoError(t, err)
+	tarball11, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.1.tar.gz"))
+	require.NoError(t, err)
 	unsigned, err := os.ReadFile(filepath.Join(testdata, "test-driver-no-sig.tar.gz"))
 	require.NoError(t, err)
 
@@ -88,6 +90,9 @@ func fixtureServer(t *testing.T) string {
 			w.Write(index)
 		case strings.Contains(r.URL.Path, "test-driver-no-sig"):
 			w.Write(unsigned)
+		case strings.Contains(r.URL.Path, "/1.1.0/"):
+			// Serve an archive that declares the version the index lists.
+			w.Write(tarball11)
 		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
 			w.Write(tarball)
 		default:
