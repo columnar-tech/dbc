@@ -158,7 +158,8 @@ $ dbc search --verbose
     ├── 1.5.4
     ├── 1.5.5
     ├── 1.5.6
-    ╰── 2.0.0
+    ├── 2.0.0
+    ╰── 2.0.1
 • exasol
    Title: Exasol Driver
    Description: An ADBC driver for Exasol developed by Exasol Labs
