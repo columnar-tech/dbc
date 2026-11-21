@@ -163,4 +163,26 @@ that its registry is unsigned. If you later point a registry at a different key
 or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
 `--no-verify`; delete `dbc.lock` and run `dbc lock` again to accept the new key.
 
+### What a signing key does not cover
+
+- A key is trusted for every driver its registry serves, not for particular
+  driver names. One exception: a registry with its own key, or unsigned, cannot
+  provide a driver name that a registry checked with Columnar's key also
+  serves. `dbc install`, `dbc add` and `dbc lock` (and `dbc sync` without a
+  lock entry) stop with an error in that case, and also when the index of such
+  a registry cannot be read. This only compares the registries that are in
+  use: with `replace_defaults = true`, the default registries are not checked.
+  A driver that `dbc.lock` already pins to a registry is not checked again.
+- The signature covers only the driver library. The manifest and the other
+  files in the archive, which are installed next to the library, are covered
+  only by the archive hash. Until `dbc.lock` records that hash, it comes from
+  the same registry as the archive.
+- The signature does not name the driver or its version, so a registry can
+  serve a library signed by its key under another name or version.
+- An expired key does not stop anything: a signature made while the key was
+  valid still verifies after the key expires. A revocation takes effect only
+  once the certificate in your configuration includes it. If a key leaks,
+  update the configured certificate with the revocation, or replace or remove
+  the key.
+
 For Go library configuration and explicit registry overrides, see [Go Library](../guides/go_library.md).
