@@ -226,6 +226,11 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "the default port is the same registry",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech:443/", SigningKey: false}}},
+			wantErr: true,
+		},
+		{
 			name:    "project declares the default registry with the Columnar key",
 			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech"}}},
 		},

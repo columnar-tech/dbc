@@ -289,8 +289,8 @@ func parseRegistryEntryURL(e RegistryEntry) (*url.URL, error) {
 }
 
 // registryURLKey returns a canonical form of a registry URL that collapses
-// only truly no-op differences: scheme/host casing, trailing-slash on the
-// path, and fragments. Query, userinfo, and path segments are preserved
+// only truly no-op differences: scheme/host casing, the default port of the
+// scheme, trailing-slash on the path, and fragments. Query, userinfo, and path segments are preserved
 // because they change the effective registry endpoint (tenant selectors,
 // credential-bearing URLs, path-mounted registries) and must be treated as
 // distinct registries.
@@ -298,6 +298,9 @@ func registryURLKey(u *url.URL) string {
 	cp := *u
 	cp.Scheme = strings.ToLower(cp.Scheme)
 	cp.Host = strings.ToLower(cp.Host)
+	if port := cp.Port(); (cp.Scheme == "https" && port == "443") || (cp.Scheme == "http" && port == "80") {
+		cp.Host = strings.TrimSuffix(cp.Host, ":"+port)
+	}
 	cp.Path = strings.TrimRight(cp.Path, "/")
 	cp.Fragment = ""
 	cp.RawFragment = ""
