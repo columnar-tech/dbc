@@ -165,7 +165,7 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			SigningKeys: keys,
 		}
 	}
-	replace := true
+	replace, keep := true, false
 
 	tests := []struct {
 		name    string
@@ -271,6 +271,18 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 				Registries:  []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/", SigningKey: "acme"}},
 				SigningKeys: inline(armored),
 			},
+		},
+		{
+			name: "project restores the defaults that the user config replaces",
+			global: &GlobalConfig{
+				Registries:      []RegistryEntry{{URL: "https://internal.example.com"}},
+				ReplaceDefaults: true,
+			},
+			project: &ProjectConfig{
+				Registries:      []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}},
+				ReplaceDefaults: &keep,
+			},
+			wantErr: true,
 		},
 		{
 			name:    "the default port is the same registry",

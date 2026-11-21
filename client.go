@@ -185,7 +185,7 @@ func NewClient(opts ...Option) (*Client, error) {
 			}
 			globalReplace = cfg.globalConfig.ReplaceDefaults
 		}
-		if err := checkProjectRedeclarations(projectRegs, globalRegs, globalReplace, cfg.registries); err != nil {
+		if err := checkProjectRedeclarations(projectRegs, projectReplace, globalRegs, globalReplace, cfg.registries); err != nil {
 			return nil, err
 		}
 		merged := mergeRegistries(projectRegs, projectReplace, globalRegs, globalReplace, cfg.registries)

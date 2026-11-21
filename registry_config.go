@@ -330,15 +330,17 @@ func registryTrustKey(u *url.URL) string {
 // get around this with another query or user information; when several
 // trusted registries share the key, the project's declaration must match all
 // of them. The defaults are compared unless the user's config replaces them
-// or declares the same endpoint itself, since a project's replace_defaults
-// does not lift this check. Policies are the same when they verify with the
+// (and the project does not bring them back with replace_defaults = false) or
+// declares the same endpoint itself; a project's replace_defaults = true does
+// not lift this check. Policies are the same when they verify with the
 // same certificate; an inline copy of the Columnar key is the same as the
 // built-in key. Policies that read a key file are never the same, because the
 // files are not read here; the project's declaration has to be removed
 // instead.
-func checkProjectRedeclarations(projectRegs, globalRegs []Registry, globalReplaceDefaults bool, defaults []Registry) error {
+func checkProjectRedeclarations(projectRegs []Registry, projectReplaceDefaults *bool, globalRegs []Registry, globalReplaceDefaults bool, defaults []Registry) error {
 	trusted := slices.Clip(globalRegs)
-	if !globalReplaceDefaults {
+	protectDefaults := !globalReplaceDefaults || (projectReplaceDefaults != nil && !*projectReplaceDefaults)
+	if protectDefaults {
 		overridden := make(map[string]bool)
 		for _, r := range globalRegs {
 			if r.BaseURL != nil {
