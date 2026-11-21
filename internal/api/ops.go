@@ -153,6 +153,11 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 	pkg, err := dbc.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return candidate.GetLatestPackage(platform, false)
 	})
+	if errors.Is(err, dbc.ErrDriverNameConflict) {
+		// The driver would come from a registry that may not provide it, so
+		// it is not reported as available, unlike a missing version.
+		return ResolveResult{}, err
+	}
 	if pkg.Driver.Path != "" {
 		out := ResolveResult{Path: pkg.Driver.Path, Platform: platform, Versions: []string{}}
 		for _, v := range pkg.Driver.Versions(platform) {

@@ -221,6 +221,18 @@ func TestResolveSelectedRegistry(t *testing.T) {
 		})
 	}
 
+	// A registry with its own key cannot provide a name that a
+	// Columnar-signed registry serves, so Resolve reports an error rather
+	// than the driver's versions.
+	t.Run("driver name conflict", func(t *testing.T) {
+		unsigned := serve(fmt.Sprintf("    - version: 1.0.0\n      packages: [{platform: %s, url: driver.tar.gz}]\n", host))
+		unsigned.SigningKey = json.RawMessage("false")
+		c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{unsigned, primary}}, &http.Client{})
+		require.NoError(t, err)
+		_, err = api.Resolve(t.Context(), c, "shared", host)
+		require.ErrorIs(t, err, dbc.ErrDriverNameConflict)
+	})
+
 	t.Run("missing version", func(t *testing.T) {
 		selected := serve(fmt.Sprintf("    - packages: [{platform: %s}]\n    - version: 1.0.0\n      packages: [{platform: %s}]\n", host, host))
 		fallback := serve(fmt.Sprintf("    - version: 2.0.0\n      packages: [{platform: %s}]\n", host))

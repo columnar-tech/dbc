@@ -170,7 +170,7 @@ The `signer` is the key that the driver's registry is configured with: the key b
 type = 'none'
 ```
 
-`dbc sync` and `dbc lock` check every package they download or reuse against this key, unless `--no-verify` is set. If the configuration of the registry no longer selects the recorded key, they stop before downloading or installing anything, also with `--no-verify`. To accept the new key, delete the lockfile and run `dbc lock` again; this may also select newer versions of the other drivers.
+`dbc sync` checks every package it installs or reuses against this key, unless `--no-verify` is set. `dbc lock` checks the packages it downloads, which it only does when the registry does not publish an archive hash; otherwise the check happens when `dbc sync` installs the package. If the configuration of the registry no longer selects the recorded key, they stop before downloading or installing anything, also with `--no-verify`. To accept the new key, delete the lockfile and run `dbc lock` again; this may also select newer versions of the other drivers.
 
 The signature only covers the driver library file; other contents of the archive, such as the manifest, are covered only by the archive hash.
 

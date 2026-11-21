@@ -71,8 +71,9 @@ type InstallProgressEvent struct {
 	// "download.start", "download.progress", "download.complete",
 	// "extract.start", "extract.complete",
 	// "verify.start", "verify.complete", "verify.checksum.ok", "verify.checksum.mismatch",
-	// "manifest.create", "install.complete". verify.start and verify.complete
-	// are only emitted when the package signature is verified.
+	// "manifest.create", "install.complete". verify.start is emitted when the
+	// package signature is about to be checked, and verify.complete when the
+	// check succeeded; neither is emitted when the signature is not checked.
 	Event string `json:"event"`
 	// Driver is the driver identifier being installed.
 	Driver string `json:"driver"`
