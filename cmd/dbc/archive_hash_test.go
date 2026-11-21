@@ -273,14 +273,14 @@ func (suite *SubcommandTestSuite) TestFailedHashUpgradeKeepsExistingInstall() {
 }
 
 func (suite *SubcommandTestSuite) TestFailedSignatureUpgradeKeepsExistingInstall() {
-	tampered := testArchiveSHA256(suite, "test-driver-tampered.tar.gz")
+	tampered := testArchiveSHA256(suite, "test-driver-1.1-tampered.tar.gz")
 	out := suite.assertFailedUpgradeKeepsInstall(
 		InstallCmd{Driver: "test-driver-1=1.1.0"},
 		baseModel{
 			getDriverRegistry: upgradeRegistry(testArchiveSHA256(suite, "test-driver-1.tar.gz"), tampered),
 			downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
 				if pkg.Version.Minor() == 1 {
-					return os.Open(filepath.Join("testdata", "test-driver-tampered.tar.gz"))
+					return os.Open(filepath.Join("testdata", "test-driver-1.1-tampered.tar.gz"))
 				}
 				return downloadTestPkg(pkg)
 			},

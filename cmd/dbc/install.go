@@ -494,6 +494,8 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 		options := config.InstallPackageOptions{
 			// Local archives have no registry-published hash to compare to.
 			ExpectedArchiveSHA256: m.DriverPackage.ArchiveSHA256,
+			// Local archives have no selected version either, so this is nil.
+			ExpectedVersion: m.DriverPackage.Version,
 			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
 				if program != nil {
 					program.Send(installVerificationStartedMsg{})

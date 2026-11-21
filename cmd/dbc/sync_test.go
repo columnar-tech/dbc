@@ -56,7 +56,7 @@ func (suite *SubcommandTestSuite) TestSync() {
 
 func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesInstalledDriver() {
 	listPath := filepath.Join(suite.tempdir, "dbc.toml")
-	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
 
 	m := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel())
 	suite.runCmd(m)
@@ -71,7 +71,8 @@ func (suite *SubcommandTestSuite) TestSyncReplacementSignatureFailurePreservesIn
 	oldLibraryBytes, err := os.ReadFile(oldLibrary)
 	suite.Require().NoError(err)
 
-	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.0.0'\n"), 0o644))
+	// The unsigned archive declares 1.1.0, the version this sync selects.
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nversion = '=1.1.0'\n"), 0o644))
 	model := SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(baseModel{
 		getDriverRegistry: getTestDriverRegistry,
 		downloadPkg: func(dbc.PkgInfo) (*os.File, error) {

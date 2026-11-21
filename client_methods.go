@@ -304,7 +304,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
+	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256, ExpectedVersion: pkg.Version}
 	if !o.allowUnsigned {
 		// VerifyPackageSignature checks the driver library's Columnar signature.
 		installOpts.SignatureVerifier = VerifyPackageSignature
