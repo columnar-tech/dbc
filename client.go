@@ -163,20 +163,16 @@ func NewClient(opts ...Option) (*Client, error) {
 		// WithRegistries was passed — use the caller's list verbatim and
 		// do not merge with global/project configuration.
 	} else if cfg.globalConfig != nil || cfg.projectRegistries != nil || cfg.projectExcludeBuiltin {
-		for _, e := range cfg.projectRegistries {
-			if err := validateRegistryEntry(e); err != nil {
-				return nil, err
-			}
+		if err := validateRegistryEntries(cfg.projectRegistries); err != nil {
+			return nil, err
 		}
 		var globalRegs []RegistryEntry
 		// A project can exclude the built-in registries but cannot bring
 		// back ones that the global config excludes.
 		excludeBuiltin := cfg.projectExcludeBuiltin
 		if cfg.globalConfig != nil {
-			for _, e := range cfg.globalConfig.Registries {
-				if err := validateRegistryEntry(e); err != nil {
-					return nil, err
-				}
+			if err := validateRegistryEntries(cfg.globalConfig.Registries); err != nil {
+				return nil, err
 			}
 			globalRegs = cfg.globalConfig.Registries
 			excludeBuiltin = excludeBuiltin || cfg.globalConfig.ExcludeBuiltinRegistries
