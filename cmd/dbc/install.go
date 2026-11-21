@@ -430,7 +430,7 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 		vers.IncludePrerelease = m.Pre
 	}
 	return m, func() tea.Msg {
-		pkg, err := dbc.ResolvePackage(list, m.registryErrors, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if vers != nil {
 				return candidate.GetWithConstraint(vers, config.PlatformTuple())
 			}

@@ -151,13 +151,13 @@ func TestClientInstallUsesTheKeyOfTheRegistry(t *testing.T) {
 	})
 
 	// The first registry lists the driver without a version, so the package
-	// comes from the second one, and its key must be used, not the policy of
+	// comes from the second one, and its key must be used, not the key of
 	// the first.
 	t.Run("a fallback registry uses its own key", func(t *testing.T) {
 		var firstDownloads, secondDownloads atomic.Int32
 		first := signedDriverServer(t, archive, false, &firstDownloads)
 		second := signedDriverServer(t, archive, true, &secondDownloads)
-		_, err := install(t, []dbc.Registry{{BaseURL: first, Signing: dbc.Unsigned()}, {BaseURL: second, Signing: dbc.SignWith(acme)}})
+		_, err := install(t, []dbc.Registry{{BaseURL: first}, {BaseURL: second, Signing: dbc.SignWith(acme)}})
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), secondDownloads.Load())
 
@@ -165,37 +165,4 @@ func TestClientInstallUsesTheKeyOfTheRegistry(t *testing.T) {
 		require.ErrorContains(t, err, "signature verification failed")
 	})
 
-	// A registry with its own key cannot provide a driver name that a
-	// registry verified with the Columnar key also lists, even when that
-	// registry has no eligible version of it.
-	t.Run("a Columnar-signed registry keeps its driver names", func(t *testing.T) {
-		for _, policy := range []dbc.RegistrySigningPolicy{dbc.SignWith(acme), dbc.Unsigned()} {
-			var firstDownloads, secondDownloads atomic.Int32
-			first := signedDriverServer(t, archive, true, &firstDownloads)
-			second := signedDriverServer(t, archive, false, &secondDownloads)
-			_, err := install(t, []dbc.Registry{{BaseURL: first, Signing: policy}, {BaseURL: second}})
-			require.ErrorIs(t, err, dbc.ErrDriverNameConflict)
-			assert.Zero(t, firstDownloads.Load())
-		}
-	})
-
-	// When the index of a registry verified with the Columnar key cannot be
-	// read, whether it lists the name is unknown, so the driver is not
-	// installed from a registry with its own key.
-	t.Run("an unreadable Columnar-signed index blocks other keys", func(t *testing.T) {
-		var downloads atomic.Int32
-		first := signedDriverServer(t, archive, true, &downloads)
-		down := httptest.NewServer(http.NotFoundHandler())
-		t.Cleanup(down.Close)
-		downURL, err := url.Parse(down.URL)
-		require.NoError(t, err)
-		_, err = install(t, []dbc.Registry{{BaseURL: first, Signing: dbc.SignWith(acme)}, {BaseURL: downURL}})
-		require.ErrorIs(t, err, dbc.ErrDriverNameConflict)
-		assert.ErrorContains(t, err, "could not be read")
-		assert.Zero(t, downloads.Load())
-
-		// The index of another registry with its own key does not matter.
-		_, err = install(t, []dbc.Registry{{BaseURL: first, Signing: dbc.SignWith(acme)}, {BaseURL: downURL, Signing: dbc.Unsigned()}})
-		require.NoError(t, err)
-	})
 }

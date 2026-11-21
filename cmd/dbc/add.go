@@ -184,7 +184,7 @@ func (m addModel) Init() tea.Cmd {
 				requested.Prerelease = "allow"
 			}
 			requested = requested.withPrerelease()
-			pkg, err := dbc.ResolvePackage(drivers, registryErrors, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			pkg, err := dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 				return selectProjectPackage(candidate, requested, nil, config.PlatformTuple())
 			})
 			if err != nil {

@@ -15,7 +15,6 @@
 package dbc
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -650,23 +649,23 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	pkg, err := ResolvePackage([]Driver{
 		decode("2.0.0-beta.1"),
 		decode("0.7.0"),
-	}, nil, "shared", stable)
+	}, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	prerelease := decode("2.0.0-beta.1")
 	_, err = prerelease.GetLatestPackage("linux_amd64", false)
 	require.ErrorIs(t, err, ErrPackageMiss)
-	pkg, err = ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
+	pkg, err = ResolvePackage([]Driver{prerelease, decode("0.7.0")}, "shared", func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", true)
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0-beta.1", pkg.Version.String())
-	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
+	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	constraint, err := semver.NewConstraint("=0.7.0")
 	require.NoError(t, err)
-	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
+	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 }
@@ -692,7 +691,7 @@ func TestResolvePackageEmptyPackageInfo(t *testing.T) {
 					var pkg PkgInfo
 					var err error
 					require.NotPanics(t, func() {
-						pkg, err = ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+						pkg, err = ResolvePackage(drivers, "shared", func(d *Driver) (PkgInfo, error) {
 							return d.GetLatestPackage("linux_amd64", allowPrerelease)
 						})
 					})
@@ -726,7 +725,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 				func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) },
 				func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(c, "linux_amd64") },
 			} {
-				pkg, err := ResolvePackage(drivers, nil, "shared", selectPackage)
+				pkg, err := ResolvePackage(drivers, "shared", selectPackage)
 				require.NoError(t, err)
 				assert.Equal(t, "1.0.0", pkg.Version.String())
 				assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -737,7 +736,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 			assert.Equal(t, "2.0.0", latest.String())
 			exact, err := semver.NewConstraint("=2.0.0")
 			require.NoError(t, err)
-			pkg, err := ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+			pkg, err := ResolvePackage(drivers, "shared", func(d *Driver) (PkgInfo, error) {
 				return d.GetWithConstraint(exact, "linux_amd64")
 			})
 			require.EqualError(t, err, "no package found for platform 'linux_amd64'")
@@ -768,55 +767,10 @@ func TestResolvePackageMissingVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pkg, err := ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
+			pkg, err := ResolvePackage([]Driver{first, fallback}, "shared", selectPackage)
 			require.EqualError(t, err, "invalid package metadata for driver shared: missing version")
 			assert.NotErrorIs(t, err, ErrPackageMiss)
 			assert.Same(t, first.Registry, pkg.Driver.Registry)
-		})
-	}
-}
-
-// A registry with its own key or unsigned cannot provide a driver name that a
-// registry verified with the Columnar key serves. A copy of the Columnar key
-// counts as the Columnar key.
-func TestResolvePackageDriverNameScope(t *testing.T) {
-	inlineColumnar, err := NewArmoredSigningKey(armoredPubKey)
-	require.NoError(t, err)
-	other, err := NewArmoredSigningKey(publicArmored(t, generateTestKey(t, "acme")))
-	require.NoError(t, err)
-	driver := func(name string, signing RegistrySigningPolicy, host string) Driver {
-		d := Driver{Path: name, Registry: &Registry{BaseURL: mustParseURL("https://" + host), Signing: signing}}
-		require.NoError(t, yaml.Unmarshal([]byte("pkginfo:\n - version: 1.0.0\n   packages:\n    - platform: linux_amd64\n"), &d))
-		return d
-	}
-	stable := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
-	columnarIndexDown := fmt.Errorf("wrapped: %w", errors.Join(&RegistryIndexError{Registry: Registry{BaseURL: mustParseURL("https://columnar.test")}, Err: errors.New("503")}))
-
-	tests := []struct {
-		name      string
-		drivers   []Driver
-		searchErr error
-		conflict  bool
-	}{
-		{"own key over a Columnar name", []Driver{driver("x", SignWith(other), "acme.test"), driver("x", RegistrySigningPolicy{}, "columnar.test")}, nil, true},
-		{"unsigned over a Columnar name", []Driver{driver("x", Unsigned(), "acme.test"), driver("x", RegistrySigningPolicy{}, "columnar.test")}, nil, true},
-		{"own key, other names", []Driver{driver("x", SignWith(other), "acme.test"), driver("y", RegistrySigningPolicy{}, "columnar.test")}, nil, false},
-		{"inline Columnar key", []Driver{driver("x", SignWith(inlineColumnar), "mirror.test"), driver("x", RegistrySigningPolicy{}, "columnar.test")}, nil, false},
-		{"Columnar registry first", []Driver{driver("x", RegistrySigningPolicy{}, "columnar.test"), driver("x", SignWith(other), "acme.test")}, nil, false},
-		{"Columnar index down", []Driver{driver("x", SignWith(other), "acme.test")}, columnarIndexDown, true},
-		{"Columnar index down, Columnar selected", []Driver{driver("x", RegistrySigningPolicy{}, "mirror.test")}, columnarIndexDown, false},
-		{"other index down", []Driver{driver("x", SignWith(other), "acme.test")}, &RegistryIndexError{Registry: Registry{BaseURL: mustParseURL("https://u.test"), Signing: Unsigned()}, Err: errors.New("503")}, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pkg, err := ResolvePackage(tt.drivers, tt.searchErr, "x", stable)
-			if tt.conflict {
-				assert.ErrorIs(t, err, ErrDriverNameConflict)
-				assert.Equal(t, "x", pkg.Driver.Path)
-				return
-			}
-			require.NoError(t, err)
-			assert.Same(t, tt.drivers[0].Registry, pkg.Driver.Registry)
 		})
 	}
 }

@@ -167,7 +167,7 @@ func (c *Client) Search(ctx context.Context, pattern string) ([]Driver, error) {
 	for i := range c.registries {
 		drivers, err := c.getDriverListFromIndex(ctx, &c.registries[i])
 		if err != nil {
-			errs = append(errs, &RegistryIndexError{Registry: c.registries[i], Err: err})
+			errs = append(errs, fmt.Errorf("registry %s: %w", c.registries[i].BaseURL, err))
 			continue
 		}
 		c.registries[i].Drivers = drivers
@@ -294,7 +294,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		return nil, fmt.Errorf("failed to search for driver %s: %w", driverName, err)
 	}
 
-	pkg, err := ResolvePackage(drivers, err, driverName, func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage(config.PlatformTuple(), false) })
+	pkg, err := ResolvePackage(drivers, driverName, func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage(config.PlatformTuple(), false) })
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}

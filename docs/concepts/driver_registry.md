@@ -166,13 +166,11 @@ or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
 ### What a signing key does not cover
 
 - A key is trusted for every driver its registry serves, not for particular
-  driver names. One exception: a registry with its own key, or unsigned, cannot
-  provide a driver name that a registry checked with Columnar's key also
-  serves. `dbc install`, `dbc add` and `dbc lock` (and `dbc sync` without a
-  lock entry) stop with an error in that case, and also when the index of such
-  a registry cannot be read. This only compares the registries that are in
-  use: with `replace_defaults = true`, the default registries are not checked.
-  A driver that `dbc.lock` already pins to a registry is not checked again.
+  driver names. A registry with its own key, or unsigned, can also serve a
+  driver under the same name as a default registry, and the first registry
+  that has a suitable version is used, so adding a registry trusts it for any
+  driver name. `dbc.lock` then pins each driver to the registry it was resolved
+  from.
 - The signature covers only the driver library. The manifest and the other
   files in the archive, which are installed next to the library, are covered
   only by the archive hash. Until `dbc.lock` records that hash, it comes from

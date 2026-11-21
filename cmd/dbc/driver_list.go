@@ -276,7 +276,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
 		spec = spec.withPrerelease()
-		pkg, err := dbc.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if spec.Version != nil {
 				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
 			}
