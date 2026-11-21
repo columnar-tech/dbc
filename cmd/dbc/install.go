@@ -269,9 +269,13 @@ func (m progressiveInstallModel) hasConflict() bool {
 	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil
 }
 
+// isAlreadyInstalled reports whether the selected version is installed.
+// Versions compare as the install checks them: a "v" prefix is ignored, but
+// build metadata must match, unlike semver's Equal.
 func (m progressiveInstallModel) isAlreadyInstalled() bool {
 	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil &&
-		m.conflictingInfo.Version.Equal(m.DriverPackage.Version)
+		m.DriverPackage.Version != nil &&
+		m.conflictingInfo.Version.String() == m.DriverPackage.Version.String()
 }
 
 func (m progressiveInstallModel) FinalOutput() string {
