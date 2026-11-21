@@ -72,8 +72,8 @@ async function testAuthRegistries(loadDbc, root, worker) {
   const credentialFile = path.join(root, "data", "dbc", "credentials", "credentials.toml");
   const missingProject = path.join(root, "missing.toml");
   fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(globalFile, `replace_defaults = true\n[[registries]]\nurl = "${one}"\nname = "global"\n`);
-  fs.writeFileSync(projectFile, `replace_defaults = true\n[[registries]]\nurl = "${two}"\nname = "project"\n`);
+  fs.writeFileSync(globalFile, `exclude_builtin_registries = true\n[[registries]]\nurl = "${one}"\nname = "global"\n`);
+  fs.writeFileSync(projectFile, `exclude_builtin_registries = true\n[[registries]]\nurl = "${two}"\nname = "project"\n`);
 
   const open = (opts = {}) => loadDbc({ worker, platform: "linux_amd64", ...opts });
   const search = async (opts, expected) => {

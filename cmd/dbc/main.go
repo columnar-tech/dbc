@@ -95,7 +95,7 @@ var (
 )
 
 func newDefaultClient() (*dbc.Client, error) {
-	return newDBCClient(nil, nil)
+	return newDBCClient(nil, false)
 }
 
 // authHTTPClient returns an *http.Client suitable for auth flows (device-code
@@ -130,9 +130,9 @@ func setUserAgentSuffix(suffix string) {
 }
 
 // newDBCClient builds a client with the given project registry overrides.
-// Callers pass nil/nil for process-wide operations (search, info, install);
+// Callers pass nil/false for process-wide operations (search, info, install);
 // project commands (add, sync, remove) pass the values parsed from dbc.toml.
-func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
+func newDBCClient(projectRegs []dbc.RegistryEntry, projectExcludeBuiltin bool) (*dbc.Client, error) {
 	if startupRegistryConfigErr != nil {
 		return nil, startupRegistryConfigErr
 	}
@@ -145,8 +145,8 @@ func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool)
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
 	} else {
-		if projectRegs != nil || projectReplaceDefaults != nil {
-			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
+		if projectRegs != nil || projectExcludeBuiltin {
+			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectExcludeBuiltin))
 		}
 	}
 
@@ -442,7 +442,7 @@ type startupResult struct {
 // No dbcClient is constructed along the way — project commands' models
 // build it lazily via applyProjectRegistries once they decode dbc.toml.
 // Reintroducing an eager initDBCClient() anywhere between steps 1 and 3
-// would break the "global replace_defaults=true + project supplies
+// would break the "global exclude_builtin_registries=true + project supplies
 // registries" scenario, which is why tests drive this helper end-to-end.
 func runStartup(configDir string, argv []string) startupResult {
 	// Reset all cached client state at the start of every startup so the

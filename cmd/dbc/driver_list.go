@@ -30,11 +30,11 @@ import (
 
 type DriversList struct {
 	Registries []dbc.RegistryEntry `toml:"registries,omitempty"`
-	// ReplaceDefaults is a tri-state: nil means "inherit from global config",
-	// &true replaces both global and built-in default registries, &false forces
-	// defaults back on even when the global config set replace_defaults = true.
-	ReplaceDefaults *bool                 `toml:"replace_defaults,omitempty"`
-	Drivers         map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	// ExcludeBuiltinRegistries removes dbc's built-in registries. It is
+	// combined with the global config's setting with a logical OR, so false
+	// cannot bring back built-in registries that the global config excludes.
+	ExcludeBuiltinRegistries bool                  `toml:"exclude_builtin_registries,omitempty"`
+	Drivers                  map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 	// Network is decoded only to reject it: network settings are read from
 	// the user config, never from a project's dbc.toml.
 	Network map[string]any `toml:"network,omitempty"`
@@ -77,7 +77,7 @@ func registriesChanged(a, b DriversList) bool {
 // and built-in defaults. It builds a throwaway client via newDBCClient
 // so merge semantics stay in sync with what NewClient actually uses.
 func effectiveRegistryURLs(list DriversList) ([]string, error) {
-	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	c, err := newDBCClient(list.Registries, list.ExcludeBuiltinRegistries)
 	if err != nil {
 		return nil, err
 	}
@@ -119,15 +119,15 @@ func normalizeRegistryURL(raw string) string {
 // applyProjectRegistries rebuilds the process-wide dbc client with the
 // registry overrides declared in the project's dbc.toml, so subsequent calls
 // through getDriverRegistry see the merged registry list. No-op when neither
-// registries nor replace_defaults are set.
+// registries nor exclude_builtin_registries are set.
 func applyProjectRegistries(list DriversList) error {
 	if list.Network != nil {
 		return dbc.ErrProjectNetwork
 	}
-	if len(list.Registries) == 0 && list.ReplaceDefaults == nil {
+	if len(list.Registries) == 0 && !list.ExcludeBuiltinRegistries {
 		return nil
 	}
-	c, err := newDBCClient(list.Registries, list.ReplaceDefaults)
+	c, err := newDBCClient(list.Registries, list.ExcludeBuiltinRegistries)
 	if err != nil {
 		return fmt.Errorf("error configuring project registries: %w", err)
 	}
@@ -140,7 +140,7 @@ func applyProjectRegistries(list DriversList) error {
 // process-wide client, so read-only discovery commands (search, info, docs)
 // resolve drivers against the same registry set that `dbc add`/`dbc sync` use
 // in the same project. This keeps behavior consistent between project-level and
-// global config: a project that adds registries or sets replace_defaults
+// global config: a project that adds registries or sets exclude_builtin_registries
 // affects what those commands can see, not just add/sync.
 //
 // A missing dbc.toml is not an error — these commands must still work outside a
@@ -214,7 +214,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	// dbc.toml to another. Unlike add/sync (which own the process for one
 	// command), GetDriverList is a library helper that may be called
 	// multiple times.
-	client, err := newDBCClient(m.Registries, m.ReplaceDefaults)
+	client, err := newDBCClient(m.Registries, m.ExcludeBuiltinRegistries)
 	if err != nil {
 		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}
