@@ -125,7 +125,7 @@ $ dbc install [OPTIONS] <DRIVER>
 
 `--registry NAME|URL` {{ since_version('v0.4.0') }}
 
-:   Install the driver only from this registry: the `name` of a `[[registries]]` entry in the user `config.toml`, or the URL of a configured registry. dbc does not fall back to another registry. See [Configuring registries](../concepts/driver_registry.md#configuring-registries).
+:   Install the driver only from this registry: the `name` of a `[[registries]]` entry in the user `config.toml`, or the URL of a configured registry. dbc does not fall back to another registry, and installs the package again even when the same version is already installed, since an installed driver does not record its registry. See [Configuring registries](../concepts/driver_registry.md#configuring-registries).
 
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 

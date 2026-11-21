@@ -403,3 +403,25 @@ func (suite *SubcommandTestSuite) TestAddDetectsAConcurrentChangeOfTheSourceRegi
 	suite.Require().NoError(err)
 	suite.NotContains(string(data), "test-driver-1")
 }
+
+// TestInstallFromARegistryReplacesTheSameVersion pins that --registry
+// installs the selected registry's package even when the same version is
+// installed already, since the installed driver does not record its registry.
+func (suite *SubcommandTestSuite) TestInstallFromARegistryReplacesTheSameVersion() {
+	regs := newTwoRegistries()
+	var downloads []string
+	base := regs.base()
+	base.downloadPkg = func(pkg dbc.PkgInfo) (*os.File, error) {
+		downloads = append(downloads, pkg.Driver.Registry.BaseURL.String())
+		return downloadTestPkg(pkg)
+	}
+
+	suite.runCmd(InstallCmd{Driver: "test-driver-1=1.0.0", Level: suite.configLevel, Registry: firstRegistryURL}.GetModelCustom(base))
+	suite.runCmd(InstallCmd{Driver: "test-driver-1=1.0.0", Level: suite.configLevel, Registry: secondRegistryURL}.GetModelCustom(base))
+	suite.Equal([]string{firstRegistryURL, secondRegistryURL}, downloads)
+	suite.driverIsInstalledWithVersion("test-driver-1", "1.0.0", true)
+
+	// Without --registry an installed version is still kept.
+	suite.runCmd(InstallCmd{Driver: "test-driver-1=1.0.0", Level: suite.configLevel}.GetModelCustom(base))
+	suite.Len(downloads, 2)
+}
