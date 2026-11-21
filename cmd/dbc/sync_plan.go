@@ -220,6 +220,15 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	if err != nil {
 		return plannedDriver{}, err
 	}
+	// GetPackage ignores build metadata, so keep only the versions spelled
+	// as in the lock: the install checks the package against that spelling.
+	exact := drv.PkgInfo[:0:0]
+	for _, info := range drv.PkgInfo {
+		if info.Version == nil || info.Version.String() == v.String() {
+			exact = append(exact, info)
+		}
+	}
+	drv.PkgInfo = exact
 	pkg, err := drv.GetPackage(v, p.target, true)
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))

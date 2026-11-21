@@ -364,6 +364,12 @@ func TestPlanCompletionErrors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "0.9.0")
 	})
+	t.Run("version with other build metadata in the index", func(t *testing.T) {
+		f := newPlanFixture(t)
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("1.0.0+other", macos)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "1.0.0+other")
+	})
 	t.Run("malformed hash of the current target", func(t *testing.T) {
 		f := newPlanFixture(t)
 		d := lockedAlpha("1.0.0", macos)
