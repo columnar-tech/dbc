@@ -316,6 +316,12 @@ func (m progressiveInstallModel) hasConflict() bool {
 }
 
 func (m progressiveInstallModel) isAlreadyInstalled() bool {
+	// An installed driver does not record the registry it came from, so the
+	// same version from the registry that --registry selects may be a
+	// different package; install it again.
+	if m.registrySource != nil {
+		return false
+	}
 	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil &&
 		m.conflictingInfo.Version.Equal(m.DriverPackage.Version)
 }
