@@ -333,6 +333,9 @@ type driverListResolution struct {
 	projectLock *syncProjectLock
 	// base provides the registry and download functions.
 	base baseModel
+	// allowSourceChange resolves drivers whose source changed again instead
+	// of failing; see syncPlanner.allowSourceChange.
+	allowSourceChange bool
 }
 
 // resolve plans every driver, runs fetch for each planned driver and writes
@@ -374,6 +377,9 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 	if err != nil {
 		return nil, warnings, err
 	}
+	if err := validateDriverSources(list); err != nil {
+		return nil, warnings, err
+	}
 	existing, err := readLockFile(lockPath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, warnings, err
@@ -389,10 +395,11 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 	}
 
 	planner := syncPlanner{
-		target:        config.PlatformTuple(),
-		registries:    r.base.getRegistries,
-		index:         r.base.getDriverRegistry,
-		registryIndex: r.base.getRegistryIndex,
+		target:            config.PlatformTuple(),
+		registries:        r.base.getRegistries,
+		index:             r.base.getDriverRegistry,
+		registryIndex:     r.base.getRegistryIndex,
+		allowSourceChange: r.allowSourceChange,
 	}
 	planned, warnings, err := planner.plan(list, existing)
 	if warning := projectRegistryWarning(list); warning != "" {
