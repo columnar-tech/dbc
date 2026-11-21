@@ -156,7 +156,7 @@ func TestApplyProjectRegistriesNoopWhenBaseURLSet(t *testing.T) {
 	t.Cleanup(func() { dbcClient = savedClient })
 
 	// newDBCClient honors DBC_BASE_URL and returns a client with just that URL.
-	c, err := newDBCClient(nil, nil)
+	c, err := newDBCClient(nil)
 	require.NoError(t, err)
 	dbcClient = c
 

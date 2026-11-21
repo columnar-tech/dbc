@@ -114,6 +114,8 @@ func (c InstallCmd) GetModel() tea.Model {
 
 type packageInstallResultMsg struct {
 	Manifest config.Manifest
+	// SignatureVerified is whether the package signature was verified.
+	SignatureVerified bool
 }
 
 type installVerificationStartedMsg struct{}
@@ -212,6 +214,12 @@ type progressiveInstallModel struct {
 	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
 	verificationStarted      bool
 	verifyStagedPackage      config.PackageVerifier
+	// signer is how a package from a registry is verified, selected from
+	// the registry's configuration before the download.
+	signer packageSigner
+	// signatureVerified is whether the installed package's signature was
+	// verified.
+	signatureVerified bool
 }
 
 type driversWithRegistryError struct {
@@ -311,10 +319,11 @@ func (m progressiveInstallModel) FinalOutput() string {
 	var b strings.Builder
 	if m.state == stDone {
 		installStatus := jsonschema.InstallStatus{
-			Status:   "installed",
-			Driver:   m.Driver,
-			Version:  m.DriverPackage.Version.String(),
-			Location: m.cfg.PrimaryLocation(),
+			Status:            "installed",
+			Driver:            m.Driver,
+			Version:           m.DriverPackage.Version.String(),
+			Location:          m.cfg.PrimaryLocation(),
+			SignatureVerified: &m.signatureVerified,
 		}
 		if m.hasConflict() {
 			installStatus.Conflict = fmt.Sprintf("%s (version: %s)", m.conflictingInfo.ID, m.conflictingInfo.Version)
@@ -445,6 +454,26 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	}
 }
 
+// skipsVerification reports whether the package signature is not checked:
+// with --no-verify, or for a registry declared unsigned.
+func (m progressiveInstallModel) skipsVerification() bool {
+	return m.NoVerify || m.signer.unsigned
+}
+
+// registrySigner returns how a package from registry is verified, as its
+// configuration says; a driver without a registry uses the Columnar key.
+func registrySigner(registry *dbc.Registry) (packageSigner, error) {
+	if registry == nil {
+		key, err := dbc.ColumnarSigningKey()
+		return packageSigner{key: key}, err
+	}
+	key, err := registry.ResolveSigningKey()
+	if err != nil {
+		return packageSigner{}, err
+	}
+	return packageSigner{key: key, unsigned: key == nil}, nil
+}
+
 func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	m.state = stDownloading
 	if m.isAlreadyInstalled() {
@@ -460,6 +489,18 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, tea.Quit
+	}
+
+	if !m.NoVerify {
+		// A key that cannot be loaded fails before the package is fetched,
+		// and never falls back to another key or to no verification.
+		signer, err := registrySigner(m.DriverPackage.Driver.Registry)
+		if err != nil {
+			return m, func() tea.Msg {
+				return fmt.Errorf("driver %s: could not load the signing key of its registry: %w", m.Driver, err)
+			}
+		}
+		m.signer = signer
 	}
 
 	m = m.addEvent("download.start")
@@ -486,8 +527,16 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 	}
 
 	program := prog
-	verifier := m.verifyStagedPackage
-	if verifier == nil {
+	var verifier config.PackageVerifier
+	switch {
+	case m.skipsVerification():
+	case m.verifyStagedPackage != nil:
+		verifier = m.verifyStagedPackage
+	case m.signer.key != nil:
+		verifier = m.signer.key.VerifyPackage
+	default:
+		// A local archive has no registry, so it is checked against the
+		// Columnar key.
 		verifier = dbc.VerifyPackageSignature
 	}
 	return m, func() tea.Msg {
@@ -504,15 +553,12 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 				return nil
 			},
 		}
-		if !m.NoVerify {
-			// The default verifier checks the driver library's Columnar signature.
-			options.SignatureVerifier = verifier
-		}
+		options.SignatureVerifier = verifier
 		manifest, err := config.InstallPackage(context.Background(), m.cfg, m.Driver, downloaded, options)
 		if err != nil {
 			return err
 		}
-		return packageInstallResultMsg{Manifest: manifest}
+		return packageInstallResultMsg{Manifest: manifest, SignatureVerified: verifier != nil}
 	}
 }
 
@@ -576,8 +622,8 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.verificationStarted = true
 		m = m.addEvent("extract.complete")
-		m = m.addEvent("verify.start")
-		if !m.NoVerify {
+		if !m.skipsVerification() {
+			m = m.addEvent("verify.start")
 			m.state = stVerifying
 		}
 		return m, nil
@@ -587,7 +633,10 @@ func (m progressiveInstallModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.postInstallMessage = strings.Join(msg.Manifest.PostInstall.Messages, "\n")
 		m.installedDriverInfo = msg.Manifest.DriverInfo
-		m = m.addEvent("verify.complete")
+		m.signatureVerified = msg.SignatureVerified
+		if msg.SignatureVerified {
+			m = m.addEvent("verify.complete")
+		}
 		m = m.addEvent("manifest.create")
 		m.state = stDone
 		return m, tea.Quit
@@ -638,7 +687,7 @@ func (m progressiveInstallModel) View() tea.View {
 				b.WriteString(" " + m.p.View())
 			}
 		} else {
-			if s == stVerifying && s < m.state && m.NoVerify {
+			if s == stVerifying && s < m.state && m.skipsVerification() {
 				fmt.Fprintf(&b, "[%s] %s", skipMark, s.String())
 			} else {
 				b.WriteString(checkbox(s.String(), s < m.state))

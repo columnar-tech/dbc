@@ -29,11 +29,12 @@ your application supplies, then pass the result to `dbc.WithGlobalConfig`.
 A missing global file returns `(nil, nil)`; other read errors, invalid TOML,
 and malformed registry entries return errors.
 
-Use `dbc.LoadProjectRegistries(path)` to read only the `registries` and
-`replace_defaults` settings from a project's `dbc.toml`, without decoding its
-driver specifications. Pass the returned entries and replacement flag to
-`dbc.WithProjectRegistries`. A missing explicitly named project file is an
-error, as are invalid TOML and malformed registry entries.
+Use `dbc.LoadProjectConfig(path)` to read only the `registries`,
+`replace_defaults` and `signing_keys` settings from a project's `dbc.toml`,
+without decoding its driver specifications. Pass the returned
+`*dbc.ProjectConfig` to `dbc.WithProjectConfig`. A missing explicitly named
+project file is an error, as are invalid TOML, malformed registry entries and
+invalid signing key settings.
 
 For example, an application that requires an explicitly named project file
 can construct its client as follows:
@@ -46,13 +47,13 @@ func newConfiguredClient(configDir, projectFile string) (*dbc.Client, error) {
     if err != nil {
         return nil, err
     }
-    entries, replaceDefaults, err := dbc.LoadProjectRegistries(projectFile)
+    project, err := dbc.LoadProjectConfig(projectFile)
     if err != nil {
         return nil, err
     }
     return dbc.NewClient(
         dbc.WithGlobalConfig(global),
-        dbc.WithProjectRegistries(entries, replaceDefaults),
+        dbc.WithProjectConfig(project),
     )
 }
 ```
@@ -65,9 +66,10 @@ An omitted project replacement flag inherits the global setting; an explicit
 `false` restores the built-in registries even if the global setting is `true`.
 
 Both loaders validate registry URLs: each must be nonempty, have a host, and
-use `http` or `https`. `dbc.NewClient` also validates entries supplied directly
-through `dbc.WithGlobalConfig` and `dbc.WithProjectRegistries` when those
-options apply. It returns an error if the merged configuration produces no
+use `http` or `https`. They also check the signing key settings of the file
+(see [Signing keys](#signing-keys)). `dbc.NewClient` also validates entries
+supplied directly through `dbc.WithGlobalConfig` and `dbc.WithProjectConfig`
+when those options apply. It returns an error if the merged configuration produces no
 registries. The loaders do not reject `replace_defaults = true` with no entries
 on its own, because the other configuration layer may supply entries.
 
@@ -98,7 +100,7 @@ client, err := dbc.NewClient(dbc.WithRegistries([]dbc.Registry{}))
 
 A nonempty `dbc.WithBaseURL("https://registry.example.com")` selects one
 registry and takes precedence over `WithRegistries`, `WithGlobalConfig`, and
-`WithProjectRegistries`. An empty base URL does not override the registry list.
+`WithProjectConfig`. An empty base URL does not override the registry list.
 
 Unlike configuration-file entries, the root Go client's explicit
 `WithRegistries` entries are not URL-validated by `NewClient`. Callers must
@@ -111,6 +113,31 @@ Explicit options bypass validation and merging of the configuration objects
 passed to `NewClient`; they cannot skip loader calls your application already
 made. If you want explicit options to avoid file reads, do not call the loaders
 on that path.
+
+## Signing keys
+
+Each `dbc.Registry` has a `Signing` policy. The zero value uses Columnar's
+built-in key; registries loaded from configuration files follow their
+`signing_key` setting (see
+[Signing keys](../concepts/driver_registry.md#signing-keys)). For explicit
+registries, set it yourself:
+
+```go
+key, err := dbc.NewSigningKey(publicKeyBytes) // one public key, armored or binary
+if err != nil {
+    return err
+}
+client, err := dbc.NewClient(dbc.WithRegistries([]dbc.Registry{
+    {BaseURL: acmeURL, Signing: dbc.SignWith(key)},
+    {BaseURL: unsignedURL, Signing: dbc.Unsigned()},
+}))
+```
+
+The bindings take the same setting as `signingKey` on explicit registries: an
+ASCII-armored public key, or `false` for an unsigned registry. The C API takes
+it as the `registry.<n>.signing_key` option, with the string `"false"` for an
+unsigned registry. The browser build cannot read
+`public_key_file`, so give it the key inline.
 
 ## Differences from language bindings
 

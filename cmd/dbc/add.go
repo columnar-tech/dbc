@@ -148,7 +148,7 @@ func (m addModel) Init() tea.Cmd {
 			}
 			return fmt.Errorf("error opening driver list at %s: %w", m.Path, err)
 		}
-		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
+		if m.list, err = decodeDriverList(f, p); err != nil {
 			f.Close()
 			readLock.Release()
 			return err
@@ -241,7 +241,8 @@ func (m addModel) Init() tea.Cmd {
 
 		var current DriversList
 		if rf, err := os.Open(p); err == nil {
-			if decodeErr := toml.NewDecoder(rf).Decode(&current); decodeErr != nil {
+			var decodeErr error
+			if current, decodeErr = decodeDriverList(rf, p); decodeErr != nil {
 				rf.Close()
 				return fmt.Errorf("error re-reading driver list under lock: %w", decodeErr)
 			}

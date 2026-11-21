@@ -23,6 +23,7 @@ require (
 	charm.land/bubbletea/v2 v2.1.1
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/Masterminds/semver/v3 v3.5.0
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/ProtonMail/gopenpgp/v3 v3.5.2
 	github.com/alexflint/go-arg v1.6.1
 	github.com/charmbracelet/x/ansi v0.11.9
@@ -40,7 +41,6 @@ require (
 )
 
 require (
-	github.com/ProtonMail/go-crypto v1.5.2 // indirect
 	github.com/alexflint/go-scalar v1.2.0 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect

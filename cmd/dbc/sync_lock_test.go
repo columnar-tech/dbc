@@ -1026,29 +1026,30 @@ func (suite *SubcommandTestSuite) TestSyncVerifiesWithThePlannedKey() {
 	}}
 	if suite.supportsReuse() {
 		// Reuse: the installed package verifies with the planned key only.
-		var err error
-		pd.Signer, err = dbc.ColumnarSigningKey()
+		key, err := dbc.ColumnarSigningKey()
 		suite.Require().NoError(err)
+		pd.Signer = packageSigner{key: key}
 		item, err := model.fetch(pd)
 		suite.Require().NoError(err)
 		suite.NotNil(item.Installed, "the installed package is reused")
-		suite.Same(pd.Signer, item.Signer)
+		suite.Same(key, item.Signer.key)
 
-		pd.Signer = nil
+		pd.Signer = packageSigner{}
 		item, err = model.fetch(pd)
 		suite.Require().NoError(err)
 		suite.Nil(item.Installed, "without a key the package is not reused")
 		removeDownload(item.File)
 	}
 	// Fresh install: the key travels with the item to the installer.
-	pd.Signer = nil
+	pd.Signer = packageSigner{}
 	model.NoVerify = false
 	item, err := model.fetch(pd)
 	suite.Require().NoError(err)
-	suite.Nil(item.Signer)
+	suite.Nil(item.Signer.key)
 	verify := signatureVerifier(item.Signer, false)
 	suite.Require().NotNil(verify)
 	suite.Error(verify(suite.T().TempDir(), config.Manifest{}))
 	removeDownload(item.File)
-	suite.Nil(signatureVerifier(nil, true), "NoVerify skips the verification")
+	suite.Nil(signatureVerifier(packageSigner{}, true), "NoVerify skips the verification")
+	suite.Nil(signatureVerifier(packageSigner{unsigned: true}, false), "an unsigned registry is not verified")
 }

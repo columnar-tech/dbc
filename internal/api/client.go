@@ -19,6 +19,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -44,6 +45,57 @@ type Credential struct {
 type Registry struct {
 	URL  string `json:"url"`
 	Name string `json:"name,omitempty"`
+	// SigningKey selects how the registry's driver packages are verified:
+	// omitted for the built-in Columnar key, a string holding an
+	// ASCII-armored OpenPGP public key for that key, or false for a registry
+	// whose packages are not signed. Any other value, including null and an
+	// empty string, is an error.
+	SigningKey json.RawMessage `json:"signingKey,omitempty"`
+}
+
+// signingPolicy returns the policy that r.SigningKey selects.
+func (r Registry) signingPolicy() (dbc.RegistrySigningPolicy, error) {
+	if len(r.SigningKey) == 0 {
+		return dbc.RegistrySigningPolicy{}, nil
+	}
+	var value any
+	if err := json.Unmarshal(r.SigningKey, &value); err != nil {
+		return dbc.RegistrySigningPolicy{}, err
+	}
+	switch v := value.(type) {
+	case bool:
+		if !v {
+			return dbc.Unsigned(), nil
+		}
+	case string:
+		if v == "" {
+			return dbc.RegistrySigningPolicy{}, fmt.Errorf("must not be empty")
+		}
+		key, err := dbc.NewArmoredSigningKey(v)
+		if err != nil {
+			return dbc.RegistrySigningPolicy{}, err
+		}
+		return dbc.SignWith(key), nil
+	}
+	return dbc.RegistrySigningPolicy{}, fmt.Errorf("must be an ASCII-armored OpenPGP public key or false, not %s", jsonKind(value))
+}
+
+// jsonKind names the kind of a decoded JSON value, without its content.
+func jsonKind(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "true"
+	case float64:
+		return "a number"
+	case string:
+		return "a string"
+	case []any:
+		return "an array"
+	default:
+		return "an object"
+	}
 }
 
 // ClientConfig configures a client. The zero value loads the user's global
@@ -90,7 +142,11 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid registries[%d].url: %w", i, err)
 			}
-			registries[i] = dbc.Registry{BaseURL: u, Name: r.Name}
+			signing, err := r.signingPolicy()
+			if err != nil {
+				return nil, fmt.Errorf("invalid registries[%d].signingKey: %w", i, err)
+			}
+			registries[i] = dbc.Registry{BaseURL: u, Name: r.Name, Signing: signing}
 		}
 		opts = append(opts, dbc.WithRegistries(registries))
 	default:
@@ -110,11 +166,11 @@ func NewClient(cfg ClientConfig, hc *http.Client) (*dbc.Client, error) {
 			return nil, fmt.Errorf("invalid registryConfig %q: expected default or none", cfg.RegistryConfig)
 		}
 		if cfg.ProjectFile != "" {
-			registries, replaceDefaults, err := dbc.LoadProjectRegistries(cfg.ProjectFile)
+			project, err := dbc.LoadProjectConfig(cfg.ProjectFile)
 			if err != nil {
 				return nil, err
 			}
-			opts = append(opts, dbc.WithProjectRegistries(registries, replaceDefaults))
+			opts = append(opts, dbc.WithProjectConfig(project))
 		}
 	}
 	if cfg.UserAgentSuffix != "" {

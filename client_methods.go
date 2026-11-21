@@ -274,9 +274,10 @@ func AllowUnsigned() InstallOption {
 }
 
 // Install installs a driver with the given name to the specified
-// configuration, verifying its signature with VerifyPackageSignature (which
-// checks the driver library's Columnar signature) unless
-// AllowUnsigned is given. When the registry publishes a SHA-256 for the
+// configuration, verifying the driver library's signature with the key that
+// the registry of the selected package uses (the Columnar key unless the
+// registry's Signing says otherwise) unless AllowUnsigned is given or the
+// registry is Unsigned. When the registry publishes a SHA-256 for the
 // package, the downloaded archive must match it even with AllowUnsigned.
 // Verification runs on the staged package before it is
 // published, so a driver that fails it leaves any existing install in place.
@@ -298,17 +299,25 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}
 
+	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
+	if !o.allowUnsigned {
+		// The key is selected before the download, so a key that cannot be
+		// loaded fails without fetching the package.
+		key, err := pkg.Driver.signingKey()
+		if err != nil {
+			return nil, fmt.Errorf("driver %s: could not load the signing key of its registry: %w", driverName, err)
+		}
+		if key != nil {
+			installOpts.SignatureVerifier = key.VerifyPackage
+		}
+	}
+
 	f, err := c.downloadPackage(ctx, pkg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver %s: %w", driverName, err)
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
-	if !o.allowUnsigned {
-		// VerifyPackageSignature checks the driver library's Columnar signature.
-		installOpts.SignatureVerifier = VerifyPackageSignature
-	}
 	manifest, err := config.InstallPackage(ctx, cfg, driverName, f, installOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install driver %s: %w", driverName, err)

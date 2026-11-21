@@ -92,7 +92,7 @@ func (m removeModel) Init() tea.Cmd {
 		}
 		defer f.Close()
 
-		if err := toml.NewDecoder(f).Decode(&m.list); err != nil {
+		if m.list, err = decodeDriverList(f, p); err != nil {
 			return err
 		}
 

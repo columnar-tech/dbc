@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/columnar-tech/dbc/internal/fslock"
-	"github.com/pelletier/go-toml/v2"
 )
 
 // elevationHint names the privilege-escalation mechanism for the host platform.
@@ -81,9 +80,5 @@ func openAndDecodeDriverList(path string) (DriversList, error) {
 	}
 	defer f.Close()
 
-	var list DriversList
-	if err := toml.NewDecoder(f).Decode(&list); err != nil {
-		return DriversList{}, err
-	}
-	return list, nil
+	return decodeDriverList(f, p)
 }
