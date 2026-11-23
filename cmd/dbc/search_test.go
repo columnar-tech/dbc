@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/columnar-tech/dbc"
@@ -461,4 +462,17 @@ func (suite *SubcommandTestSuite) TestSearchOnlyPreReleaseDriversFound() {
 	m := SearchCmd{Pattern: regexp.MustCompile("only-pre")}.GetModelCustom(testBaseModel())
 	out := suite.runCmd(m)
 	suite.Equal("Only one or more pre-release drivers matched your pattern `only-pre`. To include them, use: dbc search --pre only-pre", out)
+}
+
+func (suite *SubcommandTestSuite) TestSearchOnlyPreReleaseDriversFoundNoPattern() {
+	onlyPre := func() ([]dbc.Driver, error) {
+		drivers, err := getTestDriverRegistry()
+		if err != nil {
+			return nil, err
+		}
+		return slices.DeleteFunc(drivers, func(d dbc.Driver) bool { return d.Path != "test-driver-only-pre" }), nil
+	}
+	m := SearchCmd{}.GetModelCustom(baseModel{getDriverRegistry: onlyPre, downloadPkg: downloadTestPkg})
+	out := suite.runCmd(m)
+	suite.Equal("Only pre-release drivers were found. To include them, use: dbc search --pre", out)
 }
