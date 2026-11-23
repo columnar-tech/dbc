@@ -34,7 +34,9 @@ type plannedDriver struct {
 	// from the download.
 	Entry lockedDriver
 	// Package is the archive of the current target. Its ArchiveSHA256 is empty
-	// when the digest is only known after the download.
+	// when the digest is only known after the download. For dbc lock, its Path
+	// is nil when the locked version has no build for the current target (see
+	// hasHostPackage); only Driver and Version are set then.
 	Package dbc.PkgInfo
 	// ArchiveSize, when present in a lock entry, is checked against the archive
 	// bytes before the lock is saved or any driver is installed.
@@ -46,6 +48,10 @@ type plannedDriver struct {
 	// hash-measuring download of dbc lock all verify with it. It is never nil.
 	Signer *dbc.SigningKey
 }
+
+// hasHostPackage reports whether the planned driver has an archive for the
+// current target. Only a planner with hostOptional plans drivers without one.
+func (pd *plannedDriver) hasHostPackage() bool { return pd.Package.Path != nil }
 
 // syncPlanner decides which version, registry and archive digest every driver
 // of a driver list needs, replaying a lock file where it still applies.
@@ -62,6 +68,11 @@ type syncPlanner struct {
 	// selects another registry than its lock entry be resolved again. Only
 	// dbc lock sets it; dbc sync stops instead.
 	allowSourceChange bool
+	// hostOptional lets a selected version that has no build for the current
+	// target be planned without a host package; its lock entry then records
+	// only the targets whose archive hash the registry publishes. Only dbc
+	// lock sets it, since it installs nothing; dbc sync fails instead.
+	hostOptional bool
 
 	// sourceIndexes holds the index of each registry that a driver source
 	// selected, by registry identity.
@@ -165,6 +176,11 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		if hadLock && pd.Entry.Signer != oldSigner {
 			return nil, nil, signerChangedError(name, oldSigner)
 		}
+		if proof != "" && !pd.hasHostPackage() {
+			// The proof can only be checked against the archive of this target.
+			return nil, nil, fmt.Errorf("driver %s: the version 1 lock file records a driver library checksum for %s, but version %s has no build for it, so the checksum cannot be checked; "+
+				"run `dbc lock` on a machine of another platform, or delete the driver's entry from the lock file to lock it without the check", name, p.target, pd.Package.Version)
+		}
 		pd.LibrarySHA256 = proof
 		planned = append(planned, pd)
 	}
@@ -240,6 +256,13 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	drv, err := findDriver(name, drivers)
 	if err != nil {
 		return plannedDriver{}, err
+	}
+	if p.hostOptional && hostBuildMissing(drv, v, p.target) {
+		// Nothing to add: the entry is kept as it is.
+		return plannedDriver{Name: name, Entry: d, Signer: signer, Package: dbc.PkgInfo{
+			Driver:  dbc.Driver{Title: name, Path: name},
+			Version: v,
+		}}, nil
 	}
 	pkg, err := withExactVersion(drv, v).GetPackage(v, p.target, true)
 	if err != nil {
@@ -336,15 +359,47 @@ func withExactVersion(d dbc.Driver, v *semver.Version) dbc.Driver {
 
 // selectProjectPackage looks up the host artifact for the pinned or newest eligible version.
 func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Version, platform string) (dbc.PkgInfo, error) {
-	version := pin
-	if version == nil {
-		var err error
-		version, err = driver.GetLatestVersionAnyPlatform(spec.Version, spec.Prerelease == "allow")
-		if err != nil {
-			return dbc.PkgInfo{}, err
-		}
+	version, err := selectProjectVersion(driver, spec, pin)
+	if err != nil {
+		return dbc.PkgInfo{}, err
 	}
 	return withExactVersion(*driver, version).GetPackage(version, platform, true)
+}
+
+// selectProjectVersion returns pin or the newest eligible version, whatever
+// the platforms it has builds for.
+func selectProjectVersion(driver *dbc.Driver, spec driverSpec, pin *semver.Version) (*semver.Version, error) {
+	if pin != nil {
+		return pin, nil
+	}
+	return driver.GetLatestVersionAnyPlatform(spec.Version, spec.Prerelease == "allow")
+}
+
+// hostBuildMissing reports whether the index of d lists exactly version v
+// with packages, but none for platform. Anything else, such as a version that
+// is not listed, has no packages at all or invalid metadata, is left to
+// GetPackage to report: only a listed version without that build may be
+// locked without a host package.
+func hostBuildMissing(d dbc.Driver, v *semver.Version, platform string) bool {
+	listed := false
+	for _, info := range d.AllVersions() {
+		if info.Version == nil {
+			return false
+		}
+		if info.Version.String() != v.String() {
+			continue
+		}
+		if len(info.Packages) == 0 {
+			return false
+		}
+		listed = true
+		for _, pkg := range info.Packages {
+			if pkg.Platform == platform {
+				return false
+			}
+		}
+	}
+	return listed
 }
 
 // sourceIndex fetches the index of the registry that target selects, once
@@ -390,7 +445,16 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 		return plannedDriver{}, err
 	}
 	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-		return selectProjectPackage(candidate, spec, pin, p.target)
+		version, err := selectProjectVersion(candidate, spec, pin)
+		if err != nil {
+			return dbc.PkgInfo{}, err
+		}
+		if p.hostOptional && hostBuildMissing(*candidate, version, p.target) {
+			// The version is chosen without regard to platforms, so a
+			// missing host build neither changes it nor the registry.
+			return dbc.PkgInfo{Version: version}, nil
+		}
+		return withExactVersion(*candidate, version).GetPackage(version, p.target, true)
 	})
 	drv := pkg.Driver
 	var sourceURL *url.URL

@@ -16,6 +16,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"net/url"
@@ -24,19 +25,32 @@ import (
 // lockArtifacts records the current package and any secondary packages that
 // can be represented unambiguously in the lock file. Problems in secondary
 // packages only omit those packages; failure to record the current package
-// prevents the driver from being locked.
+// prevents the driver from being locked. A current package without Path (see
+// plannedDriver.hasHostPackage) is not recorded; at least one secondary
+// package with a published hash must then be, since no archive of another
+// target is downloaded to measure its hash.
 func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lockedArtifact, error) {
-	currentArtifact, err := newLockedArtifact(drv.Registry.BaseURL, current.Path, current.PlatformTuple, publishedHash(current))
-	if err != nil {
-		return nil, err
-	}
-	artifacts := []lockedArtifact{currentArtifact}
-	currentTarget := resolution.CanonicalTarget(currentArtifact.Target)
 	currentIdentity, err := canonicalRegistryIdentity(drv.Registry.BaseURL)
 	if err != nil {
 		return nil, err
 	}
-	currentLocation := lockedLocation(lockedSource{Type: lockSourceRegistry, URL: currentIdentity}, currentArtifact)
+	var (
+		artifacts       []lockedArtifact
+		currentTarget   resolution.Target
+		currentLocation string
+		currentHash     string
+	)
+	hasCurrent := current.Path != nil
+	if hasCurrent {
+		currentArtifact, err := newLockedArtifact(drv.Registry.BaseURL, current.Path, current.PlatformTuple, publishedHash(current))
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, currentArtifact)
+		currentTarget = resolution.CanonicalTarget(currentArtifact.Target)
+		currentLocation = lockedLocation(lockedSource{Type: lockSourceRegistry, URL: currentIdentity}, currentArtifact)
+		currentHash = currentArtifact.Hash
+	}
 
 	// Group raw tuples before resolving packages. GetPackage selects the first
 	// matching raw tuple, so resolving before grouping would make aliases
@@ -50,7 +64,7 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lock
 			continue
 		}
 		for _, pkg := range version.Packages {
-			if !checkedCurrent && pkg.Platform == current.PlatformTuple {
+			if hasCurrent && !checkedCurrent && pkg.Platform == current.PlatformTuple {
 				checkedCurrent = true
 				if unrecordableRelativePackageURL(pkg.URL) {
 					return nil, errors.New("current package has an unrecordable relative URL")
@@ -61,7 +75,7 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lock
 				continue
 			}
 			target = resolution.CanonicalTarget(target)
-			if target == currentTarget {
+			if hasCurrent && target == currentTarget {
 				continue
 			}
 			groups[target] = append(groups[target], pkg)
@@ -96,7 +110,6 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lock
 	// The strict lock writer requires one hash per artifact location. A
 	// secondary target that aliases the current location is omitted, as are all
 	// secondary targets that conflict with one another at a shared location.
-	currentHash := currentArtifact.Hash
 	byLocation := make(map[string]map[string]bool)
 	for _, c := range candidates {
 		if byLocation[c.location] == nil {
@@ -105,13 +118,17 @@ func (p *syncPlanner) lockArtifacts(drv dbc.Driver, current dbc.PkgInfo) ([]lock
 		byLocation[c.location][c.artifact.Hash] = true
 	}
 	for _, c := range candidates {
-		if c.location == currentLocation && (currentHash == "" || c.artifact.Hash != currentHash) {
+		if hasCurrent && c.location == currentLocation && (currentHash == "" || c.artifact.Hash != currentHash) {
 			continue
 		}
 		if len(byLocation[c.location]) > 1 {
 			continue
 		}
 		artifacts = append(artifacts, c.artifact)
+	}
+	if len(artifacts) == 0 {
+		return nil, fmt.Errorf("version %s has no build for %s, and the registry publishes no archive hash for any other platform, which dbc lock records without downloading the archive; "+
+			"run `dbc lock` on a machine of a platform the version supports, or publish archive hashes in the registry", current.Version, p.target)
 	}
 	return artifacts, nil
 }

@@ -336,6 +336,9 @@ type driverListResolution struct {
 	// allowSourceChange resolves drivers whose source changed again instead
 	// of failing; see syncPlanner.allowSourceChange.
 	allowSourceChange bool
+	// hostOptional plans drivers whose locked version has no build for this
+	// platform; see syncPlanner.hostOptional.
+	hostOptional bool
 }
 
 // resolve plans every driver, runs fetch for each planned driver and writes
@@ -400,6 +403,7 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 		index:             r.base.getDriverRegistry,
 		registryIndex:     r.base.getRegistryIndex,
 		allowSourceChange: r.allowSourceChange,
+		hostOptional:      r.hostOptional,
 	}
 	planned, warnings, err := planner.plan(list, existing)
 	if warning := projectRegistryWarning(list); warning != "" {
