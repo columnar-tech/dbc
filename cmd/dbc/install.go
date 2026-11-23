@@ -478,7 +478,8 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	}
 	return m, func() tea.Msg {
 		// With --registry, list is that registry's complete index; otherwise
-		// a failed registry makes the merged index incomplete.
+		// the failed registries are passed on, since one with another signer
+		// might list the driver.
 		pkg, err := dbc.ResolvePackage(list, m.registryErrors, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if vers != nil {
 				return candidate.GetWithConstraint(vers, config.PlatformTuple())

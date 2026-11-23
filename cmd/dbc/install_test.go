@@ -576,24 +576,41 @@ func (suite *SubcommandTestSuite) TestInstallExplicitPrereleaseWithoutPreFlag() 
 	suite.driverIsInstalled("test-driver-only-pre", false)
 }
 
-// TestInstallPartialRegistryFailure pins that dbc install does not choose a
-// registry while one registry's index is missing, and that --registry still
-// installs from a reachable registry.
+// TestInstallPartialRegistryFailure pins that a failed registry with the
+// same signer does not stop dbc install, while a failure that cannot be
+// attributed to a registry with a known signer does, unless --registry
+// chooses a reachable registry.
 func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailure() {
-	partialFailingRegistry := func() ([]dbc.Driver, error) {
-		drivers, _ := getTestDriverRegistry()
-		return drivers, &dbc.RegistryIndexError{Registry: must(url.Parse("https://secondary-registry.example.com")), Err: errors.New("network error")}
+	base := func(registryErr error) baseModel {
+		return withRegistries(baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				drivers, _ := getTestDriverRegistry()
+				return drivers, registryErr
+			},
+			downloadPkg: downloadTestPkg,
+		})
 	}
-	base := withRegistries(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
-	for _, driver := range []string{"test-driver-1", "nonexistent-driver"} {
-		out := suite.runCmdErr(InstallCmd{Driver: driver, Level: suite.configLevel}.GetModelCustom(base))
-		suite.Contains(out, "needs the index of every configured registry")
-		suite.Contains(out, "registry https://secondary-registry.example.com: network error")
-		suite.Contains(out, "pass --registry")
-		suite.driverIsNotInstalled(driver)
-	}
+	failedRegistry := &dbc.RegistryIndexError{Registry: &dbc.Registry{BaseURL: must(url.Parse("https://secondary-registry.example.com"))}, Err: errors.New("network error")}
 
-	suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Registry: testRegistry.BaseURL.String()}.GetModelCustom(base))
+	out := suite.runCmdErr(InstallCmd{Driver: "nonexistent-driver", Level: suite.configLevel}.GetModelCustom(base(failedRegistry)))
+	suite.Contains(out, "could not find driver")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "registry https://secondary-registry.example.com: network error")
+
+	unattributed := errors.New("registry unavailable: network error")
+	out = suite.runCmdErr(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(base(unattributed)))
+	suite.Contains(out, dbc.ErrIncompleteIndex.Error())
+	suite.Contains(out, "network error")
+	suite.Contains(out, "pass --registry")
+	suite.driverIsNotInstalled("test-driver-1")
+
+	out = suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(base(failedRegistry)))
+	suite.Contains(out, "Installed test-driver-1 1.1.0")
+	suite.driverIsInstalled("test-driver-1", true)
+
+	// --registry installs again from the chosen registry.
+	out = suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Registry: testRegistry.BaseURL.String()}.GetModelCustom(base(unattributed)))
+	suite.Contains(out, "Installed test-driver-1 1.1.0")
 	suite.driverIsInstalled("test-driver-1", true)
 }
 

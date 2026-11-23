@@ -398,28 +398,46 @@ func (suite *SubcommandTestSuite) TestSyncInstallNoVerify() {
 	suite.Zero(counters.downloads)
 }
 
-// TestSyncPartialRegistryFailure pins that dbc sync does not choose a
-// registry for a driver without a lock entry while one registry's index is
-// missing, while a driver with a source still resolves from its registry.
+// TestSyncPartialRegistryFailure pins that a failed registry with the same
+// signer does not stop dbc sync, while a failure that cannot be attributed
+// to a registry with a known signer does for a driver without a lock entry,
+// unless the driver has a source.
 func (suite *SubcommandTestSuite) TestSyncPartialRegistryFailure() {
-	partialFailingRegistry := func() ([]dbc.Driver, error) {
-		drivers, _ := getTestDriverRegistry()
-		return drivers, &dbc.RegistryIndexError{Registry: must(url.Parse("https://backup-registry.example.com")), Err: errors.New("network timeout")}
+	base := func(registryErr error) baseModel {
+		return withRegistries(baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				drivers, _ := getTestDriverRegistry()
+				return drivers, registryErr
+			},
+			downloadPkg: downloadTestPkg,
+		})
 	}
-	base := withRegistries(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
+	failedRegistry := &dbc.RegistryIndexError{Registry: &dbc.Registry{BaseURL: must(url.Parse("https://backup-registry.example.com"))}, Err: errors.New("network timeout")}
+	unattributed := errors.New("registry unavailable: network timeout")
 	listPath := filepath.Join(suite.tempdir, "dbc.toml")
-	for _, driver := range []string{"test-driver-1", "nonexistent-driver"} {
-		suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers."+driver+"]\n"), 0o644))
-		out := suite.runCmdErr(SyncCmd{Path: listPath}.GetModelCustom(base))
-		suite.Contains(out, "needs the index of every configured registry")
-		suite.Contains(out, "registry https://backup-registry.example.com: network timeout")
-		suite.Contains(out, "set its source in dbc.toml")
-		suite.NoFileExists(filepath.Join(suite.tempdir, driver+".toml"))
-		suite.NoFileExists(suite.lockPath())
-	}
+
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.nonexistent-driver]\n"), 0o644))
+	out := suite.runCmdErr(SyncCmd{Path: listPath}.GetModelCustom(base(failedRegistry)))
+	suite.Contains(out, "driver `nonexistent-driver` not found")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "registry https://backup-registry.example.com: network timeout")
+
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	out = suite.runCmdErr(SyncCmd{Path: listPath}.GetModelCustom(base(unattributed)))
+	suite.Contains(out, dbc.ErrIncompleteIndex.Error())
+	suite.Contains(out, "network timeout")
+	suite.Contains(out, "set its source in dbc.toml")
+	suite.NoFileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	suite.NoFileExists(suite.lockPath())
 
 	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\nsource = { type = 'registry', url = '"+testRegistry.BaseURL.String()+"' }\n"), 0o644))
-	suite.runCmd(SyncCmd{Path: listPath}.GetModelCustom(base))
+	suite.runCmd(SyncCmd{Path: listPath}.GetModelCustom(base(unattributed)))
+	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
+	suite.Require().NoError(os.Remove(filepath.Join(suite.tempdir, "test-driver-1.toml")))
+	suite.Require().NoError(os.Remove(suite.lockPath()))
+
+	suite.Require().NoError(os.WriteFile(listPath, []byte("[drivers]\n[drivers.test-driver-1]\n"), 0o644))
+	suite.validateOutput("✓ test-driver-1-1.1.0\r\n\rDone!\r\n", "", suite.runCmd(SyncCmd{Path: listPath}.GetModelCustom(base(failedRegistry))))
 	suite.FileExists(filepath.Join(suite.tempdir, "test-driver-1.toml"))
 }
 

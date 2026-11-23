@@ -146,9 +146,12 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 	if platform == "" {
 		platform = config.PlatformTuple()
 	}
-	// Choosing the registry needs every index: a failed registry is an
-	// error even when another one lists the driver.
 	drivers, searchErr := c.Search(ctx, name)
+	if searchErr != nil && allRegistriesFailed(c, searchErr) {
+		return ResolveResult{}, searchErr
+	}
+	// A failed registry is an error only if it might list the driver with
+	// another signer; see dbc.ResolvePackage.
 	pkg, err := dbc.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return candidate.GetLatestPackage(platform, false)
 	})
@@ -169,6 +172,9 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 			out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
 		}
 		return out, nil
+	}
+	if searchErr != nil {
+		return ResolveResult{}, fmt.Errorf("driver %q not found in reachable registries; some registries failed: %w", name, searchErr)
 	}
 	return ResolveResult{}, fmt.Errorf("driver %q not found", name)
 }

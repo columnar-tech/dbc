@@ -390,8 +390,9 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	// A driver with a source is resolved from one complete index. Any other
-	// driver needs every registry's index, so a failed one is passed on.
+	// A driver with a source is resolved from one complete index. For any
+	// other driver the failed registries are passed on, since one with
+	// another signer might list it.
 	var indexErr error
 	if target == nil {
 		indexErr = p.registryErr

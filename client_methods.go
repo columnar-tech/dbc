@@ -169,7 +169,7 @@ func (c *Client) Search(ctx context.Context, pattern string) ([]Driver, error) {
 	for i := range c.registries {
 		drivers, err := c.getDriverListFromIndex(ctx, &c.registries[i])
 		if err != nil {
-			errs = append(errs, &RegistryIndexError{Registry: c.registries[i].BaseURL, Err: err})
+			errs = append(errs, &RegistryIndexError{Registry: &c.registries[i], Err: err})
 			continue
 		}
 		c.registries[i].Drivers = drivers
@@ -288,9 +288,13 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		opt(&o)
 	}
 
-	// Choosing the registry needs every index, so a failed registry is an
-	// error even when another one lists the driver.
 	drivers, searchErr := c.Search(ctx, driverName)
+	// Without any listed driver, the registry errors are the explanation.
+	if searchErr != nil && len(drivers) == 0 {
+		return nil, fmt.Errorf("failed to search for driver %s: %w", driverName, searchErr)
+	}
+	// A failed registry is an error only if it might list the driver with
+	// another signer; see ResolvePackage.
 	pkg, err := ResolvePackage(drivers, searchErr, driverName, func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage(config.PlatformTuple(), false) })
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)

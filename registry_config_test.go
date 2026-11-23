@@ -925,19 +925,79 @@ func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 	assert.Same(t, third, pkg.Driver.Registry)
 }
 
-func TestResolvePackageRequiresEveryIndex(t *testing.T) {
-	listed := Driver{Path: "shared", Registry: &Registry{BaseURL: mustParseURL("https://first.test")},
+// TestResolvePackageMissingIndex pins that a missing index stops resolution
+// only when its registry might list the driver with another signer.
+func TestResolvePackageMissingIndex(t *testing.T) {
+	public := &Registry{BaseURL: mustParseURL("https://public.test")}
+	private := &Registry{BaseURL: mustParseURL("https://user:secret@private.test/r?token=t")}
+	sameKey := &Registry{BaseURL: mustParseURL("https://same.test")}
+	otherKey := &Registry{BaseURL: mustParseURL("https://other.test")}
+	signers := map[*Registry]string{public: "key A", private: "key A", sameKey: "key A", otherKey: "key B"}
+	signerOf := func(r *Registry) (string, error) { return signers[r], nil }
+	listed := Driver{Path: "shared", Registry: public,
 		PkgInfo: []pkginfo{{Version: semver.MustParse("1.0.0"), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}}}}
-	indexErr := errors.Join(&RegistryIndexError{Registry: mustParseURL("https://second.test"), Err: ErrUnauthorized})
-	_, err := ResolvePackage([]Driver{listed}, indexErr, "shared", func(d *Driver) (PkgInfo, error) {
-		t.Fatal("no package may be selected from an incomplete index")
+	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
+	failed := func(r *Registry) error { return &RegistryIndexError{Registry: r, Err: ErrUnauthorized} }
+
+	// The built-in registries share a signer: a failed private registry,
+	// even ranked above the public one, does not block a public driver.
+	pkg, err := ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
+	require.NoError(t, err)
+	assert.Same(t, public, pkg.Driver.Registry)
+
+	// The failure may come wrapped, as the CLI redacts it.
+	pkg, err = resolvePackage([]Driver{listed}, fmt.Errorf("redacted: %w", errors.Join(failed(private), failed(sameKey))), "shared", latest, signerOf)
+	require.NoError(t, err)
+	assert.Same(t, public, pkg.Driver.Registry)
+
+	// Without a listing registry, failed registries with one signer leave
+	// the driver not found.
+	_, err = resolvePackage(nil, errors.Join(failed(private), failed(sameKey)), "shared", latest, signerOf)
+	require.ErrorContains(t, err, "not found")
+	assert.NotErrorIs(t, err, ErrIncompleteIndex)
+
+	noSelection := func(d *Driver) (PkgInfo, error) {
+		t.Fatal("no package may be selected while a registry with another signer is missing")
 		return PkgInfo{}, nil
-	})
-	require.ErrorIs(t, err, ErrIncompleteIndex)
+	}
+	for _, tc := range []struct {
+		name     string
+		drivers  []Driver
+		indexErr error
+		signerOf func(*Registry) (string, error)
+		want     string
+	}{
+		{name: "another signer", drivers: []Driver{listed}, indexErr: errors.Join(failed(otherKey))},
+		{name: "another signer in a later failure", drivers: []Driver{listed}, indexErr: errors.Join(failed(sameKey), failed(otherKey))},
+		{name: "failed registries with different signers", indexErr: errors.Join(failed(private), failed(otherKey))},
+		{name: "a failure without a registry", drivers: []Driver{listed}, indexErr: errors.New("network error")},
+		{name: "a registry index error without a registry", drivers: []Driver{listed}, indexErr: &RegistryIndexError{Err: ErrUnauthorized}},
+		{name: "an unknown signer", drivers: []Driver{listed}, indexErr: errors.Join(failed(private)), want: "cannot read the key",
+			signerOf: func(r *Registry) (string, error) {
+				if r == private {
+					return "", errors.New("cannot read the key")
+				}
+				return signerOf(r)
+			}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.signerOf == nil {
+				tc.signerOf = signerOf
+			}
+			_, err := resolvePackage(tc.drivers, tc.indexErr, "shared", noSelection, tc.signerOf)
+			require.ErrorIs(t, err, ErrIncompleteIndex)
+			assert.ErrorContains(t, err, tc.want)
+			assert.NotContains(t, err.Error(), "secret")
+			assert.NotContains(t, err.Error(), "token")
+		})
+	}
+
+	// The failure of each registry stays available.
+	_, err = resolvePackage([]Driver{listed}, errors.Join(failed(otherKey)), "shared", noSelection, signerOf)
 	require.ErrorIs(t, err, ErrUnauthorized)
 	var indexError *RegistryIndexError
 	require.ErrorAs(t, err, &indexError)
-	assert.Equal(t, "https://second.test", indexError.Registry.String())
+	assert.Same(t, otherKey, indexError.Registry)
 }
 
 func TestSearchAndInstallReportEachFailedRegistry(t *testing.T) {
@@ -961,12 +1021,17 @@ func TestSearchAndInstallReportEachFailedRegistry(t *testing.T) {
 			assert.Len(t, drivers, 1, "search keeps the partial result")
 			var indexErr *RegistryIndexError
 			require.ErrorAs(t, err, &indexErr)
-			assert.Equal(t, failing.URL, indexErr.Registry.String())
+			assert.Equal(t, failing.URL, indexErr.Registry.BaseURL.String())
 
-			// Install of a driver that the reachable registry lists still
-			// fails: the failed registry might list it as well.
+			// Both registries use the same signer, so the failed one does
+			// not stop the resolution of a driver the other one lists: x
+			// fails only for having no package.
 			_, err = c.Install(t.Context(), config.Config{}, "x")
-			require.ErrorIs(t, err, ErrIncompleteIndex)
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, ErrIncompleteIndex)
+
+			// A driver that no reachable registry lists names the failure.
+			_, err = c.Install(t.Context(), config.Config{}, "missing")
 			assert.ErrorContains(t, err, failing.URL)
 		})
 	}
@@ -993,6 +1058,6 @@ func TestRegistryIndexErrorHidesURLSecrets(t *testing.T) {
 	assert.Contains(t, err.Error(), "/r")
 
 	_, err = c.Install(t.Context(), config.Config{}, "x")
-	require.ErrorIs(t, err, ErrIncompleteIndex)
+	require.ErrorAs(t, err, &indexErr)
 	assert.NotContains(t, err.Error(), "supersecret")
 }
