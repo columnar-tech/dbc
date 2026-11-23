@@ -17,6 +17,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -201,4 +202,14 @@ func (suite *SubcommandTestSuite) TestLockWithoutHostBuildJSON() {
 	}
 	suite.Require().NoError(json.Unmarshal([]byte(out), &envelope))
 	suite.Equal([]jsonschema.LockedDriver{{Name: "test-driver-1", Version: "1.0.0"}}, envelope.Payload.Drivers)
+}
+
+// TestAddWithoutHostBuild pins that dbc add, like dbc lock, does not need a
+// build of the selected version for this platform.
+func (suite *SubcommandTestSuite) TestAddWithoutHostBuild() {
+	listPath := suite.writeDriverList()
+	suite.runCmd(AddCmd{Path: listPath, Driver: []string{"test-driver-1"}}.GetModelCustom(hostlessBase(strings.Repeat("a", 64))))
+	data, err := os.ReadFile(listPath)
+	suite.Require().NoError(err)
+	suite.Contains(string(data), "[drivers.test-driver-1]")
 }

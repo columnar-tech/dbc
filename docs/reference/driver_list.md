@@ -88,6 +88,22 @@ To allow the pre-release in this case, either:
 - Add `prerelease = 'allow'`
 - Change the constraint to reference the pre-release: `version = '>=0.1.1-beta.1'`
 
+## Platforms
+
+{{ since_version('v0.4.0') }}
+
+Use the optional top-level `platforms` key to list the [platforms](supported_platforms.md) your project must support.
+
+```toml
+platforms = ["linux_amd64", "macos_arm64", "macos_amd64"]
+```
+
+When selecting a version, `dbc add`, `dbc lock` and `dbc sync` choose the newest allowed release with a build for every listed platform. Missing builds do not trigger fallback to another registry.
+
+`dbc.lock` records an archive for each listed platform, handled like the current platform: if the registry publishes no hash for it, the archive is downloaded and checked to record one. `dbc sync` requires the current platform to be listed. Changing the list triggers resolution again, keeping locked versions that still meet the requirements.
+
+Omit `platforms` to select versions without a platform requirement. An empty list is an error.
+
 ## Registries
 
 {{ since_version('v0.4.0') }}

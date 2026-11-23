@@ -121,6 +121,9 @@ func (m lockModel) Init() tea.Cmd {
 // recorded. The download is always removed again.
 func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, Package: pd.Package, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
+	if err := measureDeclared(m.ctx, m.baseModel, pd, m.NoVerify); err != nil {
+		return item, err
+	}
 	if !pd.hasHostPackage() || (pd.Package.ArchiveSHA256 != "" && pd.LibrarySHA256 == "") {
 		return item, nil
 	}
