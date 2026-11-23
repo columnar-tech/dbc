@@ -112,6 +112,19 @@ url = "https://custom.registry.io"
 			toml:    "[[registries\nurl = \"https://example.com\"\n",
 			wantErr: "invalid",
 		},
+		{
+			name:    "duplicate registry name rejected",
+			toml:    "[[registries]]\nurl = \"https://a.example.com\"\nname = \"acme\"\n[[registries]]\nurl = \"https://b.example.com\"\nname = \"acme\"\n",
+			wantErr: `registry name "acme" is declared more than once`,
+		},
+		{
+			name: "unnamed registries do not collide",
+			toml: "[[registries]]\nurl = \"https://a.example.com\"\n[[registries]]\nurl = \"https://b.example.com\"\n",
+			wantEntries: []RegistryEntry{
+				{URL: "https://a.example.com"},
+				{URL: "https://b.example.com"},
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -169,6 +182,7 @@ prerelease = ["not", "a", "string"]
 		{name: "malformed registry URL", toml: "[[registries]]\nurl = \"http://bad host\"\n", wantErr: "invalid registry URL"},
 		{name: "missing host", toml: "[[registries]]\nurl = \"https:///onlypath\"\n", wantErr: "missing host"},
 		{name: "unsupported registry scheme", toml: "[[registries]]\nurl = \"ftp://example.test\"\n", wantErr: "scheme must be http or https"},
+		{name: "duplicate registry name", toml: "[[registries]]\nurl = \"https://a.test\"\nname = \"x\"\n[[registries]]\nurl = \"https://b.test\"\nname = \"x\"\n", wantErr: "declared more than once"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "dbc.toml")
@@ -546,6 +560,22 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			wantErr: "empty registry list",
 		},
 		{
+			name: "WithProjectRegistries rejects a repeated name",
+			opts: []Option{WithProjectRegistries([]RegistryEntry{
+				{URL: "https://a.example.com", Name: "acme"},
+				{URL: "https://b.example.com", Name: "acme"},
+			}, false)},
+			wantErr: "declared more than once",
+		},
+		{
+			name: "the same name in the global config and the project is allowed",
+			opts: []Option{
+				WithGlobalConfig(&GlobalConfig{Registries: []RegistryEntry{{URL: "https://glob.example.com", Name: "acme"}}}),
+				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com", Name: "acme"}}, false),
+			},
+			wantRegs: []string{"https://proj.example.com", "https://glob.example.com"},
+		},
+		{
 			name:    "WithGlobalConfig rejects empty URL",
 			opts:    []Option{WithGlobalConfig(&GlobalConfig{Registries: []RegistryEntry{{URL: ""}}})},
 			wantErr: "empty url",
@@ -817,5 +847,30 @@ func TestResolvePackageMissingVersion(t *testing.T) {
 			assert.NotErrorIs(t, err, ErrPackageMiss)
 			assert.Same(t, first.Registry, pkg.Driver.Registry)
 		})
+	}
+}
+
+func TestSearchPrefersTheConfiguredRegistryName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/index.yaml" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, "name: from-index\ndrivers:\n  - path: x\n    name: X\n")
+	}))
+	t.Cleanup(server.Close)
+
+	for _, tc := range []struct {
+		configured, want string
+	}{
+		{configured: "from-config", want: "from-config"},
+		{configured: "", want: "from-index"},
+	} {
+		c, err := NewClient(WithRegistries([]Registry{{Name: tc.configured, BaseURL: mustParseURL(server.URL)}}))
+		require.NoError(t, err)
+		drivers, err := c.Search(t.Context(), "")
+		require.NoError(t, err)
+		require.Len(t, drivers, 1)
+		assert.Equal(t, tc.want, drivers[0].Registry.Name)
 	}
 }

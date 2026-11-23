@@ -141,7 +141,9 @@ func (c *Client) getDriverListFromIndex(ctx context.Context, index *Registry) ([
 		return nil, fmt.Errorf("failed to parse driver registry index: %s", err)
 	}
 
-	if drivers.Name != "" {
+	// A name from the registry configuration takes precedence; the index
+	// only names registries that the configuration leaves unnamed.
+	if index.Name == "" {
 		index.Name = drivers.Name
 	}
 
