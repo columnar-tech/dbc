@@ -603,6 +603,7 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 			defer s.projectLock.end()
 			options := config.InstallPackageOptions{
 				ExpectedArchiveSHA256: item.Package.ArchiveSHA256,
+				ExpectedVersion:       item.Package.Version,
 			}
 			if item.LibrarySHA256 != "" {
 				options.Verifier = func(stagingDir string, manifest config.Manifest) error {
