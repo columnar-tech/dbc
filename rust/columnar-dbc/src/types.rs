@@ -64,7 +64,7 @@ impl ClientConfig {
         self
     }
 
-    /// Load `registries` and `replace_defaults` from a project `dbc.toml`.
+    /// Load `registries` and `exclude_builtin_registries` from a project `dbc.toml`.
     /// A missing or invalid file is an error unless explicit registries
     /// (or a nonempty `base_url`) override it.
     pub fn project_file(mut self, path: impl Into<PathBuf>) -> Self {

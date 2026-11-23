@@ -67,7 +67,9 @@ type AddCmd struct {
 	Driver []string `arg:"positional,required" help:"One or more drivers to add, optionally with a version constraint (for example: mysql, mysql=0.1.0, mysql>=1,<2)"`
 	Path   string   `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to add to"`
 	Pre    bool     `arg:"--pre" help:"Allow pre-release versions implicitly"`
-	Json   bool     `arg:"--json" help:"Print output as JSON instead of plaintext"`
+	// Registry is stored as the source of every driver this command adds.
+	Registry string `arg:"--registry" placeholder:"NAME|URL" help:"Take the drivers only from this registry and record it as their source: the name of a [[registries]] entry in the driver list, or the URL of a configured registry. Without it, a driver keeps the source it already has"`
+	Json     bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
@@ -76,6 +78,7 @@ func (c AddCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		Driver:     c.Driver,
 		Path:       c.Path,
 		Pre:        c.Pre,
+		Registry:   c.Registry,
 		jsonOutput: c.Json,
 	}
 }
@@ -85,6 +88,7 @@ func (c AddCmd) GetModel() tea.Model {
 		Driver:     c.Driver,
 		Path:       c.Path,
 		Pre:        c.Pre,
+		Registry:   c.Registry,
 		jsonOutput: c.Json,
 		baseModel:  defaultBaseModel(),
 	}
@@ -101,6 +105,7 @@ type addModel struct {
 	Driver       []string
 	Path         string
 	Pre          bool
+	Registry     string
 	jsonOutput   bool
 	list         DriversList
 	result       string
@@ -159,19 +164,66 @@ func (m addModel) Init() tea.Cmd {
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
 		}
-
-		drivers, registryErr := m.getDriverRegistry()
-		// If we have no drivers and there's an error, fail immediately
-		if len(drivers) == 0 && registryErr != nil {
-			return fmt.Errorf("error getting driver list: %w", registryErr)
+		if warning := projectRegistryWarning(m.list); warning != "" {
+			fmt.Fprintln(os.Stderr, warning)
 		}
-		// Store registry errors to use later if driver is not found
-		// We continue processing if we have some drivers
-		var registryErrors = registryErr
+
+		if err := validateDriverSources(m.list); err != nil {
+			return err
+		}
+		flagSource := registrySourceFlag(m.Registry)
+		if flagSource != nil {
+			if _, err := flagSource.target(m.list.Registries); err != nil {
+				return fmt.Errorf("--registry: %w", err)
+			}
+		}
+
+		// The merged index is only fetched for drivers without a source.
+		var (
+			merged         []dbc.Driver
+			registryErrors error
+			mergedLoaded   bool
+		)
+		mergedIndex := func() ([]dbc.Driver, error) {
+			if !mergedLoaded {
+				mergedLoaded = true
+				merged, registryErrors = m.getDriverRegistry()
+			}
+			// If we have no drivers and there's an error, fail immediately.
+			// Otherwise registry errors are kept to explain a missing driver.
+			if len(merged) == 0 && registryErrors != nil {
+				return nil, fmt.Errorf("error getting driver list: %w", registryErrors)
+			}
+			return merged, nil
+		}
+		sourceIndexes := map[string][]dbc.Driver{}
+		sourceIndex := func(name string, target sourceTarget) ([]dbc.Driver, error) {
+			if drivers, ok := sourceIndexes[target.identity]; ok {
+				return drivers, nil
+			}
+			registries, err := m.getRegistries()
+			if err != nil {
+				return nil, err
+			}
+			reg, err := target.bind(registries)
+			if err != nil {
+				return nil, fmt.Errorf("driver %s: %w", name, err)
+			}
+			drivers, err := m.getRegistryIndex(reg)
+			if err != nil {
+				return nil, fmt.Errorf("could not fetch the index of registry %s, which driver %s is taken from: %w",
+					target.identity, name, redactRegistryError(err, m.getRegistries, reg.BaseURL))
+			}
+			sourceIndexes[target.identity] = drivers
+			return drivers, nil
+		}
 
 		if m.list.Drivers == nil {
 			m.list.Drivers = make(map[string]driverSpec)
 		}
+		// previous holds the source of each driver as read, to detect a
+		// concurrent change of it before writing.
+		previous := map[string]*driverSource{}
 
 		var result string
 		for i, spec := range specs {
@@ -184,9 +236,36 @@ func (m addModel) Init() tea.Cmd {
 				requested.Prerelease = "allow"
 			}
 			requested = requested.withPrerelease()
+			previous[spec.Name] = m.list.Drivers[spec.Name].Source
+			requested.Source = flagSource
+			if requested.Source == nil {
+				requested.Source = previous[spec.Name]
+			}
+
+			var drivers []dbc.Driver
+			var target *sourceTarget
+			if requested.Source != nil {
+				t, err := requested.Source.target(m.list.Registries)
+				if err != nil {
+					return fmt.Errorf("driver %s: %w", spec.Name, err)
+				}
+				target = &t
+				drivers, err = sourceIndex(spec.Name, t)
+				if err != nil {
+					return err
+				}
+			} else if drivers, err = mergedIndex(); err != nil {
+				return err
+			}
 			pkg, err := dbc.ResolvePackage(drivers, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 				return selectProjectPackage(candidate, requested, nil, config.PlatformTuple())
 			})
+			if err != nil && target != nil {
+				if pkg.Driver.Path == "" {
+					return fmt.Errorf("driver `%s` not found in %s (%s)", spec.Name, target.source, target.identity)
+				}
+				return fmt.Errorf("error getting driver %s from %s: %w", spec.Name, target.source, redactRegistryError(err, m.getRegistries))
+			}
 			if err != nil {
 				err = redactRegistryError(err, m.getRegistries)
 				switch {
@@ -227,6 +306,9 @@ func (m addModel) Init() tea.Cmd {
 			if spec.Vers != nil {
 				result += nameStyle.Render(" with constraint", spec.Vers.String())
 			}
+			if requested.Source != nil {
+				result += nameStyle.Render(" from", requested.Source.String())
+			}
 		}
 
 		// Reacquire the project lock for the read-modify-write phase.
@@ -259,10 +341,20 @@ func (m addModel) Init() tea.Cmd {
 		if registriesChanged(m.list, current) {
 			return fmt.Errorf("dbc.toml registry configuration changed while resolving drivers; please retry `dbc add`")
 		}
+		// A driver's source, or the registry a source name refers to, may
+		// also have changed: the drivers were validated against the old one.
+		for _, spec := range specs {
+			if flagSource == nil && !previous[spec.Name].equal(current.Drivers[spec.Name].Source) {
+				return fmt.Errorf("the source of driver %s in dbc.toml changed while resolving drivers; please retry `dbc add`", spec.Name)
+			}
+			if src := m.list.Drivers[spec.Name].Source; src != nil && !sameSourceTarget(*src, m.list.Registries, current.Registries) {
+				return fmt.Errorf("the registry that driver %s is taken from changed in dbc.toml while resolving drivers; please retry `dbc add`", spec.Name)
+			}
+		}
 
 		// Merge ONLY the driver entries this invocation actually added or
 		// replaced onto whatever is on disk. Leaving untouched drivers,
-		// registries, and replace_defaults alone preserves concurrent
+		// registries, and exclude_builtin_registries alone preserves concurrent
 		// `dbc remove`/`dbc add` edits that landed while we were doing
 		// the unlocked registry lookup above.
 		if current.Drivers == nil {

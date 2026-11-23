@@ -217,6 +217,50 @@ func TestPlanResolvesAllPublishedTargets(t *testing.T) {
 	require.NoError(t, v2Lock(pd.Entry).V2.validate())
 }
 
+func TestPlanRecordsTargetsOfExactVersionOnly(t *testing.T) {
+	f := newPlanFixture(t)
+	// 1.0.0+b comes first, so a lookup that ignores build metadata finds it.
+	index := `drivers:
+  - name: Gamma
+    path: gamma
+    pkginfo:
+      - version: v1.0.0+b
+        packages:
+          - platform: linux_amd64
+            url: gamma/b/gamma-linux.tar.gz
+            hash: sha256:` + planHashB + `
+          - platform: macos_arm64
+            url: gamma/b/gamma-macos.tar.gz
+            hash: sha256:` + planHashC + `
+      - version: v1.0.0+a
+        packages:
+          - platform: linux_amd64
+            url: gamma/a/gamma-linux.tar.gz
+            hash: sha256:` + planHashA + `
+`
+	f.planner.index = func() ([]dbc.Driver, error) {
+		var decoded struct {
+			Drivers []dbc.Driver `yaml:"drivers"`
+		}
+		if err := yaml.Unmarshal([]byte(index), &decoded); err != nil {
+			return nil, err
+		}
+		for i := range decoded.Drivers {
+			decoded.Drivers[i].Registry = &dbc.Registry{BaseURL: planRegistryURL}
+		}
+		return decoded.Drivers, nil
+	}
+	lock := v1Lock(lockInfo{Name: "gamma", Version: semver.MustParse("1.0.0+a")})
+	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"gamma": {}}), lock)
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	assert.Equal(t, "1.0.0+a", planned[0].Entry.Version)
+	assert.Equal(t, planHashA, planned[0].Package.ArchiveSHA256)
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "linux_amd64"): lockHashPrefix + planHashA,
+	}, artifactTargets(planned[0].Entry), "the macos artifact of 1.0.0+b is not recorded for 1.0.0+a")
+}
+
 func TestPlanPartialLockKeepsCurrentTargetWithoutHash(t *testing.T) {
 	f := newPlanFixture(t)
 	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"beta": {}}), parsedLockFile{})
@@ -365,6 +409,12 @@ func TestPlanCompletionErrors(t *testing.T) {
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("0.9.0", macos)))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "0.9.0")
+	})
+	t.Run("version with other build metadata in the index", func(t *testing.T) {
+		f := newPlanFixture(t)
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("1.0.0+other", macos)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "1.0.0+other")
 	})
 	t.Run("malformed hash of the current target", func(t *testing.T) {
 		f := newPlanFixture(t)
@@ -522,6 +572,13 @@ func TestPlanV1Lock(t *testing.T) {
 		})
 	}
 
+	t.Run("a pin keeps its build metadata", func(t *testing.T) {
+		f := newPlanFixture(t)
+		lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0+other")})
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "1.0.0+other")
+	})
 	t.Run("an entry without checksum warns about nothing", func(t *testing.T) {
 		f := newPlanFixture(t)
 		lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0")})

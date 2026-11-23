@@ -91,10 +91,11 @@ func (m lockModel) Init() tea.Cmd {
 		// TODO: allow locking a selected version without a host artifact.
 		// The shared planner still requires one even when lock installs nothing.
 		items, warnings, err := driverListResolution{
-			path:        m.Path,
-			ctx:         m.ctx,
-			projectLock: m.projectLock,
-			base:        m.baseModel,
+			path:              m.Path,
+			ctx:               m.ctx,
+			projectLock:       m.projectLock,
+			base:              m.baseModel,
+			allowSourceChange: true,
 		}.resolve(m.fetch)
 		for _, warning := range warnings {
 			fmt.Fprintln(os.Stderr, warning)

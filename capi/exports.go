@@ -52,7 +52,7 @@ package main
 //                                           omitted the Columnar key is used
 //   DBC_OPTION_REGISTRY_CONFIG             "default" (or empty) loads the user's global
 //                                           config.toml; "none" skips it
-//   DBC_OPTION_PROJECT_FILE                path to dbc.toml (registries/replace_defaults)
+//   DBC_OPTION_PROJECT_FILE                path to dbc.toml (registries/exclude_builtin_registries)
 //   DBC_OPTION_CREDENTIAL_STORE            "default" (or empty) reads stored credentials;
 //                                           "none" never uses stored credentials to authenticate
 //   DBC_OPTION_USER_AGENT_SUFFIX           appended to the HTTP User-Agent

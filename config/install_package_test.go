@@ -27,6 +27,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 func TestInstallPackagePublishesAndRegistersGeneration(t *testing.T) {
@@ -213,6 +215,59 @@ func TestInstallPackagePipelineFailuresPreservePreviousGeneration(t *testing.T) 
 		assertPreviousPackage(t, cfg, previousPath)
 		if _, statErr := os.Stat(candidatePath); statErr != nil {
 			t.Fatalf("candidate %s was not preserved after cleanup failure: %v", candidatePath, statErr)
+		}
+	})
+}
+
+func TestInstallPackageRejectsUnexpectedManifestVersion(t *testing.T) {
+	location := t.TempDir()
+	cfg := Config{Level: ConfigEnv, Location: location}
+	installInitialPackage(t, cfg)
+	previous, err := GetDriver(cfg, "driver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousPath := previous.Driver.Shared.Get(PlatformTuple())
+
+	// testPackageArchive declares version 1.0.0.
+	for _, expected := range []string{"1.1.0", "1.0.0+build"} {
+		t.Run(expected, func(t *testing.T) {
+			archive := testPackageArchive(t, "new")
+			verified := false
+			_, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{
+				ExpectedVersion: semver.MustParse(expected),
+				Verifier:        func(string, Manifest) error { verified = true; return nil },
+			})
+			var mismatch *PackageVersionMismatchError
+			if !errors.As(err, &mismatch) {
+				t.Fatalf("InstallPackage error = %v, want *PackageVersionMismatchError", err)
+			}
+			if mismatch.Expected.String() != semver.MustParse(expected).String() || mismatch.Actual.String() != "1.0.0" {
+				t.Fatalf("mismatch = %+v", mismatch)
+			}
+			want := "driver driver: the package declares version 1.0.0, but version " + semver.MustParse(expected).String() + " was selected"
+			if err.Error() != want {
+				t.Fatalf("error = %q, want %q", err, want)
+			}
+			if verified {
+				t.Fatal("verifier ran for a package with an unexpected version")
+			}
+			assertArchiveClosed(t, archive)
+			assertPreviousPackage(t, cfg, previousPath)
+			assertOnlyPackageGeneration(t, location, filepath.Base(filepath.Dir(previousPath)))
+		})
+	}
+
+	t.Run("v prefix matches", func(t *testing.T) {
+		archive := testPackageArchive(t, "new")
+		manifest, err := InstallPackage(context.Background(), cfg, "driver", archive, InstallPackageOptions{
+			ExpectedVersion: semver.MustParse("v1.0.0"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if manifest.Version.String() != "1.0.0" {
+			t.Fatalf("installed version = %s", manifest.Version)
 		}
 	})
 }

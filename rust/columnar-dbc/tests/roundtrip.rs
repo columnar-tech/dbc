@@ -227,7 +227,7 @@ fn explicit_registry_signing_key() {
 fn explicit_empty_registry_list_disables_registries() {
     let Some(root) = isolated("explicit_empty_registry_list_disables_registries") else { return };
     let url = common::serve();
-    write_global_config(&root, &format!("replace_defaults = true\n[[registries]]\nurl = '{url}'\n"));
+    write_global_config(&root, &format!("exclude_builtin_registries = true\n[[registries]]\nurl = '{url}'\n"));
 
     let result = Client::new().unwrap().search("test-driver-1").unwrap();
     assert_eq!(result.drivers.len(), 1, "{result:?}");
@@ -262,7 +262,7 @@ fn explicit_registry_options_are_validated() {
 fn default_registry_config_and_project_file_are_applied() {
     let Some(root) = isolated("default_registry_config_and_project_file_are_applied") else { return };
     let global = common::serve();
-    write_global_config(&root, &format!("replace_defaults = true\n[[registries]]\nurl = '{global}'\n"));
+    write_global_config(&root, &format!("exclude_builtin_registries = true\n[[registries]]\nurl = '{global}'\n"));
 
     let result = Client::new().unwrap().search("test-driver-1").unwrap();
     assert_eq!(result.drivers.len(), 1, "{result:?}");
@@ -271,7 +271,7 @@ fn default_registry_config_and_project_file_are_applied() {
 
     let project = common::serve_with("drivers:\n  - path: test-driver-1\n    name: Project Driver\n".into(), None);
     let file = root.join("dbc.toml");
-    fs::write(&file, format!("replace_defaults = true\n[[registries]]\nurl = '{project}'\n")).unwrap();
+    fs::write(&file, format!("exclude_builtin_registries = true\n[[registries]]\nurl = '{project}'\n")).unwrap();
     let config = ClientConfig::default().registry_config(RegistryConfig::Default).project_file(&file);
     let result = Client::with_config(&config).unwrap().search("test-driver-1").unwrap();
     assert_eq!(result.drivers.iter().map(|d| d.title.as_str()).collect::<Vec<_>>(), ["Project Driver", "Test Driver 1"]);

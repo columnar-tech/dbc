@@ -223,13 +223,15 @@ Registry precedence is explicit:
 - Otherwise, `registry_config(RegistryConfig::Default)` loads the global
   file. `RegistryConfig::None` skips only that file; it does not disable
   an explicitly selected project file or dbc's built-in registries.
-- `project_file(path)` reads `registries` and `replace_defaults` from that
+- `project_file(path)` reads `registries` and `exclude_builtin_registries` from that
   project's `dbc.toml`. Project files are never discovered automatically.
   A missing, unreadable, or invalid selected file is an error.
 - Project registries come first, then global registries, then built-in
-  registries, with duplicate URLs removed. A project's `replace_defaults`
-  value overrides the global value; omitting it inherits the global value.
-  `true` removes the built-in registries, not the global entries. A
+  registries, with duplicate URLs removed. Setting
+  `exclude_builtin_registries = true` in either the global or the project
+  file removes the built-in registries, not the global or project entries;
+  a project's `false` does not bring back built-in registries that the
+  global file excludes. A
   file-based configuration that leaves no registries is an error.
 
 An empty registry list means no registries, like Go and TypeScript; search

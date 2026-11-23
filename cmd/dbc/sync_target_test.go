@@ -49,7 +49,7 @@ func TestPlanRetainsPlatformTupleForArchiveURLs(t *testing.T) {
 				registries: func() ([]dbc.Registry, error) { return []dbc.Registry{testRegistry}, nil },
 				index:      func() ([]dbc.Driver, error) { return decodeTestIndex(index) },
 			}
-			planned, err := planner.resolve("alpha", driverSpec{}, nil)
+			planned, err := planner.resolve("alpha", driverSpec{}, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, planned.Entry.Artifacts, 1)
 			assert.Equal(t, tc.target, planned.Entry.Artifacts[0].Target)
@@ -83,7 +83,7 @@ func TestPlanSkipsAliasesOfCurrentTargetInEitherOrder(t *testing.T) {
             hash: sha256:%s
 `, platforms[0], strings.Repeat("a", 64), platforms[1], strings.Repeat("a", 64))
 			planner := targetTestPlanner(platforms[1], index)
-			planned, err := planner.resolve("alpha", driverSpec{}, nil)
+			planned, err := planner.resolve("alpha", driverSpec{}, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, planned.Entry.Artifacts, 1)
 			assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, planned.Entry.Artifacts[0].Target)
@@ -108,7 +108,7 @@ func TestPlanExcludesAmbiguousSecondaryCanonicalTargetInEitherOrder(t *testing.T
             hash: sha256:%s
 `, strings.Repeat("a", 64), platforms[0], strings.Repeat("b", 64), platforms[1], strings.Repeat("c", 64))
 			planner := targetTestPlanner("linux_amd64", index)
-			planned, err := planner.resolve("alpha", driverSpec{}, nil)
+			planned, err := planner.resolve("alpha", driverSpec{}, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, planned.Entry.Artifacts, 1)
 			assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, planned.Entry.Artifacts[0].Target)
@@ -151,7 +151,7 @@ func TestPlanSkipsUnrecordableOrConflictingSecondaryArtifacts(t *testing.T) {
 %s
 `, currentURL, strings.Repeat("a", 64), extra)
 			planner := targetTestPlanner("linux_amd64", index)
-			planned, err := planner.resolve("alpha", driverSpec{}, nil)
+			planned, err := planner.resolve("alpha", driverSpec{}, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, planned.Entry.Artifacts, 1)
 			assert.Equal(t, resolution.Target{OS: "linux", Arch: "amd64", LibC: "gnu"}, planned.Entry.Artifacts[0].Target)
@@ -170,7 +170,7 @@ func TestPlanRejectsUnrecordableCurrentRelativeURL(t *testing.T) {
             url: archive.tar.gz?signature=secret
             hash: sha256:` + strings.Repeat("a", 64) + "\n"
 	planner := targetTestPlanner("linux_amd64", index)
-	_, err := planner.resolve("alpha", driverSpec{}, nil)
+	_, err := planner.resolve("alpha", driverSpec{}, nil, nil)
 	require.ErrorContains(t, err, "unrecordable relative URL")
 	assert.NotContains(t, err.Error(), "secret")
 }
@@ -202,7 +202,7 @@ func TestPlanHandlesSecondaryLocationMatchingCurrentArtifact(t *testing.T) {
             hash: sha256:%s
 `, currentHashField, strings.Repeat("a", 64))
 			planner := targetTestPlanner("linux_amd64", index)
-			planned, err := planner.resolve("alpha", driverSpec{}, nil)
+			planned, err := planner.resolve("alpha", driverSpec{}, nil, nil)
 			require.NoError(t, err)
 			require.Len(t, planned.Entry.Artifacts, tc.wantCount)
 		})

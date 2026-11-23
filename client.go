@@ -168,29 +168,31 @@ func NewClient(opts ...Option) (*Client, error) {
 		}
 	} else if cfg.globalConfig != nil || cfg.project != nil {
 		var projectRegs []Registry
-		var projectReplace *bool
+		// A project can exclude the built-in registries but cannot bring
+		// back ones that the global config excludes.
+		var excludeBuiltin bool
 		if cfg.project != nil {
 			projectRegs, err = registriesFromEntries(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
 			if err != nil {
 				return nil, err
 			}
-			projectReplace = cfg.project.ReplaceDefaults
+			excludeBuiltin = cfg.project.ExcludeBuiltinRegistries
 		}
 		var globalRegs []Registry
-		var globalReplace bool
+		var globalExclude bool
 		if cfg.globalConfig != nil {
 			globalRegs, err = registriesFromEntries(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
 			if err != nil {
 				return nil, err
 			}
-			globalReplace = cfg.globalConfig.ReplaceDefaults
+			globalExclude = cfg.globalConfig.ExcludeBuiltinRegistries
 		}
-		if err := checkProjectRedeclarations(projectRegs, projectReplace, globalRegs, globalReplace, cfg.registries); err != nil {
+		if err := checkProjectRedeclarations(projectRegs, globalRegs, globalExclude, cfg.registries); err != nil {
 			return nil, err
 		}
-		merged := mergeRegistries(projectRegs, projectReplace, globalRegs, globalReplace, cfg.registries)
+		merged := mergeRegistries(projectRegs, globalRegs, excludeBuiltin || globalExclude, cfg.registries)
 		if len(merged) == 0 {
-			return nil, fmt.Errorf("registry configuration produced an empty registry list; replace_defaults requires at least one [[registries]] entry")
+			return nil, fmt.Errorf("registry configuration produced an empty registry list; exclude_builtin_registries requires at least one [[registries]] entry")
 		}
 		cfg.registries = merged
 	}

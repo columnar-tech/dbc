@@ -61,8 +61,10 @@ type SigningKeyDefinition struct {
 
 // GlobalConfig is the schema of a user's global dbc config.toml.
 type GlobalConfig struct {
-	Registries      []RegistryEntry `toml:"registries"`
-	ReplaceDefaults bool            `toml:"replace_defaults,omitempty"`
+	Registries []RegistryEntry `toml:"registries"`
+	// ExcludeBuiltinRegistries removes dbc's built-in registries from the
+	// registry list. Registries declared in [[registries]] are kept.
+	ExcludeBuiltinRegistries bool `toml:"exclude_builtin_registries,omitempty"`
 	// SigningKeys are the keys that Registries can name in signing_key.
 	SigningKeys map[string]SigningKeyDefinition `toml:"signing_keys,omitempty"`
 	// Network holds settings that change where requests are sent. They are
@@ -75,10 +77,10 @@ type GlobalConfig struct {
 // ProjectConfig is the registry configuration of a project's dbc.toml.
 type ProjectConfig struct {
 	Registries []RegistryEntry
-	// ReplaceDefaults is a tri-state: nil inherits the global config, &true
-	// replaces both global and built-in default registries, and &false keeps
-	// the defaults even when the global config replaces them.
-	ReplaceDefaults *bool
+	// ExcludeBuiltinRegistries removes dbc's built-in registries from the
+	// registry list. A project cannot bring back built-in registries that the
+	// global config excludes.
+	ExcludeBuiltinRegistries bool
 	// SigningKeys are the keys that Registries can name in signing_key.
 	SigningKeys map[string]SigningKeyDefinition
 	// Path is the file the config was read from.
@@ -104,7 +106,7 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	}
 	cfg.Path = absPath(configPath)
 
-	// Note: a global replace_defaults=true with no [[registries]] is NOT rejected
+	// Note: a global exclude_builtin_registries=true with no [[registries]] is NOT rejected
 	// here, because a project's dbc.toml may supply the entries at NewClient
 	// time. The "zero resulting registries" case is enforced after merging in
 	// NewClient so both library and CLI callers share the same semantics.
@@ -125,7 +127,7 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 var ErrProjectNetwork = errors.New("network settings are only read from the user config, not from dbc.toml; remove the [network] table")
 
 // LoadProjectConfig reads only the registry configuration (registries,
-// replace_defaults and signing_keys) from a project's dbc.toml, leaving
+// exclude_builtin_registries and signing_keys) from a project's dbc.toml, leaving
 // driver specifications to the caller. Missing files and malformed entries
 // are errors.
 //
@@ -139,10 +141,10 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	defer f.Close()
 
 	var cfg struct {
-		Registries      []RegistryEntry                 `toml:"registries"`
-		ReplaceDefaults *bool                           `toml:"replace_defaults"`
-		SigningKeys     map[string]SigningKeyDefinition `toml:"signing_keys"`
-		Network         map[string]any                  `toml:"network"`
+		Registries               []RegistryEntry                 `toml:"registries"`
+		ExcludeBuiltinRegistries bool                            `toml:"exclude_builtin_registries"`
+		SigningKeys              map[string]SigningKeyDefinition `toml:"signing_keys"`
+		Network                  map[string]any                  `toml:"network"`
 	}
 	if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("invalid %s: %w", path, err)
@@ -151,10 +153,10 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("%s: %w", path, ErrProjectNetwork)
 	}
 	project := &ProjectConfig{
-		Registries:      cfg.Registries,
-		ReplaceDefaults: cfg.ReplaceDefaults,
-		SigningKeys:     cfg.SigningKeys,
-		Path:            absPath(path),
+		Registries:               cfg.Registries,
+		ExcludeBuiltinRegistries: cfg.ExcludeBuiltinRegistries,
+		SigningKeys:              cfg.SigningKeys,
+		Path:                     absPath(path),
 	}
 	if _, err := registriesFromEntries(project.Registries, project.SigningKeys, project.Path, true); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -202,10 +204,19 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 	}
 
 	registries := make([]Registry, 0, len(entries))
+	// A name identifies a registry within its file, so it must not repeat
+	// there; the same name in the user config and in a project is allowed.
+	names := map[string]bool{}
 	for _, e := range entries {
 		u, err := parseRegistryEntryURL(e)
 		if err != nil {
 			return nil, err
+		}
+		if e.Name != "" {
+			if names[e.Name] {
+				return nil, fmt.Errorf("registry name %q is declared more than once", e.Name)
+			}
+			names[e.Name] = true
 		}
 		policy, err := entrySigningPolicy(e.SigningKey, policies)
 		if err != nil {
@@ -329,18 +340,16 @@ func registryTrustKey(u *url.URL) string {
 // verified. Registries are compared by registryTrustKey, so a project cannot
 // get around this with another query or user information; when several
 // trusted registries share the key, the project's declaration must match all
-// of them. The defaults are compared unless the user's config replaces them
-// (and the project does not bring them back with replace_defaults = false) or
-// declares the same endpoint itself; a project's replace_defaults = true does
-// not lift this check. Policies are the same when they verify with the
+// of them. The defaults are compared unless the user's config excludes them
+// (exclude_builtin_registries) or declares the same endpoint itself; a
+// project's exclude_builtin_registries does not lift this check. Policies are the same when they verify with the
 // same certificate; an inline copy of the Columnar key is the same as the
 // built-in key. Policies that read a key file are never the same, because the
 // files are not read here; the project's declaration has to be removed
 // instead.
-func checkProjectRedeclarations(projectRegs []Registry, projectReplaceDefaults *bool, globalRegs []Registry, globalReplaceDefaults bool, defaults []Registry) error {
+func checkProjectRedeclarations(projectRegs []Registry, globalRegs []Registry, globalExcludeBuiltin bool, defaults []Registry) error {
 	trusted := slices.Clip(globalRegs)
-	protectDefaults := !globalReplaceDefaults || (projectReplaceDefaults != nil && !*projectReplaceDefaults)
-	if protectDefaults {
+	if !globalExcludeBuiltin {
 		overridden := make(map[string]bool)
 		for _, r := range globalRegs {
 			if r.BaseURL != nil {
@@ -393,21 +402,14 @@ func registryURLForMessage(u *url.URL) string {
 
 // mergeRegistries combines project, global, and default registries into a
 // deduplicated list in priority order: project first, then global, then
-// built-in defaults (unless either global or project overrides with
-// replace_defaults). A registry is kept whole, with its signing policy, from
-// the first tier that declares its URL.
+// built-in defaults (unless excludeBuiltin is set). A registry is kept whole,
+// with its signing policy, from the first tier that declares its URL.
 func mergeRegistries(
 	projectRegs []Registry,
-	projectReplaceDefaults *bool,
 	globalRegs []Registry,
-	globalReplaceDefaults bool,
+	excludeBuiltin bool,
 	defaults []Registry,
 ) []Registry {
-	replaceDefaults := globalReplaceDefaults
-	if projectReplaceDefaults != nil {
-		replaceDefaults = *projectReplaceDefaults
-	}
-
 	seen := make(map[string]bool)
 	var result []Registry
 
@@ -427,7 +429,7 @@ func mergeRegistries(
 
 	add(projectRegs)
 	add(globalRegs)
-	if !replaceDefaults {
+	if !excludeBuiltin {
 		add(defaults)
 	}
 
@@ -448,14 +450,16 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 
 // WithProjectConfig applies the registry configuration of a project's
 // dbc.toml, usually read with LoadProjectConfig, on top of the global and
-// default registries. Its ReplaceDefaults takes priority over the same flag
-// in the global config; nil inherits the global config's value.
+// default registries. The built-in registries are excluded when its
+// ExcludeBuiltinRegistries is true or when the global config excludes them;
+// a project cannot bring back built-in registries that the global config
+// excludes.
 //
 // NewClient returns an error if any entry or signing key definition is
 // malformed or if the merged registry list ends up empty (e.g.
-// ReplaceDefaults=true with no project or global entries).
-// ReplaceDefaults=true is valid on its own when a non-empty global config
-// supplies the entries — the post-merge check is what matters.
+// ExcludeBuiltinRegistries=true with no project or global entries).
+// ExcludeBuiltinRegistries=true is valid on its own when a non-empty global
+// config supplies the entries — the post-merge check is what matters.
 //
 // WithBaseURL takes precedence over this option — when set, project
 // registries are ignored.
@@ -463,10 +467,10 @@ func WithProjectConfig(cfg *ProjectConfig) Option {
 	var cp *ProjectConfig
 	if cfg != nil {
 		cp = &ProjectConfig{
-			Registries:      slices.Clone(cfg.Registries),
-			ReplaceDefaults: cfg.ReplaceDefaults,
-			SigningKeys:     maps.Clone(cfg.SigningKeys),
-			Path:            cfg.Path,
+			Registries:               slices.Clone(cfg.Registries),
+			ExcludeBuiltinRegistries: cfg.ExcludeBuiltinRegistries,
+			SigningKeys:              maps.Clone(cfg.SigningKeys),
+			Path:                     cfg.Path,
 		}
 	}
 	return func(c *clientConfig) {

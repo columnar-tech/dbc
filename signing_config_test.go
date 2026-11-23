@@ -165,8 +165,6 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			SigningKeys: keys,
 		}
 	}
-	replace, keep := true, false
-
 	tests := []struct {
 		name    string
 		global  *GlobalConfig
@@ -218,18 +216,18 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "project replace_defaults does not lift the check",
+			name: "project exclude_builtin_registries does not lift the check",
 			project: &ProjectConfig{
-				Registries:      []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}},
-				ReplaceDefaults: &replace,
+				Registries:               []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}},
+				ExcludeBuiltinRegistries: true,
 			},
 			wantErr: true,
 		},
 		{
 			name: "a query is the same registry",
 			project: &ProjectConfig{
-				Registries:      []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/?tenant=example", SigningKey: false}},
-				ReplaceDefaults: &replace,
+				Registries:               []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/?tenant=example", SigningKey: false}},
+				ExcludeBuiltinRegistries: true,
 			},
 			wantErr: true,
 		},
@@ -273,18 +271,6 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			},
 		},
 		{
-			name: "project restores the defaults that the user config replaces",
-			global: &GlobalConfig{
-				Registries:      []RegistryEntry{{URL: "https://internal.example.com"}},
-				ReplaceDefaults: true,
-			},
-			project: &ProjectConfig{
-				Registries:      []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}},
-				ReplaceDefaults: &keep,
-			},
-			wantErr: true,
-		},
-		{
 			name:    "the default port is the same registry",
 			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech:443/", SigningKey: false}}},
 			wantErr: true,
@@ -301,10 +287,10 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			},
 		},
 		{
-			name: "user config replaces the defaults",
+			name: "user config excludes the defaults",
 			global: &GlobalConfig{
-				Registries:      []RegistryEntry{{URL: "https://mirror.example.com"}},
-				ReplaceDefaults: true,
+				Registries:               []RegistryEntry{{URL: "https://mirror.example.com"}},
+				ExcludeBuiltinRegistries: true,
 			},
 			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech", SigningKey: false}}},
 		},

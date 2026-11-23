@@ -123,6 +123,10 @@ $ dbc install [OPTIONS] <DRIVER>
 
 :   Allow implicit installation of pre-release versions
 
+`--registry NAME|URL` {{ since_version('v0.4.0') }}
+
+:   Install the driver only from this registry: the `name` of a `[[registries]]` entry in the user `config.toml`, or the URL of a configured registry. dbc does not fall back to another registry, and installs the package again even when the same version is already installed, since an installed driver does not record its registry. See [Configuring registries](../concepts/driver_registry.md#configuring-registries).
+
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
@@ -230,6 +234,10 @@ $ dbc add <DRIVER>
 `--pre` {{ since_version('v0.2.0') }}
 
 :   Allow pre-release versions implicitly
+
+`--registry NAME|URL` {{ since_version('v0.4.0') }}
+
+:   Take the drivers only from this registry and record it as their [`source`](driver_list.md#source): the `name` of a `[[registries]]` entry in the driver list, or the URL of a configured registry. Without it, a driver that is already in the list keeps its source.
 
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 

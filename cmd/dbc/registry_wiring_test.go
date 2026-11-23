@@ -90,10 +90,9 @@ func TestApplyProjectRegistriesRoutesLookup(t *testing.T) {
 	require.NoError(t, err)
 	dbcClient = initial
 
-	replace := true
 	list := DriversList{
-		Registries:      []dbc.RegistryEntry{{URL: server.URL, Name: "test"}},
-		ReplaceDefaults: &replace,
+		Registries:               []dbc.RegistryEntry{{URL: server.URL, Name: "test"}},
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 	require.NotSame(t, initial, dbcClient, "expected applyProjectRegistries to swap the client")
@@ -108,10 +107,11 @@ func TestApplyProjectRegistriesRoutesLookup(t *testing.T) {
 		"the test registry server should have been hit by the rebuilt client")
 }
 
-// TestApplyProjectRegistriesReplaceDefaultsFalseOverridesGlobal proves that a
-// project dbc.toml with explicit replace_defaults=false overrides a global
-// config's replace_defaults=true — the tri-state the reviewer flagged.
-func TestApplyProjectRegistriesReplaceDefaultsFalseOverridesGlobal(t *testing.T) {
+// TestApplyProjectRegistriesFalseKeepsGlobalExclusion proves that a project
+// dbc.toml with exclude_builtin_registries=false cannot bring back the
+// built-in registries that the global config excludes: the two settings are
+// combined with a logical OR.
+func TestApplyProjectRegistriesFalseKeepsGlobalExclusion(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 
 	savedGlobal, savedClient := globalRegistryConfig, dbcClient
@@ -120,30 +120,52 @@ func TestApplyProjectRegistriesReplaceDefaultsFalseOverridesGlobal(t *testing.T)
 		dbcClient = savedClient
 	})
 
-	// Global config asks to replace defaults, providing one entry.
+	// Global config excludes the built-in registries, providing one entry.
 	globalRegistryConfig = &dbc.GlobalConfig{
-		Registries:      []dbc.RegistryEntry{{URL: "https://global.example.com"}},
-		ReplaceDefaults: true,
+		Registries:               []dbc.RegistryEntry{{URL: "https://global.example.com"}},
+		ExcludeBuiltinRegistries: true,
 	}
 
-	// Project config explicitly sets replace_defaults=false and supplies no
-	// entries of its own — the built-in defaults MUST come back.
-	replace := false
-	list := DriversList{ReplaceDefaults: &replace}
+	// Project config explicitly sets false and adds an entry of its own; the
+	// built-in registries must stay excluded.
+	list := DriversList{
+		Registries:               []dbc.RegistryEntry{{URL: "https://project.example.com"}},
+		ExcludeBuiltinRegistries: new(false),
+	}
 	require.NoError(t, applyProjectRegistries(list))
 	require.NotNil(t, dbcClient)
 
-	regs := dbcClient.Registries()
-	// Expect at least: one global + the two built-in defaults = 3 entries.
-	assert.GreaterOrEqual(t, len(regs), 3, "defaults should be restored when project replace_defaults=false")
 	var urls []string
-	for _, r := range regs {
-		if r.BaseURL != nil {
-			urls = append(urls, r.BaseURL.String())
-		}
+	for _, r := range dbcClient.Registries() {
+		urls = append(urls, r.BaseURL.String())
 	}
-	assert.Contains(t, urls, "https://global.example.com")
-	assert.Contains(t, urls, "https://dbc-cdn.columnar.tech")
+	assert.Equal(t, []string{"https://project.example.com", "https://global.example.com"}, urls)
+}
+
+// TestApplyProjectRegistriesExcludeWithoutEntries pins that a project which
+// only sets exclude_builtin_registries=true (no [[registries]]) still
+// rebuilds the client, so the global entries remain and the built-in ones go.
+func TestApplyProjectRegistriesExcludeWithoutEntries(t *testing.T) {
+	t.Setenv("DBC_BASE_URL", "")
+
+	savedGlobal, savedClient := globalRegistryConfig, dbcClient
+	t.Cleanup(func() {
+		globalRegistryConfig = savedGlobal
+		dbcClient = savedClient
+	})
+
+	globalRegistryConfig = &dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{{URL: "https://global.example.com"}},
+	}
+	initial, err := newDBCClient(nil)
+	require.NoError(t, err)
+	dbcClient = initial
+
+	require.NoError(t, applyProjectRegistries(DriversList{ExcludeBuiltinRegistries: new(true)}))
+	require.NotSame(t, initial, dbcClient)
+	regs := dbcClient.Registries()
+	require.Len(t, regs, 1)
+	assert.Equal(t, "https://global.example.com", regs[0].BaseURL.String())
 }
 
 // Guard: DBC_BASE_URL must still short-circuit project registry merging,
@@ -160,10 +182,9 @@ func TestApplyProjectRegistriesNoopWhenBaseURLSet(t *testing.T) {
 	require.NoError(t, err)
 	dbcClient = c
 
-	replace := true
 	list := DriversList{
-		Registries:      []dbc.RegistryEntry{{URL: "https://should-be-ignored.example.com"}},
-		ReplaceDefaults: &replace,
+		Registries:               []dbc.RegistryEntry{{URL: "https://should-be-ignored.example.com"}},
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 
@@ -172,12 +193,12 @@ func TestApplyProjectRegistriesNoopWhenBaseURLSet(t *testing.T) {
 	assert.Equal(t, "https://envvar.example.com", regs[0].BaseURL.String())
 }
 
-// TestGlobalReplaceDefaultsWithProjectSuppliedEntries exercises the CLI path
-// where the global config.toml declares replace_defaults=true with no entries
+// TestGlobalExcludeBuiltinWithProjectSuppliedEntries exercises the CLI path
+// where the global config.toml declares exclude_builtin_registries=true with no entries
 // of its own, and the project dbc.toml supplies the registries. This used to
 // be rejected by LoadGlobalConfig, which made the CLI drop the global config
 // and silently diverge from the library's NewClient semantics.
-func TestGlobalReplaceDefaultsWithProjectSuppliedEntries(t *testing.T) {
+func TestGlobalExcludeBuiltinWithProjectSuppliedEntries(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 
 	savedGlobal, savedClient := globalRegistryConfig, dbcClient
@@ -186,7 +207,7 @@ func TestGlobalReplaceDefaultsWithProjectSuppliedEntries(t *testing.T) {
 		dbcClient = savedClient
 	})
 
-	globalRegistryConfig = &dbc.GlobalConfig{ReplaceDefaults: true}
+	globalRegistryConfig = &dbc.GlobalConfig{ExcludeBuiltinRegistries: true}
 
 	list := DriversList{
 		Registries: []dbc.RegistryEntry{{URL: "https://proj.example.com"}},
@@ -195,7 +216,7 @@ func TestGlobalReplaceDefaultsWithProjectSuppliedEntries(t *testing.T) {
 	require.NotNil(t, dbcClient)
 
 	regs := dbcClient.Registries()
-	require.Len(t, regs, 1, "global replace_defaults drops built-in defaults; only project entry remains")
+	require.Len(t, regs, 1, "global exclude_builtin_registries drops built-in defaults; only project entry remains")
 	assert.Equal(t, "https://proj.example.com", regs[0].BaseURL.String())
 }
 
@@ -204,7 +225,7 @@ func TestGlobalReplaceDefaultsWithProjectSuppliedEntries(t *testing.T) {
 // NewClient construction would fail, so main() must defer it until project
 // config has been merged. This test exercises the order:
 //
-//  1. Load global config (replace_defaults=true, no entries).
+//  1. Load global config (exclude_builtin_registries=true, no entries).
 //  2. Do NOT construct the client yet.
 //  3. A project command reads dbc.toml with [[registries]].
 //  4. applyProjectRegistries builds the client successfully.
@@ -230,7 +251,7 @@ func TestStartupDeferredClientInit(t *testing.T) {
 	dbcClientErr = nil
 	dbcClientOnce = &sync.Once{}
 
-	globalRegistryConfig = &dbc.GlobalConfig{ReplaceDefaults: true}
+	globalRegistryConfig = &dbc.GlobalConfig{ExcludeBuiltinRegistries: true}
 
 	// Step 2 invariant: main() must not have built a client yet.
 	require.Nil(t, dbcClient, "main() must defer dbcClient construction until after argument parsing")
@@ -314,8 +335,7 @@ func TestAddCmdEndToEndThroughRealClient(t *testing.T) {
 
 	tempdir := t.TempDir()
 	tomlPath := tempdir + "/dbc.toml"
-	replace := true
-	content := "replace_defaults = true\n\n" +
+	content := "exclude_builtin_registries = true\n\n" +
 		"[[registries]]\nurl = '" + server.URL + "'\nname = 'e2e'\n\n" +
 		"[drivers]\n"
 	require.NoError(t, writeFile(tomlPath, content))
@@ -334,7 +354,6 @@ func TestAddCmdEndToEndThroughRealClient(t *testing.T) {
 
 	// And the dbc.toml should have gained the driver entry.
 	assert.FileExists(t, tomlPath)
-	_ = replace
 }
 
 func writeFile(path, content string) error {
@@ -377,7 +396,7 @@ func runTeaCmdToCompletion(t *testing.T, m interface {
 // TestAuthHTTPClientDoesNotRequireRegistryConfig pins the invariant that
 // OAuth/device-code login does NOT require valid registry configuration.
 // Previously device-code login routed through dbcClient, so a global
-// replace_defaults=true with no entries broke `dbc auth login` — the exact
+// exclude_builtin_registries=true with no entries broke `dbc auth login` — the exact
 // recovery path a user would take to fix the config.
 func TestAuthHTTPClientDoesNotRequireRegistryConfig(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
@@ -386,7 +405,7 @@ func TestAuthHTTPClientDoesNotRequireRegistryConfig(t *testing.T) {
 	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
 
 	// A global config that would make NewClient(WithGlobalConfig(...)) fail.
-	globalRegistryConfig = &dbc.GlobalConfig{ReplaceDefaults: true}
+	globalRegistryConfig = &dbc.GlobalConfig{ExcludeBuiltinRegistries: true}
 
 	// authHTTPClient must still return a usable client.
 	c := authHTTPClient()
@@ -449,7 +468,7 @@ func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
 	writeList := func(t *testing.T, registryURL, drvName, spec string) string {
 		t.Helper()
 		p := t.TempDir() + "/dbc.toml"
-		content := "replace_defaults = true\n\n" +
+		content := "exclude_builtin_registries = true\n\n" +
 			"[[registries]]\nurl = '" + registryURL + "'\n\n" +
 			"[drivers]\n[drivers." + drvName + "]\n" + spec
 		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
@@ -473,13 +492,13 @@ func TestGetDriverListHonorsProjectRegistries(t *testing.T) {
 		"GetDriverList must not leak registry state from a previous call")
 }
 
-// TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries runs the full
+// TestStartupEndToEndGlobalExcludeBuiltinWithProjectEntries runs the full
 // CLI startup sequence (loadStartupRegistryConfig + project-command dispatch
 // via applyProjectRegistries) against a temp global config.toml declaring
-// replace_defaults=true with no entries, and a project dbc.toml supplying
+// exclude_builtin_registries=true with no entries, and a project dbc.toml supplying
 // the registries. This is the exact scenario that an eager initDBCClient()
 // in main() would break. If anyone reintroduces eager init this test fails.
-func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
+func TestStartupEndToEndGlobalExcludeBuiltinWithProjectEntries(t *testing.T) {
 	indexYAML := `drivers:
   - name: Startup Driver
     description: startup e2e
@@ -530,11 +549,11 @@ func TestStartupEndToEndGlobalReplaceDefaultsWithProjectEntries(t *testing.T) {
 	dbcClientOnce = &sync.Once{}
 	globalRegistryConfig = nil
 
-	// Write the global config.toml with replace_defaults=true and no entries.
+	// Write the global config.toml with exclude_builtin_registries=true and no entries.
 	globalDir := t.TempDir()
 	require.NoError(t, os.WriteFile(
 		globalDir+"/config.toml",
-		[]byte("replace_defaults = true\n"),
+		[]byte("exclude_builtin_registries = true\n"),
 		0o644,
 	))
 
@@ -631,7 +650,7 @@ func TestAddDoesNotHoldLockDuringRegistryLookup(t *testing.T) {
 
 // TestAddPreservesConcurrentDriverEdits verifies that a concurrent editor
 // adding/removing unrelated DRIVER entries (without touching
-// registries/replace_defaults) has its changes preserved when `dbc add`
+// registries/exclude_builtin_registries) has its changes preserved when `dbc add`
 // writes back. Registry config is unchanged, so the add proceeds normally.
 func TestAddPreservesConcurrentDriverEdits(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
@@ -716,9 +735,9 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	<-lookupStarted
 
 	// Concurrent editor adds a [[registries]] section AND
-	// replace_defaults=true. The add in flight validated against the
+	// exclude_builtin_registries=true. The add in flight validated against the
 	// original registry set and must abort rather than write.
-	concurrentContent := "replace_defaults = true\n\n" +
+	concurrentContent := "exclude_builtin_registries = true\n\n" +
 		"[[registries]]\n" +
 		"url = 'https://concurrent.example.com'\n\n" +
 		"[drivers]\n"
@@ -735,7 +754,7 @@ func TestAddAbortsOnConcurrentRegistryConfigChange(t *testing.T) {
 	require.NoError(t, readErr)
 	s := string(data)
 	assert.Contains(t, s, "concurrent.example.com", "concurrent registry edit must not be clobbered")
-	assert.Contains(t, s, "replace_defaults = true", "concurrent replace_defaults must not be clobbered")
+	assert.Contains(t, s, "exclude_builtin_registries = true", "concurrent exclude_builtin_registries must not be clobbered")
 	assert.NotContains(t, s, "test-driver-1", "aborted add must not write the driver entry")
 }
 
@@ -898,7 +917,7 @@ func TestRunStartupSkipsLoadWhenConfigDirEmpty(t *testing.T) {
 
 	// Plant a hostile config.toml in cwd to prove runStartup doesn't touch it.
 	cwd := t.TempDir()
-	require.NoError(t, os.WriteFile(cwd+"/config.toml", []byte("replace_defaults = true\n"), 0o644))
+	require.NoError(t, os.WriteFile(cwd+"/config.toml", []byte("exclude_builtin_registries = true\n"), 0o644))
 	savedCWD, err := os.Getwd()
 	require.NoError(t, err)
 	require.NoError(t, os.Chdir(cwd))
@@ -970,7 +989,7 @@ func TestRunStartupClearsStaleClientState(t *testing.T) {
 
 // TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies
 // the deferred-init ordering above: if the CLI ever tries to build the
-// default client against a global replace_defaults=true with no entries
+// default client against a global exclude_builtin_registries=true with no entries
 // and no project overrides, NewClient must fail. This is the scenario
 // non-project commands (search, info, install) will hit, so failing fast
 // with a clear message is the correct behavior.
@@ -980,7 +999,7 @@ func TestStartupEagerInitRejectsEmptyGlobal(t *testing.T) {
 	savedGlobal := globalRegistryConfig
 	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
 
-	globalRegistryConfig = &dbc.GlobalConfig{ReplaceDefaults: true}
+	globalRegistryConfig = &dbc.GlobalConfig{ExcludeBuiltinRegistries: true}
 
 	_, err := newDefaultClient()
 	assert.ErrorContains(t, err, "empty registry list")
@@ -1089,8 +1108,8 @@ func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
 
 	installRegistryTestSetup(t)
 	globalRegistryConfig = &dbc.GlobalConfig{
-		Registries:      []dbc.RegistryEntry{{URL: server.URL, Name: "global-test"}},
-		ReplaceDefaults: true,
+		Registries:               []dbc.RegistryEntry{{URL: server.URL, Name: "global-test"}},
+		ExcludeBuiltinRegistries: true,
 	}
 
 	var capturedPkg dbc.PkgInfo
@@ -1118,12 +1137,12 @@ func TestInstallCmdHonorsGlobalConfigRegistry(t *testing.T) {
 		"package URL must be rooted at the configured registry, got %q", capturedPkg.Path.String())
 }
 
-// TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry pins that
-// global `replace_defaults = true` actually drops the built-in default
+// TestInstallCmdGlobalExcludeBuiltinLimitsToConfiguredRegistry pins that
+// global `exclude_builtin_registries = true` actually drops the built-in default
 // registries from `dbc install`'s view — the merged client should hold
 // exactly the registries declared in the global config. Without this, a
 // user opting out of defaults would still see the defaults silently.
-func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T) {
+func TestInstallCmdGlobalExcludeBuiltinLimitsToConfiguredRegistry(t *testing.T) {
 	indexYAML := installRegistryDriverIndex("only-driver", "v1.0.0", "only-driver/1.0.0/x.tar.gz")
 
 	var indexHits atomic.Int32
@@ -1140,8 +1159,8 @@ func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T)
 
 	installRegistryTestSetup(t)
 	globalRegistryConfig = &dbc.GlobalConfig{
-		Registries:      []dbc.RegistryEntry{{URL: server.URL, Name: "only"}},
-		ReplaceDefaults: true,
+		Registries:               []dbc.RegistryEntry{{URL: server.URL, Name: "only"}},
+		ExcludeBuiltinRegistries: true,
 	}
 
 	stubDownload := func(p dbc.PkgInfo) (*os.File, error) {
@@ -1159,7 +1178,7 @@ func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T)
 	require.NotNil(t, dbcClient, "initDBCClient must have run via the registry closure")
 	regs := dbcClient.Registries()
 	require.Len(t, regs, 1,
-		"replace_defaults=true must drop built-in defaults — expected exactly the configured registry, got %d", len(regs))
+		"exclude_builtin_registries=true must drop built-in defaults — expected exactly the configured registry, got %d", len(regs))
 	assert.Equal(t, server.URL, regs[0].BaseURL.String(),
 		"the only remaining registry must be the configured one")
 	assert.GreaterOrEqual(t, indexHits.Load(), int32(1),
@@ -1172,7 +1191,7 @@ func TestInstallCmdGlobalReplaceDefaultsLimitsToConfiguredRegistry(t *testing.T)
 // order wins. The merge order across the merged registry list is
 // project -> global -> defaults; within the global list, declaration order
 // is preserved, so this test isolates the in-list precedence by setting
-// replace_defaults=true and putting both entries in the global config.
+// exclude_builtin_registries=true and putting both entries in the global config.
 func TestInstallCmdRegistryPriorityFirstDeclaredWins(t *testing.T) {
 	const driverPath = "shared-driver"
 
@@ -1201,7 +1220,7 @@ func TestInstallCmdRegistryPriorityFirstDeclaredWins(t *testing.T) {
 			{URL: primary.URL, Name: "primary"},
 			{URL: secondary.URL, Name: "secondary"},
 		},
-		ReplaceDefaults: true,
+		ExcludeBuiltinRegistries: true,
 	}
 
 	var capturedPkg dbc.PkgInfo
@@ -1267,8 +1286,8 @@ func TestInstallCmdDBCBaseURLOverridesGlobalConfig(t *testing.T) {
 
 	installRegistryTestSetup(t)
 	globalRegistryConfig = &dbc.GlobalConfig{
-		Registries:      []dbc.RegistryEntry{{URL: configServer.URL, Name: "config"}},
-		ReplaceDefaults: true,
+		Registries:               []dbc.RegistryEntry{{URL: configServer.URL, Name: "config"}},
+		ExcludeBuiltinRegistries: true,
 	}
 	t.Setenv("DBC_BASE_URL", override.URL)
 
@@ -1300,7 +1319,7 @@ func TestInstallCmdDBCBaseURLOverridesGlobalConfig(t *testing.T) {
 }
 
 // TestApplyProjectRegistriesPreservesAllThreeTiersInOrder pins that with
-// no replace_defaults set anywhere, the merged registry list visible to
+// no exclude_builtin_registries set anywhere, the merged registry list visible to
 // the CLI is exactly: project entries, then global entries, then the
 // built-in defaults — all three tiers present in priority order. This is
 // the "default" mode of operation: the user opted into both project and
@@ -1339,12 +1358,12 @@ func TestApplyProjectRegistriesPreservesAllThreeTiersInOrder(t *testing.T) {
 	assert.NotEmpty(t, tail, "default tier must contribute at least one registry")
 }
 
-// TestApplyProjectRegistriesProjectReplaceDefaultsKeepsGlobal pins the
-// asymmetric semantics of project replace_defaults=true: it drops only
+// TestApplyProjectRegistriesProjectExcludeBuiltinKeepsGlobal pins the
+// asymmetric semantics of project exclude_builtin_registries=true: it drops only
 // the built-in defaults from the merged list, NOT the global tier. A
 // project that opts out of defaults still inherits the user's global
-// registries — replace_defaults is not "use only my project entries".
-func TestApplyProjectRegistriesProjectReplaceDefaultsKeepsGlobal(t *testing.T) {
+// registries — exclude_builtin_registries is not "use only my project entries".
+func TestApplyProjectRegistriesProjectExcludeBuiltinKeepsGlobal(t *testing.T) {
 	installRegistryTestSetup(t)
 
 	const projectURL = "https://project.example.invalid"
@@ -1353,21 +1372,20 @@ func TestApplyProjectRegistriesProjectReplaceDefaultsKeepsGlobal(t *testing.T) {
 	globalRegistryConfig = &dbc.GlobalConfig{
 		Registries: []dbc.RegistryEntry{{URL: globalURL, Name: "global"}},
 	}
-	replace := true
 	list := DriversList{
-		Registries:      []dbc.RegistryEntry{{URL: projectURL, Name: "project"}},
-		ReplaceDefaults: &replace,
+		Registries:               []dbc.RegistryEntry{{URL: projectURL, Name: "project"}},
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 	require.NotNil(t, dbcClient)
 
 	regs := dbcClient.Registries()
 	require.Len(t, regs, 2,
-		"replace_defaults=true must drop built-in defaults but keep project + global; got %d entries", len(regs))
+		"exclude_builtin_registries=true must drop built-in defaults but keep project + global; got %d entries", len(regs))
 	assert.Equal(t, projectURL, regs[0].BaseURL.String(),
 		"project tier must come first")
 	assert.Equal(t, globalURL, regs[1].BaseURL.String(),
-		"global tier must remain after replace_defaults drops only the built-in defaults")
+		"global tier must remain after exclude_builtin_registries drops only the built-in defaults")
 }
 
 // TestProjectRegistryShadowsGlobalOnDriverNameConflict pins driver-name
@@ -1376,7 +1394,7 @@ func TestApplyProjectRegistriesProjectReplaceDefaultsKeepsGlobal(t *testing.T) {
 // When both tiers publish a driver with the same path, the project tier
 // wins, and the resolved package URL comes from the project tier's index.
 //
-// replace_defaults=true is set on the project so the built-in defaults
+// exclude_builtin_registries=true is set on the project so the built-in defaults
 // stay out of the merge and don't introduce flakiness against the real
 // production registry. The default tier is exercised separately by
 // TestApplyProjectRegistriesPreservesAllThreeTiersInOrder.
@@ -1404,10 +1422,9 @@ func TestProjectRegistryShadowsGlobalOnDriverNameConflict(t *testing.T) {
 	globalRegistryConfig = &dbc.GlobalConfig{
 		Registries: []dbc.RegistryEntry{{URL: globalServer.URL, Name: "global"}},
 	}
-	replace := true
 	list := DriversList{
-		Registries:      []dbc.RegistryEntry{{URL: projectServer.URL, Name: "project"}},
-		ReplaceDefaults: &replace,
+		Registries:               []dbc.RegistryEntry{{URL: projectServer.URL, Name: "project"}},
+		ExcludeBuiltinRegistries: new(true),
 	}
 	require.NoError(t, applyProjectRegistries(list))
 
@@ -1451,12 +1468,12 @@ func startProjectRegistryServer(t *testing.T, driverPath string) (*httptest.Serv
 }
 
 // chdirToProjectRegistry writes a dbc.toml declaring a single project registry
-// (with replace_defaults=true so only it remains) into a temp dir and switches
+// (with exclude_builtin_registries=true so only it remains) into a temp dir and switches
 // the working directory to it, so the cwd-based discovery helper finds it.
 func chdirToProjectRegistry(t *testing.T, registryURL string) {
 	t.Helper()
 	dir := t.TempDir()
-	content := "replace_defaults = true\n\n" +
+	content := "exclude_builtin_registries = true\n\n" +
 		"[[registries]]\nurl = '" + registryURL + "'\nname = 'project'\n\n" +
 		"[drivers]\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"), []byte(content), 0o644))
@@ -1472,7 +1489,7 @@ func TestApplyProjectRegistriesFromCWD(t *testing.T) {
 		installRegistryTestSetup(t)
 		const projectURL = "https://project.example.invalid"
 		dir := t.TempDir()
-		content := "replace_defaults = true\n\n" +
+		content := "exclude_builtin_registries = true\n\n" +
 			"[[registries]]\nurl = '" + projectURL + "'\nname = 'project'\n\n[drivers]\n"
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "dbc.toml"), []byte(content), 0o644))
 		t.Chdir(dir)
@@ -1480,7 +1497,7 @@ func TestApplyProjectRegistriesFromCWD(t *testing.T) {
 		require.NoError(t, applyProjectRegistriesFromCWD())
 		require.NotNil(t, dbcClient, "helper must build a client when dbc.toml declares registries")
 		regs := dbcClient.Registries()
-		require.Len(t, regs, 1, "replace_defaults=true must drop built-in defaults")
+		require.Len(t, regs, 1, "exclude_builtin_registries=true must drop built-in defaults")
 		assert.Equal(t, projectURL, regs[0].BaseURL.String())
 	})
 
@@ -1609,8 +1626,8 @@ func TestInstallCmdIgnoresProjectRegistries(t *testing.T) {
 
 	installRegistryTestSetup(t)
 	globalRegistryConfig = &dbc.GlobalConfig{
-		Registries:      []dbc.RegistryEntry{{URL: globalServer.URL, Name: "global"}},
-		ReplaceDefaults: true,
+		Registries:               []dbc.RegistryEntry{{URL: globalServer.URL, Name: "global"}},
+		ExcludeBuiltinRegistries: true,
 	}
 	chdirToProjectRegistry(t, projectServer.URL)
 

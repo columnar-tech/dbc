@@ -38,7 +38,7 @@ func TestClientInstallKeyFileFailsBeforeDownload(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dbc.toml")
 	require.NoError(t, os.WriteFile(path, []byte(
-		"replace_defaults = true\n[signing_keys.acme]\ntype = 'openpgp'\npublic_key_file = 'missing.asc'\n"+
+		"exclude_builtin_registries = true\n[signing_keys.acme]\ntype = 'openpgp'\npublic_key_file = 'missing.asc'\n"+
 			"[[registries]]\nurl = '"+u.String()+"'\nsigning_key = 'acme'\n"), 0o600))
 	project, err := dbc.LoadProjectConfig(path)
 	require.NoError(t, err)

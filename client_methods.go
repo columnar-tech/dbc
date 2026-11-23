@@ -141,7 +141,9 @@ func (c *Client) getDriverListFromIndex(ctx context.Context, index *Registry) ([
 		return nil, fmt.Errorf("failed to parse driver registry index: %s", err)
 	}
 
-	if drivers.Name != "" {
+	// A name from the registry configuration takes precedence; the index
+	// only names registries that the configuration leaves unnamed.
+	if index.Name == "" {
 		index.Name = drivers.Name
 	}
 
@@ -299,7 +301,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}
 
-	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
+	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256, ExpectedVersion: pkg.Version}
 	if !o.allowUnsigned {
 		// The key is selected before the download, so a key that cannot be
 		// loaded fails without fetching the package.

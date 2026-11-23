@@ -58,6 +58,14 @@ type syncPlanner struct {
 	index func() ([]dbc.Driver, error)
 	// registryIndex fetches the index of a single registry.
 	registryIndex func(dbc.Registry) ([]dbc.Driver, error)
+	// allowSourceChange lets a driver whose source in the driver list
+	// selects another registry than its lock entry be resolved again. Only
+	// dbc lock sets it; dbc sync stops instead.
+	allowSourceChange bool
+
+	// sourceIndexes holds the index of each registry that a driver source
+	// selected, by registry identity.
+	sourceIndexes map[string][]dbc.Driver
 
 	indexLoaded bool
 	drivers     []dbc.Driver
@@ -105,6 +113,14 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 	)
 	for _, name := range slices.Sorted(maps.Keys(list.Drivers)) {
 		spec := list.Drivers[name].withPrerelease()
+		var target *sourceTarget
+		if spec.Source != nil {
+			t, err := spec.Source.target(list.Registries)
+			if err != nil {
+				return nil, nil, fmt.Errorf("driver %s: %w", name, err)
+			}
+			target = &t
+		}
 
 		var (
 			oldSigner lockedSigner
@@ -115,7 +131,12 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 			if err != nil {
 				return nil, nil, fmt.Errorf("driver %s: invalid locked version: %w", name, err)
 			}
-			if lockSatisfies(spec, v) {
+			sourceChanged := target != nil && target.identity != d.Source.URL
+			if sourceChanged && !p.allowSourceChange {
+				return nil, nil, fmt.Errorf("driver %s: the driver list takes it from %s, but the lock file has it from %s; "+
+					"run `dbc lock` to resolve it again from %s", name, target.identity, d.Source.URL, target.identity)
+			}
+			if !sourceChanged && lockSatisfies(spec, v) {
 				pd, err := p.fromLock(name, d, v)
 				if err != nil {
 					return nil, nil, err
@@ -140,7 +161,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 			}
 		}
 
-		pd, err := p.resolve(name, spec, pin)
+		pd, err := p.resolve(name, spec, pin, target)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -224,7 +245,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	pkg, err := drv.GetPackage(v, p.target, true)
+	pkg, err := withExactVersion(drv, v).GetPackage(v, p.target, true)
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("could not complete the lock entry of driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
@@ -327,6 +348,21 @@ func (p *syncPlanner) bind(name, identity string) (boundRegistry, error) {
 	return bound, nil
 }
 
+// withExactVersion returns d with only the versions spelled as v, so that
+// GetPackage, which ignores build metadata, picks the package of exactly v:
+// installs check the package against that spelling. Versions without a
+// value are kept for GetPackage to report.
+func withExactVersion(d dbc.Driver, v *semver.Version) dbc.Driver {
+	exact := d.PkgInfo[:0:0]
+	for _, info := range d.PkgInfo {
+		if info.Version == nil || info.Version.String() == v.String() {
+			exact = append(exact, info)
+		}
+	}
+	d.PkgInfo = exact
+	return d
+}
+
 // selectProjectPackage looks up the host artifact for the pinned or newest eligible version.
 func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Version, platform string) (dbc.PkgInfo, error) {
 	version := pin
@@ -337,13 +373,48 @@ func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Versi
 			return dbc.PkgInfo{}, err
 		}
 	}
-	return driver.GetPackage(version, platform, true)
+	return withExactVersion(*driver, version).GetPackage(version, platform, true)
 }
 
-// resolve picks the package for a driver from the merged registries, keeping
-// pin (a version from a v1 lock file) when it is set.
-func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version) (plannedDriver, error) {
-	drivers, err := p.loadIndex()
+// sourceIndex fetches the index of the registry that target selects, once
+// per registry. Unlike the merged index, any failure is an error.
+func (p *syncPlanner) sourceIndex(name string, target sourceTarget) ([]dbc.Driver, error) {
+	if drivers, ok := p.sourceIndexes[target.identity]; ok {
+		return drivers, nil
+	}
+	registries, err := p.registries()
+	if err != nil {
+		return nil, redactURLSecrets(err, registrySecrets(registries))
+	}
+	reg, err := target.bind(registries)
+	if err != nil {
+		return nil, fmt.Errorf("driver %s: %w", name, err)
+	}
+	drivers, err := p.registryIndex(reg)
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch the index of registry %s, which driver %s is taken from: %w",
+			target.identity, name, redactRegistryError(err, p.registries, reg.BaseURL))
+	}
+	if p.sourceIndexes == nil {
+		p.sourceIndexes = map[string][]dbc.Driver{}
+	}
+	p.sourceIndexes[target.identity] = drivers
+	return drivers, nil
+}
+
+// resolve picks the package for a driver, keeping pin (a version from a v1
+// lock file) when it is set. A driver with a source is resolved from that
+// registry only; any other driver from the merged registries.
+func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version, target *sourceTarget) (plannedDriver, error) {
+	var (
+		drivers []dbc.Driver
+		err     error
+	)
+	if target != nil {
+		drivers, err = p.sourceIndex(name, *target)
+	} else {
+		drivers, err = p.loadIndex()
+	}
 	if err != nil {
 		return plannedDriver{}, err
 	}
@@ -356,7 +427,12 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version)
 		sourceURL = drv.Registry.BaseURL
 	}
 	if err != nil {
-		if drv.Path == "" {
+		switch {
+		case target != nil && drv.Path == "":
+			return plannedDriver{}, fmt.Errorf("driver %s is not in %s (%s), which the driver list takes it from", name, target.source, target.identity)
+		case target != nil:
+			return plannedDriver{}, fmt.Errorf("driver %s from %s: %w", name, target.source, redactRegistryError(err, p.registries, sourceURL))
+		case drv.Path == "":
 			return plannedDriver{}, wrapWithRegistryContext(err, p.registryErr)
 		}
 		return plannedDriver{}, redactRegistryError(err, p.registries, sourceURL)

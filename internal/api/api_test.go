@@ -80,6 +80,8 @@ func fixtureServer(t *testing.T) string {
 	require.NoError(t, err)
 	tarball, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.tar.gz"))
 	require.NoError(t, err)
+	tarball11, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.1.tar.gz"))
+	require.NoError(t, err)
 	unsigned, err := os.ReadFile(filepath.Join(testdata, "test-driver-no-sig.tar.gz"))
 	require.NoError(t, err)
 
@@ -89,6 +91,9 @@ func fixtureServer(t *testing.T) string {
 			w.Write(index)
 		case strings.Contains(r.URL.Path, "test-driver-no-sig"):
 			w.Write(unsigned)
+		case strings.Contains(r.URL.Path, "/1.1.0/"):
+			// Serve an archive that declares the version the index lists.
+			w.Write(tarball11)
 		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
 			w.Write(tarball)
 		default:
@@ -478,7 +483,7 @@ func TestNewClientRejectsInvalidExplicitRegistryURLs(t *testing.T) {
 func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 	const globalTOML = "[[registries]]\nurl = \"https://global.test\"\nname = \"Global\"\n"
 	const projectTOML = "[[registries]]\nurl = \"https://project.test\"\nname = \"Project\"\n"
-	const replaceDefaults = "replace_defaults = true\n"
+	const excludeBuiltin = "exclude_builtin_registries = true\n"
 	defaults := []api.Registry{
 		{URL: "https://dbc-cdn.columnar.tech"},
 		{URL: "https://" + auth.DefaultOauthURI()},
@@ -505,7 +510,7 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 		{
 			name:           "explicit default loads global",
 			registryConfig: "default",
-			globalTOML:     replaceDefaults + globalTOML,
+			globalTOML:     excludeBuiltin + globalTOML,
 			want:           []api.Registry{global},
 		},
 		{
@@ -515,26 +520,26 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 			want:        append([]api.Registry{project, global}, defaults...),
 		},
 		{
-			name:        "project inherits global replacement",
-			globalTOML:  replaceDefaults + globalTOML,
+			name:        "project inherits global exclusion",
+			globalTOML:  excludeBuiltin + globalTOML,
 			projectTOML: projectTOML,
 			want:        []api.Registry{project, global},
 		},
 		{
-			name:        "project false restores defaults",
-			globalTOML:  replaceDefaults + globalTOML,
-			projectTOML: "replace_defaults = false\n" + projectTOML,
-			want:        append([]api.Registry{project, global}, defaults...),
+			name:        "project false cannot restore defaults",
+			globalTOML:  excludeBuiltin + globalTOML,
+			projectTOML: "exclude_builtin_registries = false\n" + projectTOML,
+			want:        []api.Registry{project, global},
 		},
 		{
 			name:        "project true removes defaults",
 			globalTOML:  globalTOML,
-			projectTOML: replaceDefaults + projectTOML,
+			projectTOML: excludeBuiltin + projectTOML,
 			want:        []api.Registry{project, global},
 		},
 		{
 			name:        "project name wins duplicate",
-			globalTOML:  replaceDefaults + "[[registries]]\nurl = \"https://project.test/\"\nname = \"Global\"\n",
+			globalTOML:  excludeBuiltin + "[[registries]]\nurl = \"https://project.test/\"\nname = \"Global\"\n",
 			projectTOML: projectTOML,
 			want:        []api.Registry{project},
 		},
@@ -548,18 +553,18 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 			name:           "none still loads project",
 			registryConfig: "none",
 			globalTOML:     "[[broken",
-			projectTOML:    replaceDefaults + projectTOML,
+			projectTOML:    excludeBuiltin + projectTOML,
 			want:           []api.Registry{project},
 		},
 		{
-			name:        "project fills empty global replacement",
-			globalTOML:  replaceDefaults,
+			name:        "project fills empty global exclusion",
+			globalTOML:  excludeBuiltin,
 			projectTOML: projectTOML,
 			want:        []api.Registry{project},
 		},
 		{
-			name:       "empty replacement errors",
-			globalTOML: replaceDefaults,
+			name:       "empty exclusion errors",
+			globalTOML: excludeBuiltin,
 			wantErr:    "empty registry list",
 		},
 	} {

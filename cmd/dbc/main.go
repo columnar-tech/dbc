@@ -217,7 +217,10 @@ func fetchRegistryIndex(r dbc.Registry) ([]dbc.Driver, error) {
 	if startupRegistryConfigErr != nil {
 		return nil, startupRegistryConfigErr
 	}
-	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{{Name: r.Name, BaseURL: r.BaseURL}})}
+	// Keep everything the configuration says about the registry, only not
+	// the drivers of an earlier fetch.
+	r.Drivers = nil
+	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{r})}
 	if globalRegistryConfig != nil {
 		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
 	}
@@ -442,7 +445,7 @@ type startupResult struct {
 // No dbcClient is constructed along the way — project commands' models
 // build it lazily via applyProjectRegistries once they decode dbc.toml.
 // Reintroducing an eager initDBCClient() anywhere between steps 1 and 3
-// would break the "global replace_defaults=true + project supplies
+// would break the "global exclude_builtin_registries=true + project supplies
 // registries" scenario, which is why tests drive this helper end-to-end.
 func runStartup(configDir string, argv []string) startupResult {
 	// Reset all cached client state at the start of every startup so the

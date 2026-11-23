@@ -293,7 +293,7 @@ url = "not a registry URL"
 
 	t.Run("valid config permits operations", func(t *testing.T) {
 		resetClientState()
-		dir := writeUserConfig(t, "replace_defaults = false\n")
+		dir := writeUserConfig(t, "exclude_builtin_registries = false\n")
 		assert.Empty(t, loadStartupRegistryConfig(dir))
 		assert.NoError(t, startupRegistryConfigErr)
 		_, err := newDBCClient(nil)
