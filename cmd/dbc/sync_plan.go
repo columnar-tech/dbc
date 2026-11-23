@@ -286,17 +286,11 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 		if a.Target != target {
 			continue
 		}
-		u, err := bound.artifactURL(a)
+		pkg, err := p.lockedPackage(name, bound, a, v)
 		if err != nil {
-			return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
+			return plannedDriver{}, err
 		}
-		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: dbc.PkgInfo{
-			Driver:        dbc.Driver{Title: name, Path: name},
-			Version:       v,
-			PlatformTuple: p.target,
-			Path:          u,
-			ArchiveSHA256: strings.TrimPrefix(a.Hash, lockHashPrefix),
-		}}, nil
+		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
 	}
 
 	// The lock has no artifact for this target. A platform that the driver
@@ -340,12 +334,36 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	return plannedDriver{Name: name, Entry: d, Package: pkg, Signer: signer}, nil
 }
 
+// lockedPackage returns the package of the current target that the locked
+// artifact a of version v records, bound to its registry.
+func (p *syncPlanner) lockedPackage(name string, bound boundRegistry, a lockedArtifact, v *semver.Version) (dbc.PkgInfo, error) {
+	u, err := bound.artifactURL(a)
+	if err != nil {
+		return dbc.PkgInfo{}, fmt.Errorf("driver %s: %w", name, err)
+	}
+	return dbc.PkgInfo{
+		Driver:        dbc.Driver{Title: name, Path: name},
+		Version:       v,
+		PlatformTuple: p.target,
+		Path:          u,
+		ArchiveSHA256: strings.TrimPrefix(a.Hash, lockHashPrefix),
+	}, nil
+}
+
 // relock plans a locked driver again for a new or changed declaration of
 // platforms, keeping its source and version when that version has a build
-// for every declared platform. Artifacts of declared platforms that the
-// entry already records are kept; only the others are added. kept is false
-// when the driver has to be resolved again instead.
+// for every declared platform. An entry that already records every declared
+// platform is replayed without fetching any index. Otherwise artifacts of
+// declared platforms that the entry records are kept and only the others are
+// added from the locked registry. kept is false when the driver has to be
+// resolved again instead.
 func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd plannedDriver, kept bool, err error) {
+	if !slices.ContainsFunc(p.platforms, func(t resolution.Target) bool {
+		return !slices.ContainsFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == t })
+	}) {
+		pd, err := p.fromLock(name, d, v)
+		return pd, err == nil, err
+	}
 	signer, err := trustedSigner(name, d.Signer)
 	if err != nil {
 		return plannedDriver{}, false, err
@@ -375,17 +393,18 @@ func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd
 		}
 	}
 	current := dbc.PkgInfo{Driver: dbc.Driver{Title: name, Path: name}, Version: v}
+	var size *int64
 	if p.hostDeclared() {
 		host, err := resolution.TargetFromPlatformTuple(p.target)
 		if err != nil {
 			return plannedDriver{}, false, err
 		}
 		if a, ok := existing[host]; ok {
-			u, err := bound.artifactURL(a)
+			current, err = p.lockedPackage(name, bound, a, v)
 			if err != nil {
-				return plannedDriver{}, false, fmt.Errorf("driver %s: %w", name, err)
+				return plannedDriver{}, false, err
 			}
-			current.PlatformTuple, current.Path, current.ArchiveSHA256 = p.target, u, strings.TrimPrefix(a.Hash, lockHashPrefix)
+			size = a.Size
 		} else {
 			entry, err := platformPackage(drv, v, host)
 			if err != nil {
@@ -402,7 +421,7 @@ func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd
 		return plannedDriver{}, false, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
 	}
 	d.Artifacts = artifacts
-	return plannedDriver{Name: name, Entry: d, Package: current, Signer: signer, Unmeasured: unmeasured}, true, nil
+	return plannedDriver{Name: name, Entry: d, Package: current, ArchiveSize: size, Signer: signer, Unmeasured: unmeasured}, true, nil
 }
 
 // signerFor returns the key that packages of a driver from the registry with

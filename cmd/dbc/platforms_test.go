@@ -359,3 +359,33 @@ func (suite *SubcommandTestSuite) TestSyncMeasuresDeclaredPlatform() {
 	suite.Equal(1, counters.downloads, "the installed driver is reused; only the other platform is downloaded")
 	suite.Equal(lockHashPrefix+testArchiveSHA256(suite, "test-driver-1.tar.gz"), artifactTargets(suite.lockedDriverEntry("test-driver-1"))[testSyncTarget(suite.T(), otherTarget)])
 }
+
+// TestPlanChangedPlatformsCoveredByLock pins that an entry that already
+// records every declared platform is kept without fetching any index, so
+// neither its registry nor its hashes depend on what the registries list now.
+func TestPlanChangedPlatformsCoveredByLock(t *testing.T) {
+	entry := lockedAlpha("1.0.0",
+		pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA),
+		pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB))
+	f := newPlanFixture(t)
+	f.planner.registryIndex = func(dbc.Registry) ([]dbc.Driver, error) { t.Fatal("no index may be fetched"); return nil, nil }
+	planned, _, err := f.planner.plan(listWithPlatforms([]string{"linux_amd64", "macos_arm64"}, map[string]driverSpec{"alpha": {}}), v2Lock(entry))
+	require.NoError(t, err)
+	assert.Zero(t, f.indexCalls)
+	assert.Equal(t, entry, planned[0].Entry)
+}
+
+// TestPlanChangedPlatformsKeepsLockedSize pins that the locked archive size of
+// the current platform is still checked when an entry is extended.
+func TestPlanChangedPlatformsKeepsLockedSize(t *testing.T) {
+	size := int64(1234)
+	host := pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)
+	host.Size = &size
+	f := newPlanFixture(t)
+	planned, _, err := f.planner.plan(listWithPlatforms([]string{"linux_amd64", "macos_arm64"}, map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("1.0.0", host)))
+	require.NoError(t, err)
+	require.Len(t, f.boundIndexed, 1, "the missing platform is added from the locked registry")
+	require.NotNil(t, planned[0].ArchiveSize)
+	assert.Equal(t, size, *planned[0].ArchiveSize)
+	assert.Equal(t, planHashA, planned[0].Package.ArchiveSHA256)
+}
