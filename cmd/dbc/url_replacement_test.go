@@ -208,7 +208,7 @@ func TestInvalidURLReplacementsFailRegistryCommands(t *testing.T) {
 	assert.True(t, strings.HasPrefix(loadStartupRegistryConfig(dir), "warning:"))
 	require.Error(t, startupRegistryConfigErr)
 
-	c, err := newDBCClient(nil, nil)
+	c, err := newDBCClient(nil, false)
 	require.Nil(t, c)
 	require.ErrorIs(t, err, dbc.ErrInvalidURLReplacement)
 	assert.Contains(t, err.Error(), "url_replacements[0]")
@@ -273,7 +273,7 @@ url = "not a registry URL"
 			require.Error(t, startupRegistryConfigErr)
 			assert.Contains(t, strings.ToLower(startupRegistryConfigErr.Error()), tt.wantErr)
 
-			_, err := newDBCClient(nil, nil)
+			_, err := newDBCClient(nil, false)
 			require.ErrorIs(t, err, startupRegistryConfigErr)
 
 			_, err = fetchRegistryIndex(dbc.Registry{BaseURL: parseTestURL(t, server.URL)})
@@ -293,10 +293,10 @@ url = "not a registry URL"
 
 	t.Run("valid config permits operations", func(t *testing.T) {
 		resetClientState()
-		dir := writeUserConfig(t, "replace_defaults = false\n")
+		dir := writeUserConfig(t, "exclude_builtin_registries = false\n")
 		assert.Empty(t, loadStartupRegistryConfig(dir))
 		assert.NoError(t, startupRegistryConfigErr)
-		_, err := newDBCClient(nil, nil)
+		_, err := newDBCClient(nil, false)
 		require.NoError(t, err)
 	})
 
@@ -306,7 +306,7 @@ url = "not a registry URL"
 		require.NoError(t, os.Mkdir(filepath.Join(dir, "config.toml"), 0o700))
 		assert.True(t, strings.HasPrefix(loadStartupRegistryConfig(dir), "warning:"))
 		require.Error(t, startupRegistryConfigErr)
-		_, err := newDBCClient(nil, nil)
+		_, err := newDBCClient(nil, false)
 		require.ErrorIs(t, err, startupRegistryConfigErr)
 	})
 

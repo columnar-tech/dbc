@@ -135,8 +135,8 @@ const dbc = await loadDbc({
 });
 ```
 
-The project file contributes only `registries` and `replace_defaults`, using
-the CLI's project → global → built-in registry precedence. Set
+The project file contributes only `registries` and `exclude_builtin_registries`,
+using the CLI's project → global → built-in registry precedence. Set
 `registryConfig: "none"` to skip the global file; it does not disable an explicit
 `projectFile`.
 
