@@ -21,7 +21,7 @@ toolchain go1.27.4
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.1
-	charm.land/lipgloss/v2 v2.0.6
+	charm.land/lipgloss/v2 v2.1.1
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/ProtonMail/gopenpgp/v3 v3.5.2
 	github.com/alexflint/go-arg v1.6.1
