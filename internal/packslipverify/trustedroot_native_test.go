@@ -76,7 +76,7 @@ func TestTUFRootLoadedOnEveryCall(t *testing.T) {
 	if got, err := verifyFixture(context.Background(), v, t); err == nil || got != nil {
 		t.Fatalf("first call = %v, %v; want error", got, err)
 	}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := verifyFixture(context.Background(), v, t); err != nil {
 			t.Fatalf("call %d: %v", i+2, err)
 		}
@@ -98,7 +98,7 @@ func TestTUFOptionsAreFreshPerCall(t *testing.T) {
 		}
 		return tr, nil
 	})
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := verifyFixture(context.Background(), v, t); err != nil {
 			t.Fatal(err)
 		}
@@ -230,15 +230,13 @@ func TestTUFVerifiersOnOneCacheDirAreSerialized(t *testing.T) {
 		return tr, nil
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		v := tufVerifier(t, cacheDir, nil, loader) // separate Verifiers, same cache
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if _, err := verifyFixture(context.Background(), v, t); err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := maxActive.Load(); got != 1 {
@@ -261,14 +259,12 @@ func TestTUFStaticRootDoesNoNetworkCacheOrLock(t *testing.T) {
 		return nil, errors.New("no tuf")
 	}
 	var wg sync.WaitGroup
-	for i := 0; i < 4; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 4 {
+		wg.Go(func() {
 			if _, err := verifyFixture(context.Background(), v, t); err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if _, err := os.Stat(cacheDir); !errors.Is(err, os.ErrNotExist) {
