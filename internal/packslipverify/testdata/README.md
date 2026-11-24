@@ -17,8 +17,7 @@ workflow `jdx/hk/.github/workflows/release.yml@refs/tags/v2.12.0`.
 
 The Sigstore public-good instance trusted root.
 
-- Source: dbc commit `33beb737`, path `internal/packslipverify/testdata/trusted-root-public-good.json`
-  (`git show 33beb737:internal/packslipverify/testdata/trusted-root-public-good.json`).
-- Byte-identical to `examples/trusted-root-public-good.json` of
-  github.com/sigstore/sigstore-go v1.3.0.
+- Source: `examples/trusted-root-public-good.json` of
+  github.com/sigstore/sigstore-go at tag `v1.3.0`
+  (https://github.com/sigstore/sigstore-go/blob/v1.3.0/examples/trusted-root-public-good.json).
 - SHA-256: 4364d7724c04cc912ce2a6c45ed2610e8d8d1c4dc857fb500292738d4d9c8d2c

@@ -40,13 +40,15 @@ type Config struct {
 	HTTPClient *http.Client
 
 	// CacheDir is the absolute directory that holds the TUF metadata cache and
-	// its lock file. Empty selects a dedicated directory under dbc's user
-	// config directory.
+	// its lock file. Empty selects the sigstore-tuf directory under dbc's
+	// user cache directory (see internal.GetUserCachePath).
 	CacheDir string
 
 	// TrustedRootJSON, if set, is a Sigstore trusted root that is used
 	// instead of the public-good TUF repository. It is parsed once by New;
-	// verification then makes no network, cache or lock access.
+	// verification then makes no network, cache or lock access. The root is
+	// never refreshed, so a long-lived Verifier does not see key rotations or
+	// revocations; it is meant for tests and pinned offline setups.
 	TrustedRootJSON []byte
 }
 
