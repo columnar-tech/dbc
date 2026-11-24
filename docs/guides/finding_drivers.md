@@ -74,7 +74,7 @@ If you are [logged in](./private_drivers.md) to a private registry, you will see
 ```console
 $ dbc search
 ...
-oracle   [private] An ADBC driver for Oracle Database developed by Columnar
+teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 
 These drivers can be [installed](./installing.md) and added to [driver lists](../concepts/driver_list.md) just like regular drivers.
