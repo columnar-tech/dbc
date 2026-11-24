@@ -35,8 +35,13 @@ type DriversList struct {
 	// cannot bring back built-in registries that the global config excludes.
 	// It is a pointer only to tell an explicit false, which is kept when the
 	// file is written back and warned about, from an omitted key.
-	ExcludeBuiltinRegistries *bool                 `toml:"exclude_builtin_registries,omitempty"`
-	Drivers                  map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
+	ExcludeBuiltinRegistries *bool `toml:"exclude_builtin_registries,omitempty"`
+	// Platforms are the platform tuples that drivers are resolved for: the
+	// version of a driver must have a build for each of them, and the lock
+	// file records each of them. nil resolves drivers without regard to
+	// platforms; an empty list is an error.
+	Platforms []string              `toml:"platforms,omitempty"`
+	Drivers   map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 	// Network is decoded only to reject it: network settings are read from
 	// the user config, never from a project's dbc.toml.
 	Network map[string]any `toml:"network,omitempty"`

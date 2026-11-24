@@ -39,6 +39,7 @@ import (
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/internal"
 	"github.com/columnar-tech/dbc/internal/registryurl"
+	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/go-faster/yaml"
 	"github.com/google/uuid"
 )
@@ -481,10 +482,7 @@ func (d Driver) GetLatestVersionAnyPlatform(constraint *semver.Constraints, allo
 
 func (d Driver) eligiblePackages(constraint *semver.Constraints, allowPrerelease bool) iter.Seq[pkginfo] {
 	return filter(slices.Values(d.PkgInfo), func(pkg pkginfo) bool {
-		if constraint != nil {
-			return constraint.Check(pkg.Version)
-		}
-		return allowPrerelease || pkg.Version.Prerelease() == ""
+		return resolution.VersionEligible(pkg.Version, constraint, allowPrerelease)
 	})
 }
 

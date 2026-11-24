@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -164,6 +165,12 @@ func (m addModel) Init() tea.Cmd {
 		if err := applyProjectRegistries(m.list); err != nil {
 			return err
 		}
+		// With declared platforms, a driver is checked against them instead
+		// of this platform.
+		platforms, err := m.list.targetPlatforms()
+		if err != nil {
+			return err
+		}
 		if warning := projectRegistryWarning(m.list); warning != "" {
 			fmt.Fprintln(os.Stderr, warning)
 		}
@@ -263,6 +270,19 @@ func (m addModel) Init() tea.Cmd {
 				indexErr = registryErrors
 			}
 			pkg, err := dbc.ResolvePackage(drivers, indexErr, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+				if platforms != nil {
+					return selectDeclaredPackage(candidate, requested, platforms)
+				}
+				// Without platforms the version does not depend on this
+				// platform, which needs a build only to install the driver.
+				// When it has one, its package metadata is checked.
+				version, err := selectProjectVersion(candidate, requested, nil, nil)
+				if err != nil {
+					return dbc.PkgInfo{}, err
+				}
+				if hostBuildMissing(*candidate, version, config.PlatformTuple()) {
+					return dbc.PkgInfo{Version: version}, nil
+				}
 				return selectProjectPackage(candidate, requested, nil, config.PlatformTuple())
 			})
 			if err != nil && target != nil {
@@ -346,6 +366,9 @@ func (m addModel) Init() tea.Cmd {
 		// potentially-inconsistent dbc.toml.
 		if registriesChanged(m.list, current) {
 			return fmt.Errorf("dbc.toml registry configuration changed while resolving drivers; please retry `dbc add`")
+		}
+		if currentPlatforms, err := current.targetPlatforms(); err != nil || !slices.Equal(platforms, currentPlatforms) {
+			return fmt.Errorf("the platforms in dbc.toml changed while resolving drivers; please retry `dbc add`")
 		}
 		// A driver's source, or the registry a source name refers to, may
 		// also have changed: the drivers were validated against the old one.
