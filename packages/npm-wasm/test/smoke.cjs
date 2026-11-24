@@ -28,6 +28,7 @@ const { loadDbc } = require("..");
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 const indexData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test_index.yaml"));
 const tarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-1.tar.gz"));
+const tar11Data = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-1.1.tar.gz"));
 const manifestOnlyTarData = fs.readFileSync(path.join(REPO_ROOT, "cmd/dbc/testdata/test-driver-manifest-only.tar.gz"));
 
 function listEntries(root, directory = root, entries = []) {
@@ -50,9 +51,11 @@ const server = http.createServer((req, res) => {
     res.setHeader("Content-Length", String(manifestOnlyTarData.length));
     res.end(manifestOnlyTarData);
   } else if (req.url.includes(".tar.gz")) {
+    // Serve an archive that declares the version the index lists.
+    const data = req.url.includes("test-driver-1/1.1.0/") ? tar11Data : tarData;
     res.setHeader("Content-Type", "application/gzip");
-    res.setHeader("Content-Length", String(tarData.length));
-    res.end(tarData);
+    res.setHeader("Content-Length", String(data.length));
+    res.end(data);
   } else {
     res.statusCode = 404;
     res.end("not found");

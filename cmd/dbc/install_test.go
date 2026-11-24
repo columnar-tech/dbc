@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -838,7 +839,7 @@ func (suite *SubcommandTestSuite) TestInstallVerificationPhaseIsReportedBeforeVe
 	var events []string
 	progressOutput := strings.TrimSpace(progress.String())
 	suite.Require().NotEmpty(progressOutput, "expected progress events")
-	for _, line := range strings.Split(progressOutput, "\n") {
+	for line := range strings.SplitSeq(progressOutput, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -903,9 +904,9 @@ func (suite *SubcommandTestSuite) TestInstallJSON_AlreadyInstalledChecksumFailur
 	// runCmdErr appends FinalOutput(), so the last non-empty line is the JSON.
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	var jsonLine string
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.HasPrefix(strings.TrimSpace(lines[i]), "{") {
-			jsonLine = strings.TrimSpace(lines[i])
+	for _, line := range slices.Backward(lines) {
+		if strings.HasPrefix(strings.TrimSpace(line), "{") {
+			jsonLine = strings.TrimSpace(line)
 			break
 		}
 	}

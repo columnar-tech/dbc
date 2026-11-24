@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -71,6 +72,7 @@ type InstallCmd struct {
 	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
 	Pre                bool               `arg:"--pre" help:"Allow implicit installation of pre-release versions"`
 	InsecureNoChecksum bool               `arg:"--insecure-no-checksum" help:"Skip sha256 checksum recording (not recommended)"`
+	Registry           string             `arg:"--registry" placeholder:"NAME|URL" help:"Install the driver only from this registry: the name of a [[registries]] entry in the user config, or the URL of a configured registry"`
 }
 
 func (InstallCmd) Description() string {
@@ -93,6 +95,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		jsonOutput:         c.Json || c.JsonStreamProgress,
 		jsonStreamProgress: c.JsonStreamProgress,
 		Pre:                c.Pre,
+		registrySource:     registrySourceFlag(c.Registry),
 		insecureNoChecksum: c.InsecureNoChecksum,
 		spinner:            s,
 		cfg:                getConfig(c.Level),
@@ -189,6 +192,9 @@ type progressiveInstallModel struct {
 	jsonStreamProgress bool
 	Pre                bool
 	cfg                config.Config
+	// registrySource, when set, is the only registry the driver is
+	// installed from.
+	registrySource *driverSource
 
 	insecureNoChecksum  bool
 	installedDriverInfo config.DriverInfo
@@ -220,6 +226,9 @@ type driversWithRegistryError struct {
 
 func (m progressiveInstallModel) Init() tea.Cmd {
 	if strings.HasSuffix(m.Driver, ".tar.gz") || strings.HasSuffix(m.Driver, ".tgz") {
+		if m.registrySource != nil {
+			return errCmd("--registry cannot be used to install a local archive")
+		}
 		return tea.Batch(m.spinner.Tick, func() tea.Msg {
 			return localInstallMsg{}
 		})
@@ -249,12 +258,50 @@ func (m progressiveInstallModel) Init() tea.Cmd {
 		}
 		defer lock.Release()
 
+		if m.registrySource != nil {
+			drivers, err := m.registrySourceIndex()
+			if err != nil {
+				return err
+			}
+			return drivers
+		}
+
 		drivers, err := m.getDriverRegistry()
 		return driversWithRegistryError{
 			drivers: drivers,
 			err:     err,
 		}
 	})
+}
+
+// registrySourceIndex fetches the index of the registry that --registry
+// selects. A name refers to the user config, since dbc install does not
+// read a driver list. Any failure is an error; no other registry is used.
+func (m progressiveInstallModel) registrySourceIndex() ([]dbc.Driver, error) {
+	var entries []dbc.RegistryEntry
+	if globalRegistryConfig != nil {
+		entries = globalRegistryConfig.Registries
+	}
+	target, err := m.registrySource.target(entries)
+	if err != nil {
+		if m.registrySource.Name != nil {
+			return nil, fmt.Errorf("--registry: %w; a name refers to the user config", err)
+		}
+		return nil, fmt.Errorf("--registry: %w", err)
+	}
+	registries, err := m.getRegistries()
+	if err != nil {
+		return nil, err
+	}
+	reg, err := target.bind(registries)
+	if err != nil {
+		return nil, fmt.Errorf("--registry: %w", err)
+	}
+	drivers, err := m.getRegistryIndex(reg)
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch the index of registry %s: %w", target.identity, redactRegistryError(err, m.getRegistries, reg.BaseURL))
+	}
+	return drivers, nil
 }
 
 func (m progressiveInstallModel) Preamble() string {
@@ -268,9 +315,19 @@ func (m progressiveInstallModel) hasConflict() bool {
 	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil
 }
 
+// isAlreadyInstalled reports whether the selected version is installed.
+// Versions compare as the install checks them: a "v" prefix is ignored, but
+// build metadata must match, unlike semver's Equal.
 func (m progressiveInstallModel) isAlreadyInstalled() bool {
+	// An installed driver does not record the registry it came from, so the
+	// same version from the registry that --registry selects may be a
+	// different package; install it again.
+	if m.registrySource != nil {
+		return false
+	}
 	return m.conflictingInfo.ID != "" && m.conflictingInfo.Version != nil &&
-		m.conflictingInfo.Version.Equal(m.DriverPackage.Version)
+		m.DriverPackage.Version != nil &&
+		m.conflictingInfo.Version.String() == m.DriverPackage.Version.String()
 }
 
 func (m progressiveInstallModel) FinalOutput() string {
@@ -416,28 +473,24 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	}
 
 	m.Driver = driverName
-	d, err := findDriver(m.Driver, list)
-	if err != nil {
-		// If we have registry errors, enhance the error message
-		if m.registryErrors != nil {
-			return m, errCmd("could not find driver: %w\n\nNote: Some driver registries were unavailable:\n%s", err, m.registryErrors.Error())
-		}
-		return m, errCmd("could not find driver: %w", err)
+	if vers != nil {
+		vers.IncludePrerelease = m.Pre
 	}
-
 	return m, func() tea.Msg {
-		if vers != nil {
-			vers.IncludePrerelease = m.Pre
-			pkg, err := d.GetWithConstraint(vers, config.PlatformTuple())
-			if err != nil {
-				return err
+		pkg, err := dbc.ResolvePackage(list, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			if vers != nil {
+				return candidate.GetWithConstraint(vers, config.PlatformTuple())
 			}
-			return pkg
-		}
-
-		pkg, err := d.GetPackage(nil, config.PlatformTuple(), m.Pre)
+			return candidate.GetLatestPackage(config.PlatformTuple(), m.Pre)
+		})
 		if err != nil {
-			if !m.Pre && !d.HasNonPrerelease() {
+			if pkg.Driver.Path == "" && m.registrySource != nil {
+				return fmt.Errorf("could not find driver: driver `%s` is not in %s", driverName, m.registrySource)
+			}
+			if pkg.Driver.Path == "" {
+				return wrapWithRegistryContext(fmt.Errorf("could not find driver: %w", err), m.registryErrors)
+			}
+			if vers == nil && errors.Is(err, dbc.ErrPackageMiss) && !m.Pre && !pkg.Driver.HasNonPrerelease() {
 				for _, cfg := range config.Get() {
 					if di, ok := cfg.Drivers[driverName]; ok && di.Version != nil && di.Version.Prerelease() != "" {
 						return fmt.Errorf("driver `%s` is already installed (version %s); only pre-release versions are available for this driver; to update, use: dbc install --pre %s", driverName, di.Version, driverName)
@@ -500,6 +553,8 @@ func (m progressiveInstallModel) startInstalling(downloaded *os.File) (tea.Model
 		options := config.InstallPackageOptions{
 			// Local archives have no registry-published hash to compare to.
 			ExpectedArchiveSHA256: m.DriverPackage.ArchiveSHA256,
+			// Local archives have no selected version either, so this is nil.
+			ExpectedVersion: m.DriverPackage.Version,
 			Verifier: func(stagingDir string, stagedManifest config.Manifest) error {
 				if program != nil {
 					program.Send(installVerificationStartedMsg{})

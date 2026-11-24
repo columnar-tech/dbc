@@ -24,6 +24,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc/internal/hostpath"
 )
 
@@ -42,6 +43,13 @@ type InstallPackageOptions struct {
 	// different measured digest fails the install with an
 	// *ArchiveHashMismatchError before anything is published.
 	ExpectedArchiveSHA256 string
+	// ExpectedVersion is the optional version the caller selected for the
+	// package, such as the version from the registry index or the lock file.
+	// When set, a package whose manifest declares a different version fails
+	// the install with a *PackageVersionMismatchError before anything is
+	// published. Versions compare as dbc compares them when reusing an
+	// installed driver: a "v" prefix is ignored, but build metadata must match.
+	ExpectedVersion *semver.Version
 	// Verifier runs under the driver lock before generation publication.
 	Verifier PackageVerifier
 	// SignatureVerifier runs on the staged package right after Verifier and
@@ -65,12 +73,35 @@ func (e *ArchiveHashMismatchError) Error() string {
 	return fmt.Sprintf("archive SHA-256 mismatch: expected %s, got %s", e.Expected, e.Actual)
 }
 
+// PackageVersionMismatchError reports that the manifest of a package declares
+// a version other than the one the caller selected.
+type PackageVersionMismatchError struct {
+	// Driver is the runtime ID being installed.
+	Driver string
+	// Expected is the selected version and Actual the version the package
+	// manifest declares.
+	Expected *semver.Version
+	Actual   *semver.Version
+}
+
+func (e *PackageVersionMismatchError) Error() string {
+	return fmt.Sprintf("driver %s: the package declares version %s, but version %s was selected",
+		e.Driver, versionString(e.Actual), versionString(e.Expected))
+}
+
+func versionString(v *semver.Version) string {
+	if v == nil {
+		return "(none)"
+	}
+	return v.String()
+}
+
 func validArchiveSHA256(s string) bool {
 	if len(s) != sha256.Size*2 {
 		return false
 	}
 	for _, c := range s {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return false
 		}
 	}
@@ -194,9 +225,12 @@ func installPackageWithContextAndOperations(ctx context.Context, cfg Config, run
 	if options.ExpectedArchiveSHA256 != "" && options.ExpectedArchiveSHA256 != archiveSHA256 {
 		return Manifest{}, &ArchiveHashMismatchError{Expected: options.ExpectedArchiveSHA256, Actual: archiveSHA256}
 	}
+	if options.ExpectedVersion != nil && !sameVersion(manifest.Version, options.ExpectedVersion) {
+		return Manifest{}, &PackageVersionMismatchError{Driver: runtimeID, Expected: options.ExpectedVersion, Actual: manifest.Version}
+	}
 
-	manifest.DriverInfo.ID = runtimeID
-	manifest.DriverInfo.Source = "dbc"
+	manifest.ID = runtimeID
+	manifest.Source = "dbc"
 	generationPrefix, err := packageGenerationPrefix(runtimeID)
 	if err != nil {
 		return Manifest{}, fmt.Errorf("prepare package generation name: %w", err)

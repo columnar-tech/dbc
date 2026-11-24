@@ -79,6 +79,8 @@ func fixtureServer(t *testing.T) string {
 	require.NoError(t, err)
 	tarball, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.tar.gz"))
 	require.NoError(t, err)
+	tarball11, err := os.ReadFile(filepath.Join(testdata, "test-driver-1.1.tar.gz"))
+	require.NoError(t, err)
 	unsigned, err := os.ReadFile(filepath.Join(testdata, "test-driver-no-sig.tar.gz"))
 	require.NoError(t, err)
 
@@ -88,6 +90,9 @@ func fixtureServer(t *testing.T) string {
 			w.Write(index)
 		case strings.Contains(r.URL.Path, "test-driver-no-sig"):
 			w.Write(unsigned)
+		case strings.Contains(r.URL.Path, "/1.1.0/"):
+			// Serve an archive that declares the version the index lists.
+			w.Write(tarball11)
 		case strings.HasSuffix(r.URL.Path, ".tar.gz"):
 			w.Write(tarball)
 		default:
@@ -171,6 +176,65 @@ func TestResolve(t *testing.T) {
 	t.Run("unknown driver", func(t *testing.T) {
 		_, err := api.Resolve(t.Context(), c, "nonexistent-driver", "linux_amd64")
 		require.EqualError(t, err, `driver "nonexistent-driver" not found`)
+	})
+}
+
+func TestResolveSelectedRegistry(t *testing.T) {
+	isolateUserState(t)
+	tarball, err := os.ReadFile(filepath.Join("..", "..", "cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	require.NoError(t, err)
+	serve := func(packages string) api.Registry {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/index.yaml":
+				fmt.Fprint(w, "drivers:\n - name: Shared\n   path: shared\n   pkginfo:\n"+packages)
+			case "/driver.tar.gz":
+				w.Write(tarball)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		t.Cleanup(server.Close)
+		return api.Registry{URL: server.URL}
+	}
+	host := config.PlatformTuple()
+	primary := serve(fmt.Sprintf("    - version: 3.0.0-beta.1\n      packages: [{platform: %s}]\n", host))
+	for _, badHash := range []bool{false, true} {
+		t.Run(fmt.Sprintf("invalid hash=%t", badHash), func(t *testing.T) {
+			hash := ""
+			if badHash {
+				hash = ", hash: 'sha256:invalid'"
+			}
+			selected := serve(fmt.Sprintf("    - version: 2.0.0\n      packages: []\n    - version: 1.0.0\n      packages: [{platform: %s, url: driver.tar.gz%s}]\n", host, hash))
+			c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{primary, selected}}, &http.Client{})
+			require.NoError(t, err)
+			result, err := api.Resolve(t.Context(), c, "shared", host)
+			require.NoError(t, err)
+			assert.Equal(t, "shared", result.Path)
+			assert.Equal(t, []string{"1.0.0"}, result.Versions)
+			installed, err := api.Install(t.Context(), c, "shared", api.Target{Location: t.TempDir()}, api.InstallOptions{})
+			if badHash {
+				assert.Nil(t, result.Latest)
+				require.ErrorContains(t, err, "invalid archive hash")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result.Latest)
+			assert.Equal(t, selected.URL+"/driver.tar.gz", result.Latest.URL)
+			assert.Equal(t, result.Latest.Version, installed.Version)
+		})
+	}
+
+	t.Run("missing version", func(t *testing.T) {
+		selected := serve(fmt.Sprintf("    - packages: [{platform: %s}]\n    - version: 1.0.0\n      packages: [{platform: %s}]\n", host, host))
+		fallback := serve(fmt.Sprintf("    - version: 2.0.0\n      packages: [{platform: %s}]\n", host))
+		c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{selected, fallback}}, &http.Client{})
+		require.NoError(t, err)
+		result, err := api.Resolve(t.Context(), c, "shared", host)
+		require.NoError(t, err)
+		assert.Equal(t, "shared", result.Path)
+		assert.Equal(t, []string{"1.0.0"}, result.Versions)
+		assert.Nil(t, result.Latest)
 	})
 }
 
@@ -325,10 +389,7 @@ func TestSearchPartialFailureEmptyIndex(t *testing.T) {
 	assert.NotEmpty(t, res.Warning)
 }
 
-// latest is the package Install would fetch: the newest stable version
-// overall. When that version has no package for the platform, Install fails,
-// so latest is absent even though an older version lists the platform.
-func TestResolveLatestMatchesInstall(t *testing.T) {
+func TestResolveUsesRequestedPlatform(t *testing.T) {
 	isolateUserState(t)
 	const index = `drivers:
   - name: Test Driver
@@ -357,7 +418,9 @@ func TestResolveLatestMatchesInstall(t *testing.T) {
 	res, err := api.Resolve(t.Context(), c, "test-driver", "linux_amd64")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1.0.0"}, res.Versions)
-	assert.Nil(t, res.Latest)
+	require.NotNil(t, res.Latest)
+	assert.Equal(t, "1.0.0", res.Latest.Version)
+	assert.Equal(t, srv.URL+"/test-driver/1.0.0/linux.tar.gz", res.Latest.URL)
 }
 
 func TestClientConfigWireFormat(t *testing.T) {
@@ -419,7 +482,7 @@ func TestNewClientRejectsInvalidExplicitRegistryURLs(t *testing.T) {
 func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 	const globalTOML = "[[registries]]\nurl = \"https://global.test\"\nname = \"Global\"\n"
 	const projectTOML = "[[registries]]\nurl = \"https://project.test\"\nname = \"Project\"\n"
-	const replaceDefaults = "replace_defaults = true\n"
+	const excludeBuiltin = "exclude_builtin_registries = true\n"
 	defaults := []api.Registry{
 		{URL: "https://dbc-cdn.columnar.tech"},
 		{URL: "https://" + auth.DefaultOauthURI()},
@@ -446,7 +509,7 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 		{
 			name:           "explicit default loads global",
 			registryConfig: "default",
-			globalTOML:     replaceDefaults + globalTOML,
+			globalTOML:     excludeBuiltin + globalTOML,
 			want:           []api.Registry{global},
 		},
 		{
@@ -456,26 +519,26 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 			want:        append([]api.Registry{project, global}, defaults...),
 		},
 		{
-			name:        "project inherits global replacement",
-			globalTOML:  replaceDefaults + globalTOML,
+			name:        "project inherits global exclusion",
+			globalTOML:  excludeBuiltin + globalTOML,
 			projectTOML: projectTOML,
 			want:        []api.Registry{project, global},
 		},
 		{
-			name:        "project false restores defaults",
-			globalTOML:  replaceDefaults + globalTOML,
-			projectTOML: "replace_defaults = false\n" + projectTOML,
-			want:        append([]api.Registry{project, global}, defaults...),
+			name:        "project false cannot restore defaults",
+			globalTOML:  excludeBuiltin + globalTOML,
+			projectTOML: "exclude_builtin_registries = false\n" + projectTOML,
+			want:        []api.Registry{project, global},
 		},
 		{
 			name:        "project true removes defaults",
 			globalTOML:  globalTOML,
-			projectTOML: replaceDefaults + projectTOML,
+			projectTOML: excludeBuiltin + projectTOML,
 			want:        []api.Registry{project, global},
 		},
 		{
 			name:        "project name wins duplicate",
-			globalTOML:  replaceDefaults + "[[registries]]\nurl = \"https://project.test/\"\nname = \"Global\"\n",
+			globalTOML:  excludeBuiltin + "[[registries]]\nurl = \"https://project.test/\"\nname = \"Global\"\n",
 			projectTOML: projectTOML,
 			want:        []api.Registry{project},
 		},
@@ -489,18 +552,18 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 			name:           "none still loads project",
 			registryConfig: "none",
 			globalTOML:     "[[broken",
-			projectTOML:    replaceDefaults + projectTOML,
+			projectTOML:    excludeBuiltin + projectTOML,
 			want:           []api.Registry{project},
 		},
 		{
-			name:        "project fills empty global replacement",
-			globalTOML:  replaceDefaults,
+			name:        "project fills empty global exclusion",
+			globalTOML:  excludeBuiltin,
 			projectTOML: projectTOML,
 			want:        []api.Registry{project},
 		},
 		{
-			name:       "empty replacement errors",
-			globalTOML: replaceDefaults,
+			name:       "empty exclusion errors",
+			globalTOML: excludeBuiltin,
 			wantErr:    "empty registry list",
 		},
 	} {

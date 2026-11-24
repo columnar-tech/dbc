@@ -35,8 +35,13 @@ type RegistryEntry struct {
 
 // GlobalConfig is the schema of a user's global dbc config.toml.
 type GlobalConfig struct {
-	Registries      []RegistryEntry `toml:"registries"`
-	ReplaceDefaults bool            `toml:"replace_defaults,omitempty"`
+	Registries []RegistryEntry `toml:"registries"`
+	// ExcludeBuiltinRegistries removes dbc's built-in registries from the
+	// registry list. Registries declared in [[registries]] are kept.
+	ExcludeBuiltinRegistries bool `toml:"exclude_builtin_registries,omitempty"`
+	// Network holds settings that change where requests are sent. They are
+	// only read from the user's config, never from a project's dbc.toml.
+	Network NetworkConfig `toml:"network,omitempty"`
 }
 
 // LoadGlobalConfig reads config.toml from configDir. It returns (nil, nil) if
@@ -57,46 +62,74 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 		return nil, fmt.Errorf("invalid %s: %w", configPath, err)
 	}
 
-	// Note: a global replace_defaults=true with no [[registries]] is NOT rejected
+	// Note: a global exclude_builtin_registries=true with no [[registries]] is NOT rejected
 	// here, because a project's dbc.toml may supply the entries at NewClient
 	// time. The "zero resulting registries" case is enforced after merging in
 	// NewClient so both library and CLI callers share the same semantics.
-	for _, entry := range cfg.Registries {
-		if err := validateRegistryEntry(entry); err != nil {
-			return nil, fmt.Errorf("%s: %w", configPath, err)
-		}
+	if err := validateRegistryEntries(cfg.Registries); err != nil {
+		return nil, fmt.Errorf("%s: %w", configPath, err)
+	}
+
+	if _, err := newURLRouter(cfg.Network.URLReplacements); err != nil {
+		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
 
 	return &cfg, nil
 }
 
-// LoadProjectRegistries reads only registries and replace_defaults from a
-// project's dbc.toml, leaving driver specifications to the caller. A nil
-// replacement flag inherits the global config; an explicit false restores
-// built-in defaults. Missing files and malformed entries are errors.
+// ErrProjectNetwork is returned when a project's dbc.toml contains a network
+// table. Network settings such as URL replacements are only read from the
+// user's config, so a project cannot redirect requests.
+var ErrProjectNetwork = errors.New("network settings are only read from the user config, not from dbc.toml; remove the [network] table")
+
+// LoadProjectRegistries reads only registries and exclude_builtin_registries
+// from a project's dbc.toml, leaving driver specifications to the caller.
+// Missing files and malformed entries are errors.
 //
 // Pass the result to WithProjectRegistries. Whether the resulting registry
 // list is empty is checked by NewClient after merging global/project config.
-func LoadProjectRegistries(path string) ([]RegistryEntry, *bool, error) {
+func LoadProjectRegistries(path string) ([]RegistryEntry, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open %s: %w", path, err)
+		return nil, false, fmt.Errorf("failed to open %s: %w", path, err)
 	}
 	defer f.Close()
 
 	var cfg struct {
-		Registries      []RegistryEntry `toml:"registries"`
-		ReplaceDefaults *bool           `toml:"replace_defaults"`
+		Registries               []RegistryEntry `toml:"registries"`
+		ExcludeBuiltinRegistries bool            `toml:"exclude_builtin_registries"`
+		Network                  map[string]any  `toml:"network"`
 	}
 	if err := toml.NewDecoder(f).Decode(&cfg); err != nil {
-		return nil, nil, fmt.Errorf("invalid %s: %w", path, err)
+		return nil, false, fmt.Errorf("invalid %s: %w", path, err)
 	}
-	for _, entry := range cfg.Registries {
-		if err := validateRegistryEntry(entry); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", path, err)
+	if cfg.Network != nil {
+		return nil, false, fmt.Errorf("%s: %w", path, ErrProjectNetwork)
+	}
+	if err := validateRegistryEntries(cfg.Registries); err != nil {
+		return nil, false, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg.Registries, cfg.ExcludeBuiltinRegistries, nil
+}
+
+// validateRegistryEntries validates the registries declared in one file. A
+// name identifies a registry within its file, so it must not repeat there;
+// the same name in the user config and in a project is allowed.
+func validateRegistryEntries(entries []RegistryEntry) error {
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if err := validateRegistryEntry(e); err != nil {
+			return err
 		}
+		if e.Name == "" {
+			continue
+		}
+		if seen[e.Name] {
+			return fmt.Errorf("registry name %q is declared more than once", e.Name)
+		}
+		seen[e.Name] = true
 	}
-	return cfg.Registries, cfg.ReplaceDefaults, nil
+	return nil
 }
 
 func validateRegistryEntry(e RegistryEntry) error {
@@ -111,20 +144,13 @@ func validateRegistryEntry(e RegistryEntry) error {
 
 // mergeRegistries combines project, global, and default registries into a
 // deduplicated list in priority order: project first, then global, then
-// built-in defaults (unless either global or project overrides with
-// replace_defaults).
+// built-in defaults (unless excludeBuiltin is set).
 func mergeRegistries(
 	projectRegs []RegistryEntry,
-	projectReplaceDefaults *bool,
 	globalRegs []RegistryEntry,
-	globalReplaceDefaults bool,
+	excludeBuiltin bool,
 	defaults []Registry,
 ) []Registry {
-	replaceDefaults := globalReplaceDefaults
-	if projectReplaceDefaults != nil {
-		replaceDefaults = *projectReplaceDefaults
-	}
-
 	seen := make(map[string]bool)
 	var result []Registry
 
@@ -162,7 +188,7 @@ func mergeRegistries(
 	addEntries(projectRegs)
 	addEntries(globalRegs)
 
-	if !replaceDefaults {
+	if !excludeBuiltin {
 		for _, r := range defaults {
 			if r.BaseURL == nil {
 				continue
@@ -192,21 +218,22 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 }
 
 // WithProjectRegistries applies registries declared in a project's dbc.toml on
-// top of the global and default registries. replaceDefaults takes priority
-// over the same flag in the global config; pass nil to inherit the global
-// config's value.
+// top of the global and default registries. The built-in registries are
+// excluded when excludeBuiltin is true or when the global config excludes
+// them; a project cannot bring back built-in registries that the global
+// config excludes.
 //
 // NewClient returns an error if any entry is malformed or if the merged
-// registry list ends up empty (e.g. replaceDefaults=true with no project or
-// global entries). replaceDefaults=true is valid on its own when a non-empty
+// registry list ends up empty (e.g. excludeBuiltin=true with no project or
+// global entries). excludeBuiltin=true is valid on its own when a non-empty
 // global config supplies the entries — the post-merge check is what matters.
 //
 // WithBaseURL takes precedence over this option — when set, project
 // registries are ignored.
-func WithProjectRegistries(entries []RegistryEntry, replaceDefaults *bool) Option {
+func WithProjectRegistries(entries []RegistryEntry, excludeBuiltin bool) Option {
 	entriesCopy := append([]RegistryEntry(nil), entries...)
 	return func(c *clientConfig) {
 		c.projectRegistries = entriesCopy
-		c.projectReplaceDefaults = replaceDefaults
+		c.projectExcludeBuiltin = excludeBuiltin
 	}
 }

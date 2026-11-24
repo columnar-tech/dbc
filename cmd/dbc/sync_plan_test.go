@@ -146,6 +146,7 @@ func lockedAlpha(version string, artifacts ...lockedArtifact) lockedDriver {
 	return lockedDriver{
 		Name:      "alpha",
 		Version:   version,
+		Signer:    testSigner,
 		Source:    lockedSource{Type: lockSourceRegistry, URL: "https://registry.example.com"},
 		Artifacts: artifacts,
 	}
@@ -212,6 +213,50 @@ func TestPlanResolvesAllPublishedTargets(t *testing.T) {
 	}
 	assert.Equal(t, 1, f.indexCalls)
 	require.NoError(t, v2Lock(pd.Entry).V2.validate())
+}
+
+func TestPlanRecordsTargetsOfExactVersionOnly(t *testing.T) {
+	f := newPlanFixture(t)
+	// 1.0.0+b comes first, so a lookup that ignores build metadata finds it.
+	index := `drivers:
+  - name: Gamma
+    path: gamma
+    pkginfo:
+      - version: v1.0.0+b
+        packages:
+          - platform: linux_amd64
+            url: gamma/b/gamma-linux.tar.gz
+            hash: sha256:` + planHashB + `
+          - platform: macos_arm64
+            url: gamma/b/gamma-macos.tar.gz
+            hash: sha256:` + planHashC + `
+      - version: v1.0.0+a
+        packages:
+          - platform: linux_amd64
+            url: gamma/a/gamma-linux.tar.gz
+            hash: sha256:` + planHashA + `
+`
+	f.planner.index = func() ([]dbc.Driver, error) {
+		var decoded struct {
+			Drivers []dbc.Driver `yaml:"drivers"`
+		}
+		if err := yaml.Unmarshal([]byte(index), &decoded); err != nil {
+			return nil, err
+		}
+		for i := range decoded.Drivers {
+			decoded.Drivers[i].Registry = &dbc.Registry{BaseURL: planRegistryURL}
+		}
+		return decoded.Drivers, nil
+	}
+	lock := v1Lock(lockInfo{Name: "gamma", Version: semver.MustParse("1.0.0+a")})
+	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"gamma": {}}), lock)
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	assert.Equal(t, "1.0.0+a", planned[0].Entry.Version)
+	assert.Equal(t, planHashA, planned[0].Package.ArchiveSHA256)
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "linux_amd64"): lockHashPrefix + planHashA,
+	}, artifactTargets(planned[0].Entry), "the macos artifact of 1.0.0+b is not recorded for 1.0.0+a")
 }
 
 func TestPlanPartialLockKeepsCurrentTargetWithoutHash(t *testing.T) {
@@ -363,6 +408,12 @@ func TestPlanCompletionErrors(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "0.9.0")
 	})
+	t.Run("version with other build metadata in the index", func(t *testing.T) {
+		f := newPlanFixture(t)
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("1.0.0+other", macos)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "1.0.0+other")
+	})
 	t.Run("malformed hash of the current target", func(t *testing.T) {
 		f := newPlanFixture(t)
 		d := lockedAlpha("1.0.0", macos)
@@ -490,6 +541,7 @@ func TestPlanV1Lock(t *testing.T) {
 		wantProof   string
 		wantWarning []string
 	}{
+		{"explicit prerelease keeps pin", func(t *testing.T) driverSpec { return driverSpec{Version: constraint(t, "=2.0.0-beta.1")} }, info("2.0.0-beta.1", planTarget), "2.0.0-beta.1", checksum, nil},
 		{"same platform keeps pin and proof", func(*testing.T) driverSpec { return driverSpec{} }, info("1.0.0", planTarget), "1.0.0", checksum, nil},
 		{"other platform drops proof", func(*testing.T) driverSpec { return driverSpec{} }, info("1.0.0", "macos_arm64"), "1.0.0", "",
 			[]string{"alpha", "macos_arm64", "not recorded for this platform"}},
@@ -518,6 +570,13 @@ func TestPlanV1Lock(t *testing.T) {
 		})
 	}
 
+	t.Run("a pin keeps its build metadata", func(t *testing.T) {
+		f := newPlanFixture(t)
+		lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0+other")})
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "1.0.0+other")
+	})
 	t.Run("an entry without checksum warns about nothing", func(t *testing.T) {
 		f := newPlanFixture(t)
 		lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0")})
@@ -548,4 +607,126 @@ func TestPlanFailsWhenNoRegistryDelivers(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "error getting driver list")
 	assert.Contains(t, err.Error(), "connection refused")
+}
+
+func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
+	columnar, err := dbc.ColumnarSigningKey()
+	require.NoError(t, err)
+
+	t.Run("fresh resolution records the key of the source", func(t *testing.T) {
+		f := newPlanFixture(t)
+		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
+		require.NoError(t, err)
+		assert.Same(t, columnar, planned[0].Signer)
+		assert.Equal(t, lockedSigner{Type: lockSignerOpenPGP, Fingerprint: columnar.Fingerprint()}, planned[0].Entry.Signer)
+	})
+
+	t.Run("v1 lock upgrade records the key of the source", func(t *testing.T) {
+		f := newPlanFixture(t)
+		lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0"), Platform: "linux_amd64"})
+		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
+		require.NoError(t, err)
+		assert.Equal(t, columnar.Fingerprint(), planned[0].Entry.Signer.Fingerprint)
+	})
+
+	t.Run("replay uses the pinned key", func(t *testing.T) {
+		f := newPlanFixture(t)
+		lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA)))
+		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
+		require.NoError(t, err)
+		assert.Same(t, columnar, planned[0].Signer)
+		assert.Zero(t, f.indexCalls)
+	})
+
+	t.Run("completing a missing target keeps the signer", func(t *testing.T) {
+		f := newPlanFixture(t)
+		lock := v2Lock(lockedAlpha("1.0.0", pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB)))
+		planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
+		require.NoError(t, err)
+		assert.Equal(t, testSigner, planned[0].Entry.Signer)
+		assert.Same(t, columnar, planned[0].Signer)
+	})
+
+	t.Run("an untrusted pin fails before any registry access", func(t *testing.T) {
+		f := newPlanFixture(t)
+		d := lockedAlpha("1.0.0", pathArtifact(t, "macos_arm64", "alpha/1.0.0/alpha-macos.tar.gz", planHashB))
+		d.Signer.Fingerprint = otherFingerprint
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), otherFingerprint)
+		assert.Contains(t, err.Error(), "not trusted")
+		assert.Contains(t, err.Error(), "run `dbc lock`")
+		assert.Zero(t, f.indexCalls)
+		assert.Empty(t, f.boundIndexed)
+	})
+
+	t.Run("resolving again may not replace the pin", func(t *testing.T) {
+		f := newPlanFixture(t)
+		d := lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA))
+		d.Signer.Fingerprint = otherFingerprint
+		spec := driverSpec{Version: constraint(t, ">=1.1")}
+		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": spec}), v2Lock(d))
+		require.Error(t, err)
+		// The locked version no longer satisfies the constraint, so the driver
+		// is resolved again and would switch to the Columnar key.
+		assert.Contains(t, err.Error(), otherFingerprint)
+		assert.Contains(t, err.Error(), "would now be verified with a different key")
+		assert.NotContains(t, err.Error(), "not trusted")
+		assert.Contains(t, err.Error(), "run `dbc lock`")
+	})
+}
+
+func TestPlanFallbackRegistryReplay(t *testing.T) {
+	f := newPlanFixture(t)
+	fallbackURL, err := url.Parse("https://fallback.example.com")
+	require.NoError(t, err)
+	f.registries = append(f.registries, dbc.Registry{BaseURL: fallbackURL})
+	fallbackRegistry := f.registries[1]
+	originalIndex := f.planner.index
+	f.planner.index = func() ([]dbc.Driver, error) {
+		drivers, err := originalIndex()
+		if err != nil {
+			return nil, err
+		}
+		// pretend there's no versions in the first registry
+		first := drivers[0]
+		first.PkgInfo = nil
+		drivers[0].Registry = &fallbackRegistry
+		return []dbc.Driver{first, drivers[0]}, nil
+	}
+	list := listOf(map[string]driverSpec{"alpha": {}})
+	planned, _, err := f.planner.plan(list, parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	// we should have used the fallback registry
+	assert.Equal(t, fallbackURL.String(), planned[0].Entry.Source.URL)
+
+	// swap the registry order
+	f.registries[0], f.registries[1] = f.registries[1], f.registries[0]
+
+	// we should still use the same registry
+	replayed, _, err := f.planner.plan(list, v2Lock(planned[0].Entry))
+	require.NoError(t, err)
+	assert.Equal(t, planned[0].Entry, replayed[0].Entry)
+	assert.Equal(t, 1, f.indexCalls)
+
+	incomplete := planned[0].Entry
+	incomplete.Artifacts = nil
+	boundIndex := f.planner.registryIndex
+	f.planner.registryIndex = func(registry dbc.Registry) ([]dbc.Driver, error) {
+		drivers, err := boundIndex(registry)
+		for i := range drivers {
+			drivers[i].Registry = &registry
+		}
+		return drivers, err
+	}
+	completed, _, err := f.planner.plan(list, v2Lock(incomplete))
+	require.NoError(t, err)
+	require.Len(t, completed, 1)
+	assert.Equal(t, planned[0].Entry.Version, completed[0].Entry.Version)
+	assert.Equal(t, planned[0].Entry.Source, completed[0].Entry.Source)
+	require.Len(t, f.boundIndexed, 1)
+	assert.Equal(t, fallbackURL.String(), f.boundIndexed[0].String())
+	assert.Equal(t, 1, f.indexCalls)
+
 }

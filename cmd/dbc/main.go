@@ -87,10 +87,15 @@ var (
 	// built in this process, including clients rebuilt after reading a project's
 	// dbc.toml registry section.
 	globalRegistryConfig *dbc.GlobalConfig
+
+	// startupRegistryConfigErr records a global config load failure. Registry
+	// operations return it instead of silently using default registries, which
+	// could send requests to an upstream the user meant to avoid.
+	startupRegistryConfigErr error
 )
 
 func newDefaultClient() (*dbc.Client, error) {
-	return newDBCClient(nil, nil)
+	return newDBCClient(nil, false)
 }
 
 // authHTTPClient returns an *http.Client suitable for auth flows (device-code
@@ -125,18 +130,23 @@ func setUserAgentSuffix(suffix string) {
 }
 
 // newDBCClient builds a client with the given project registry overrides.
-// Callers pass nil/nil for process-wide operations (search, info, install);
+// Callers pass nil/false for process-wide operations (search, info, install);
 // project commands (add, sync, remove) pass the values parsed from dbc.toml.
-func newDBCClient(projectRegs []dbc.RegistryEntry, projectReplaceDefaults *bool) (*dbc.Client, error) {
+func newDBCClient(projectRegs []dbc.RegistryEntry, projectExcludeBuiltin bool) (*dbc.Client, error) {
+	if startupRegistryConfigErr != nil {
+		return nil, startupRegistryConfigErr
+	}
 	var opts []dbc.Option
+	// The global config also carries the URL replacements, which apply even
+	// when DBC_BASE_URL chooses the registry.
+	if globalRegistryConfig != nil {
+		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+	}
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
 	} else {
-		if globalRegistryConfig != nil {
-			opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
-		}
-		if projectRegs != nil || projectReplaceDefaults != nil {
-			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectReplaceDefaults))
+		if projectRegs != nil || projectExcludeBuiltin {
+			opts = append(opts, dbc.WithProjectRegistries(projectRegs, projectExcludeBuiltin))
 		}
 	}
 
@@ -170,6 +180,8 @@ func resetClientState() {
 	dbcClientErr = nil
 	dbcClientOnce = &sync.Once{}
 	globalRegistryConfig = nil
+	startupRegistryConfigErr = nil
+	_ = dbc.SetDefaultURLReplacements(nil)
 }
 
 func initDBCClient() error {
@@ -202,7 +214,16 @@ func configuredRegistries() ([]dbc.Registry, error) {
 // fetchRegistryIndex fetches the index of one registry only. Unlike a search
 // over all registries, any failure is an error.
 func fetchRegistryIndex(r dbc.Registry) ([]dbc.Driver, error) {
-	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{{Name: r.Name, BaseURL: r.BaseURL}})}
+	if startupRegistryConfigErr != nil {
+		return nil, startupRegistryConfigErr
+	}
+	// Keep everything the configuration says about the registry, only not
+	// the drivers of an earlier fetch.
+	r.Drivers = nil
+	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{r})}
+	if globalRegistryConfig != nil {
+		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
+	}
 	if userAgentSuffix != "" {
 		opts = append(opts, dbc.WithUserAgentSuffix(userAgentSuffix))
 	}
@@ -230,6 +251,10 @@ type progressMsg struct {
 }
 
 func downloadPkg(p dbc.PkgInfo) (*os.File, error) {
+	// A locked sync can get here without building a registry client.
+	if startupRegistryConfigErr != nil {
+		return nil, startupRegistryConfigErr
+	}
 	return p.DownloadPackage(func(written, total int64) {
 		prog.Send(progressMsg{total: total, written: written})
 	})
@@ -295,6 +320,7 @@ type cmds struct {
 	Add        *AddCmd          `arg:"subcommand" help:"Add a driver to the driver list"`
 	Remove     *RemoveCmd       `arg:"subcommand" help:"Remove a driver from the driver list"`
 	Sync       *SyncCmd         `arg:"subcommand" help:"Sync installed drivers with drivers in the driver list"`
+	Lock       *LockCmd         `arg:"subcommand" help:"Create or update the lock file from the driver list without installing drivers"`
 	Auth       *AuthCmd         `arg:"subcommand" help:"Manage driver registry credentials"`
 	Completion *completions.Cmd `arg:"subcommand,hidden"`
 	Quiet      bool             `arg:"-q,--quiet" help:"Suppress all output"`
@@ -312,6 +338,9 @@ func formatErr(err error) string {
 		return errStyle.Render("Could not download license, trial has expired")
 	case errors.Is(err, auth.ErrNoTrialLicense):
 		return errStyle.Render("Could not download license, trial not started")
+	case errors.Is(err, dbc.ErrURLReplacementUnauthorized):
+		return errStyle.Render("Error: "+err.Error()) + "\n" +
+			msgStyle.Render("The URL replacement target is configured in network.url_replacements of your user config. Check that it allows anonymous access.")
 	case errors.Is(err, dbc.ErrUnauthorized):
 		return errStyle.Render(err.Error()) + "\n" +
 			msgStyle.Render("Did you run `dbc auth login`?")
@@ -353,15 +382,19 @@ func failSubcommandAndSuggest(p *arg.Parser, msg string, subcommand ...string) {
 
 // loadStartupRegistryConfig reads the user's global config.toml and stashes
 // it into globalRegistryConfig. Extracted from main() so tests can exercise
-// the same startup path. Returns an error message string for display (never
-// fatal — a missing or malformed config is reported as a warning and the
-// default registry set is preserved).
+// the same startup path. A load failure is reported as a warning and retained
+// so registry operations cannot fall back to the default upstream.
 func loadStartupRegistryConfig(configDir string) string {
 	cfg, err := dbc.LoadGlobalConfig(configDir)
 	if err != nil {
+		startupRegistryConfigErr = err
 		return fmt.Sprintf("warning: failed to load registry config: %v", err)
 	}
 	globalRegistryConfig = cfg
+	if cfg != nil {
+		// Cannot fail: LoadGlobalConfig validated the rules.
+		_ = dbc.SetDefaultURLReplacements(cfg.Network.URLReplacements)
+	}
 	return ""
 }
 
@@ -412,7 +445,7 @@ type startupResult struct {
 // No dbcClient is constructed along the way — project commands' models
 // build it lazily via applyProjectRegistries once they decode dbc.toml.
 // Reintroducing an eager initDBCClient() anywhere between steps 1 and 3
-// would break the "global replace_defaults=true + project supplies
+// would break the "global exclude_builtin_registries=true + project supplies
 // registries" scenario, which is why tests drive this helper end-to-end.
 func runStartup(configDir string, argv []string) startupResult {
 	// Reset all cached client state at the start of every startup so the

@@ -97,7 +97,7 @@ func acquireContext(ctx context.Context, path string, timeout time.Duration) (Lo
 	}
 	// The runtime token only orders callers within this runtime; the marker
 	// (see marker.go) orders separate runtimes and native dbc.
-	release, err := acquireMarker(ctx, markerPath(canonicalPath), path, timeout, nil, nil)
+	release, err := acquireMarker(ctx, markerPath(canonicalPath), path, timeout, false, nil, nil)
 	if err != nil {
 		entry.token <- struct{}{}
 		dropRuntimeLockRef(entry, canonicalPath)

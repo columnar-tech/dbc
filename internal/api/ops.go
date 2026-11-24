@@ -150,17 +150,15 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 	if searchErr != nil && allRegistriesFailed(c, searchErr) {
 		return ResolveResult{}, searchErr
 	}
-	for _, d := range drivers {
-		if d.Path != name {
-			continue
-		}
-		out := ResolveResult{Path: d.Path, Platform: platform, Versions: []string{}}
-		for _, v := range d.Versions(platform) {
+	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		return candidate.GetLatestPackage(platform, false)
+	})
+	if pkg.Driver.Path != "" {
+		out := ResolveResult{Path: pkg.Driver.Path, Platform: platform, Versions: []string{}}
+		for _, v := range pkg.Driver.Versions(platform) {
 			out.Versions = append(out.Versions, v.String())
 		}
-		// Same selection as Client.Install and `dbc install`, so latest is
-		// never a version install would not fetch.
-		if pkg, err := d.GetPackage(nil, platform, false); err == nil && pkg.Path != nil {
+		if err == nil {
 			out.Latest = &Latest{Version: pkg.Version.String(), URL: pkg.Path.String()}
 		}
 		return out, nil
@@ -193,13 +191,13 @@ func Install(ctx context.Context, c *dbc.Client, name string, t Target, opts Ins
 		return Manifest{}, err
 	}
 	out := Manifest{
-		ID:         m.DriverInfo.ID,
-		Name:       m.DriverInfo.Name,
-		Source:     m.DriverInfo.Source,
-		DriverPath: m.DriverInfo.Driver.Shared.Get(config.PlatformTuple()),
+		ID:         m.ID,
+		Name:       m.Name,
+		Source:     m.Source,
+		DriverPath: m.Driver.Shared.Get(config.PlatformTuple()),
 	}
-	if m.DriverInfo.Version != nil {
-		out.Version = m.DriverInfo.Version.String()
+	if m.Version != nil {
+		out.Version = m.Version.String()
 	}
 	return out, nil
 }

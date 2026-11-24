@@ -37,18 +37,22 @@ type clientConfig struct {
 	// WithRegistries overwrites this; WithGlobalConfig/WithProjectRegistries
 	// consult it as the "defaults" slice in the merge, which means callers
 	// who pass WithRegistries retain full control over that baseline.
-	registries             []Registry
-	userAgent              string
-	userAgentSuffix        string
-	baseURL                string
-	credentialResolver     func(*url.URL) (*auth.Credential, error)
-	globalConfig           *GlobalConfig
-	projectRegistries      []RegistryEntry
-	projectReplaceDefaults *bool
+	registries            []Registry
+	userAgent             string
+	userAgentSuffix       string
+	baseURL               string
+	credentialResolver    func(*url.URL) (*auth.Credential, error)
+	globalConfig          *GlobalConfig
+	projectRegistries     []RegistryEntry
+	projectExcludeBuiltin bool
 	// explicitRegistries tracks whether the caller passed WithRegistries.
 	// When true, registry-config options (global/project) are ignored so
 	// the caller's explicit registry set is used as-is.
 	explicitRegistries bool
+	// urlReplacements holds the rules passed to WithURLReplacements, which
+	// take precedence over the global config's.
+	urlReplacements         []URLReplacement
+	explicitURLReplacements bool
 }
 
 type Option func(*clientConfig)
@@ -62,6 +66,7 @@ type Client struct {
 	uid                uuid.UUID
 	setupOnce          sync.Once
 	credentialResolver func(*url.URL) (*auth.Credential, error)
+	router             *urlRouter
 }
 
 type redirectOrigin struct {
@@ -132,6 +137,15 @@ func NewClient(opts ...Option) (*Client, error) {
 		cfg.userAgent += " " + cfg.userAgentSuffix
 	}
 
+	replacements := cfg.urlReplacements
+	if !cfg.explicitURLReplacements && cfg.globalConfig != nil {
+		replacements = cfg.globalConfig.Network.URLReplacements
+	}
+	router, err := newURLRouter(replacements)
+	if err != nil {
+		return nil, err
+	}
+
 	httpClient := cfg.httpClient
 	if httpClient == nil {
 		httpClient = &http.Client{
@@ -148,26 +162,24 @@ func NewClient(opts ...Option) (*Client, error) {
 	} else if cfg.explicitRegistries {
 		// WithRegistries was passed — use the caller's list verbatim and
 		// do not merge with global/project configuration.
-	} else if cfg.globalConfig != nil || cfg.projectRegistries != nil || cfg.projectReplaceDefaults != nil {
-		for _, e := range cfg.projectRegistries {
-			if err := validateRegistryEntry(e); err != nil {
-				return nil, err
-			}
+	} else if cfg.globalConfig != nil || cfg.projectRegistries != nil || cfg.projectExcludeBuiltin {
+		if err := validateRegistryEntries(cfg.projectRegistries); err != nil {
+			return nil, err
 		}
 		var globalRegs []RegistryEntry
-		var globalReplace bool
+		// A project can exclude the built-in registries but cannot bring
+		// back ones that the global config excludes.
+		excludeBuiltin := cfg.projectExcludeBuiltin
 		if cfg.globalConfig != nil {
-			for _, e := range cfg.globalConfig.Registries {
-				if err := validateRegistryEntry(e); err != nil {
-					return nil, err
-				}
+			if err := validateRegistryEntries(cfg.globalConfig.Registries); err != nil {
+				return nil, err
 			}
 			globalRegs = cfg.globalConfig.Registries
-			globalReplace = cfg.globalConfig.ReplaceDefaults
+			excludeBuiltin = excludeBuiltin || cfg.globalConfig.ExcludeBuiltinRegistries
 		}
-		merged := mergeRegistries(cfg.projectRegistries, cfg.projectReplaceDefaults, globalRegs, globalReplace, cfg.registries)
+		merged := mergeRegistries(cfg.projectRegistries, globalRegs, excludeBuiltin, cfg.registries)
 		if len(merged) == 0 {
-			return nil, fmt.Errorf("registry configuration produced an empty registry list; replace_defaults requires at least one [[registries]] entry")
+			return nil, fmt.Errorf("registry configuration produced an empty registry list; exclude_builtin_registries requires at least one [[registries]] entry")
 		}
 		cfg.registries = merged
 	}
@@ -182,6 +194,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		registries:         cfg.registries,
 		userAgent:          cfg.userAgent,
 		credentialResolver: credResolver,
+		router:             router,
 	}, nil
 }
 

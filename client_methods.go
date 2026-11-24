@@ -33,12 +33,23 @@ import (
 )
 
 func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, error) {
-	c.setup()
-
 	uri, err := url.Parse(u)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URL %s: %w", u, err)
 	}
+
+	// Replaced requests are anonymous: no credentials, no telemetry ids.
+	eff, replaced, err := c.router.route(uri)
+	if err != nil {
+		return nil, err
+	}
+	if replaced {
+		return anonymousGet(ctx, c.httpClient, c.router, eff, uri.Path)
+	}
+
+	c.setup()
+	// A redirect must not reach an origin that a rule replaces either.
+	hc := c.router.guardRedirects(c.httpClient, false)
 
 	cred, err := c.getCredential(uri)
 	if err != nil && !os.IsNotExist(err) {
@@ -76,7 +87,7 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to build request: %w", err)
 	}
-	resp, err := c.httpClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +101,7 @@ func (c *Client) makeRequest(ctx context.Context, u string) (*http.Response, err
 		if err != nil {
 			return nil, fmt.Errorf("failed to build retry request: %w", err)
 		}
-		resp, err = c.httpClient.Do(req)
+		resp, err = hc.Do(req)
 		if err != nil {
 			return nil, err
 		}
@@ -130,7 +141,9 @@ func (c *Client) getDriverListFromIndex(ctx context.Context, index *Registry) ([
 		return nil, fmt.Errorf("failed to parse driver registry index: %s", err)
 	}
 
-	if drivers.Name != "" {
+	// A name from the registry configuration takes precedence; the index
+	// only names registries that the configuration leaves unnamed.
+	if index.Name == "" {
 		index.Name = drivers.Name
 	}
 
@@ -282,19 +295,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 		return nil, fmt.Errorf("failed to search for driver %s: %w", driverName, err)
 	}
 
-	var found *Driver
-	for i := range drivers {
-		if drivers[i].Path == driverName {
-			found = &drivers[i]
-			break
-		}
-	}
-
-	if found == nil {
-		return nil, fmt.Errorf("driver %q not found", driverName)
-	}
-
-	pkg, err := found.GetPackage(nil, config.PlatformTuple(), false)
+	pkg, err := ResolvePackage(drivers, driverName, func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage(config.PlatformTuple(), false) })
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
 	}
@@ -305,7 +306,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	defer os.RemoveAll(filepath.Dir(f.Name()))
 
-	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256}
+	installOpts := config.InstallPackageOptions{ExpectedArchiveSHA256: pkg.ArchiveSHA256, ExpectedVersion: pkg.Version}
 	if !o.allowUnsigned {
 		// VerifyPackageSignature checks the driver library's Columnar signature.
 		installOpts.SignatureVerifier = VerifyPackageSignature

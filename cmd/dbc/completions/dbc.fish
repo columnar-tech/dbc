@@ -53,6 +53,7 @@ complete -f -c dbc -n '__fish_dbc_needs_command' -a 'list' -d 'List all currentl
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'init' -d 'Create new driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'add' -d 'Add one or more drivers to the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'sync' -d 'Install all drivers in the driver list'
+complete -f -c dbc -n '__fish_dbc_needs_command' -a 'lock' -d 'Create or update the lock file from the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'search' -d 'Search for drivers'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'remove' -d 'Remove a driver from the driver list'
 complete -f -c dbc -n '__fish_dbc_needs_command' -a 'info' -d 'Get detailed information about a specific driver'
@@ -98,6 +99,13 @@ complete -c dbc -n '__fish_dbc_using_subcommand sync' -l path -s p -r -F -a '*.t
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l no-verify -d 'Do not verify the driver after installation'
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l json-stream-progress -d 'Stream progress events as JSON lines (implies --json)'
+
+# lock subcommand
+complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -s h -d 'Help'
+complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -l help -d 'Help'
+complete -c dbc -n '__fish_dbc_using_subcommand lock' -l path -s p -r -F -a '*.toml' -d 'Driver list to lock'
+complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -l no-verify -d 'Allow locking drivers without a signature file'
+complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -l json -d 'Print output as JSON instead of plaintext'
 
 # search subcommand
 complete -f -c dbc -n '__fish_dbc_using_subcommand search' -s h -d 'Help'
