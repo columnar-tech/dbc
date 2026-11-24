@@ -74,7 +74,7 @@ If you are [logged in](./private_drivers.md) to a private registry, you will see
 ```console
 $ dbc search
 ...
-oracle   [private] An ADBC driver for Oracle Database developed by Columnar
+teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 
 These drivers can be [installed](./installing.md) and added to [driver lists](../concepts/driver_list.md) just like regular drivers.
@@ -158,7 +158,8 @@ $ dbc search --verbose
     ├── 1.5.4
     ├── 1.5.5
     ├── 1.5.6
-    ╰── 2.0.0
+    ├── 2.0.0
+    ╰── 2.0.1
 • exasol
    Title: Exasol Driver
    Description: An ADBC driver for Exasol developed by Exasol Labs

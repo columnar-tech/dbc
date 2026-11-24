@@ -116,8 +116,8 @@ and won't show up highlighted as purple. */
   color: inherit;
 }
 
-/* Material for MkDocs only ships tab selectors for the first 20 tabs. The
-driver picker has 25, so extend the theme rules for tabs 21 through 25. */
+/* Material for MkDocs only styles the first 20 tabs. Keep these additional
+selectors in sync with the driver picker in docs/index.md. */
 @media screen {
   .md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
   .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),

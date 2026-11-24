@@ -87,3 +87,60 @@ To allow the pre-release in this case, either:
 
 - Add `prerelease = 'allow'`
 - Change the constraint to reference the pre-release: `version = '>=0.1.1-beta.1'`
+
+## Registries
+
+{{ since_version('v0.4.0') }}
+
+A driver list may declare additional [driver registries](../concepts/driver_registry.md#configuring-registries) to resolve drivers from, using one or more `[[registries]]` entries and an optional top-level `exclude_builtin_registries` key. These registries are used by `dbc add`, `dbc sync`, `dbc search`, `dbc info`, and `dbc docs` when run against this driver list.
+
+```toml
+exclude_builtin_registries = true
+
+[[registries]]
+url = "https://my-registry.example.com"
+name = "my-registry"
+
+[drivers]
+[drivers.my-driver]
+version = '>=1.0.0'
+```
+
+### `url`
+
+Required. The base URL of the registry. Must be an `http` or `https` URL with a host.
+
+### `name`
+
+Optional. A short name for the registry, which must be unique within the driver list. A driver's [`source`](#source) can refer to it, and it is shown as a `[name]` tag in `dbc search` output to indicate which registry a driver came from.
+
+### `source`
+
+{{ since_version('v0.4.0') }}
+
+Optional, per driver. The only registry the driver is resolved from, as an inline table with `type = "registry"` and exactly one of:
+
+- `name`: the `name` of a `[[registries]]` entry in the same driver list. A driver list cannot refer to a name from the user `config.toml`.
+- `url`: the URL of a configured registry (from the driver list, the user `config.toml` or the built-in registries), without user information, query or fragment. A trailing `/` and the case of the scheme and host do not matter.
+
+```toml
+[[registries]]
+url = "https://drivers.example.com"
+name = "example"
+
+[drivers.my-driver]
+source = { type = "registry", name = "example" }
+
+[drivers.flightsql]
+source = { type = "registry", url = "https://dbc-cdn.columnar.tech" }
+```
+
+dbc does not fall back to another registry when the selected registry does not have the driver, has no matching version or cannot be reached; each of these is an error. The source must select exactly one configured registry: registries that differ only in user information or query cannot be told apart in `dbc.lock`, so a source that matches more than one of them is an error. [`dbc add --registry`](cli.md#add) records a source.
+
+`dbc.lock` records the registry a driver was resolved from. If the source then selects another registry, `dbc sync` stops and [`dbc lock`](cli.md#lock) resolves the driver again from the new registry. Naming the same registry another way (by name instead of URL, for example) keeps the lock entry.
+
+### `exclude_builtin_registries`
+
+Optional. When `true`, dbc's built-in registries are not used; the registries configured in this file and in the global `config.toml` still are. When omitted or `false`, the built-in registries are used unless the global `config.toml` sets `exclude_builtin_registries = true`, which a driver list cannot override. dbc warns when a driver list sets `false` while the global `config.toml` excludes the built-in registries.
+
+See [Configuring registries](../concepts/driver_registry.md#configuring-registries) for the full priority order across project, global, and built-in registries.

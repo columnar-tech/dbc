@@ -15,11 +15,6 @@
 package dbc
 
 import (
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-
 	"github.com/columnar-tech/dbc/config"
 )
 
@@ -30,39 +25,9 @@ import (
 // manifest path that leaves stagingDir (via "..", an absolute path, or a
 // symlink) is an error rather than verifying a file elsewhere.
 func VerifyPackageSignature(stagingDir string, m config.Manifest) error {
-	if m.Files.Driver == "" {
-		return fmt.Errorf("package manifest does not specify Files.driver")
-	}
-
-	root, err := os.OpenRoot(stagingDir)
+	key, err := ColumnarSigningKey()
 	if err != nil {
-		return fmt.Errorf("could not open staging directory: %w", err)
+		return err
 	}
-	defer root.Close()
-
-	lib, err := root.Open(m.Files.Driver)
-	if err != nil {
-		return fmt.Errorf("could not open driver file: %w", err)
-	}
-	defer lib.Close()
-
-	sigFile := m.Files.Signature
-	if sigFile == "" {
-		sigFile = m.Files.Driver + ".sig"
-	}
-
-	sig, err := root.Open(sigFile)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("signature file '%s' for driver is missing", sigFile)
-		}
-		return fmt.Errorf("failed to open signature file: %w", err)
-	}
-	defer sig.Close()
-
-	if err := SignedByColumnar(lib, sig); err != nil {
-		return fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	return nil
+	return key.VerifyPackage(stagingDir, m)
 }

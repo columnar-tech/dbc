@@ -15,10 +15,14 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,15 +276,108 @@ func (suite *SubcommandTestSuite) TestFailedHashUpgradeKeepsExistingInstall() {
 	suite.Contains(out, "archive SHA-256 mismatch")
 }
 
+func (suite *SubcommandTestSuite) TestVersionMismatchUpgradeKeepsExistingInstall() {
+	// The v1.1.0 entry points to an archive that declares 1.0.0.
+	v1 := testArchiveSHA256(suite, "test-driver-1.tar.gz")
+	out := suite.assertFailedUpgradeKeepsInstall(
+		InstallCmd{Driver: "test-driver-1=1.1.0"},
+		baseModel{
+			getDriverRegistry: upgradeRegistry(v1, v1),
+			downloadPkg: func(dbc.PkgInfo) (*os.File, error) {
+				return os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+			},
+		})
+	suite.Contains(out, "driver test-driver-1: the package declares version 1.0.0, but version 1.1.0 was selected")
+}
+
+// archiveWithVersion writes a copy of test-driver-1.tar.gz whose MANIFEST
+// declares version instead of 1.0.0. The signature covers only the library,
+// so the copy still verifies.
+func (suite *SubcommandTestSuite) archiveWithVersion(version string) string {
+	src, err := os.Open(filepath.Join("testdata", "test-driver-1.tar.gz"))
+	suite.Require().NoError(err)
+	defer src.Close()
+	gzr, err := gzip.NewReader(src)
+	suite.Require().NoError(err)
+	tr := tar.NewReader(gzr)
+
+	var buf bytes.Buffer
+	gzw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gzw)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		suite.Require().NoError(err)
+		data, err := io.ReadAll(tr)
+		suite.Require().NoError(err)
+		if hdr.Name == "MANIFEST" {
+			replaced := bytes.Replace(data, []byte(`version = "1.0.0"`), []byte(fmt.Sprintf("version = %q", version)), 1)
+			suite.Require().NotEqual(data, replaced)
+			data = replaced
+			hdr.Size = int64(len(data))
+		}
+		suite.Require().NoError(tw.WriteHeader(hdr))
+		_, err = tw.Write(data)
+		suite.Require().NoError(err)
+	}
+	suite.Require().NoError(tw.Close())
+	suite.Require().NoError(gzw.Close())
+
+	path := filepath.Join(suite.T().TempDir(), "test-driver-1.tar.gz")
+	suite.Require().NoError(os.WriteFile(path, buf.Bytes(), 0o644))
+	return path
+}
+
+// TestInstallReplacesOtherBuildMetadata checks that an installed driver whose
+// version differs from the selected one only in build metadata is replaced
+// rather than reported as already installed.
+func (suite *SubcommandTestSuite) TestInstallReplacesOtherBuildMetadata() {
+	install := func(version string) {
+		archive := suite.archiveWithVersion(version)
+		registry := func() ([]dbc.Driver, error) {
+			index := fmt.Sprintf(`drivers:
+  - name: Test Driver 1
+    description: This is a test driver
+    license: MIT
+    path: test-driver-1
+    pkginfo:
+      - version: v%[1]s
+        packages:
+          - platform: %[2]s
+            url: test-driver-1/%[1]s/test-driver-1.tar.gz
+`, version, config.PlatformTuple())
+			var decoded struct {
+				Drivers []dbc.Driver `yaml:"drivers"`
+			}
+			if err := yaml.Unmarshal([]byte(index), &decoded); err != nil {
+				return nil, err
+			}
+			for i := range decoded.Drivers {
+				decoded.Drivers[i].Registry = &testRegistry
+			}
+			return decoded.Drivers, nil
+		}
+		suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(baseModel{
+			getDriverRegistry: registry,
+			downloadPkg:       func(dbc.PkgInfo) (*os.File, error) { return os.Open(archive) },
+		}))
+		suite.driverIsInstalledWithVersion("test-driver-1", version, true)
+	}
+	install("1.0.0+old")
+	install("1.0.0+new")
+}
+
 func (suite *SubcommandTestSuite) TestFailedSignatureUpgradeKeepsExistingInstall() {
-	tampered := testArchiveSHA256(suite, "test-driver-tampered.tar.gz")
+	tampered := testArchiveSHA256(suite, "test-driver-1.1-tampered.tar.gz")
 	out := suite.assertFailedUpgradeKeepsInstall(
 		InstallCmd{Driver: "test-driver-1=1.1.0"},
 		baseModel{
 			getDriverRegistry: upgradeRegistry(testArchiveSHA256(suite, "test-driver-1.tar.gz"), tampered),
 			downloadPkg: func(pkg dbc.PkgInfo) (*os.File, error) {
 				if pkg.Version.Minor() == 1 {
-					return os.Open(filepath.Join("testdata", "test-driver-tampered.tar.gz"))
+					return os.Open(filepath.Join("testdata", "test-driver-1.1-tampered.tar.gz"))
 				}
 				return downloadTestPkg(pkg)
 			},

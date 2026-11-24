@@ -256,7 +256,8 @@ func readReceiptEvidence(t *testing.T, cfg config.Config, driver string) (archiv
 func TestClientInstallReceiptEvidence(t *testing.T) {
 	srv := newInstallTestServer(t)
 	c := newTestClientForServer(t, srv.URL)
-	tarball, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.tar.gz"))
+	// Client.Install picks the newest version, 1.1.0.
+	tarball, err := os.ReadFile(filepath.Join("cmd", "dbc", "testdata", "test-driver-1.1.tar.gz"))
 	require.NoError(t, err)
 	sum := sha256.Sum256(tarball)
 	digest := hex.EncodeToString(sum[:])
@@ -292,7 +293,7 @@ func TestClientFailedUpgradeKeepsExistingInstall(t *testing.T) {
 	}
 	v1 := read("test-driver-1.tar.gz")
 	v11 := read("test-driver-1.1.tar.gz")
-	tampered := read("test-driver-tampered.tar.gz")
+	tampered := read("test-driver-1.1-tampered.tar.gz")
 
 	cases := []struct {
 		name       string

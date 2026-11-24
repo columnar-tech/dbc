@@ -123,6 +123,10 @@ $ dbc install [OPTIONS] <DRIVER>
 
 :   Allow implicit installation of pre-release versions
 
+`--registry NAME|URL` {{ since_version('v0.4.0') }}
+
+:   Install the driver only from this registry: the `name` of a `[[registries]]` entry in the user `config.toml`, or the URL of a configured registry. dbc does not fall back to another registry, and installs the package again even when the same version is already installed, since an installed driver does not record its registry. See [Configuring registries](../concepts/driver_registry.md#configuring-registries).
+
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
@@ -231,6 +235,10 @@ $ dbc add <DRIVER>
 
 :   Allow pre-release versions implicitly
 
+`--registry NAME|URL` {{ since_version('v0.4.0') }}
+
+:   Take the drivers only from this registry and record it as their [`source`](driver_list.md#source): the `name` of a `[[registries]]` entry in the driver list, or the URL of a configured registry. Without it, a driver that is already in the list keeps its source.
+
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output
@@ -300,7 +308,7 @@ dbc sync --file dbc.toml
 Create or update the `dbc.lock` file next to a [driver list](../concepts/driver_list.md) without installing any driver.
 This resolves the driver list exactly like [sync](#sync) does: versions and archive hashes already recorded in an existing `dbc.lock` are kept where they still satisfy the driver list, and a version 1 lock file is upgraded to version 2.
 No installed driver or [config level](config_level.md) is touched.
-An archive is downloaded only when the registry does not publish its hash for the current platform or when an existing version 1 lock file is upgraded and its recorded driver library checksum must be compared with the downloaded archive. The download is verified, its signature is checked before its hash is recorded (unless `--no-verify` is set), and it is removed again.
+An archive is downloaded only when the registry does not publish its hash for the current platform or when an existing version 1 lock file is upgraded and its recorded driver library checksum must be compared with the downloaded archive. The download is verified, its signature is checked with the key the lock file pins for the driver before its hash is recorded (unless `--no-verify` is set), and it is removed again. A pinned key that dbc does not trust is an error even with `--no-verify`.
 Otherwise the hash published by the registry is recorded as is: that archive is neither downloaded nor checked for its signature until [sync](#sync) installs it.
 The lock file is written only after every driver succeeded; on error, an existing lock file stays unchanged.
 See [Lockfile](../guides/driver_list.md#lockfile).
