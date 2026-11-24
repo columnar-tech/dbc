@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -431,7 +432,7 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 	if err := r.ctx.Err(); err != nil {
 		return items, warnings, err
 	}
-	if err := writeLockFileV2(lockPath, lockFileV2{Version: lockFileVersionV2, Drivers: entries}); err != nil {
+	if err := writeLockFileV2(lockPath, lockFileV2{Version: lockFileVersionV2, Platforms: planner.platforms, Drivers: entries}); err != nil {
 		return items, warnings, err
 	}
 	return items, warnings, nil
@@ -442,6 +443,9 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 // for an unpublished hash is recorded in the planned lock entry.
 func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
+	if err := measureDeclared(s.ctx, s.baseModel, pd, s.NoVerify); err != nil {
+		return item, err
+	}
 	target, err := resolution.TargetFromPlatformTuple(pd.Package.PlatformTuple)
 	if err != nil {
 		return item, err
@@ -497,6 +501,37 @@ func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target
 		return nil, err
 	}
 	return f, nil
+}
+
+// measureDeclared downloads the archives of declared platforms other than the
+// current one whose hash the registry does not publish, checks them like the
+// hash-measuring download of dbc lock (extraction with the install-time
+// safety checks and, unless noVerify is set, the signature with the pinned
+// key), records their hash in the lock entry and removes them again.
+func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver, noVerify bool) error {
+	for _, pkg := range pd.Unmeasured {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		target, err := resolution.TargetFromPlatformTuple(pkg.PlatformTuple)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(pd.Entry.Artifacts, func(a lockedArtifact) bool { return a.Target == target })
+		if i < 0 {
+			return fmt.Errorf("driver %s: no lock artifact for %s", pd.Name, pkg.PlatformTuple)
+		}
+		// The library proof only applies to the current target.
+		other := plannedDriver{Name: pd.Name, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer}
+		f, err := downloadArchive(base, &other, target, archiveChecks{extract: true, signature: signatureVerifier(pd.Signer, noVerify)})
+		if err != nil {
+			return err
+		}
+		removeDownload(f)
+		pd.Entry.Artifacts[i].Hash = lockHashPrefix + other.Package.ArchiveSHA256
+	}
+	pd.Unmeasured = nil
+	return nil
 }
 
 // signatureVerifier returns the verifier of the package signature with key, or

@@ -47,6 +47,10 @@ type plannedDriver struct {
 	// Signer is the key the lock entry pins. Reuse checks, installs and the
 	// hash-measuring download of dbc lock all verify with it. It is never nil.
 	Signer *dbc.SigningKey
+	// Unmeasured are the packages of declared platforms other than the
+	// current one whose hash the registry does not publish. Their archives
+	// are downloaded to measure it (see measureDeclared).
+	Unmeasured []dbc.PkgInfo
 }
 
 // hasHostPackage reports whether the planned driver has an archive for the
@@ -73,6 +77,9 @@ type syncPlanner struct {
 	// only the targets whose archive hash the registry publishes. Only dbc
 	// lock sets it, since it installs nothing; dbc sync fails instead.
 	hostOptional bool
+	// platforms are the canonical targets that the driver list declares, or
+	// nil. Set by plan.
+	platforms []resolution.Target
 
 	// sourceIndexes holds the index of each registry that a driver source
 	// selected, by registry identity.
@@ -114,6 +121,19 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 	for _, d := range lock.V2.Drivers {
 		locked[d.Name] = d
 	}
+	platforms, err := list.targetPlatforms()
+	if err != nil {
+		return nil, nil, err
+	}
+	p.platforms = platforms
+	if platforms != nil && !p.hostOptional && !p.hostDeclared() {
+		return nil, nil, fmt.Errorf("this platform (%s) is not in platforms of the driver list (%s), so its drivers cannot be installed here; add it to platforms",
+			p.target, platformList(platforms))
+	}
+	// A new or changed declaration resolves every driver again, keeping its
+	// locked source and version where they have a build for every declared
+	// platform. Without a declaration, lock entries are replayed as before.
+	platformsChanged := platforms != nil && !slices.Equal(platforms, lock.V2.Platforms)
 
 	var (
 		planned  []plannedDriver
@@ -133,6 +153,10 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		var (
 			oldSigner lockedSigner
 			hadLock   bool
+			// replaced is the lock entry that relock could not keep because
+			// its version has no build for the uncovered platforms.
+			replaced  *lockedDriver
+			uncovered []resolution.Target
 		)
 		if d, ok := locked[name]; ok {
 			v, err := semver.NewVersion(d.Version)
@@ -145,12 +169,25 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 					"run `dbc lock` to resolve it again from %s", name, target.identity, d.Source.URL, target.identity)
 			}
 			if !sourceChanged && lockSatisfies(spec, v) {
-				pd, err := p.fromLock(name, d, v)
+				var (
+					pd   plannedDriver
+					kept = true
+					err  error
+				)
+				if platformsChanged {
+					pd, uncovered, err = p.relock(name, d, v)
+					kept = uncovered == nil
+				} else {
+					pd, err = p.fromLock(name, d, v)
+				}
 				if err != nil {
 					return nil, nil, err
 				}
-				planned = append(planned, pd)
-				continue
+				if kept {
+					planned = append(planned, pd)
+					continue
+				}
+				replaced = &d
 			}
 			// The driver is resolved again; its signer must not change silently.
 			oldSigner, hadLock = d.Signer, true
@@ -176,18 +213,44 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		if hadLock && pd.Entry.Signer != oldSigner {
 			return nil, nil, signerChangedError(name, oldSigner)
 		}
+		if replaced != nil && (pd.Entry.Version != replaced.Version || pd.Entry.Source.URL != replaced.Source.URL) {
+			warnings = append(warnings, fmt.Sprintf("warning: driver %s: version %s from %s in the lock file has no build for %s in platforms, so version %s from %s was selected instead",
+				name, replaced.Version, replaced.Source.URL, platformList(uncovered), pd.Entry.Version, pd.Entry.Source.URL))
+		}
+		if pin != nil && pd.Package.Version.String() != pin.String() {
+			// The pin was dropped for a version with a build for every
+			// declared platform; a proof is about the old version.
+			warning := fmt.Sprintf("warning: driver %s: version %s in the lock file does not cover all declared platforms, so version %s was selected instead", name, pin, pd.Package.Version)
+			if proof != "" {
+				warning += ", ignoring the checksum in the lock file"
+				proof = ""
+			}
+			warnings = append(warnings, warning)
+		}
 		if proof != "" && !pd.hasHostPackage() {
 			// The proof can only be checked against the archive of this target.
-			return nil, nil, fmt.Errorf("driver %s: the version 1 lock file records a driver library checksum for %s, but version %s has no build for it, so the checksum cannot be checked; "+
-				"run `dbc lock` on a machine of another platform, or delete the driver's entry from the lock file to lock it without the check", name, p.target, pd.Package.Version)
+			reason := fmt.Sprintf("version %s has no build for it", pd.Package.Version)
+			if p.platforms != nil && !p.hostDeclared() {
+				reason = "this platform is not in platforms of the driver list"
+			}
+			return nil, nil, fmt.Errorf("driver %s: the version 1 lock file records a driver library checksum for %s, but %s, so the checksum cannot be checked; "+
+				"run `dbc lock` on a machine of another platform, or delete the driver's entry from the lock file to lock it without the check", name, p.target, reason)
 		}
 		pd.LibrarySHA256 = proof
 		planned = append(planned, pd)
 	}
-	if p.hostOptional {
+	switch {
+	case !p.hostOptional:
+	case p.platforms != nil && !p.hostDeclared():
+		// dbc sync refuses an undeclared platform before looking at any
+		// lock entry, so one warning covers every driver.
+		warnings = append(warnings, fmt.Sprintf("warning: this platform (%s) is not in platforms of the driver list (%s), so dbc sync cannot install its drivers here",
+			p.target, platformList(p.platforms)))
+	default:
 		// Match the canonical host target as fromLock does. An alias can
 		// supply a replayable artifact even when the index lookup finds no
-		// package for the raw host tuple.
+		// package for the raw host tuple. With the host declared, every
+		// entry records it.
 		host, err := resolution.TargetFromPlatformTuple(p.target)
 		if err != nil {
 			return nil, nil, err
@@ -245,23 +308,24 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 		if a.Target != target {
 			continue
 		}
-		u, err := bound.artifactURL(a)
+		pkg, err := p.lockedPackage(name, bound, a, v)
 		if err != nil {
-			return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
+			return plannedDriver{}, err
 		}
-		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: dbc.PkgInfo{
-			Driver:        dbc.Driver{Title: name, Path: name},
-			Version:       v,
-			PlatformTuple: p.target,
-			Path:          u,
-			ArchiveSHA256: strings.TrimPrefix(a.Hash, lockHashPrefix),
-		}}, nil
+		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
 	}
 
-	// The lock has no artifact for this target: add it from the bound registry.
+	// The lock has no artifact for this target. A platform that the driver
+	// list does not declare is not added: only dbc lock gets here.
+	if p.platforms != nil && !p.hostDeclared() {
+		return plannedDriver{Name: name, Entry: d, Signer: signer, Package: dbc.PkgInfo{
+			Driver:  dbc.Driver{Title: name, Path: name},
+			Version: v,
+		}}, nil
+	}
+	// Add it from the bound registry.
 	if bound.HasQuery {
-		return plannedDriver{}, fmt.Errorf("the lock file has no artifact of driver %s for %s and its registry %s uses a query string, so it cannot be completed; "+
-			"delete the driver's entry from the lock file or change its version constraint to lock it again", name, p.target, d.Source.URL)
+		return plannedDriver{}, queryCompletionError(name, p.target, d.Source.URL)
 	}
 	drivers, err := p.registryIndex(dbc.Registry{BaseURL: bound.BaseURL})
 	if err != nil {
@@ -289,6 +353,100 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	}
 	d.Artifacts = append(slices.Clone(d.Artifacts), art)
 	return plannedDriver{Name: name, Entry: d, Package: pkg, Signer: signer}, nil
+}
+
+// lockedPackage returns the package of the current target that the locked
+// artifact a of version v records, bound to its registry.
+func (p *syncPlanner) lockedPackage(name string, bound boundRegistry, a lockedArtifact, v *semver.Version) (dbc.PkgInfo, error) {
+	u, err := bound.artifactURL(a)
+	if err != nil {
+		return dbc.PkgInfo{}, fmt.Errorf("driver %s: %w", name, err)
+	}
+	return dbc.PkgInfo{
+		Driver:        dbc.Driver{Title: name, Path: name},
+		Version:       v,
+		PlatformTuple: p.target,
+		Path:          u,
+		ArchiveSHA256: strings.TrimPrefix(a.Hash, lockHashPrefix),
+	}, nil
+}
+
+// relock keeps all recorded artifacts and adds missing declared targets
+// from the locked version and registry. It replays complete entries
+// without fetching an index. Uncovered targets trigger re-resolution.
+// If completion needs an index, a query string or missing driver is an error.
+func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd plannedDriver, uncovered []resolution.Target, err error) {
+	var missing []resolution.Target
+	for _, t := range p.platforms {
+		if !slices.ContainsFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == t }) {
+			missing = append(missing, t)
+		}
+	}
+	if missing == nil {
+		pd, err := p.fromLock(name, d, v)
+		return pd, nil, err
+	}
+	signer, err := trustedSigner(name, d.Signer)
+	if err != nil {
+		return plannedDriver{}, nil, err
+	}
+	bound, err := p.bind(name, d.Source.URL)
+	if err != nil {
+		return plannedDriver{}, nil, err
+	}
+	if bound.HasQuery {
+		return plannedDriver{}, nil, queryCompletionError(name, platformList(missing), d.Source.URL)
+	}
+	drivers, err := p.registryIndex(dbc.Registry{BaseURL: bound.BaseURL})
+	if err != nil {
+		return plannedDriver{}, nil, fmt.Errorf("could not fetch the index of registry %s to lock driver %s for the platforms of the driver list: %w",
+			d.Source.URL, name, redactRegistryError(err, p.registries, bound.BaseURL))
+	}
+	drv, err := findDriver(name, drivers)
+	if err != nil {
+		return plannedDriver{}, nil, err
+	}
+	if uncovered := uncoveredPlatforms(drv, v, missing); uncovered != nil {
+		return plannedDriver{}, uncovered, nil
+	}
+
+	current := dbc.PkgInfo{Driver: dbc.Driver{Title: name, Path: name}, Version: v}
+	var size *int64
+	if p.hostDeclared() {
+		host, err := resolution.TargetFromPlatformTuple(p.target)
+		if err != nil {
+			return plannedDriver{}, nil, err
+		}
+		if i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host }); i >= 0 {
+			current, err = p.lockedPackage(name, bound, d.Artifacts[i], v)
+			if err != nil {
+				return plannedDriver{}, nil, err
+			}
+			size = d.Artifacts[i].Size
+		} else {
+			entry, err := platformPackage(drv, v, host)
+			if err != nil {
+				return plannedDriver{}, nil, err
+			}
+			current, err = withExactVersion(drv, v).GetPackage(v, entry.Platform, true)
+			if err != nil {
+				return plannedDriver{}, nil, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
+			}
+		}
+	}
+	artifacts, unmeasured, err := p.declaredArtifacts(drv, current, d.Artifacts)
+	if err != nil {
+		return plannedDriver{}, nil, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, bound.BaseURL))
+	}
+	d.Artifacts = artifacts
+	return plannedDriver{Name: name, Entry: d, Package: current, ArchiveSize: size, Signer: signer, Unmeasured: unmeasured}, nil, nil
+}
+
+// queryCompletionError reports that a lock entry has no artifact for targets
+// and cannot be completed, since its registry URL has a query string.
+func queryCompletionError(name, targets, source string) error {
+	return fmt.Errorf("the lock file has no artifact of driver %s for %s and its registry %s uses a query string, so it cannot be completed; "+
+		"delete the driver's entry from the lock file or change its version constraint to lock it again", name, targets, source)
 }
 
 // signerFor returns the key that packages of a driver from the registry with
@@ -374,20 +532,33 @@ func withExactVersion(d dbc.Driver, v *semver.Version) dbc.Driver {
 
 // selectProjectPackage looks up the host artifact for the pinned or newest eligible version.
 func selectProjectPackage(driver *dbc.Driver, spec driverSpec, pin *semver.Version, platform string) (dbc.PkgInfo, error) {
-	version, err := selectProjectVersion(driver, spec, pin)
+	version, err := selectProjectVersion(driver, spec, pin, nil)
 	if err != nil {
 		return dbc.PkgInfo{}, err
 	}
 	return withExactVersion(*driver, version).GetPackage(version, platform, true)
 }
 
-// selectProjectVersion returns pin or the newest eligible version, whatever
-// the platforms it has builds for.
-func selectProjectVersion(driver *dbc.Driver, spec driverSpec, pin *semver.Version) (*semver.Version, error) {
-	if pin != nil {
+// selectProjectVersion returns pin or the newest eligible version. Without
+// platforms, the builds a version has do not matter. With platforms, the
+// version must have a build for each of them: a pin without one is dropped
+// and an older eligible version may be selected.
+func selectProjectVersion(driver *dbc.Driver, spec driverSpec, pin *semver.Version, platforms []resolution.Target) (*semver.Version, error) {
+	if pin != nil && (platforms == nil || coversPlatforms(*driver, pin, platforms)) {
 		return pin, nil
 	}
-	return driver.GetLatestVersionAnyPlatform(spec.Version, spec.Prerelease == "allow")
+	latest, err := driver.GetLatestVersionAnyPlatform(spec.Version, spec.Prerelease == "allow")
+	if err != nil || platforms == nil {
+		return latest, err
+	}
+	return newestCoveringVersion(*driver, spec, latest, platforms)
+}
+
+// hostDeclared reports whether the current target is one of the declared
+// platforms.
+func (p *syncPlanner) hostDeclared() bool {
+	host, err := resolution.TargetFromPlatformTuple(p.target)
+	return err == nil && slices.Contains(p.platforms, host)
 }
 
 // hostBuildMissing reports whether d lists packages for exactly v, but none
@@ -465,9 +636,24 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 		return plannedDriver{}, err
 	}
 	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
-		version, err := selectProjectVersion(candidate, spec, pin)
+		version, err := selectProjectVersion(candidate, spec, pin, p.platforms)
 		if err != nil {
 			return dbc.PkgInfo{}, err
+		}
+		if p.platforms != nil {
+			if !p.hostDeclared() {
+				// Only dbc lock gets here; the platform is not recorded.
+				return dbc.PkgInfo{Version: version}, nil
+			}
+			host, err := resolution.TargetFromPlatformTuple(p.target)
+			if err != nil {
+				return dbc.PkgInfo{}, err
+			}
+			entry, err := platformPackage(*candidate, version, host)
+			if err != nil {
+				return dbc.PkgInfo{}, err
+			}
+			return withExactVersion(*candidate, version).GetPackage(version, entry.Platform, true)
 		}
 		if p.hostOptional && hostBuildMissing(*candidate, version, p.target) {
 			// The version is chosen without regard to platforms, so a
@@ -506,11 +692,19 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	artifacts, err := p.lockArtifacts(drv, pkg)
+	var (
+		artifacts  []lockedArtifact
+		unmeasured []dbc.PkgInfo
+	)
+	if p.platforms != nil {
+		artifacts, unmeasured, err = p.declaredArtifacts(drv, pkg, nil)
+	} else {
+		artifacts, err = p.lockArtifacts(drv, pkg)
+	}
 	if err != nil {
 		return plannedDriver{}, fmt.Errorf("driver %s: %w", name, redactRegistryError(err, p.registries, sourceURL))
 	}
-	return plannedDriver{Name: name, Package: pkg, Signer: signer, Entry: lockedDriver{
+	return plannedDriver{Name: name, Package: pkg, Signer: signer, Unmeasured: unmeasured, Entry: lockedDriver{
 		Name:      name,
 		Version:   pkg.Version.String(),
 		Signer:    lockedSignerOf(signer),
