@@ -107,18 +107,27 @@ func platformPackage(d dbc.Driver, v *semver.Version, t resolution.Target) (dbc.
 	case 1:
 		return pkgs[0], nil
 	default:
-		return dbc.PackageInfo{}, fmt.Errorf("version %s of driver %s lists more than one package for %s", v, d.Path, targetTuple(t))
+		return dbc.PackageInfo{}, fmt.Errorf("version %s of driver %s lists more than one package for %s, so its build for that platform is ambiguous", v, d.Path, targetTuple(t))
 	}
 }
 
 // coversPlatforms reports whether version v has a build for every target.
+// Several packages for one target count as a build: the version is selected
+// and platformPackage reports them as ambiguous, rather than an older version
+// being selected because of broken metadata.
 func coversPlatforms(d dbc.Driver, v *semver.Version, targets []resolution.Target) bool {
+	return len(uncoveredPlatforms(d, v, targets)) == 0
+}
+
+// uncoveredPlatforms returns the targets that version v has no build for.
+func uncoveredPlatforms(d dbc.Driver, v *semver.Version, targets []resolution.Target) []resolution.Target {
+	var out []resolution.Target
 	for _, t := range targets {
 		if len(platformPackages(d, v, t)) == 0 {
-			return false
+			out = append(out, t)
 		}
 	}
-	return true
+	return out
 }
 
 // newestCoveringVersion returns the newest version of d that is eligible for
@@ -132,7 +141,7 @@ func newestCoveringVersion(d dbc.Driver, spec driverSpec, latest *semver.Version
 	var best *semver.Version
 	for _, info := range d.AllVersions() {
 		v := info.Version
-		if v == nil || !eligibleVersion(spec, v) || (best != nil && !v.GreaterThan(best)) {
+		if v == nil || !resolution.VersionEligible(v, spec.Version, spec.Prerelease == "allow") || (best != nil && !v.GreaterThan(best)) {
 			continue
 		}
 		if coversPlatforms(d, v, targets) {
@@ -145,32 +154,18 @@ func newestCoveringVersion(d dbc.Driver, spec driverSpec, latest *semver.Version
 	return best, nil
 }
 
-// eligibleVersion reports whether v may be selected for spec without a pin,
-// like Driver.GetLatestVersionAnyPlatform does.
-func eligibleVersion(spec driverSpec, v *semver.Version) bool {
-	if spec.Version != nil {
-		return spec.Version.Check(v)
-	}
-	return spec.Prerelease == "allow" || v.Prerelease() == ""
-}
-
-// declaredArtifacts records an artifact for every declared target, like
-// the artifact of the current target: with the hash the registry publishes,
-// or with an empty hash that is measured from the downloaded archive. The
-// artifact of the current target comes from current. existing holds artifacts
-// of a lock entry for the same source and version, which are kept as they
-// are. unmeasured returns the packages of other targets that have to be
-// downloaded to measure their hash (see measureDeclared). As without a
-// declaration, every other target with a published hash is recorded too.
-func (p *syncPlanner) declaredArtifacts(drv dbc.Driver, current dbc.PkgInfo, existing map[resolution.Target]lockedArtifact) (artifacts []lockedArtifact, unmeasured []dbc.PkgInfo, err error) {
+// declaredArtifacts keeps existing artifacts for the locked source and
+// version, fills missing declared targets, and adds recordable artifacts
+// with published hashes. It returns new non-host packages without hashes
+// for measureDeclared to verify and hash.
+func (p *syncPlanner) declaredArtifacts(drv dbc.Driver, current dbc.PkgInfo, existing []lockedArtifact) (artifacts []lockedArtifact, unmeasured []dbc.PkgInfo, err error) {
 	host, err := resolution.TargetFromPlatformTuple(p.target)
 	if err != nil {
 		return nil, nil, err
 	}
-	artifacts = make([]lockedArtifact, 0, len(p.platforms))
+	artifacts = slices.Clone(existing)
 	for _, t := range p.platforms {
-		if a, ok := existing[t]; ok {
-			artifacts = append(artifacts, a)
+		if slices.ContainsFunc(existing, func(a lockedArtifact) bool { return a.Target == t }) {
 			continue
 		}
 		entry, err := platformPackage(drv, current.Version, t)

@@ -98,9 +98,9 @@ Use the optional top-level `platforms` key to list the [platforms](supported_pla
 platforms = ["linux_amd64", "macos_arm64", "macos_amd64"]
 ```
 
-When selecting a version, `dbc add`, `dbc lock` and `dbc sync` choose the newest allowed release with a build for every listed platform. Missing builds do not trigger fallback to another registry.
+When selecting a version, `dbc add`, `dbc lock` and `dbc sync` choose the newest allowed release with a build for every listed platform. Missing builds do not trigger fallback to another registry. If dbc needs a package for a listed platform and the selected release lists more than one, it reports an error instead of choosing an older release.
 
-`dbc.lock` records an archive for each listed platform, handled like the current platform: if the registry publishes no hash for it, the archive is downloaded and checked to record one. `dbc sync` requires the current platform to be listed. Changing the list triggers resolution again, keeping locked versions that still meet the requirements.
+`dbc.lock` records an archive for each listed platform, handled like the current platform: if the registry publishes no hash for it, the archive is downloaded and checked to record one. `dbc sync` requires the current platform to be listed. When the list changes, dbc keeps the recorded archives and fills missing platforms from the locked version and registry. If that version lacks a required build, dbc resolves the driver again and warns if the version or registry changes. If the locked registry uses a query string or no longer lists the driver, adding a missing archive fails.
 
 Omit `platforms` to select versions without a platform requirement. An empty list is an error.
 

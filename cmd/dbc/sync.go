@@ -521,14 +521,14 @@ func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver, noV
 		if i < 0 {
 			return fmt.Errorf("driver %s: no lock artifact for %s", pd.Name, pkg.PlatformTuple)
 		}
-		// The copy shares the artifacts of the entry, so the measured hash is
-		// recorded there. The library proof only applies to the current target.
-		other := plannedDriver{Name: pd.Name, Entry: pd.Entry, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer}
+		// The library proof only applies to the current target.
+		other := plannedDriver{Name: pd.Name, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer}
 		f, err := downloadArchive(base, &other, target, archiveChecks{extract: true, signature: signatureVerifier(pd.Signer, noVerify)})
 		if err != nil {
 			return err
 		}
 		removeDownload(f)
+		pd.Entry.Artifacts[i].Hash = lockHashPrefix + other.Package.ArchiveSHA256
 	}
 	pd.Unmeasured = nil
 	return nil

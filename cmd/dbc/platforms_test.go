@@ -16,6 +16,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,8 +154,9 @@ func TestPlanUndeclaredHost(t *testing.T) {
 	require.ErrorContains(t, err, "this platform (macos_amd64) is not in platforms of the driver list (linux_amd64, macos_arm64)")
 
 	planner.hostOptional = true
-	planned, _, err := planner.plan(list, parsedLockFile{})
+	planned, warnings, err := planner.plan(list, parsedLockFile{})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"warning: this platform (macos_amd64) is not in platforms of the driver list (linux_amd64, macos_arm64), so dbc sync cannot install its drivers here"}, warnings)
 	assert.False(t, planned[0].hasHostPackage())
 	assert.Equal(t, "3.0.0", planned[0].Entry.Version)
 	assert.Len(t, planned[0].Entry.Artifacts, 2)
@@ -169,6 +171,22 @@ func TestPlanUndeclaredHost(t *testing.T) {
 	replayed, _, err := planner.plan(list, lock)
 	require.NoError(t, err)
 	assert.Equal(t, planned[0].Entry, replayed[0].Entry)
+}
+
+// TestPlanChangedPlatformsUndeclaredHost pins that dbc lock on an undeclared
+// platform completes the declared platforms, keeps the locked artifact of
+// this platform and warns once about the declaration.
+func TestPlanChangedPlatformsUndeclaredHost(t *testing.T) {
+	host := pathArtifact(t, "windows_amd64", "alpha/1.1.0/alpha-windows.tar.gz", strings.Repeat("f", 64))
+	entry := lockedAlpha("1.1.0", pathArtifact(t, "linux_amd64", "alpha/1.1.0/alpha-linux.tar.gz", planHashC), host)
+	f := hostlessPlanFixture(t, "windows_amd64", true)
+	planned, warnings, err := f.planner.plan(listWithPlatforms([]string{"linux_amd64", "macos_arm64"}, map[string]driverSpec{"alpha": {}}), v2Lock(entry))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"warning: this platform (windows_amd64) is not in platforms of the driver list (linux_amd64, macos_arm64), so dbc sync cannot install its drivers here"}, warnings)
+	assert.Equal(t, "1.1.0", planned[0].Entry.Version)
+	assert.False(t, planned[0].hasHostPackage(), "nothing is downloaded for this platform")
+	assert.Contains(t, planned[0].Entry.Artifacts, host)
+	assert.Contains(t, artifactTargets(planned[0].Entry), testSyncTarget(t, "macos_arm64"))
 }
 
 // TestPlanChangedPlatformsResolveAgain pins that a lock written for another
@@ -211,10 +229,87 @@ func TestPlanChangedPlatformsResolveAgain(t *testing.T) {
 	// Without a build of the locked version for every declared platform, the
 	// driver is resolved again.
 	f = newPlanFixture(t)
-	planned, _, err = f.planner.plan(listWithPlatforms([]string{"linux_amd64", "windows_amd64"}, map[string]driverSpec{"alpha": {}}), v2Lock(entry))
+	planned, warnings, err := f.planner.plan(listWithPlatforms([]string{"linux_amd64", "windows_amd64"}, map[string]driverSpec{"alpha": {}}), v2Lock(entry))
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.indexCalls)
 	assert.Equal(t, "1.1.0", planned[0].Entry.Version)
+	assert.Equal(t, []string{"warning: driver alpha: version 1.0.0 from https://registry.example.com in the lock file has no build for windows_amd64 in platforms, " +
+		"so version 1.1.0 from https://registry.example.com was selected instead"}, warnings)
+
+	// A changed constraint resolves it again without that warning.
+	f = newPlanFixture(t)
+	_, warnings, err = f.planner.plan(listWithPlatforms([]string{"linux_amd64", "windows_amd64"}, map[string]driverSpec{"alpha": {Version: constraint(t, ">=1.1.0")}}), v2Lock(entry))
+	require.NoError(t, err)
+	assert.Empty(t, warnings)
+}
+
+// TestPlanChangedPlatformsKeepsLockEvidence pins that relock keeps every
+// artifact a lock entry records, declared or not, even when the registry no
+// longer lists it or publishes another hash, and only checks the declared
+// platforms that the entry does not record yet.
+func TestPlanChangedPlatformsKeepsLockEvidence(t *testing.T) {
+	measured := strings.Repeat("f", 64)
+	// 1.0.0 lists no windows_amd64 build any more; the entry recorded one.
+	gone := pathArtifact(t, "windows_amd64", "alpha/1.0.0/alpha-windows.tar.gz", measured)
+	// An undeclared artifact that the index does not list either.
+	size := int64(42)
+	extra := pathArtifact(t, "linux_arm64", "alpha/1.0.0/alpha-linux-arm64.tar.gz", measured)
+	extra.Size = &size
+	entry := lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA), gone, extra)
+	f := newPlanFixture(t)
+	planned, warnings, err := f.planner.plan(listWithPlatforms([]string{"linux_amd64", "macos_arm64", "windows_amd64"}, map[string]driverSpec{"alpha": {}}), v2Lock(entry))
+	require.NoError(t, err)
+	assert.Empty(t, warnings)
+	assert.Zero(t, f.indexCalls, "not resolved again")
+	assert.Equal(t, "1.0.0", planned[0].Entry.Version)
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "linux_amd64"):   lockHashPrefix + planHashA,
+		testSyncTarget(t, "linux_arm64"):   lockHashPrefix + measured,
+		testSyncTarget(t, "macos_arm64"):   lockHashPrefix + planHashB,
+		testSyncTarget(t, "windows_amd64"): lockHashPrefix + measured,
+	}, artifactTargets(planned[0].Entry))
+	assert.Contains(t, planned[0].Entry.Artifacts, extra)
+
+	// An undeclared artifact is kept too, with its locked hash rather than
+	// the one the registry publishes now.
+	entry = lockedAlpha("1.1.0",
+		pathArtifact(t, "linux_amd64", "alpha/1.1.0/alpha-linux.tar.gz", planHashC),
+		pathArtifact(t, "macos_arm64", "alpha/1.1.0/alpha-macos.tar.gz", measured))
+	f = newPlanFixture(t)
+	planned, _, err = f.planner.plan(listWithPlatforms([]string{"linux_amd64", "windows_amd64"}, map[string]driverSpec{"alpha": {}}), v2Lock(entry))
+	require.NoError(t, err)
+	assert.Equal(t, map[resolution.Target]string{
+		testSyncTarget(t, "linux_amd64"):   lockHashPrefix + planHashC,
+		testSyncTarget(t, "macos_arm64"):   lockHashPrefix + measured,
+		testSyncTarget(t, "windows_amd64"): "",
+	}, artifactTargets(planned[0].Entry))
+	require.Len(t, planned[0].Unmeasured, 1)
+	assert.Equal(t, "windows_amd64", planned[0].Unmeasured[0].PlatformTuple)
+}
+
+// TestPlanChangedPlatformsDoesNotResolveElsewhere pins that relock, like
+// fromLock, stops when the locked registry cannot complete the entry, instead
+// of resolving the driver again from the merged index.
+func TestPlanChangedPlatformsDoesNotResolveElsewhere(t *testing.T) {
+	entry := lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA))
+	list := listWithPlatforms([]string{"linux_amd64", "macos_arm64"}, map[string]driverSpec{"alpha": {}})
+
+	t.Run("registry with query", func(t *testing.T) {
+		f := newPlanFixture(t)
+		f.registries = []dbc.Registry{{BaseURL: must(url.Parse("https://registry.example.com?tenant=SUPERSECRET"))}}
+		_, _, err := f.planner.plan(list, v2Lock(entry))
+		require.ErrorContains(t, err, "the lock file has no artifact of driver alpha for macos_arm64 and its registry https://registry.example.com uses a query string")
+		assert.NotContains(t, err.Error(), "SUPERSECRET")
+		assert.Empty(t, f.boundIndexed)
+		assert.Zero(t, f.indexCalls)
+	})
+	t.Run("driver gone from the locked registry", func(t *testing.T) {
+		f := newPlanFixture(t)
+		f.planner.registryIndex = func(dbc.Registry) ([]dbc.Driver, error) { return nil, nil }
+		_, _, err := f.planner.plan(list, v2Lock(entry))
+		require.ErrorContains(t, err, "driver `alpha` not found in driver registry index")
+		assert.Zero(t, f.indexCalls)
+	})
 }
 
 // TestPlanDropsV1ProofOfDroppedPin pins that a v1 checksum is not checked
@@ -226,8 +321,39 @@ func TestPlanDropsV1ProofOfDroppedPin(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "1.1.0", planned[0].Entry.Version)
 	assert.Empty(t, planned[0].LibrarySHA256)
-	require.Len(t, warnings, 1)
-	assert.Contains(t, warnings[0], "has no build for every platform in platforms")
+	assert.Equal(t, []string{"warning: driver alpha: version 1.0.0 in the lock file does not cover all declared platforms, so version 1.1.0 was selected instead, " +
+		"ignoring the checksum in the lock file"}, warnings)
+
+	// A pin without a checksum is reported as well.
+	f = newPlanFixture(t)
+	lock = v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.0.0")})
+	_, warnings, err = f.planner.plan(listWithPlatforms([]string{"linux_amd64", "windows_amd64"}, map[string]driverSpec{"alpha": {}}), lock)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"warning: driver alpha: version 1.0.0 in the lock file does not cover all declared platforms, so version 1.1.0 was selected instead"}, warnings)
+}
+
+// TestPlanAmbiguousPlatformIsAnError pins that several packages for a declared
+// platform make the selected version an error rather than a reason to select
+// an older version.
+func TestPlanAmbiguousPlatformIsAnError(t *testing.T) {
+	index := fmt.Sprintf(`drivers:
+  - name: Delta
+    path: delta
+    pkginfo:
+      - version: v2.0.0
+        packages:
+          - platform: macos_arm64
+            hash: sha256:%[1]s
+          - platform: darwin_arm64
+            hash: sha256:%[2]s
+      - version: v1.0.0
+        packages:
+          - platform: macos_arm64
+            hash: sha256:%[3]s
+`, planHashA, planHashB, planHashC)
+	planner := targetTestPlanner("macos_arm64", index)
+	_, _, err := planner.plan(listWithPlatforms([]string{"macos_arm64"}, map[string]driverSpec{"delta": {}}), parsedLockFile{})
+	require.ErrorContains(t, err, "version 2.0.0 of driver delta lists more than one package for macos_arm64, so its build for that platform is ambiguous")
 }
 
 func TestLockFilePlatformsRoundTrip(t *testing.T) {
