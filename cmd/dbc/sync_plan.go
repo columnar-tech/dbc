@@ -184,6 +184,15 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		pd.LibrarySHA256 = proof
 		planned = append(planned, pd)
 	}
+	if p.hostOptional {
+		// The lock succeeds, but installing on this platform will not.
+		for _, pd := range planned {
+			if !pd.hasHostPackage() {
+				warnings = append(warnings, fmt.Sprintf("warning: driver %s %s has no build for this platform (%s); dbc sync will fail here",
+					pd.Name, pd.Package.Version, p.target))
+			}
+		}
+	}
 	return planned, warnings, nil
 }
 
@@ -386,6 +395,9 @@ func hostBuildMissing(d dbc.Driver, v *semver.Version, platform string) bool {
 		if info.Version == nil {
 			return false
 		}
+		// Compare the spelling, not Equal (which ignores build metadata):
+		// the version comes from this index or from the lock file, and the
+		// lock records and checks the exact spelling (see publishedArtifacts).
 		if info.Version.String() != v.String() {
 			continue
 		}
@@ -394,6 +406,11 @@ func hostBuildMissing(d dbc.Driver, v *semver.Version, platform string) bool {
 		}
 		listed = true
 		for _, pkg := range info.Packages {
+			// Compare the raw tuple, like GetPackage does, so that a package
+			// found here is also found by GetPackage. lockArtifacts groups
+			// packages by canonical target instead, so an alias such as
+			// darwin_arm64 on a macos_arm64 host counts as missing here even
+			// though the lock entry records it for the host.
 			if pkg.Platform == platform {
 				return false
 			}

@@ -43,9 +43,10 @@ func hostlessPlanFixture(t *testing.T, target string, hostOptional bool) *planFi
 // and records only the targets with a published hash.
 func TestPlanLocksVersionWithoutHostBuild(t *testing.T) {
 	f := hostlessPlanFixture(t, "macos_amd64", true)
-	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
+	planned, warnings, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
 	require.NoError(t, err)
 	require.Len(t, planned, 1)
+	assert.Equal(t, []string{"warning: driver alpha 1.1.0 has no build for this platform (macos_amd64); dbc sync will fail here"}, warnings)
 
 	pd := planned[0]
 	assert.False(t, pd.hasHostPackage())
@@ -109,9 +110,10 @@ func TestPlanV1ProofNeedsHostBuild(t *testing.T) {
 func TestPlanKeepsLockEntryWithoutHostBuild(t *testing.T) {
 	entry := lockedAlpha("1.0.0", pathArtifact(t, "linux_amd64", "alpha/1.0.0/alpha-linux.tar.gz", planHashA))
 	f := hostlessPlanFixture(t, "windows_amd64", true)
-	planned, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(entry))
+	planned, warnings, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(entry))
 	require.NoError(t, err)
 	require.Len(t, planned, 1)
+	assert.Equal(t, []string{"warning: driver alpha 1.0.0 has no build for this platform (windows_amd64); dbc sync will fail here"}, warnings)
 	assert.False(t, planned[0].hasHostPackage())
 	assert.Equal(t, entry, planned[0].Entry)
 	assert.Len(t, f.boundIndexed, 1, "the locked registry is asked whether a host build exists")
