@@ -113,12 +113,12 @@ func (m lockModel) Init() tea.Cmd {
 }
 
 // fetch records the archive evidence of a planned driver without installing
-// it. An archive is downloaded only when the registry published no hash for
-// the current target or when a v1 library proof has to be checked, and never
-// when the version has no build for the current target. The
-// download is verified like the one of dbc sync, and unless NoVerify is set
-// its signature is checked with the key the lock pins before its hash is
-// recorded. The download is always removed again.
+// it. Archives of declared platforms without a published hash are measured
+// first (see measureDeclared). The host archive is downloaded only when the
+// registry published no hash for it or a v1 library proof has to be checked,
+// and never when there is no host package. Downloads are verified like the
+// one of dbc sync, their signature is checked with the pinned key unless
+// NoVerify is set, and they are always removed again.
 func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, Package: pd.Package, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
 	if err := measureDeclared(m.ctx, m.baseModel, pd, m.NoVerify); err != nil {
