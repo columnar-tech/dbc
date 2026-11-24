@@ -1276,12 +1276,8 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 === "Oracle"
 
     ```console
-    $ dbc install oracle
+    $ dbc install --pre oracle
     ```
-
-    !!! note
-
-        Oracle is currently available as a private driver. Before installing and using it, run `dbc auth login` and start a trial license in Columnar Console. See [Private Drivers](./guides/private_drivers.md) for details.
 
     <br/><span class="quickstart-step-number">3</span> [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 
