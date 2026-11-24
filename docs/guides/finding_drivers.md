@@ -69,7 +69,7 @@ sqlite     An ADBC driver for SQLite developed under the Apache Software Foundat
 
 ## Private Drivers
 
-If you are [logged in](./private_drivers.md) to a private registry, you will see some drivers marked with a `[private]` label:
+Some drivers in the `dbc search` output are marked with a `[private]` label:
 
 ```console
 $ dbc search
@@ -77,7 +77,7 @@ $ dbc search
 teradata   [private] An ADBC driver for Teradata developed by Columnar
 ```
 
-These drivers can be [installed](./installing.md) and added to [driver lists](../concepts/driver_list.md) just like regular drivers.
+These drivers are hosted on Columnar's private [driver registry](../concepts/driver_registry.md) and require a license to use. See [Private Drivers](./private_drivers.md) to learn how to install and use them.
 
 ## Options
 
