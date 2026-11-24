@@ -185,9 +185,15 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		planned = append(planned, pd)
 	}
 	if p.hostOptional {
-		// The lock succeeds, but installing on this platform will not.
+		// Match the canonical host target as fromLock does. An alias can
+		// supply a replayable artifact even when the index lookup finds no
+		// package for the raw host tuple.
+		host, err := resolution.TargetFromPlatformTuple(p.target)
+		if err != nil {
+			return nil, nil, err
+		}
 		for _, pd := range planned {
-			if !pd.hasHostPackage() {
+			if !slices.ContainsFunc(pd.Entry.Artifacts, func(a lockedArtifact) bool { return a.Target == host }) {
 				warnings = append(warnings, fmt.Sprintf("warning: driver %s %s has no build for this platform (%s); dbc sync will fail here",
 					pd.Name, pd.Package.Version, p.target))
 			}
@@ -384,20 +390,18 @@ func selectProjectVersion(driver *dbc.Driver, spec driverSpec, pin *semver.Versi
 	return driver.GetLatestVersionAnyPlatform(spec.Version, spec.Prerelease == "allow")
 }
 
-// hostBuildMissing reports whether the index of d lists exactly version v
-// with packages, but none for platform. Anything else, such as a version that
-// is not listed, has no packages at all or invalid metadata, is left to
-// GetPackage to report: only a listed version without that build may be
-// locked without a host package.
+// hostBuildMissing reports whether d lists packages for exactly v, but none
+// with the requested platform tuple. This lets dbc lock proceed without a
+// host package for a listed version. Missing versions, nil versions, and
+// matching entries without packages are left to the package lookup.
 func hostBuildMissing(d dbc.Driver, v *semver.Version, platform string) bool {
 	listed := false
 	for _, info := range d.AllVersions() {
 		if info.Version == nil {
 			return false
 		}
-		// Compare the spelling, not Equal (which ignores build metadata):
-		// the version comes from this index or from the lock file, and the
-		// lock records and checks the exact spelling (see publishedArtifacts).
+		// Include build metadata to match withExactVersion. Sync checks the
+		// package manifest against the full version recorded in the lock.
 		if info.Version.String() != v.String() {
 			continue
 		}
@@ -406,11 +410,10 @@ func hostBuildMissing(d dbc.Driver, v *semver.Version, platform string) bool {
 		}
 		listed = true
 		for _, pkg := range info.Packages {
-			// Compare the raw tuple, like GetPackage does, so that a package
-			// found here is also found by GetPackage. lockArtifacts groups
-			// packages by canonical target instead, so an alias such as
-			// darwin_arm64 on a macos_arm64 host counts as missing here even
-			// though the lock entry records it for the host.
+			// Match the raw tuple so this check agrees with GetPackage.
+			// Counting an alias as a host build would make GetPackage look
+			// for a tuple the index lacks. lockArtifacts can still record
+			// an unambiguous alias with a published hash for the host target.
 			if pkg.Platform == platform {
 				return false
 			}

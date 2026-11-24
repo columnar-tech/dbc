@@ -58,6 +58,24 @@ func TestPlanLocksVersionWithoutHostBuild(t *testing.T) {
 		testSyncTarget(t, "macos_arm64"): lockHashPrefix + planHashD,
 	}, artifactTargets(pd.Entry))
 
+	// The macos_arm64 artifact matches the canonical host target even
+	// though the index has no darwin_arm64 package.
+	f = hostlessPlanFixture(t, "darwin_arm64", true)
+	planned, warnings, err = f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	assert.False(t, planned[0].hasHostPackage())
+	assert.Contains(t, artifactTargets(planned[0].Entry), testSyncTarget(t, "macos_arm64"))
+	assert.Empty(t, warnings)
+
+	// An alias without a published hash is not recorded, so the warning stays.
+	f = hostlessPlanFixture(t, "windows_x86_64", true)
+	planned, warnings, err = f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), parsedLockFile{})
+	require.NoError(t, err)
+	require.Len(t, planned, 1)
+	assert.NotContains(t, artifactTargets(planned[0].Entry), testSyncTarget(t, "windows_amd64"))
+	assert.Equal(t, []string{"warning: driver alpha 1.1.0 has no build for this platform (windows_x86_64); dbc sync will fail here"}, warnings)
+
 	// With a constraint, the newest matching version is kept as well.
 	f = hostlessPlanFixture(t, "windows_amd64", true)
 	planned, _, err = f.planner.plan(listOf(map[string]driverSpec{"alpha": {Version: constraint(t, "<1.1.0")}}), parsedLockFile{})
@@ -102,6 +120,17 @@ func TestPlanV1ProofNeedsHostBuild(t *testing.T) {
 	lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.1.0"), Platform: "macos_amd64", Checksum: strings.Repeat("f", 64)})
 	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
 	require.ErrorContains(t, err, "records a driver library checksum for macos_amd64")
+}
+
+// TestPlanV1ProofWithAliasHostBuild checks that a v1 checksum still
+// requires a raw host tuple match, even if the planner can record
+// the alias as an artifact for the canonical host target. This pins a
+// current limitation.
+func TestPlanV1ProofWithAliasHostBuild(t *testing.T) {
+	f := hostlessPlanFixture(t, "darwin_arm64", true)
+	lock := v1Lock(lockInfo{Name: "alpha", Version: semver.MustParse("1.1.0"), Platform: "darwin_arm64", Checksum: strings.Repeat("f", 64)})
+	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), lock)
+	require.ErrorContains(t, err, "records a driver library checksum for darwin_arm64")
 }
 
 // TestPlanKeepsLockEntryWithoutHostBuild pins that dbc lock keeps a lock entry
