@@ -97,6 +97,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		Pre:                c.Pre,
 		registrySource:     registrySourceFlag(c.Registry),
 		insecureNoChecksum: c.InsecureNoChecksum,
+		signing:            &dbc.RegistrySigningOperation{},
 		spinner:            s,
 		cfg:                getConfig(c.Level),
 		baseModel:          baseModel,
@@ -219,6 +220,10 @@ type progressiveInstallModel struct {
 	jsonErrorOutput          string // JSON error envelope to emit via FinalOutput
 	verificationStarted      bool
 	verifyStagedPackage      config.PackageVerifier
+	// signing keeps the keys of this install, so that the signer check of
+	// the resolution and the verification use the same certificate. It is
+	// a pointer since the model is copied.
+	signing *dbc.RegistrySigningOperation
 	// signer is how a package from a registry is verified, selected from
 	// the registry's configuration before the download.
 	signer packageSigner
@@ -485,11 +490,15 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 	if vers != nil {
 		vers.IncludePrerelease = m.Pre
 	}
+	if m.signing == nil {
+		m.signing = &dbc.RegistrySigningOperation{}
+	}
+	signing := m.signing
 	return m, func() tea.Msg {
 		// With --registry, list is that registry's complete index; otherwise
 		// the failed registries are passed on, since one with another signer
 		// might list the driver.
-		pkg, err := dbc.ResolvePackage(list, m.registryErrors, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		pkg, err := signing.ResolvePackage(list, m.registryErrors, driverName, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if vers != nil {
 				return candidate.GetWithConstraint(vers, config.PlatformTuple())
 			}
@@ -526,17 +535,17 @@ func (m progressiveInstallModel) skipsVerification() bool {
 }
 
 // registrySigner returns how a package from registry is verified, as its
-// configuration says; a driver without a registry uses the Columnar key.
-func registrySigner(registry *dbc.Registry) (packageSigner, error) {
-	if registry == nil {
-		key, err := dbc.ColumnarSigningKey()
-		return packageSigner{key: key}, err
+// configuration says, with the keys of signing; a driver without a registry
+// uses the Columnar key.
+func registrySigner(signing *dbc.RegistrySigningOperation, registry *dbc.Registry) (packageSigner, error) {
+	if signing == nil {
+		signing = &dbc.RegistrySigningOperation{}
 	}
-	key, err := registry.ResolveSigningKey()
+	key, err := signing.ResolveSigningKey(registry)
 	if err != nil {
 		return packageSigner{}, err
 	}
-	return packageSigner{key: key, unsigned: key == nil}, nil
+	return packageSigner{key: key, unsigned: registry != nil && key == nil}, nil
 }
 
 func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
@@ -559,7 +568,7 @@ func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {
 	if !m.NoVerify {
 		// A key that cannot be loaded fails before the package is fetched,
 		// and never falls back to another key or to no verification.
-		signer, err := registrySigner(m.DriverPackage.Driver.Registry)
+		signer, err := registrySigner(m.signing, m.DriverPackage.Driver.Registry)
 		if err != nil {
 			return m, func() tea.Msg {
 				return fmt.Errorf("driver %s: could not load the signing key of its registry: %w", m.Driver, err)

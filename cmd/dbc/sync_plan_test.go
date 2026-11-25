@@ -111,7 +111,9 @@ type planFixture struct {
 
 func newPlanFixture(t *testing.T) *planFixture {
 	f := &planFixture{t: t, registries: []dbc.Registry{{BaseURL: planRegistryURL}}}
-	decode := func() ([]dbc.Driver, error) {
+	// Like Client.Search, the drivers point at the configuration of the
+	// registry that lists them, including how it is signed.
+	decode := func(registry *dbc.Registry) ([]dbc.Driver, error) {
 		var decoded struct {
 			Drivers []dbc.Driver `yaml:"drivers"`
 		}
@@ -119,20 +121,29 @@ func newPlanFixture(t *testing.T) *planFixture {
 			return nil, err
 		}
 		for i := range decoded.Drivers {
-			decoded.Drivers[i].Registry = &dbc.Registry{BaseURL: planRegistryURL}
+			decoded.Drivers[i].Registry = registry
 		}
 		return decoded.Drivers, nil
+	}
+	configured := func() *dbc.Registry {
+		for i := range f.registries {
+			if f.registries[i].BaseURL.String() == planRegistryURL.String() {
+				r := f.registries[i]
+				return &r
+			}
+		}
+		return &dbc.Registry{BaseURL: planRegistryURL}
 	}
 	f.planner = syncPlanner{
 		target:     planTarget,
 		registries: func() ([]dbc.Registry, error) { return f.registries, nil },
 		index: func() ([]dbc.Driver, error) {
 			f.indexCalls++
-			return decode()
+			return decode(configured())
 		},
 		registryIndex: func(r dbc.Registry) ([]dbc.Driver, error) {
 			f.boundIndexed = append(f.boundIndexed, r.BaseURL)
-			return decode()
+			return decode(&r)
 		},
 	}
 	return f
@@ -866,13 +877,15 @@ func TestPlanLoadsTheKeyOfARegistryOnce(t *testing.T) {
 }
 
 // When the first registry has no version of a driver and a later one is
-// selected, the key of the selected registry is recorded and pinned.
+// selected, the key of the selected registry is recorded and pinned. That
+// fallback is only allowed between registries with the same certificate.
 func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
 	acme := testSigningKey(t, "acme")
 	fallbackURL := must(url.Parse("https://fallback.example.com"))
 	alpha := listOf(map[string]driverSpec{"alpha": {}})
-	fixture := func(t *testing.T, fallback dbc.RegistrySigningPolicy) *planFixture {
+	fixture := func(t *testing.T, first, fallback dbc.RegistrySigningPolicy) *planFixture {
 		f := newPlanFixture(t)
+		f.registries[0].Signing = first
 		f.registries = append(f.registries, dbc.Registry{BaseURL: fallbackURL, Signing: fallback})
 		originalIndex := f.planner.index
 		f.planner.index = func() ([]dbc.Driver, error) {
@@ -882,13 +895,14 @@ func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
 			}
 			first := drivers[0]
 			first.PkgInfo = nil
-			drivers[0].Registry = &dbc.Registry{BaseURL: fallbackURL}
+			fallback := f.registries[1]
+			drivers[0].Registry = &fallback
 			return []dbc.Driver{first, drivers[0]}, nil
 		}
 		return f
 	}
 
-	f := fixture(t, dbc.SignWith(acme))
+	f := fixture(t, dbc.SignWith(acme), dbc.SignWith(acme))
 	planned, _, err := f.planner.plan(alpha, parsedLockFile{})
 	require.NoError(t, err)
 	require.Len(t, planned, 1)
@@ -902,9 +916,15 @@ func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, acme, replayed[0].Signer.key)
 
+	// With another key on the first registry, the fallback is a conflict.
+	f = fixture(t, dbc.RegistrySigningPolicy{}, dbc.SignWith(acme))
+	_, _, err = f.planner.plan(alpha, parsedLockFile{})
+	var conflict *dbc.SignerConflictError
+	require.ErrorAs(t, err, &conflict)
+	assert.Contains(t, err.Error(), sourceHint)
+
 	// The key of the first registry does not apply to the fallback one.
-	f = fixture(t, dbc.RegistrySigningPolicy{})
-	f.registries[0].Signing = dbc.SignWith(acme)
+	f = fixture(t, dbc.SignWith(acme), dbc.RegistrySigningPolicy{})
 	_, _, err = f.planner.plan(alpha, v2Lock(planned[0].Entry))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pins the signing key "+acme.Fingerprint())

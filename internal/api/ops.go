@@ -151,8 +151,9 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 		return ResolveResult{}, searchErr
 	}
 	// A failed registry is an error only if it might list the driver with
-	// another signer; see dbc.ResolvePackage.
-	pkg, err := dbc.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	// another signer; see dbc.RegistrySigningOperation.ResolvePackage.
+	var signing dbc.RegistrySigningOperation
+	pkg, err := signing.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return candidate.GetLatestPackage(platform, false)
 	})
 	var conflict *dbc.SignerConflictError

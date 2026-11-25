@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -265,4 +266,51 @@ func TestPublicKeyFileRejectsDriveDependentPaths(t *testing.T) {
 		_, err := newSigningKeyFile(name, definedIn, false)
 		assert.ErrorContains(t, err, "absolute path with a drive", name)
 	}
+}
+
+// TestSigningOperationReadsAKeyFileOnce pins that one operation compares
+// signers and verifies with the certificate it read first, even when the
+// file changes meanwhile, and that the next operation reads the file again.
+func TestSigningOperationReadsAKeyFileOnce(t *testing.T) {
+	key := generateTestKey(t, "acme")
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "acme.asc")
+	require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, key)), 0o600))
+	cfg, err := LoadProjectConfig(keyFileProject(t, dir, "acme.asc"))
+	require.NoError(t, err)
+	c, err := NewClient(WithProjectConfig(cfg))
+	require.NoError(t, err)
+	fromFile := c.Registries()[0]
+	inline, err := NewArmoredSigningKey(publicArmored(t, key))
+	require.NoError(t, err)
+	other := &Registry{BaseURL: mustParseURL("https://other.test"), Signing: SignWith(inline)}
+
+	drivers := []Driver{{Path: "shared", Registry: &fromFile}, {Path: "shared", Registry: other,
+		PkgInfo: []pkginfo{{Version: semver.MustParse("1.0.0"), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}}}}}
+	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
+
+	var op RegistrySigningOperation
+	_, err = op.ResolvePackage(drivers, nil, "shared", latest)
+	require.NoError(t, err, "the file holds the same certificate as the inline key")
+
+	replaced := generateTestKey(t, "replaced")
+	require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, replaced)), 0o600))
+
+	// A copy of the registry, as a single-registry fetch makes, still gets
+	// the certificate that the signer check compared.
+	registryCopy := fromFile
+	got, err := op.ResolveSigningKey(&registryCopy)
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
+	_, err = op.ResolvePackage(drivers, nil, "shared", latest)
+	require.NoError(t, err)
+
+	// The next operation reads the file again and sees the new key.
+	var next RegistrySigningOperation
+	got, err = next.ResolveSigningKey(&fromFile)
+	require.NoError(t, err)
+	assert.Equal(t, replaced.GetFingerprint(), got.Fingerprint())
+	_, err = next.ResolvePackage(drivers, nil, "shared", latest)
+	var conflict *SignerConflictError
+	require.ErrorAs(t, err, &conflict)
 }

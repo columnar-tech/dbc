@@ -90,9 +90,10 @@ type syncPlanner struct {
 	drivers     []dbc.Driver
 	registryErr error
 	indexErr    error
-	// signers holds the signer chosen for each registry identity in this
-	// plan.
-	signers map[string]packageSigner
+	// signing keeps the keys of this plan: the signer checks of resolution,
+	// the replay of lock entries and the verification of every package use
+	// the same certificate of a registry.
+	signing *dbc.RegistrySigningOperation
 }
 
 // loadIndex fetches the merged index once. Like the other commands it only
@@ -476,29 +477,25 @@ func (s packageSigner) locked() lockedSigner {
 // A key that cannot be loaded, such as a missing public_key_file, is an
 // error rather than a fallback to another key.
 //
-// The signer of each registry is looked up once per plan, so that wherever
-// one sync or lock checks a signature it uses the same certificate, even
-// when the key is read from a file that changes meanwhile. This does not
-// make dbc lock verify more: it still records a published archive hash
-// without downloading the archive.
+// The key of each registry is read once per plan (see signingOperation), so
+// that wherever one sync or lock checks a signer or a signature it uses the
+// same certificate, even when the key is read from a file that changes
+// meanwhile. This does not make dbc lock verify more: it still records a
+// published archive hash without downloading the archive.
 func (p *syncPlanner) signerFor(name string, bound boundRegistry) (packageSigner, error) {
-	identity, err := canonicalRegistryIdentity(bound.BaseURL)
-	if err != nil {
-		return packageSigner{}, fmt.Errorf("driver %s: %w", name, err)
-	}
-	if signer, ok := p.signers[identity]; ok {
-		return signer, nil
-	}
-	key, err := bound.Registry.ResolveSigningKey()
+	key, err := p.signingOperation().ResolveSigningKey(&bound.Registry)
 	if err != nil {
 		return packageSigner{}, fmt.Errorf("driver %s: could not load the signing key of its registry: %w", name, err)
 	}
-	signer := packageSigner{key: key, unsigned: key == nil}
-	if p.signers == nil {
-		p.signers = make(map[string]packageSigner)
+	return packageSigner{key: key, unsigned: key == nil}, nil
+}
+
+// signingOperation returns the keys of this plan.
+func (p *syncPlanner) signingOperation() *dbc.RegistrySigningOperation {
+	if p.signing == nil {
+		p.signing = &dbc.RegistrySigningOperation{}
 	}
-	p.signers[identity] = signer
-	return signer, nil
+	return p.signing
 }
 
 // trustedSigner returns how the packages of a driver locked with sig must be
@@ -673,7 +670,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 	if target == nil {
 		indexErr = p.registryErr
 	}
-	pkg, err := dbc.ResolvePackage(drivers, indexErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	pkg, err := p.signingOperation().ResolvePackage(drivers, indexErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		version, err := selectProjectVersion(candidate, spec, pin, p.platforms)
 		if err != nil {
 			return dbc.PkgInfo{}, err

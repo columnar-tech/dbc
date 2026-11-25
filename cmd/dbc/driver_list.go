@@ -342,6 +342,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return drivers, nil
 	}
 
+	var signing dbc.RegistrySigningOperation
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
 		spec = spec.withPrerelease()
@@ -350,13 +351,17 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 			return nil, err
 		}
 		// indexFor already fails on an incomplete index.
-		pkg, err := dbc.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		pkg, err := signing.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if spec.Version != nil {
 				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
 			}
 			return candidate.GetLatestPackage(config.PlatformTuple(), spec.Prerelease == "allow")
 		})
 		if err != nil {
+			// A signer conflict has no selected driver, but is not a miss.
+			if isSelectionError(err) {
+				return nil, fmt.Errorf("%w\n%s", redactRegistryError(err, func() ([]dbc.Registry, error) { return client.Registries(), nil }), sourceHint)
+			}
 			if pkg.Driver.Path == "" && spec.Source != nil {
 				return nil, fmt.Errorf("driver `%s` not found in %s", name, spec.Source)
 			}

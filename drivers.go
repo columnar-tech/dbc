@@ -721,7 +721,7 @@ type SignerConflictError struct {
 	Name string
 	// Registries are the registries that list the driver, in priority order.
 	Registries []*Registry
-	// Signers are the signer identities of Registries, in the same order.
+	// Signers describe the signers of Registries, in the same order.
 	Signers []string
 }
 
@@ -751,75 +751,43 @@ func registryLabel(r *Registry) string {
 	return u.String()
 }
 
-// registrySignerIdentity identifies the signer whose key verifies the
-// packages of a registry. Every registry is verified with the built-in
-// Columnar key for now.
-//
-// TODO: once a registry can name its own signing key, derive the identity
-// from its signing policy:
-//   - a key: a digest of the whole configured certificate, not only of the
-//     primary key, since subkeys and revocations change which signatures it
-//     accepts;
-//   - an unsigned registry: an identity of its own (for example from its
-//     registry identity), so that two unsigned registries never count as the
-//     same signer and a driver name they share is a conflict;
-//   - a key file: read it only when several registries list the name or a
-//     registry's index is missing, and use the certificate read here for
-//     the verification and the lock pin of the same operation.
-func registrySignerIdentity(*Registry) (string, error) {
-	return "the Columnar signing key", nil
-}
-
-// ResolvePackage chooses the package of a driver that is not pinned yet.
-// drivers is the merged index of the registries in priority order, and
-// indexErr the error Client.Search returned with it.
-//
-// All registries that list the driver, whatever their versions and
-// platforms, must verify their packages with the same signer; otherwise it
-// returns a SignerConflictError. A registry whose index is missing
-// (a RegistryIndexError in indexErr) might list the driver too, so its
-// signer, which is known from its configuration, must be the same as well:
-// the same as that of the registries that list the driver, or, when none
-// does, the same as that of the other failed registries. Otherwise, or when
-// a failure cannot be attributed to a registry or its signer cannot be
-// determined, it returns ErrIncompleteIndex. A failed registry with the
-// same signer is skipped, as the registries that list the driver could
-// replace it anyway. Among them, matching entries are tried in
-// order, advancing only on ErrPackageMiss. The returned package identifies
-// the selected driver on success or a terminal error. If all matching
-// entries miss, it identifies the first matching driver and returns that
-// entry's error. If no entry matches, it returns a zero package and a
-// driver-not-found error.
-//
-// To resolve from one registry only, pass that registry's index alone.
-func ResolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
-	return resolvePackage(drivers, indexErr, name, selectPackage, registrySignerIdentity)
-}
-
-func resolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error), signerOf func(*Registry) (string, error)) (PkgInfo, error) {
+// resolvePackage implements RegistrySigningOperation.ResolvePackage with
+// signerOf as the source of signer identities.
+func resolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error), signerOf func(*Registry) (signerIdentity, error)) (PkgInfo, error) {
 	var (
 		candidates []*Registry
-		signers    []string
+		listed     []Driver // the first entry of each candidate
 	)
 	for _, d := range drivers {
-		if d.Path != name || slices.Contains(candidates, d.Registry) {
-			continue
-		}
-		signer, err := signerOf(d.Registry)
-		if err != nil {
-			return PkgInfo{Driver: d}, fmt.Errorf("driver %s: %s: %w", name, registryLabel(d.Registry), err)
-		}
-		candidates = append(candidates, d.Registry)
-		signers = append(signers, signer)
-	}
-	for _, s := range signers[min(1, len(signers)):] {
-		if s != signers[0] {
-			return PkgInfo{}, &SignerConflictError{Name: name, Registries: candidates, Signers: signers}
+		if d.Path == name && !slices.Contains(candidates, d.Registry) {
+			candidates = append(candidates, d.Registry)
+			listed = append(listed, d)
 		}
 	}
-	if indexErr != nil {
-		if err := checkFailedRegistries(indexErr, signers, signerOf); err != nil {
-			return PkgInfo{}, fmt.Errorf("cannot resolve driver %s: %w", name, err)
+	// A single registry without failed ones needs no comparison, so its key
+	// is not read here.
+	if len(candidates) > 1 || indexErr != nil {
+		signers := make([]signerIdentity, 0, len(candidates))
+		for i, r := range candidates {
+			signer, err := signerOf(r)
+			if err != nil {
+				return PkgInfo{Driver: listed[i]}, fmt.Errorf("driver %s: %s: %w", name, registryLabel(r), err)
+			}
+			signers = append(signers, signer)
+		}
+		for _, s := range signers[min(1, len(signers)):] {
+			if s.key != signers[0].key {
+				labels := make([]string, len(signers))
+				for i, s := range signers {
+					labels[i] = s.label
+				}
+				return PkgInfo{}, &SignerConflictError{Name: name, Registries: candidates, Signers: labels}
+			}
+		}
+		if indexErr != nil {
+			if err := checkFailedRegistries(indexErr, signers, signerOf); err != nil {
+				return PkgInfo{}, fmt.Errorf("cannot resolve driver %s: %w", name, err)
+			}
 		}
 	}
 
@@ -852,7 +820,7 @@ func resolvePackage(drivers []Driver, indexErr error, name string, selectPackage
 // unless every failure in indexErr is a RegistryIndexError of a registry
 // whose signer is the same as the candidates' signer (signers), or, without
 // candidates, the same as that of the other failed registries.
-func checkFailedRegistries(indexErr error, signers []string, signerOf func(*Registry) (string, error)) error {
+func checkFailedRegistries(indexErr error, signers []signerIdentity, signerOf func(*Registry) (signerIdentity, error)) error {
 	failed, ok := failedRegistries(indexErr)
 	if !ok {
 		return fmt.Errorf("%w:\n%w", ErrIncompleteIndex, indexErr)
@@ -860,7 +828,7 @@ func checkFailedRegistries(indexErr error, signers []string, signerOf func(*Regi
 	var want string
 	known := len(signers) > 0
 	if known {
-		want = signers[0]
+		want = signers[0].key
 	}
 	for _, r := range failed {
 		signer, err := signerOf(r)
@@ -868,9 +836,9 @@ func checkFailedRegistries(indexErr error, signers []string, signerOf func(*Regi
 			return fmt.Errorf("%w: %s: %w\n%w", ErrIncompleteIndex, registryLabel(r), err, indexErr)
 		}
 		if !known {
-			want, known = signer, true
+			want, known = signer.key, true
 		}
-		if signer != want {
+		if signer.key != want {
 			return fmt.Errorf("%w:\n%w", ErrIncompleteIndex, indexErr)
 		}
 	}

@@ -153,13 +153,3 @@ func (r Registry) ResolveSigningKey() (*SigningKey, error) {
 		return nil, fmt.Errorf("unknown signing policy %d", p.kind)
 	}
 }
-
-// signingKey returns the key that the packages of d must be verified with:
-// the key of its registry, or the Columnar key when d has no registry. It
-// returns (nil, nil) only for an Unsigned registry.
-func (d Driver) signingKey() (*SigningKey, error) {
-	if d.Registry == nil {
-		return ColumnarSigningKey()
-	}
-	return d.Registry.ResolveSigningKey()
-}

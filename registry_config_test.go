@@ -715,7 +715,7 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	stable := func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", false)
 	}
-	pkg, err := ResolvePackage([]Driver{
+	pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{
 		decode("2.0.0-beta.1"),
 		decode("0.7.0"),
 	}, nil, "shared", stable)
@@ -724,17 +724,17 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	prerelease := decode("2.0.0-beta.1")
 	_, err = prerelease.GetLatestPackage("linux_amd64", false)
 	require.ErrorIs(t, err, ErrPackageMiss)
-	pkg, err = ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", true)
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0-beta.1", pkg.Version.String())
-	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	constraint, err := semver.NewConstraint("=0.7.0")
 	require.NoError(t, err)
-	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 }
@@ -760,7 +760,7 @@ func TestResolvePackageEmptyPackageInfo(t *testing.T) {
 					var pkg PkgInfo
 					var err error
 					require.NotPanics(t, func() {
-						pkg, err = ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+						pkg, err = (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 							return d.GetLatestPackage("linux_amd64", allowPrerelease)
 						})
 					})
@@ -794,7 +794,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 				func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) },
 				func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(c, "linux_amd64") },
 			} {
-				pkg, err := ResolvePackage(drivers, nil, "shared", selectPackage)
+				pkg, err := (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", selectPackage)
 				require.NoError(t, err)
 				assert.Equal(t, "1.0.0", pkg.Version.String())
 				assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -805,7 +805,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 			assert.Equal(t, "2.0.0", latest.String())
 			exact, err := semver.NewConstraint("=2.0.0")
 			require.NoError(t, err)
-			pkg, err := ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+			pkg, err := (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 				return d.GetWithConstraint(exact, "linux_amd64")
 			})
 			require.EqualError(t, err, "no package found for platform 'linux_amd64'")
@@ -836,7 +836,7 @@ func TestResolvePackageMissingVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pkg, err := ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
+			pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
 			require.EqualError(t, err, "invalid package metadata for driver shared: missing version")
 			assert.NotErrorIs(t, err, ErrPackageMiss)
 			assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -869,6 +869,15 @@ func TestSearchPrefersTheConfiguredRegistryName(t *testing.T) {
 	}
 }
 
+// identities adapts a signer function for tests whose signer names are both
+// compared and shown.
+func identities(f func(*Registry) (string, error)) func(*Registry) (signerIdentity, error) {
+	return func(r *Registry) (signerIdentity, error) {
+		s, err := f(r)
+		return signerIdentity{key: s, label: s}, err
+	}
+}
+
 func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 	first := &Registry{Name: "first", BaseURL: mustParseURL("https://user:secret@first.test/r?token=t")}
 	second := &Registry{BaseURL: mustParseURL("https://second.test")}
@@ -881,7 +890,7 @@ func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 		return d
 	}
 	signers := map[*Registry]string{first: "key A", second: "key A", third: "key B"}
-	signerOf := func(r *Registry) (string, error) { return signers[r], nil }
+	signerOf := identities(func(r *Registry) (string, error) { return signers[r], nil })
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
 
 	// The same signer: the #584 fallback from a registry without a matching
@@ -906,14 +915,17 @@ func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 	assert.NotContains(t, err.Error(), "secret")
 	assert.NotContains(t, err.Error(), "token")
 
-	// A failure to identify a signer is an error.
-	_, err = resolvePackage([]Driver{driver(first, "1.0.0")}, nil, "shared", latest, func(*Registry) (string, error) {
-		return "", errors.New("cannot read the key")
-	})
+	// A failure to identify a signer is an error, but a single registry
+	// without failed ones is not compared, so its key is not read.
+	unreadable := identities(func(*Registry) (string, error) { return "", errors.New("cannot read the key") })
+	_, err = resolvePackage([]Driver{driver(first, "1.0.0"), driver(second)}, nil, "shared", latest, unreadable)
 	assert.ErrorContains(t, err, "cannot read the key")
+	pkg, err = resolvePackage([]Driver{driver(first, "1.0.0")}, nil, "shared", latest, unreadable)
+	require.NoError(t, err)
+	assert.Same(t, first, pkg.Driver.Registry)
 
 	// The built-in identity is the same for every registry.
-	pkg, err = ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
 	require.NoError(t, err)
 	assert.Same(t, third, pkg.Driver.Registry)
 }
@@ -926,7 +938,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 	sameKey := &Registry{BaseURL: mustParseURL("https://same.test")}
 	otherKey := &Registry{BaseURL: mustParseURL("https://other.test")}
 	signers := map[*Registry]string{public: "key A", private: "key A", sameKey: "key A", otherKey: "key B"}
-	signerOf := func(r *Registry) (string, error) { return signers[r], nil }
+	signerOf := identities(func(r *Registry) (string, error) { return signers[r], nil })
 	listed := Driver{Path: "shared", Registry: public,
 		PkgInfo: []pkginfo{{Version: semver.MustParse("1.0.0"), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}}}}
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
@@ -934,7 +946,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 
 	// The built-in registries share a signer: a failed private registry,
 	// even ranked above the public one, does not block a public driver.
-	pkg, err := ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
+	pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
 	require.NoError(t, err)
 	assert.Same(t, public, pkg.Driver.Registry)
 
@@ -957,7 +969,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 		name     string
 		drivers  []Driver
 		indexErr error
-		signerOf func(*Registry) (string, error)
+		signerOf func(*Registry) (signerIdentity, error)
 		want     string
 	}{
 		{name: "another signer", drivers: []Driver{listed}, indexErr: errors.Join(failed(otherKey))},
@@ -966,9 +978,9 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 		{name: "a failure without a registry", drivers: []Driver{listed}, indexErr: errors.New("network error")},
 		{name: "a registry index error without a registry", drivers: []Driver{listed}, indexErr: &RegistryIndexError{Err: ErrUnauthorized}},
 		{name: "an unknown signer", drivers: []Driver{listed}, indexErr: errors.Join(failed(private)), want: "cannot read the key",
-			signerOf: func(r *Registry) (string, error) {
+			signerOf: func(r *Registry) (signerIdentity, error) {
 				if r == private {
-					return "", errors.New("cannot read the key")
+					return signerIdentity{}, errors.New("cannot read the key")
 				}
 				return signerOf(r)
 			}},

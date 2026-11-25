@@ -151,18 +151,21 @@ func TestClientInstallUsesTheKeyOfTheRegistry(t *testing.T) {
 	})
 
 	// The first registry lists the driver without a version, so the package
-	// comes from the second one, and its key must be used, not the key of
-	// the first.
-	t.Run("a fallback registry uses its own key", func(t *testing.T) {
+	// comes from the second one. That fallback is only allowed between
+	// registries with the same certificate, which then verifies it.
+	t.Run("a fallback needs the same key", func(t *testing.T) {
 		var firstDownloads, secondDownloads atomic.Int32
 		first := signedDriverServer(t, archive, false, &firstDownloads)
 		second := signedDriverServer(t, archive, true, &secondDownloads)
-		_, err := install(t, []dbc.Registry{{BaseURL: first}, {BaseURL: second, Signing: dbc.SignWith(acme)}})
+		copyOfAcme, err := dbc.NewSigningKey([]byte(publicKey))
+		require.NoError(t, err)
+		_, err = install(t, []dbc.Registry{{BaseURL: first, Signing: dbc.SignWith(acme)}, {BaseURL: second, Signing: dbc.SignWith(copyOfAcme)}})
 		require.NoError(t, err)
 		assert.Equal(t, int32(1), secondDownloads.Load())
 
-		_, err = install(t, []dbc.Registry{{BaseURL: first, Signing: dbc.SignWith(acme)}, {BaseURL: second}})
-		require.ErrorContains(t, err, "signature verification failed")
+		_, err = install(t, []dbc.Registry{{BaseURL: first}, {BaseURL: second, Signing: dbc.SignWith(acme)}})
+		var conflict *dbc.SignerConflictError
+		require.ErrorAs(t, err, &conflict)
+		assert.Equal(t, int32(1), secondDownloads.Load(), "nothing is downloaded on a conflict")
 	})
-
 }

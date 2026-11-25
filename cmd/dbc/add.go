@@ -232,6 +232,9 @@ func (m addModel) Init() tea.Cmd {
 		// concurrent change of it before writing.
 		previous := map[string]*driverSource{}
 
+		// dbc add installs nothing; one operation keeps the signer checks of
+		// all drivers on the same keys.
+		var signing dbc.RegistrySigningOperation
 		var result string
 		for i, spec := range specs {
 			if i != 0 {
@@ -269,7 +272,7 @@ func (m addModel) Init() tea.Cmd {
 			if target == nil {
 				indexErr = registryErrors
 			}
-			pkg, err := dbc.ResolvePackage(drivers, indexErr, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+			pkg, err := signing.ResolvePackage(drivers, indexErr, spec.Name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 				if platforms != nil {
 					return selectDeclaredPackage(candidate, requested, platforms)
 				}
