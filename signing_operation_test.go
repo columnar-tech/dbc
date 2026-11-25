@@ -128,3 +128,20 @@ func TestResolvePackageSigners(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, unsignedA, pkg.Driver.Registry)
 }
+
+func TestSigningOperationResolveKey(t *testing.T) {
+	columnar, err := ColumnarSigningKey()
+	require.NoError(t, err)
+	var op SigningOperation
+
+	key, err := op.ResolveKey(SigningPolicy{})
+	require.NoError(t, err)
+	assert.Same(t, columnar, key, "the zero value is the Columnar key")
+
+	key, err = op.ResolveKey(Unsigned())
+	require.NoError(t, err)
+	assert.Nil(t, key, "only Unsigned resolves to no key")
+
+	_, err = op.ResolveKey(SignWith(nil))
+	assert.Error(t, err, "a policy without a key is an error, not unsigned")
+}

@@ -45,8 +45,9 @@ func SignWith(key *SigningKey) SigningPolicy {
 	return SigningPolicy{kind: signingWithKey, key: key}
 }
 
-// Unsigned returns the policy for a registry whose packages are not verified
-// with any key. The archive hash that a registry publishes is still checked.
+// Unsigned returns the policy under which package signatures are not
+// verified with any key. It does not turn off the other checks of a
+// package, such as the archive hash that its source publishes.
 func Unsigned() SigningPolicy {
 	return SigningPolicy{kind: signingUnsigned}
 }

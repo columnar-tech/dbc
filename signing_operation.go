@@ -27,8 +27,8 @@ import (
 // same certificate of a signing key definition, even when the key is read
 // from a public_key_file that changes meanwhile. A key file is read only
 // when a key is needed, and the key read from it is reused for the rest of
-// the operation; a failed read is not remembered, but every caller stops on
-// it. The next operation reads the file again. The zero value is ready to
+// the operation; a failed read is not remembered and is returned to the
+// caller as an error. The next operation reads the file again. The zero value is ready to
 // use; it must not be copied after first use.
 type SigningOperation struct {
 	mu    sync.Mutex
@@ -36,8 +36,9 @@ type SigningOperation struct {
 }
 
 // ResolveKey returns the key that packages under policy p must be verified
-// with, like SigningPolicy.ResolveKey, but reads a key file only once in
-// this operation. It returns (nil, nil) only for Unsigned.
+// with, like SigningPolicy.ResolveKey, but for a key read from a file it
+// returns the first key that this operation read successfully from the
+// same signing key definition. It returns (nil, nil) only for Unsigned.
 func (o *SigningOperation) ResolveKey(p SigningPolicy) (*SigningKey, error) {
 	if p.kind != signingFromFile || p.file == nil {
 		return p.ResolveKey()
@@ -94,8 +95,8 @@ func (o *SigningOperation) registryKey(r *Registry) (*SigningKey, error) {
 // driver-not-found error.
 //
 // To resolve from one registry only, pass that registry's index alone.
-// It selects among registries only; other sources, which are chosen
-// explicitly, are not compared with any signer.
+// It is for registry indexes only; callers resolve packages from other
+// sources separately.
 func (o *SigningOperation) ResolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
 	return resolvePackage(drivers, indexErr, name, selectPackage, o.signerIdentity)
 }
