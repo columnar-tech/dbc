@@ -16,6 +16,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/columnar-tech/dbc"
+	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -406,4 +408,88 @@ func (suite *SubcommandTestSuite) TestSyncLockedChecksumMismatch() {
 	actual, err := os.ReadFile(lockPath)
 	suite.Require().NoError(err)
 	suite.Equal(lockContents, actual)
+}
+
+// assertSignedLockedSync locks test-driver-no-sig from a registry with
+// policy and installs it with dbc sync --locked without any index. Once the
+// registry is configured with changed, dbc sync --locked fails before any
+// download, also with --no-verify, and reports a trust problem.
+func (suite *SubcommandTestSuite) assertSignedLockedSync(policy, changed dbc.RegistrySigningPolicy, archive string) {
+	listPath := suite.writeDriverList("test-driver-no-sig")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(signedBase(policy, archive)))
+	lock := suite.readLockBytes()
+
+	var replay syncCounters
+	out := suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, Locked: true, Json: true}.GetModelCustom(replay.counted(signedBase(policy, archive))))
+	suite.driverIsInstalled("test-driver-no-sig", false)
+	suite.Contains(out, fmt.Sprintf(`"signature_verified":%t`, !policy.IsUnsigned()))
+	suite.Zero(replay.index)
+	suite.Zero(replay.boundIndex)
+	suite.Equal(lock, suite.readLockBytes())
+
+	suite.Require().NoError(config.UninstallDriver(getConfig(suite.configLevel), suite.getInstalledDriver("test-driver-no-sig")))
+	for _, noVerify := range []bool{false, true} {
+		var rejected syncCounters
+		cmd := SyncCmd{Path: listPath, Level: suite.configLevel, Locked: true, NoVerify: noVerify}
+		out := suite.runCmdErr(cmd.GetModelCustom(rejected.counted(signedBase(changed, archive))))
+		suite.Contains(out, "check the registries and signing keys", "noVerify=%t", noVerify)
+		suite.Zero(rejected.downloads, "noVerify=%t", noVerify)
+		suite.Zero(rejected.index, "noVerify=%t", noVerify)
+		suite.Zero(rejected.boundIndex, "noVerify=%t", noVerify)
+		suite.Equal(lock, suite.readLockBytes(), "the lock file must stay untouched")
+		suite.driverIsNotInstalled("test-driver-no-sig")
+	}
+}
+
+func (suite *SubcommandTestSuite) TestSyncLockedWithCustomSigningKey() {
+	archive, key := suite.signedArchiveFile()
+	_, other := suite.signedArchiveFile()
+	suite.Run("another key", func() {
+		suite.assertSignedLockedSync(dbc.SignWith(key), dbc.SignWith(other), archive)
+	})
+	suite.Run("the Columnar key", func() {
+		suite.assertSignedLockedSync(dbc.SignWith(key), dbc.RegistrySigningPolicy{}, archive)
+	})
+	suite.Run("unsigned", func() {
+		suite.assertSignedLockedSync(dbc.SignWith(key), dbc.Unsigned(), archive)
+	})
+}
+
+func (suite *SubcommandTestSuite) TestSyncLockedWithUnsignedRegistry() {
+	archive, key := suite.signedArchiveFile()
+	suite.assertSignedLockedSync(dbc.Unsigned(), dbc.SignWith(key), archive)
+}
+
+// TestSyncLockedVerifiesWithTheCertificateOfTheSignerCheck replaces the key
+// file after dbc sync --locked checked the pinned signer, before the package
+// is downloaded: the package is still verified with the certificate that
+// the check read.
+func (suite *SubcommandTestSuite) TestSyncLockedVerifiesWithTheCertificateOfTheSignerCheck() {
+	archive, key, armored := suite.signedArchive()
+	keyPath := filepath.Join(suite.T().TempDir(), "acme.asc")
+	suite.Require().NoError(os.WriteFile(keyPath, []byte(armored), 0o600))
+	client, err := dbc.NewClient(dbc.WithGlobalConfig(&dbc.GlobalConfig{
+		Registries:               []dbc.RegistryEntry{{URL: testRegistry.BaseURL.String(), SigningKey: "acme"}},
+		SigningKeys:              map[string]dbc.SigningKeyDefinition{"acme": {Type: dbc.SigningKeyTypeOpenPGP, PublicKeyFile: &keyPath}},
+		ExcludeBuiltinRegistries: true,
+	}))
+	suite.Require().NoError(err)
+	configured := client.Registries()
+	suite.Require().Len(configured, 1)
+	policy := configured[0].Signing
+
+	listPath := suite.writeDriverList("test-driver-no-sig")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(signedBase(policy, archive)))
+	suite.Equal(key.Fingerprint(), suite.lockedDriverEntry("test-driver-no-sig").Signer.Fingerprint)
+
+	_, _, replacement := suite.signedArchive()
+	base := signedBase(policy, archive)
+	download := base.downloadPkg
+	base.downloadPkg = func(pkg dbc.PkgInfo) (*os.File, error) {
+		suite.Require().NoError(os.WriteFile(keyPath, []byte(replacement), 0o600))
+		return download(pkg)
+	}
+	out := suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, Locked: true, Json: true}.GetModelCustom(base))
+	suite.Contains(out, `"signature_verified":true`)
+	suite.driverIsInstalled("test-driver-no-sig", false)
 }
