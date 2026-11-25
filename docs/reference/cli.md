@@ -297,6 +297,10 @@ dbc sync --file dbc.toml
 
 :   Allow installation of drivers without a signature file
 
+`--locked` {{ since_version('v0.4.0') }}
+
+:   Install from the lockfile without updating it or fetching a registry index. Fails before downloading any driver if the lockfile is missing or version 1, the current platform is excluded by the driver list, or a driver has no recorded artifact for the current platform. The lockfile must match the driver list's drivers and platforms, and each locked entry must satisfy the list's version constraint, pre-release setting, and any explicit source. Run [`dbc lock`](#lock) to create or update the lockfile.
+
 `--quiet`, `-q` {{ since_version('v0.2.0') }}
 
 :   Suppress all output

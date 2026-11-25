@@ -132,8 +132,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 	}
 	p.platforms = platforms
 	if platforms != nil && !p.hostOptional && !p.hostDeclared() {
-		return nil, nil, fmt.Errorf("this platform (%s) is not in platforms of the driver list (%s), so its drivers cannot be installed here; add it to platforms",
-			p.target, platformList(platforms))
+		return nil, nil, undeclaredHostError(p.target, platforms)
 	}
 	// A new or changed declaration resolves every driver again, keeping its
 	// locked source and version where they have a build for every declared
@@ -318,14 +317,9 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 		return plannedDriver{}, err
 	}
 	for _, a := range d.Artifacts {
-		if a.Target != target {
-			continue
+		if a.Target == target {
+			return p.replayArtifact(d, bound, signer, a, v)
 		}
-		pkg, err := p.lockedPackage(name, bound, a, v)
-		if err != nil {
-			return plannedDriver{}, err
-		}
-		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
 	}
 
 	// The lock has no artifact for this target. A platform that the driver
@@ -366,6 +360,23 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	}
 	d.Artifacts = append(slices.Clone(d.Artifacts), art)
 	return plannedDriver{Name: name, Entry: d, Package: pkg, Signer: signer}, nil
+}
+
+// replayArtifact plans the driver of lock entry d from its recorded artifact
+// a for the current target, keeping the entry as it is.
+func (p *syncPlanner) replayArtifact(d lockedDriver, bound boundRegistry, signer *dbc.SigningKey, a lockedArtifact, v *semver.Version) (plannedDriver, error) {
+	pkg, err := p.lockedPackage(d.Name, bound, a, v)
+	if err != nil {
+		return plannedDriver{}, err
+	}
+	return plannedDriver{Name: d.Name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
+}
+
+// undeclaredHostError reports that the current platform is not among the
+// declared platforms, so dbc sync cannot install the drivers here.
+func undeclaredHostError(host string, platforms []resolution.Target) error {
+	return fmt.Errorf("this platform (%s) is not in platforms of the driver list (%s), so its drivers cannot be installed here; add it to platforms",
+		host, platformList(platforms))
 }
 
 // lockedPackage returns the package of the current target that the locked

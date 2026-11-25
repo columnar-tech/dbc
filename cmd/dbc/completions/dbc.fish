@@ -97,6 +97,7 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l help -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l level -s l -d 'Installation level' -xa 'user system'
 complete -c dbc -n '__fish_dbc_using_subcommand sync' -l path -s p -r -F -a '*.toml' -d 'Driver list to sync'
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l no-verify -d 'Do not verify the driver after installation'
+complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l locked -d 'Install what the lock file records without updating it'
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l json -d 'Print output as JSON instead of plaintext'
 complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l json-stream-progress -d 'Stream progress events as JSON lines (implies --json)'
 

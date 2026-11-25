@@ -137,6 +137,7 @@ function _dbc_sync_completions {
         '(-p)--path[driver list to add to]: :_files -g \*.toml' \
         '(--path)-p[driver list to add to]: :_files -g \*.toml' \
         '--no-verify[do not verify the driver after installation]' \
+        '--locked[install what the lock file records without updating it]' \
         '--json[Print output as JSON instead of plaintext]' \
         '--json-stream-progress[Stream progress events as JSON lines (implies --json)]'
 }
