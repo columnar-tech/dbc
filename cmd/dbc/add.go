@@ -246,6 +246,9 @@ func (m addModel) Init() tea.Cmd {
 				requested.Prerelease = "allow"
 			}
 			requested = requested.withPrerelease()
+			if m.list.Drivers[spec.Name].isHTTP() {
+				return fmt.Errorf("driver %s has an HTTP source in dbc.toml, which dbc add does not change; edit dbc.toml instead", spec.Name)
+			}
 			previous[spec.Name] = m.list.Drivers[spec.Name].Source
 			requested.Source = flagSource
 			if requested.Source == nil {
@@ -377,6 +380,9 @@ func (m addModel) Init() tea.Cmd {
 		// A driver's source, or the registry a source name refers to, may
 		// also have changed: the drivers were validated against the old one.
 		for _, spec := range specs {
+			if current.Drivers[spec.Name].isHTTP() {
+				return fmt.Errorf("the source of driver %s in dbc.toml changed while resolving drivers; please retry `dbc add`", spec.Name)
+			}
 			if flagSource == nil && !previous[spec.Name].equal(current.Drivers[spec.Name].Source) {
 				return fmt.Errorf("the source of driver %s in dbc.toml changed while resolving drivers; please retry `dbc add`", spec.Name)
 			}

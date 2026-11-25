@@ -19,9 +19,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
@@ -59,9 +62,16 @@ type DriversList struct {
 // checks its registry configuration, so that a command never works with,
 // or writes back, registries or signing keys that are invalid.
 func decodeDriverList(r io.Reader, path string) (DriversList, error) {
-	var list DriversList
-	if err := toml.NewDecoder(r).Decode(&list); err != nil {
+	data, err := io.ReadAll(r)
+	if err != nil {
 		return DriversList{}, err
+	}
+	var list DriversList
+	if err := toml.Unmarshal(data, &list); err != nil {
+		return DriversList{}, err
+	}
+	if err := decodeHTTPSources(data, &list); err != nil {
+		return DriversList{}, fmt.Errorf("%s: %w", path, err)
 	}
 	list.path = path
 	if abs, err := filepath.Abs(path); err == nil {
@@ -263,8 +273,57 @@ func projectRegistryWarning(list DriversList) string {
 type driverSpec struct {
 	Prerelease string              `toml:"prerelease,omitempty"`
 	Version    *semver.Constraints `toml:"version"`
-	// Source, when set, is the only registry the driver is resolved from.
+	// Source, when set, is the only registry the driver is resolved from,
+	// or an HTTP source.
 	Source *driverSource `toml:"source,inline,omitempty"`
+
+	// exact is the version that the version requirement of a driver with an
+	// HTTP source pins, read from the file as written; see exactHTTPVersion.
+	exact *semver.Version
+}
+
+// isHTTP reports whether the driver has an HTTP source.
+func (spec driverSpec) isHTTP() bool { return spec.Source != nil && spec.Source.Type == sourceTypeHTTP }
+
+// decodeHTTPSources reads, from the same bytes as list, what the typed
+// decoding of a driver with an HTTP source loses or ignores: the version
+// requirement as written, which must pin one exact version, and the keys of
+// the source, which must all be known. A driver without an HTTP source is
+// left as it is.
+func decodeHTTPSources(data []byte, list *DriversList) error {
+	var raw struct {
+		Drivers map[string]struct {
+			Version    any            `toml:"version"`
+			Prerelease any            `toml:"prerelease"`
+			Source     map[string]any `toml:"source"`
+		} `toml:"drivers"`
+	}
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for _, name := range slices.Sorted(maps.Keys(list.Drivers)) {
+		spec := list.Drivers[name]
+		if !spec.isHTTP() {
+			continue
+		}
+		d := raw.Drivers[name]
+		for _, key := range slices.Sorted(maps.Keys(d.Source)) {
+			if !slices.Contains(httpSourceKeys, key) {
+				return fmt.Errorf("driver %s: an HTTP source has no key %q; this version of dbc supports %s, and a newer version of dbc may be required",
+					name, key, strings.Join(httpSourceKeys, ", "))
+			}
+		}
+		if d.Prerelease != nil {
+			return fmt.Errorf("driver %s: a driver with an HTTP source has an exact version, so prerelease does not apply", name)
+		}
+		v, err := exactHTTPVersion(d.Version)
+		if err != nil {
+			return fmt.Errorf("driver %s: %w", name, err)
+		}
+		spec.exact = v
+		list.Drivers[name] = spec
+	}
+	return nil
 }
 
 func (spec driverSpec) withPrerelease() driverSpec {
@@ -302,6 +361,11 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	}
 	if err := validateDriverSources(m); err != nil {
 		return nil, fmt.Errorf("error in driver list %s: %w", fname, err)
+	}
+	for _, name := range slices.Sorted(maps.Keys(m.Drivers)) {
+		if m.Drivers[name].isHTTP() {
+			return nil, fmt.Errorf("error in driver list %s: driver %s has an HTTP source, which GetDriverList does not support; use dbc lock and dbc sync", fname, name)
+		}
 	}
 
 	// The merged index is only needed for drivers without a source; a

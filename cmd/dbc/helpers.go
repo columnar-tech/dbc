@@ -62,6 +62,10 @@ func defaultBaseModel() baseModel {
 		downloadPkg:       downloadPkg,
 		getRegistries:     configuredRegistries,
 		getRegistryIndex:  fetchRegistryIndex,
+
+		downloadHTTP:         downloadHTTPPkg,
+		fetchHTTP:            fetchHTTPFile,
+		projectSigningPolicy: projectSigningPolicy,
 	}
 }
 

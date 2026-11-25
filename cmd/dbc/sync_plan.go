@@ -52,6 +52,11 @@ type plannedDriver struct {
 	// current one whose hash the registry does not publish. Their archives
 	// are downloaded to measure it (see measureDeclared).
 	Unmeasured []dbc.PkgInfo
+	// http is set for a driver with an HTTP source: its archives are
+	// downloaded without registry credentials, checked like a measured
+	// archive whenever their hash is measured, and pending lists the
+	// artifacts whose hash is not known yet.
+	http *httpPlan
 }
 
 // hasHostPackage reports whether the planned driver has an archive for the
@@ -73,6 +78,9 @@ type syncPlanner struct {
 	// selects another registry than its lock entry be resolved again. Only
 	// dbc lock sets it; dbc sync stops instead.
 	allowSourceChange bool
+	// projectSigningPolicy looks up a [signing_keys] definition of the
+	// project for an HTTP source (see dbc.Client.ProjectSigningPolicy).
+	projectSigningPolicy func(string) (dbc.SigningPolicy, error)
 	// hostOptional lets a selected version that has no build for the current
 	// target be planned without a host package; its lock entry then records
 	// only the targets whose archive hash the registry publishes. Only dbc
@@ -146,6 +154,31 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 	)
 	for _, name := range slices.Sorted(maps.Keys(list.Drivers)) {
 		spec := list.Drivers[name].withPrerelease()
+		if spec.isHTTP() {
+			var old *lockedDriver
+			if d, ok := locked[name]; ok {
+				old = &d
+			}
+			pd, err := p.planHTTP(name, spec, old)
+			if err != nil {
+				return nil, nil, err
+			}
+			// A v1 library proof still applies to the same version and target.
+			if info, ok := lock.V1.lockinfo[name]; ok {
+				pinned := info.Version != nil && info.Version.String() == pd.Package.Version.String()
+				proof, warning := p.v1Proof(name, info, pinned)
+				if warning != "" {
+					warnings = append(warnings, warning)
+				}
+				if proof != "" && !pd.hasHostPackage() {
+					return nil, nil, fmt.Errorf("driver %s: the version 1 lock file records a driver library checksum for %s, but this platform is not in platforms of the driver list, so the checksum cannot be checked; "+
+						"delete the driver's entry from the lock file to lock it without the check", name, p.target)
+				}
+				pd.LibrarySHA256 = proof
+			}
+			planned = append(planned, pd)
+			continue
+		}
 		var target *sourceTarget
 		if spec.Source != nil {
 			t, err := spec.Source.target(list.Registries)
@@ -156,9 +189,8 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		}
 
 		var (
-			oldSigner lockedSigner
-			oldSource string
-			hadLock   bool
+			oldEntry lockedDriver
+			hadLock  bool
 			// replaced is the lock entry that relock could not keep because
 			// its version has no build for the uncovered platforms.
 			replaced  *lockedDriver
@@ -169,8 +201,14 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 			if err != nil {
 				return nil, nil, fmt.Errorf("driver %s: invalid locked version: %w", name, err)
 			}
-			sourceChanged := target != nil && target.identity != d.Source.URL
-			if sourceChanged && !p.allowSourceChange {
+			fromHTTP := d.Source.Type != lockSourceRegistry
+			sourceChanged := fromHTTP || (target != nil && target.identity != d.Source.URL)
+			switch {
+			case sourceChanged && p.allowSourceChange:
+			case fromHTTP:
+				return nil, nil, fmt.Errorf("driver %s: the lock file has it from %s, but the driver list does not declare that source; "+
+					"run `dbc lock` to resolve it again from the registries", name, d.Source)
+			case sourceChanged:
 				return nil, nil, fmt.Errorf("driver %s: the driver list takes it from %s, but the lock file has it from %s; "+
 					"run `dbc lock` to resolve it again from %s", name, target.identity, d.Source.URL, target.identity)
 			}
@@ -196,7 +234,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 				replaced = &d
 			}
 			// The driver is resolved again; its signer must not change silently.
-			oldSigner, oldSource, hadLock = d.Signer, d.Source.URL, true
+			oldEntry, hadLock = d, true
 		}
 
 		var pin *semver.Version
@@ -216,14 +254,10 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		if err != nil {
 			return nil, nil, err
 		}
-		if hadLock && pd.Entry.Signer != oldSigner {
-			return nil, nil, signerChangedError(name, oldSigner, pd.Entry.Signer)
-		}
-		// Every unsigned registry is a signer of its own, so a driver pinned
-		// to one cannot move to another, not even with a changed source.
-		if hadLock && oldSigner.Type == lockSignerNone && pd.Entry.Source.URL != oldSource {
-			return nil, nil, fmt.Errorf("driver %s: the lock file has it from the unsigned registry %s, but it would now come from the unsigned registry %s, which is another signer; %s",
-				name, oldSource, pd.Entry.Source.URL, signerChangeHint)
+		if hadLock {
+			if err := checkSourceContinuity(name, oldEntry, pd.Entry); err != nil {
+				return nil, nil, err
+			}
 		}
 		if replaced != nil && (pd.Entry.Version != replaced.Version || pd.Entry.Source.URL != replaced.Source.URL) {
 			warnings = append(warnings, fmt.Sprintf("warning: driver %s: version %s from %s in the lock file has no build for %s in platforms, so version %s from %s was selected instead",

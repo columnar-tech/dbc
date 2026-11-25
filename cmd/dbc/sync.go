@@ -307,6 +307,7 @@ func (s syncModel) prepareWithWarnings() (items []syncItem, warnings []string, e
 		ctx:         s.ctx,
 		projectLock: s.projectLock,
 		base:        s.baseModel,
+		noVerify:    s.NoVerify,
 	}.resolve(s.fetch)
 }
 
@@ -340,6 +341,9 @@ type driverListResolution struct {
 	// hostOptional plans drivers whose locked version has no build for this
 	// platform; see syncPlanner.hostOptional.
 	hostOptional bool
+	// noVerify is the --no-verify flag, which an HTTP source refuses while
+	// the hash of one of its archives is measured.
+	noVerify bool
 }
 
 // resolve plans every driver, runs fetch for each planned driver and writes
@@ -405,6 +409,13 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 		registryIndex:     r.base.getRegistryIndex,
 		allowSourceChange: r.allowSourceChange,
 		hostOptional:      r.hostOptional,
+
+		projectSigningPolicy: r.base.projectSigningPolicy,
+	}
+	if len(list.SigningKeys) == 0 {
+		// A key name is looked up in this driver list only, never in a
+		// client built for another one.
+		planner.projectSigningPolicy = nil
 	}
 	planned, warnings, err := planner.plan(list, existing)
 	if warning := projectRegistryWarning(list); warning != "" {
@@ -414,6 +425,15 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 		return nil, warnings, err
 	}
 	if err := r.ctx.Err(); err != nil {
+		return nil, warnings, err
+	}
+	// Only now that every driver is planned, with its source, signer and
+	// recorded URLs checked, is anything of an HTTP source fetched.
+	if err := checkHTTPNoVerify(planned, r.noVerify); err != nil {
+		return nil, warnings, err
+	}
+	warnings = append(warnings, plaintextWarnings(planned)...)
+	if err := fetchHTTPChecksums(r.ctx, r.base, planned); err != nil {
 		return nil, warnings, err
 	}
 
@@ -482,7 +502,14 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 // downloadArchive downloads the archive of a planned driver and checks it with
 // checkDownloadedArchive. The download is removed when a check fails.
 func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target) (*os.File, error) {
-	f, err := base.downloadPkg(pd.Package)
+	download := base.downloadPkg
+	if pd.http != nil {
+		download = base.downloadHTTP
+	}
+	f, err := download(pd.Package)
+	if err != nil && pd.http != nil {
+		return nil, fmt.Errorf("failed to download driver %s %s for %s from its HTTP source: %w", pd.Name, pd.Package.Version, targetTuple(target), err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, base.getRegistries, pd.Package.Path))
 	}
@@ -512,13 +539,16 @@ func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver) err
 			return fmt.Errorf("driver %s: no lock artifact for %s", pd.Name, pkg.PlatformTuple)
 		}
 		// The library proof only applies to the current target.
-		other := plannedDriver{Name: pd.Name, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer}
+		other := plannedDriver{Name: pd.Name, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer, http: pd.http}
 		f, err := downloadArchive(base, &other, target)
 		if err != nil {
 			return err
 		}
 		removeDownload(f)
 		pd.Entry.Artifacts[i].Hash = lockHashPrefix + other.Package.ArchiveSHA256
+		if pd.http != nil {
+			pd.Entry.Artifacts[i].Size = other.ArchiveSize
+		}
 	}
 	pd.Unmeasured = nil
 	return nil
@@ -571,9 +601,23 @@ func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Tar
 	switch want := pd.Package.ArchiveSHA256; {
 	case want == "":
 		pd.Package.ArchiveSHA256 = digest
+		// The archive of an HTTP source has no published size either, so
+		// the measured one is recorded with its hash.
+		var size *int64
+		if pd.http != nil {
+			info, err := f.Stat()
+			if err != nil {
+				return fmt.Errorf("failed to stat downloaded driver %s: %w", pd.Name, err)
+			}
+			size = new(info.Size())
+			pd.ArchiveSize = size
+		}
 		for i := range pd.Entry.Artifacts {
 			if a := &pd.Entry.Artifacts[i]; a.Target == target {
 				a.Hash = lockHashPrefix + digest
+				if size != nil {
+					a.Size = size
+				}
 			}
 		}
 	case want != digest:
