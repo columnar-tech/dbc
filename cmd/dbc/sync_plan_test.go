@@ -929,3 +929,63 @@ func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pins the signing key "+acme.Fingerprint())
 }
+
+// Every unsigned registry is a signer of its own, so a driver locked from one
+// is not resolved again from another, while the same registry, or a registry
+// with the same key, keeps working.
+func TestPlanKeepsTheUnsignedRegistryOfALockEntry(t *testing.T) {
+	otherURL := must(url.Parse("https://other.example.com"))
+	acme := testSigningKey(t, "acme")
+	upgrade := func(source *driverSource) DriversList {
+		return listOf(map[string]driverSpec{"alpha": {Version: constraint(t, ">=1.1.0"), Source: source}})
+	}
+	// fixture configures the lock's registry and another one with policy;
+	// the merged index lists alpha only in the other registry when moved.
+	fixture := func(t *testing.T, policy dbc.RegistrySigningPolicy, moved bool) *planFixture {
+		f := newPlanFixture(t)
+		f.registries[0].Signing = policy
+		f.registries = append(f.registries, dbc.Registry{BaseURL: otherURL, Signing: policy})
+		if moved {
+			original := f.planner.index
+			f.planner.index = func() ([]dbc.Driver, error) {
+				drivers, err := original()
+				other := f.registries[1]
+				for i := range drivers {
+					drivers[i].Registry = &other
+				}
+				return drivers, err
+			}
+		}
+		return f
+	}
+	entry := lockedAlpha("1.0.0", pathArtifact(t, planTarget, "alpha/1.0.0/alpha-linux.tar.gz", planHashA))
+	unsignedEntry := entry
+	unsignedEntry.Signer = lockedSigner{Type: lockSignerNone}
+
+	// The merged index now has alpha from another unsigned registry only.
+	f := fixture(t, dbc.Unsigned(), true)
+	_, _, err := f.planner.plan(upgrade(nil), v2Lock(unsignedEntry))
+	require.ErrorContains(t, err, "would now come from the unsigned registry "+otherURL.String())
+	assert.Contains(t, err.Error(), signerChangeHint)
+
+	// Choosing the other registry as the source does not allow it either.
+	f = fixture(t, dbc.Unsigned(), false)
+	f.planner.allowSourceChange = true
+	other := otherURL.String()
+	_, _, err = f.planner.plan(upgrade(&driverSource{Type: sourceTypeRegistry, URL: &other}), v2Lock(unsignedEntry))
+	require.ErrorContains(t, err, "would now come from the unsigned registry "+other)
+
+	// The same unsigned registry resolves the driver again.
+	f = fixture(t, dbc.Unsigned(), false)
+	planned, _, err := f.planner.plan(upgrade(nil), v2Lock(unsignedEntry))
+	require.NoError(t, err)
+	assert.Equal(t, "1.1.0", planned[0].Entry.Version)
+
+	// A registry with the same key is the same signer for the lock file.
+	keyed := entry
+	keyed.Signer = lockedSigner{Type: lockSignerOpenPGP, Fingerprint: acme.Fingerprint()}
+	f = fixture(t, dbc.SignWith(acme), true)
+	planned, _, err = f.planner.plan(upgrade(nil), v2Lock(keyed))
+	require.NoError(t, err)
+	assert.Equal(t, other, planned[0].Entry.Source.URL)
+}

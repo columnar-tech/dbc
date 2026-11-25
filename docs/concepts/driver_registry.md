@@ -224,6 +224,8 @@ public_key_file = "keys/example.asc"
 that its registry is unsigned. If you later point a registry at a different key
 or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
 `--no-verify`; delete `dbc.lock` and run `dbc lock` again to accept the new key.
+Since every unsigned registry is a signer of its own, a driver locked from one
+is not resolved again from another either, also when its `source` changes.
 `dbc.lock` records the fingerprint of the primary key, so an updated
 certificate of the same key, for example with a new subkey or a revocation,
 keeps the pin valid; signatures are then verified with the updated

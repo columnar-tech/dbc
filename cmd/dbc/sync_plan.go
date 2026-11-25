@@ -157,6 +157,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 
 		var (
 			oldSigner lockedSigner
+			oldSource string
 			hadLock   bool
 			// replaced is the lock entry that relock could not keep because
 			// its version has no build for the uncovered platforms.
@@ -195,7 +196,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 				replaced = &d
 			}
 			// The driver is resolved again; its signer must not change silently.
-			oldSigner, hadLock = d.Signer, true
+			oldSigner, oldSource, hadLock = d.Signer, d.Source.URL, true
 		}
 
 		var pin *semver.Version
@@ -217,6 +218,12 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 		}
 		if hadLock && pd.Entry.Signer != oldSigner {
 			return nil, nil, signerChangedError(name, oldSigner, pd.Entry.Signer)
+		}
+		// Every unsigned registry is a signer of its own, so a driver pinned
+		// to one cannot move to another, not even with a changed source.
+		if hadLock && oldSigner.Type == lockSignerNone && pd.Entry.Source.URL != oldSource {
+			return nil, nil, fmt.Errorf("driver %s: the lock file has it from the unsigned registry %s, but it would now come from the unsigned registry %s, which is another signer; %s",
+				name, oldSource, pd.Entry.Source.URL, signerChangeHint)
 		}
 		if replaced != nil && (pd.Entry.Version != replaced.Version || pd.Entry.Source.URL != replaced.Source.URL) {
 			warnings = append(warnings, fmt.Sprintf("warning: driver %s: version %s from %s in the lock file has no build for %s in platforms, so version %s from %s was selected instead",
