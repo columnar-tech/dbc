@@ -191,12 +191,35 @@ func TestPlanLocked(t *testing.T) {
 		assert.NotContains(t, err.Error(), "run `dbc lock` to update the lock file")
 	})
 
-	t.Run("mismatches are reported before the plan", func(t *testing.T) {
+	t.Run("mismatches and problems of the plan are reported together", func(t *testing.T) {
 		f := newPlanFixture(t)
-		_, err := planLocked(&f.planner, listOf(map[string]driverSpec{"alpha": {Version: constraint(t, ">=2")}}), v2Lock(lockedAlpha("1.0.0", linux)).V2)
+		untrusted := lockedNamed("beta", "1.0.0", linux)
+		untrusted.Signer.Fingerprint = "0000000000000000000000000000000000000000"
+		noHost := lockedNamed("gamma", "1.0.0", macos)
+		extra := lockedNamed("delta", "1.0.0", macos)
+		lock := v2Lock(lockedAlpha("1.0.0", linux), untrusted, noHost, extra)
+		list := listOf(map[string]driverSpec{"alpha": {Version: constraint(t, ">=2")}, "beta": {}, "gamma": {}})
+		_, err := planLocked(&f.planner, list, lock.V2)
 		var lockedErr *lockedSyncError
 		require.ErrorAs(t, err, &lockedErr)
-		assert.Len(t, lockedErr.mismatches, 1)
+		assert.Equal(t, []string{
+			"driver alpha: version 1.0.0 in the lock file does not satisfy >=2",
+			"driver delta is in the lock file but not in the driver list",
+			"driver gamma 1.0.0 has no artifact for this platform (linux_amd64) in the lock file",
+		}, lockedErr.mismatches, "delta, which the list lacks, is not planned")
+		require.Len(t, lockedErr.trust, 1)
+		assert.Contains(t, lockedErr.trust[0], "driver beta")
+	})
+
+	t.Run("an undeclared host is reported with the mismatches", func(t *testing.T) {
+		f := newPlanFixture(t)
+		list := DriversList{Platforms: []string{"macos_arm64"}, Drivers: map[string]driverSpec{"alpha": {Version: constraint(t, ">=2")}}}
+		lock := lockFileV2{Platforms: []resolution.Target{testSyncTarget(t, "macos_arm64")}, Drivers: []lockedDriver{lockedAlpha("1.0.0", macos)}}
+		_, err := planLocked(&f.planner, list, lock)
+		var lockedErr *lockedSyncError
+		require.ErrorAs(t, err, &lockedErr)
+		require.Len(t, lockedErr.mismatches, 2)
+		assert.Contains(t, lockedErr.mismatches[1], "this platform (linux_amd64) is not in platforms of the driver list")
 	})
 
 	t.Run("an undeclared host is one error", func(t *testing.T) {

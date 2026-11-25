@@ -159,8 +159,8 @@ var errLockedNoLockFile = errors.New("dbc sync --locked needs a lock file; run `
 // dbc sync --locked. It never fetches an index and never changes an entry:
 // each driver must have an artifact for this platform in the lock file. All
 // drivers are checked before anything is downloaded, and every problem is
-// reported at once. The lock file must already match the driver list; see
-// lockMismatches.
+// reported at once. Entries of drivers that the driver list does not have
+// are skipped; lockMismatches reports them.
 func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDriver, error) {
 	platforms, err := list.targetPlatforms()
 	if err != nil {
@@ -182,6 +182,10 @@ func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDr
 	drivers := slices.Clone(lock.Drivers)
 	slices.SortFunc(drivers, func(a, b lockedDriver) int { return strings.Compare(a.Name, b.Name) })
 	for _, d := range drivers {
+		if _, ok := list.Drivers[d.Name]; !ok {
+			// lockMismatches reports the entry; there is nothing to plan.
+			continue
+		}
 		i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host })
 		if i < 0 {
 			failed.mismatches = append(failed.mismatches, fmt.Sprintf("driver %s %s has no artifact for this platform (%s) in the lock file",
@@ -217,14 +221,26 @@ func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDr
 }
 
 // planLocked checks that lock matches list and plans every driver from it;
-// see lockMismatches and syncPlanner.planLocked.
+// see lockMismatches and syncPlanner.planLocked. Mismatches and the
+// problems of the plan are reported together.
 func planLocked(p *syncPlanner, list DriversList, lock lockFileV2) ([]plannedDriver, error) {
 	mismatches, err := lockMismatches(list, lock)
 	if err != nil {
 		return nil, err
 	}
-	if len(mismatches) > 0 {
-		return nil, &lockedSyncError{mismatches: mismatches}
+	planned, err := p.planLocked(list, lock)
+	if len(mismatches) == 0 {
+		return planned, err
 	}
-	return p.planLocked(list, lock)
+	// Report the problems of the plan together with the mismatches.
+	failed := lockedSyncError{mismatches: mismatches}
+	var planErr *lockedSyncError
+	switch {
+	case errors.As(err, &planErr):
+		failed.mismatches = append(failed.mismatches, planErr.mismatches...)
+		failed.trust = planErr.trust
+	case err != nil:
+		failed.mismatches = append(failed.mismatches, err.Error())
+	}
+	return nil, &failed
 }
