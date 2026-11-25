@@ -207,7 +207,7 @@ _dbc_sync_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --level -l --path -p --no-verify --json --json-stream-progress" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --level -l --path -p --no-verify --locked --json --json-stream-progress" -- "$cur"))
         return 0
     fi
 

@@ -107,6 +107,8 @@ To upgrade the versions in the lockfile, delete the lockfile and run `dbc sync`.
 To create or refresh the lockfile without installing any driver, for example in a CI job or before committing, run [`dbc lock`](../reference/cli.md#lock).
 It resolves the driver list the same way `dbc sync` does and keeps existing compatible pins.
 
+To install from an existing lockfile without updating it, run [`dbc sync --locked`](../reference/cli.md#sync).
+
 ## Lockfile
 
 `dbc sync` automatically creates a lockfile file in the same directory as the driver list. By default, this file is called `dbc.lock` but will match the name of your driver list file if you choose to use a custom one.

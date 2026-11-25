@@ -43,6 +43,7 @@ type SyncCmd struct {
 	Path               string             `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to sync from"`
 	Level              config.ConfigLevel `arg:"-l" help:"Config level to install to (user, system)"`
 	NoVerify           bool               `arg:"--no-verify" help:"Allow installation of drivers without a signature file"`
+	Locked             bool               `arg:"--locked" help:"Install exactly what the lock file records, without updating it; fail if it does not match the driver list"`
 	Json               bool               `arg:"--json" help:"Print output as JSON instead of plaintext"`
 	JsonStreamProgress bool               `arg:"--json-stream-progress" help:"Stream progress events as JSON lines (implies --json)"`
 }
@@ -58,6 +59,7 @@ func (c SyncCmd) newModel(base baseModel) syncModel {
 		Path:               c.Path,
 		cfg:                getConfig(c.Level),
 		NoVerify:           c.NoVerify,
+		Locked:             c.Locked,
 		jsonOutput:         c.Json || c.JsonStreamProgress,
 		jsonStreamProgress: c.JsonStreamProgress,
 		ctx:                ctx,
@@ -120,7 +122,10 @@ type syncModel struct {
 	// path to driver list
 	Path     string
 	NoVerify bool
-	cfg      config.Config
+	// Locked installs from the lock file without fetching an index or
+	// writing the lock file; see driverListResolution.locked.
+	Locked bool
+	cfg    config.Config
 
 	jsonOutput         bool
 	jsonStreamProgress bool
@@ -307,6 +312,7 @@ func (s syncModel) prepareWithWarnings() (items []syncItem, warnings []string, e
 		ctx:         s.ctx,
 		projectLock: s.projectLock,
 		base:        s.baseModel,
+		locked:      s.Locked,
 	}.resolve(s.fetch)
 }
 
@@ -340,6 +346,11 @@ type driverListResolution struct {
 	// hostOptional plans drivers whose locked version has no build for this
 	// platform; see syncPlanner.hostOptional.
 	hostOptional bool
+	// locked plans every driver from its lock entry and never writes the
+	// lock file or fetches an index. The lock file must exist and match the
+	// driver list; otherwise resolve fails before fetch runs. dbc sync
+	// --locked sets it.
+	locked bool
 }
 
 // resolve plans every driver, runs fetch for each planned driver and writes
@@ -381,12 +392,22 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 	if err != nil {
 		return nil, warnings, err
 	}
-	if err := validateDriverSources(list); err != nil {
-		return nil, warnings, err
+	// lockMismatches reports invalid sources together with the other
+	// differences, so --locked does not stop at the first one.
+	if !r.locked {
+		if err := validateDriverSources(list); err != nil {
+			return nil, warnings, err
+		}
 	}
 	existing, err := readLockFile(lockPath)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+	switch {
+	case r.locked && errors.Is(err, fs.ErrNotExist):
+		return nil, warnings, errLockedNoLockFile
+	case err != nil && !errors.Is(err, fs.ErrNotExist):
 		return nil, warnings, err
+	case r.locked && existing.Version != lockFileVersionV2:
+		return nil, warnings, fmt.Errorf("dbc sync --locked needs a version %d lock file, but %s is version %d; run `dbc lock` to update it",
+			lockFileVersionV2, lockPath, existing.Version)
 	}
 	if err := applyProjectRegistries(list); err != nil {
 		var urls []*url.URL
@@ -406,7 +427,12 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 		allowSourceChange: r.allowSourceChange,
 		hostOptional:      r.hostOptional,
 	}
-	planned, warnings, err := planner.plan(list, existing)
+	var planned []plannedDriver
+	if r.locked {
+		planned, err = planLocked(&planner, list, existing.V2)
+	} else {
+		planned, warnings, err = planner.plan(list, existing)
+	}
 	if warning := projectRegistryWarning(list); warning != "" {
 		warnings = append([]string{warning}, warnings...)
 	}
@@ -431,6 +457,9 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 	}
 	if err := r.ctx.Err(); err != nil {
 		return items, warnings, err
+	}
+	if r.locked {
+		return items, warnings, nil
 	}
 	if err := writeLockFileV2(lockPath, lockFileV2{Version: lockFileVersionV2, Platforms: planner.platforms, Drivers: entries}); err != nil {
 		return items, warnings, err
