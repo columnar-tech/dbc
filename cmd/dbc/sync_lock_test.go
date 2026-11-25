@@ -1053,3 +1053,27 @@ func (suite *SubcommandTestSuite) TestSyncVerifiesWithThePlannedKey() {
 	suite.Nil(signatureVerifier(packageSigner{}, true), "NoVerify skips the verification")
 	suite.Nil(signatureVerifier(packageSigner{unsigned: true}, false), "an unsigned registry is not verified")
 }
+
+// A lock file that a newer dbc wrote, with a source type that this version
+// does not know, stops sync and lock with a hint to update, and is left as
+// it is.
+func (suite *SubcommandTestSuite) TestSyncKeepsALockFileFromANewerDbc() {
+	listPath := suite.writeDriverList("test-driver-1")
+	newer := []byte("version = 2\n\n[[drivers]]\nname = 'test-driver-1'\nversion = '1.0.0'\n" +
+		"[drivers.signer]\ntype = 'openpgp'\nfingerprint = '" + testSigner.Fingerprint + "'\n" +
+		"[drivers.source]\ntype = 'packslip'\nmanifest = 'https://example.com/slip'\n" +
+		"[[drivers.artifacts]]\nformat = 'tar.gz'\nhash = 'sha256:" + strings.Repeat("0", 64) + "'\n" +
+		"target = { os = 'linux', arch = 'amd64', libc = 'gnu' }\nlocation = { kind = 'url', value = 'https://example.com/a.tar.gz' }\n")
+	suite.Require().NoError(os.WriteFile(suite.lockPath(), newer, 0o644))
+
+	for _, cmd := range []commandModel{SyncCmd{Path: listPath, Level: suite.configLevel}, LockCmd{Path: listPath}} {
+		var counters syncCounters
+		out := suite.runCmdErr(cmd.GetModelCustom(counters.counted(testBaseModel())))
+		suite.Contains(out, `unknown source type "packslip"`)
+		suite.Contains(out, lockNewerDbcHint)
+		suite.Zero(counters.index)
+		suite.Zero(counters.downloads)
+		suite.Equal(newer, suite.readLockBytes())
+	}
+	suite.driverIsNotInstalled("test-driver-1")
+}
