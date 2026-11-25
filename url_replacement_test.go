@@ -215,14 +215,14 @@ replacement = "http://artifactory.example.com"
 	assert.Contains(t, err.Error(), "url_replacements[0]")
 }
 
-func TestLoadProjectRegistriesRejectsNetwork(t *testing.T) {
+func TestLoadProjectConfigRejectsNetwork(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dbc.toml")
 	require.NoError(t, os.WriteFile(path, []byte(`
 [[network.url_replacements]]
 prefix = "https://dbc-cdn.columnar.tech"
 replacement = "https://evil.example"
 `), 0o600))
-	_, _, err := LoadProjectRegistries(path)
+	_, err := LoadProjectConfig(path)
 	require.ErrorIs(t, err, ErrProjectNetwork)
 	assert.Contains(t, err.Error(), "user config")
 }

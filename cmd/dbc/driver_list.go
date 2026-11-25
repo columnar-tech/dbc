@@ -18,13 +18,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
-	"strings"
+	"path/filepath"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -36,6 +38,8 @@ type DriversList struct {
 	// It is a pointer only to tell an explicit false, which is kept when the
 	// file is written back and warned about, from an omitted key.
 	ExcludeBuiltinRegistries *bool `toml:"exclude_builtin_registries,omitempty"`
+	// SigningKeys are the keys that Registries can name in signing_key.
+	SigningKeys map[string]dbc.SigningKeyDefinition `toml:"signing_keys,omitempty"`
 	// Platforms are the platform tuples that drivers are resolved for: the
 	// version of a driver must have a build for each of them, and the lock
 	// file records each of them. nil resolves drivers without regard to
@@ -45,6 +49,44 @@ type DriversList struct {
 	// Network is decoded only to reject it: network settings are read from
 	// the user config, never from a project's dbc.toml.
 	Network map[string]any `toml:"network,omitempty"`
+
+	// path is the absolute path of the file the list was decoded from. A
+	// relative public_key_file is resolved against its directory.
+	path string
+}
+
+// decodeDriverList decodes a driver list read from the file at path and
+// checks its registry configuration, so that a command never works with,
+// or writes back, registries or signing keys that are invalid.
+func decodeDriverList(r io.Reader, path string) (DriversList, error) {
+	var list DriversList
+	if err := toml.NewDecoder(r).Decode(&list); err != nil {
+		return DriversList{}, err
+	}
+	list.path = path
+	if abs, err := filepath.Abs(path); err == nil {
+		list.path = abs
+	}
+	if project := list.projectConfig(); project != nil {
+		if err := project.Validate(); err != nil {
+			return DriversList{}, fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return list, nil
+}
+
+// projectConfig returns the registry configuration of the list, or nil when
+// it declares none, so that the global config and the defaults apply as is.
+func (l DriversList) projectConfig() *dbc.ProjectConfig {
+	if len(l.Registries) == 0 && !l.excludeBuiltin() && len(l.SigningKeys) == 0 {
+		return nil
+	}
+	return &dbc.ProjectConfig{
+		Registries:               l.Registries,
+		ExcludeBuiltinRegistries: l.excludeBuiltin(),
+		SigningKeys:              l.SigningKeys,
+		Path:                     l.path,
+	}
 }
 
 // registriesChanged reports whether two DriversList values would produce
@@ -56,52 +98,62 @@ type DriversList struct {
 // an exact duplicate entry) are correctly NOT treated as drift.
 //
 // Implemented by running both lists through the same newDBCClient merge
-// path and comparing the resulting normalized URL sets. Display-only
-// fields like RegistryEntry.Name are ignored because they don't appear
-// in the merged URL comparison.
+// path and comparing the resulting normalized URLs and the signing policy
+// of each registry. Display-only fields like RegistryEntry.Name and signing
+// key definitions that no registry names are ignored.
 func registriesChanged(a, b DriversList) bool {
-	urlsA, errA := effectiveRegistryURLs(a)
-	urlsB, errB := effectiveRegistryURLs(b)
+	regsA, errA := effectiveRegistries(a)
+	regsB, errB := effectiveRegistries(b)
 	// If either side fails to produce a merged set (e.g. invalid config),
 	// treat as changed so the command aborts rather than writing against
 	// a config we can't analyze.
 	if errA != nil || errB != nil {
-		return errA != errB
-	}
-	if len(urlsA) != len(urlsB) {
 		return true
 	}
-	for i := range urlsA {
-		if urlsA[i] != urlsB[i] {
+	if len(regsA) != len(regsB) {
+		return true
+	}
+	for i := range regsA {
+		if regsA[i].url != regsB[i].url || !regsA[i].signing.Equal(regsB[i].signing) {
 			return true
 		}
 	}
 	return false
 }
 
-// effectiveRegistryURLs returns the normalized URL list the client would
-// use after merging the given DriversList with the current global config
-// and built-in defaults. It builds a throwaway client via newDBCClient
-// so merge semantics stay in sync with what NewClient actually uses.
-func effectiveRegistryURLs(list DriversList) ([]string, error) {
-	c, err := newDBCClient(list.Registries, list.excludeBuiltin())
+type effectiveRegistry struct {
+	url     string
+	signing dbc.RegistrySigningPolicy
+}
+
+// effectiveRegistries returns the registries, with normalized URLs, that the
+// client would use after merging the given DriversList with the current
+// global config and built-in defaults. It builds a throwaway client via
+// newDBCClient so merge semantics stay in sync with what NewClient actually
+// uses.
+func effectiveRegistries(list DriversList) ([]effectiveRegistry, error) {
+	c, err := newDBCClient(list.projectConfig())
 	if err != nil {
 		return nil, err
 	}
 	regs := c.Registries()
-	out := make([]string, len(regs))
+	out := make([]effectiveRegistry, len(regs))
 	for i, r := range regs {
+		out[i].signing = r.Signing
 		if r.BaseURL != nil {
-			out[i] = normalizeRegistryURL(r.BaseURL.String())
+			out[i].url = normalizeRegistryURL(r.BaseURL.String())
 		}
 	}
 	return out, nil
 }
 
 // normalizeRegistryURL returns a canonical form of a registry URL for
-// equality comparisons. Only truly no-op differences are collapsed:
+// equality comparisons. Only truly no-op differences are collapsed (see
+// registryurl.Endpoint):
 //
-//   - scheme and host are lowercased (case-insensitive per RFC 3986)
+//   - scheme and host are lowercased (case-insensitive per RFC 3986), and
+//     the default port of the scheme is dropped
+//   - escapes in the path are spelled as RFC 3986 normalizes them
 //   - a trailing slash on the path is stripped
 //   - fragments are dropped (not sent on HTTP requests)
 //
@@ -115,12 +167,7 @@ func normalizeRegistryURL(raw string) string {
 	if err != nil {
 		return raw
 	}
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	u.Path = strings.TrimRight(u.Path, "/")
-	u.Fragment = ""
-	u.RawFragment = ""
-	return u.String()
+	return registryurl.Endpoint(u).String()
 }
 
 // applyProjectRegistries rebuilds the process-wide dbc client with the
@@ -131,10 +178,11 @@ func applyProjectRegistries(list DriversList) error {
 	if list.Network != nil {
 		return dbc.ErrProjectNetwork
 	}
-	if len(list.Registries) == 0 && !list.excludeBuiltin() {
+	project := list.projectConfig()
+	if project == nil {
 		return nil
 	}
-	c, err := newDBCClient(list.Registries, list.excludeBuiltin())
+	c, err := newDBCClient(project)
 	if err != nil {
 		return fmt.Errorf("error configuring project registries: %w", err)
 	}
@@ -180,8 +228,8 @@ func applyProjectRegistriesFromCWD() error {
 	}
 	defer f.Close()
 
-	var list DriversList
-	if err := toml.NewDecoder(f).Decode(&list); err != nil {
+	list, err := decodeDriverList(f, p)
+	if err != nil {
 		return fmt.Errorf("error decoding driver list at %s: %w", p, err)
 	}
 	if err := applyProjectRegistries(list); err != nil {
@@ -229,13 +277,13 @@ func (spec driverSpec) withPrerelease() driverSpec {
 }
 
 func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
-	var m DriversList
 	f, err := os.Open(fname)
 	if err != nil {
 		return nil, fmt.Errorf("error opening driver list %s: %w", fname, err)
 	}
 	defer f.Close()
-	if err = toml.NewDecoder(f).Decode(&m); err != nil {
+	m, err := decodeDriverList(f, fname)
+	if err != nil {
 		return nil, fmt.Errorf("error decoding driver list %s: %w", fname, err)
 	}
 
@@ -248,7 +296,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 	// dbc.toml to another. Unlike add/sync (which own the process for one
 	// command), GetDriverList is a library helper that may be called
 	// multiple times.
-	client, err := newDBCClient(m.Registries, m.excludeBuiltin())
+	client, err := newDBCClient(m.projectConfig())
 	if err != nil {
 		return nil, fmt.Errorf("error configuring project registries: %w", err)
 	}
@@ -292,6 +340,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return drivers, nil
 	}
 
+	var signing dbc.RegistrySigningOperation
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
 		spec = spec.withPrerelease()
@@ -300,13 +349,17 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 			return nil, err
 		}
 		// indexFor already fails on an incomplete index.
-		pkg, err := dbc.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		pkg, err := signing.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if spec.Version != nil {
 				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
 			}
 			return candidate.GetLatestPackage(config.PlatformTuple(), spec.Prerelease == "allow")
 		})
 		if err != nil {
+			// A signer conflict has no selected driver, but is not a miss.
+			if isSelectionError(err) {
+				return nil, fmt.Errorf("%w\n%s", redactRegistryError(err, func() ([]dbc.Registry, error) { return client.Registries(), nil }), sourceHint)
+			}
 			if pkg.Driver.Path == "" && spec.Source != nil {
 				return nil, fmt.Errorf("driver `%s` not found in %s", name, spec.Source)
 			}

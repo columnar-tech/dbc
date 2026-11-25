@@ -245,7 +245,7 @@ type syncItem struct {
 	File *os.File
 	// Signer is the key the lock pins for the driver; the package signature is
 	// verified with it.
-	Signer *dbc.SigningKey
+	Signer packageSigner
 }
 
 // libraryChecksumError reports an archive whose driver library differs from
@@ -534,13 +534,14 @@ func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver, noV
 	return nil
 }
 
-// signatureVerifier returns the verifier of the package signature with key, or
-// nil when noVerify is set. Its failures are marked with
-// signatureVerificationError.
-func signatureVerifier(key *dbc.SigningKey, noVerify bool) config.PackageVerifier {
-	if noVerify {
+// signatureVerifier returns the verifier of the package signature with the
+// signer's key, or nil when noVerify is set or the registry is declared
+// unsigned. Its failures are marked with signatureVerificationError.
+func signatureVerifier(signer packageSigner, noVerify bool) config.PackageVerifier {
+	if noVerify || signer.unsigned {
 		return nil
 	}
+	key := signer.key
 	return func(stagingDir string, manifest config.Manifest) error {
 		if key == nil {
 			return &signatureVerificationError{err: errors.New("no signing key is available to verify the package")}
@@ -626,6 +627,8 @@ func archiveDigests(f *os.File, withLibrary bool, checks archiveChecks) (archive
 type installedDrvMsg struct {
 	info        config.DriverInfo
 	postInstall []string
+	// signatureVerified is whether the package signature was verified.
+	signatureVerified bool
 }
 
 type alreadyInstalledDrvMsg struct {
@@ -664,6 +667,7 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 				}
 			}
 			options.SignatureVerifier = signatureVerifier(item.Signer, s.NoVerify)
+			signatureVerified := options.SignatureVerifier != nil
 			manifest, err := s.installPackage(s.ctx, cfg, item.Name, item.File, options)
 			// Remove the archive before reporting: the program may exit as soon
 			// as the last result arrives.
@@ -683,8 +687,9 @@ func (s syncModel) installDriver(cfg config.Config, item syncItem) tea.Cmd {
 			}
 
 			program.Send(installedDrvMsg{
-				info:        manifest.DriverInfo,
-				postInstall: manifest.PostInstall.Messages,
+				info:              manifest.DriverInfo,
+				postInstall:       manifest.PostInstall.Messages,
+				signatureVerified: signatureVerified,
 			})
 		}()
 		return nil
@@ -796,8 +801,9 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 	case installedDrvMsg:
 		s.newlyInstalled = append(s.newlyInstalled, jsonschema.SyncedDriver{
-			Name:    msg.info.ID,
-			Version: msg.info.Version.String(),
+			Name:              msg.info.ID,
+			Version:           msg.info.Version.String(),
+			SignatureVerified: &msg.signatureVerified,
 		})
 
 		if s.jsonStreamProgress {
@@ -810,7 +816,11 @@ func (s syncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		var printCmd tea.Cmd
 		if !s.jsonOutput {
-			printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
+			if msg.signatureVerified {
+				printCmd = tea.Printf("%s %s-%s", checkMark, msg.info.ID, msg.info.Version)
+			} else {
+				printCmd = tea.Printf("%s %s-%s (signature not verified)", checkMark, msg.info.ID, msg.info.Version)
+			}
 
 			if len(msg.postInstall) > 0 {
 				for _, m := range msg.postInstall {

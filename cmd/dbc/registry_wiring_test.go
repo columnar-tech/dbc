@@ -157,7 +157,7 @@ func TestApplyProjectRegistriesExcludeWithoutEntries(t *testing.T) {
 	globalRegistryConfig = &dbc.GlobalConfig{
 		Registries: []dbc.RegistryEntry{{URL: "https://global.example.com"}},
 	}
-	initial, err := newDBCClient(nil, false)
+	initial, err := newDBCClient(nil)
 	require.NoError(t, err)
 	dbcClient = initial
 
@@ -178,7 +178,7 @@ func TestApplyProjectRegistriesNoopWhenBaseURLSet(t *testing.T) {
 	t.Cleanup(func() { dbcClient = savedClient })
 
 	// newDBCClient honors DBC_BASE_URL and returns a client with just that URL.
-	c, err := newDBCClient(nil, false)
+	c, err := newDBCClient(nil)
 	require.NoError(t, err)
 	dbcClient = c
 

@@ -152,7 +152,7 @@ url = "https://custom.registry.io"
 	}
 }
 
-func TestLoadProjectRegistries(t *testing.T) {
+func TestLoadProjectConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		toml        string
@@ -188,28 +188,35 @@ prerelease = ["not", "a", "string"]
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "dbc.toml")
 			require.NoError(t, os.WriteFile(path, []byte(tc.toml), 0o600))
-			entries, exclude, err := LoadProjectRegistries(path)
+			cfg, err := LoadProjectConfig(path)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				assert.ErrorContains(t, err, path)
-				assert.Nil(t, entries)
-				assert.False(t, exclude)
+				assert.Nil(t, cfg)
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantEntries, entries)
-			assert.Equal(t, tc.wantExclude, exclude)
+			assert.Equal(t, tc.wantEntries, cfg.Registries)
+			assert.Equal(t, tc.wantExclude, cfg.ExcludeBuiltinRegistries)
+			assert.Equal(t, path, cfg.Path)
 		})
 	}
 }
 
-func TestLoadProjectRegistriesMissingFile(t *testing.T) {
+func TestLoadProjectConfigMissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dbc.toml")
-	entries, exclude, err := LoadProjectRegistries(path)
+	cfg, err := LoadProjectConfig(path)
 	require.ErrorIs(t, err, os.ErrNotExist)
 	assert.ErrorContains(t, err, path)
-	assert.Nil(t, entries)
-	assert.False(t, exclude)
+	assert.Nil(t, cfg)
+}
+
+// entryRegistries converts entries without signing keys to registries.
+func entryRegistries(t *testing.T, entries []RegistryEntry) []Registry {
+	t.Helper()
+	registries, err := registriesFromEntries(entries, nil, "", false)
+	require.NoError(t, err)
+	return registries
 }
 
 func TestMergeRegistries(t *testing.T) {
@@ -400,25 +407,11 @@ func TestMergeRegistries(t *testing.T) {
 				"https://r.example.com/#a",
 			},
 		},
-		{
-			name: "invalid entries silently skipped",
-			project: []RegistryEntry{
-				{URL: "not a url"},
-				{URL: "ftp://example.com"},
-				{URL: "https://good.example.com"},
-			},
-			defaults: defaults,
-			wantURLsInOrder: []string{
-				"https://good.example.com",
-				"https://default-a.example.com",
-				"https://default-b.example.com",
-			},
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := mergeRegistries(tc.project, tc.global, tc.excludeBuiltin, tc.defaults)
+			got := mergeRegistries(entryRegistries(t, tc.project), entryRegistries(t, tc.global), tc.excludeBuiltin, tc.defaults)
 			assert.Equal(t, tc.wantURLsInOrder, urls(got))
 			if tc.wantFirstName != "" {
 				require.NotEmpty(t, got)
@@ -450,15 +443,15 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		wantBuiltin *bool
 	}{
 		{
-			name:        "WithProjectRegistries merges with defaults",
-			opts:        []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false)},
+			name:        "WithProjectConfig merges with defaults",
+			opts:        []Option{WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com"}}})},
 			wantRegs:    []string{"https://proj.example.com"},
 			wantCount:   0,
 			wantBuiltin: new(true),
 		},
 		{
-			name:      "WithProjectRegistries + exclude_builtin_registries returns only project",
-			opts:      []Option{WithProjectRegistries([]RegistryEntry{{URL: "https://only.example.com"}}, true)},
+			name:      "WithProjectConfig + exclude_builtin_registries returns only project",
+			opts:      []Option{WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://only.example.com"}}, ExcludeBuiltinRegistries: true})},
 			wantRegs:  []string{"https://only.example.com"},
 			wantCount: 1,
 		},
@@ -473,17 +466,17 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			opts: []Option{
 				WithBaseURL("https://only-base.example.com"),
 				WithGlobalConfig(&GlobalConfig{Registries: []RegistryEntry{{URL: "https://ignored.example.com"}}}),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://ignored2.example.com"}}, false),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://ignored2.example.com"}}}),
 			},
 			wantRegs:  []string{"https://only-base.example.com"},
 			wantCount: 1,
 		},
 		{
-			name: "WithRegistries wins over WithGlobalConfig and WithProjectRegistries",
+			name: "WithRegistries wins over WithGlobalConfig and WithProjectConfig",
 			opts: []Option{
 				WithRegistries([]Registry{{BaseURL: mustParseURL("https://explicit.example.com")}}),
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com"}}}),
 			},
 			wantRegs:  []string{"https://explicit.example.com"},
 			wantCount: 1,
@@ -492,7 +485,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "project exclude_builtin_registries=true with no project entries keeps global entries",
 			opts: []Option{
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries(nil, true),
+				WithProjectConfig(&ProjectConfig{Registries: nil, ExcludeBuiltinRegistries: true}),
 			},
 			wantRegs:  []string{"https://glob.example.com"},
 			wantCount: 1,
@@ -501,7 +494,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "global true + project false keeps the built-in registries excluded",
 			opts: []Option{
 				WithGlobalConfig(excludeGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com"}}}),
 			},
 			wantRegs:    []string{"https://proj.example.com", "https://glob.example.com"},
 			wantCount:   2,
@@ -511,7 +504,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "global false + project true excludes the built-in registries",
 			opts: []Option{
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, true),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com"}}, ExcludeBuiltinRegistries: true}),
 			},
 			wantRegs:    []string{"https://proj.example.com", "https://glob.example.com"},
 			wantCount:   2,
@@ -521,14 +514,14 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "global false + project false keeps the built-in registries",
 			opts: []Option{
 				WithGlobalConfig(nonEmptyGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com"}}}),
 			},
 			wantRegs:    []string{"https://proj.example.com", "https://glob.example.com"},
 			wantBuiltin: new(true),
 		},
 		{
 			name:    "global true + project false with no entries → empty merge rejected",
-			opts:    []Option{WithGlobalConfig(emptyExcludeGlobal), WithProjectRegistries(nil, false)},
+			opts:    []Option{WithGlobalConfig(emptyExcludeGlobal), WithProjectConfig(&ProjectConfig{Registries: nil})},
 			wantErr: "empty registry list",
 		},
 		{
@@ -540,39 +533,39 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name: "global exclude_builtin_registries=true + project supplies entries → accepted",
 			opts: []Option{
 				WithGlobalConfig(emptyExcludeGlobal),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com"}}, false),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com"}}}),
 			},
 			wantRegs:  []string{"https://proj.example.com"},
 			wantCount: 1,
 		},
 		{
-			name:    "WithProjectRegistries rejects empty URL",
-			opts:    []Option{WithProjectRegistries([]RegistryEntry{{URL: ""}}, false)},
+			name:    "WithProjectConfig rejects empty URL",
+			opts:    []Option{WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: ""}}})},
 			wantErr: "empty url",
 		},
 		{
-			name:    "WithProjectRegistries rejects non-http scheme",
-			opts:    []Option{WithProjectRegistries([]RegistryEntry{{URL: "ftp://example.com"}}, false)},
+			name:    "WithProjectConfig rejects non-http scheme",
+			opts:    []Option{WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "ftp://example.com"}}})},
 			wantErr: "scheme must be http or https",
 		},
 		{
-			name:    "WithProjectRegistries rejects truly-empty merge",
-			opts:    []Option{WithProjectRegistries(nil, true)},
+			name:    "WithProjectConfig rejects truly-empty merge",
+			opts:    []Option{WithProjectConfig(&ProjectConfig{Registries: nil, ExcludeBuiltinRegistries: true})},
 			wantErr: "empty registry list",
 		},
 		{
-			name: "WithProjectRegistries rejects a repeated name",
-			opts: []Option{WithProjectRegistries([]RegistryEntry{
+			name: "WithProjectConfig rejects a repeated name",
+			opts: []Option{WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{
 				{URL: "https://a.example.com", Name: "acme"},
 				{URL: "https://b.example.com", Name: "acme"},
-			}, false)},
+			}})},
 			wantErr: "declared more than once",
 		},
 		{
 			name: "the same name in the global config and the project is allowed",
 			opts: []Option{
 				WithGlobalConfig(&GlobalConfig{Registries: []RegistryEntry{{URL: "https://glob.example.com", Name: "acme"}}}),
-				WithProjectRegistries([]RegistryEntry{{URL: "https://proj.example.com", Name: "acme"}}, false),
+				WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "https://proj.example.com", Name: "acme"}}}),
 			},
 			wantRegs: []string{"https://proj.example.com", "https://glob.example.com"},
 		},
@@ -629,7 +622,7 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 // identity is encoded in the package URL so the resolved PkgInfo's Path
 // reveals which tier won.
 //
-// Going through NewClient + WithGlobalConfig + WithProjectRegistries would
+// Going through NewClient + WithGlobalConfig + WithProjectConfig would
 // require the real built-in defaults (which point at production servers)
 // to also be present in the merge, making this test flaky. Constructing
 // the Client directly with the merged registry list is the in-package
@@ -722,7 +715,7 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	stable := func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", false)
 	}
-	pkg, err := ResolvePackage([]Driver{
+	pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{
 		decode("2.0.0-beta.1"),
 		decode("0.7.0"),
 	}, nil, "shared", stable)
@@ -731,17 +724,17 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	prerelease := decode("2.0.0-beta.1")
 	_, err = prerelease.GetLatestPackage("linux_amd64", false)
 	require.ErrorIs(t, err, ErrPackageMiss)
-	pkg, err = ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", true)
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0-beta.1", pkg.Version.String())
-	pkg, err = ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	constraint, err := semver.NewConstraint("=0.7.0")
 	require.NoError(t, err)
-	pkg, err = ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 }
@@ -767,7 +760,7 @@ func TestResolvePackageEmptyPackageInfo(t *testing.T) {
 					var pkg PkgInfo
 					var err error
 					require.NotPanics(t, func() {
-						pkg, err = ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+						pkg, err = (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 							return d.GetLatestPackage("linux_amd64", allowPrerelease)
 						})
 					})
@@ -801,7 +794,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 				func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) },
 				func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(c, "linux_amd64") },
 			} {
-				pkg, err := ResolvePackage(drivers, nil, "shared", selectPackage)
+				pkg, err := (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", selectPackage)
 				require.NoError(t, err)
 				assert.Equal(t, "1.0.0", pkg.Version.String())
 				assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -812,7 +805,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 			assert.Equal(t, "2.0.0", latest.String())
 			exact, err := semver.NewConstraint("=2.0.0")
 			require.NoError(t, err)
-			pkg, err := ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+			pkg, err := (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 				return d.GetWithConstraint(exact, "linux_amd64")
 			})
 			require.EqualError(t, err, "no package found for platform 'linux_amd64'")
@@ -843,7 +836,7 @@ func TestResolvePackageMissingVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pkg, err := ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
+			pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
 			require.EqualError(t, err, "invalid package metadata for driver shared: missing version")
 			assert.NotErrorIs(t, err, ErrPackageMiss)
 			assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -876,6 +869,15 @@ func TestSearchPrefersTheConfiguredRegistryName(t *testing.T) {
 	}
 }
 
+// identities adapts a signer function for tests whose signer names are both
+// compared and shown.
+func identities(f func(*Registry) (string, error)) func(*Registry) (signerIdentity, error) {
+	return func(r *Registry) (signerIdentity, error) {
+		s, err := f(r)
+		return signerIdentity{key: s, label: s}, err
+	}
+}
+
 func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 	first := &Registry{Name: "first", BaseURL: mustParseURL("https://user:secret@first.test/r?token=t")}
 	second := &Registry{BaseURL: mustParseURL("https://second.test")}
@@ -888,7 +890,7 @@ func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 		return d
 	}
 	signers := map[*Registry]string{first: "key A", second: "key A", third: "key B"}
-	signerOf := func(r *Registry) (string, error) { return signers[r], nil }
+	signerOf := identities(func(r *Registry) (string, error) { return signers[r], nil })
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
 
 	// The same signer: the #584 fallback from a registry without a matching
@@ -913,14 +915,17 @@ func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 	assert.NotContains(t, err.Error(), "secret")
 	assert.NotContains(t, err.Error(), "token")
 
-	// A failure to identify a signer is an error.
-	_, err = resolvePackage([]Driver{driver(first, "1.0.0")}, nil, "shared", latest, func(*Registry) (string, error) {
-		return "", errors.New("cannot read the key")
-	})
+	// A failure to identify a signer is an error, but a single registry
+	// without failed ones is not compared, so its key is not read.
+	unreadable := identities(func(*Registry) (string, error) { return "", errors.New("cannot read the key") })
+	_, err = resolvePackage([]Driver{driver(first, "1.0.0"), driver(second)}, nil, "shared", latest, unreadable)
 	assert.ErrorContains(t, err, "cannot read the key")
+	pkg, err = resolvePackage([]Driver{driver(first, "1.0.0")}, nil, "shared", latest, unreadable)
+	require.NoError(t, err)
+	assert.Same(t, first, pkg.Driver.Registry)
 
 	// The built-in identity is the same for every registry.
-	pkg, err = ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
+	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
 	require.NoError(t, err)
 	assert.Same(t, third, pkg.Driver.Registry)
 }
@@ -933,7 +938,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 	sameKey := &Registry{BaseURL: mustParseURL("https://same.test")}
 	otherKey := &Registry{BaseURL: mustParseURL("https://other.test")}
 	signers := map[*Registry]string{public: "key A", private: "key A", sameKey: "key A", otherKey: "key B"}
-	signerOf := func(r *Registry) (string, error) { return signers[r], nil }
+	signerOf := identities(func(r *Registry) (string, error) { return signers[r], nil })
 	listed := Driver{Path: "shared", Registry: public,
 		PkgInfo: []pkginfo{{Version: semver.MustParse("1.0.0"), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}}}}
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
@@ -941,7 +946,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 
 	// The built-in registries share a signer: a failed private registry,
 	// even ranked above the public one, does not block a public driver.
-	pkg, err := ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
+	pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
 	require.NoError(t, err)
 	assert.Same(t, public, pkg.Driver.Registry)
 
@@ -964,7 +969,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 		name     string
 		drivers  []Driver
 		indexErr error
-		signerOf func(*Registry) (string, error)
+		signerOf func(*Registry) (signerIdentity, error)
 		want     string
 	}{
 		{name: "another signer", drivers: []Driver{listed}, indexErr: errors.Join(failed(otherKey))},
@@ -973,9 +978,9 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 		{name: "a failure without a registry", drivers: []Driver{listed}, indexErr: errors.New("network error")},
 		{name: "a registry index error without a registry", drivers: []Driver{listed}, indexErr: &RegistryIndexError{Err: ErrUnauthorized}},
 		{name: "an unknown signer", drivers: []Driver{listed}, indexErr: errors.Join(failed(private)), want: "cannot read the key",
-			signerOf: func(r *Registry) (string, error) {
+			signerOf: func(r *Registry) (signerIdentity, error) {
 				if r == private {
-					return "", errors.New("cannot read the key")
+					return signerIdentity{}, errors.New("cannot read the key")
 				}
 				return signerOf(r)
 			}},

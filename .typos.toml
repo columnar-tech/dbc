@@ -27,3 +27,7 @@ extend-words = { ine = "ine" }
 [type.fpr]
 extend-glob = ["**/import_signing_key.sh"]
 extend-words = { fpr = "fpr" }
+
+# Base64 data of ASCII-armored OpenPGP keys, such as the key in the docs.
+[default]
+extend-ignore-re = ["(?s)-----BEGIN PGP PUBLIC KEY BLOCK-----.*?-----END PGP PUBLIC KEY BLOCK-----"]

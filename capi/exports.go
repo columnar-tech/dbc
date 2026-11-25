@@ -44,6 +44,12 @@ package main
 //   DBC_OPTION_REGISTRY_COUNT              non-negative decimal count of explicit registries
 //   DBC_OPTION_REGISTRY_PREFIX "<n>.url"    explicit registry URL at index n (0, 1, ...)
 //   DBC_OPTION_REGISTRY_PREFIX "<n>.name"   optional name for that registry
+//   DBC_OPTION_REGISTRY_PREFIX "<n>.signing_key"
+//                                           optional: an ASCII-armored OpenPGP public
+//                                           key that the registry's packages are
+//                                           verified with, or "false" for a registry
+//                                           whose packages are not signed; when
+//                                           omitted the Columnar key is used
 //   DBC_OPTION_REGISTRY_CONFIG             "default" (or empty) loads the user's global
 //                                           config.toml; "none" skips it
 //   DBC_OPTION_PROJECT_FILE                path to dbc.toml (registries/exclude_builtin_registries)

@@ -91,17 +91,36 @@ impl ClientConfig {
 pub struct Registry {
     pub url: String,
     pub name: Option<String>,
+    /// How the registry's driver packages are verified. `None` uses the
+    /// built-in Columnar key.
+    pub signing_key: Option<SigningKey>,
 }
 
 impl Registry {
     pub fn new(url: impl Into<String>) -> Self {
-        Self { url: url.into(), name: None }
+        Self { url: url.into(), name: None, signing_key: None }
     }
 
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
+
+    pub fn signing_key(mut self, signing_key: SigningKey) -> Self {
+        self.signing_key = Some(signing_key);
+        self
+    }
+}
+
+/// How the driver packages of an explicit [`Registry`] are verified.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SigningKey {
+    /// Verify with this ASCII-armored OpenPGP public key.
+    PublicKey(String),
+    /// The registry's packages are not signed and are not verified. The
+    /// archive hash that the registry publishes is still checked.
+    Unsigned,
 }
 
 /// Whether to load the user's global registry configuration.

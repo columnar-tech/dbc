@@ -130,6 +130,9 @@ func TestReadLockFileV2Invalid(t *testing.T) {
 		{"legacy revision field", hdr + "revision = 1\n", "revision"},
 		{"legacy table", drv(validArtifact()) + "[drivers.legacy]\nvalue = 'old'\n", "legacy"},
 		{"unknown signer type", strings.Replace(drv(validArtifact()), "type = 'openpgp'", "type = 'x509'", 1), "unknown signer type"},
+		{"unsigned signer with fingerprint", strings.Replace(drv(validArtifact()), "type = 'openpgp'", "type = 'none'", 1), "takes no fingerprint"},
+		{"unsigned signer with empty fingerprint", strings.Replace(strings.Replace(drv(validArtifact()), "type = 'openpgp'", "type = 'none'", 1), testSigner.Fingerprint, "", 1), "takes no fingerprint"},
+		{"openpgp signer without fingerprint", strings.Replace(drv(validArtifact()), "fingerprint = '"+testSigner.Fingerprint+"'\n", "", 1), "malformed signer fingerprint"},
 		{"short fingerprint", strings.Replace(drv(validArtifact()), testSigner.Fingerprint, "ab7766e9", 1), "fingerprint"},
 		{"uppercase fingerprint", strings.Replace(drv(validArtifact()), testSigner.Fingerprint, strings.ToUpper(testSigner.Fingerprint), 1), "fingerprint"},
 		{"non-hex fingerprint", strings.Replace(drv(validArtifact()), testSigner.Fingerprint, strings.Repeat("g", 40), 1), "fingerprint"},
@@ -229,6 +232,22 @@ func TestLockFileV2AcceptsV6Fingerprint(t *testing.T) {
 	assert.Equal(t, lf.Drivers[0].Signer, got.V2.Drivers[0].Signer)
 }
 
+// An unsigned registry's driver is locked with type "none" and no
+// fingerprint key at all.
+func TestLockFileV2UnsignedSigner(t *testing.T) {
+	lf := validV2()
+	lf.Drivers[0].Signer = lockedSigner{Type: lockSignerNone}
+	p := filepath.Join(t.TempDir(), "dbc.lock")
+	require.NoError(t, writeLockFileV2(p, lf))
+	data, err := os.ReadFile(p)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "type = 'none'")
+	assert.NotContains(t, string(data), "fingerprint")
+	got, err := readLockFile(p)
+	require.NoError(t, err)
+	assert.Equal(t, lf.Drivers[0].Signer, got.V2.Drivers[0].Signer)
+}
+
 func TestWriteLockFileV2RejectsInvalid(t *testing.T) {
 	lf := validV2()
 	lf.Drivers[0].Artifacts[0].Hash = "bad"
@@ -244,6 +263,13 @@ func TestCanonicalRegistryIdentity(t *testing.T) {
 		{"HTTPS://DBC-CDN.Columnar.Tech/", "https://dbc-cdn.columnar.tech"},
 		{"https://host/mount/", "https://host/mount"},
 		{"https://user:pw@host:8443/m?token=x#frag", "https://host:8443/m"},
+		// The default port of the scheme is the same registry.
+		{"https://Host:443/m", "https://host/m"},
+		{"http://host:80", "http://host"},
+		{"http://host:443", "http://host:443"},
+		// Escapes are spelled as RFC 3986 normalizes them.
+		{"https://host/%64rivers", "https://host/drivers"},
+		{"https://host/a%3ab", "https://host/a%3Ab"},
 		{"http://host/a/b//", "http://host/a/b"},
 		{"ftp://host", ""},
 		{"https:///path", ""},
@@ -264,6 +290,9 @@ func TestCanonicalRegistryIdentity(t *testing.T) {
 	}
 	_, err := canonicalRegistryIdentity(nil)
 	assert.Error(t, err)
+	// A lock file must use that spelling.
+	assert.Error(t, validateRegistryIdentity("https://host/%64rivers"))
+	assert.Error(t, validateRegistryIdentity("https://host/a%3ab"))
 }
 
 func TestLockedPathValidation(t *testing.T) {
@@ -351,6 +380,17 @@ func TestBindLockedRegistry(t *testing.T) {
 		b, err = bindLockedRegistry(id, []dbc.Registry{reg("https://r.example.com/m")})
 		require.NoError(t, err)
 		assert.False(t, b.HasQuery)
+
+		// Adding the default port to the configured URL, or escaping an
+		// unreserved character in its path, keeps the binding.
+		for _, configured := range []string{"https://r.example.com:443/m", "https://r.example.com/%6D"} {
+			b, err = bindLockedRegistry(id, []dbc.Registry{reg(configured)})
+			require.NoError(t, err)
+			assert.Equal(t, configured, b.BaseURL.String())
+		}
+		// An escaped slash is another path.
+		_, err = bindLockedRegistry("https://r.example.com/a%2Fb", []dbc.Registry{reg("https://r.example.com/a/b")})
+		assert.ErrorContains(t, err, "not configured")
 	})
 
 	t.Run("none", func(t *testing.T) {

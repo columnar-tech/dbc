@@ -29,6 +29,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/Masterminds/semver/v3"
+	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/stretchr/testify/assert"
@@ -181,6 +182,32 @@ version = '>=1.0.0'
 }
 
 func TestRegistriesChanged(t *testing.T) {
+	t.Run("signing policies", func(t *testing.T) {
+		keyA, keyB := armoredTestKey(t, "a"), armoredTestKey(t, "b")
+		def := func(armored string) dbc.SigningKeyDefinition {
+			return dbc.SigningKeyDefinition{Type: dbc.SigningKeyTypeOpenPGP, PublicKey: &armored}
+		}
+		list := func(signingKey any, keys map[string]dbc.SigningKeyDefinition) DriversList {
+			return DriversList{
+				Registries:  []dbc.RegistryEntry{{URL: "https://r.example.com", SigningKey: signingKey}},
+				SigningKeys: keys,
+			}
+		}
+		withA := list("k", map[string]dbc.SigningKeyDefinition{"k": def(keyA)})
+
+		assert.False(t, registriesChanged(withA, list("k", map[string]dbc.SigningKeyDefinition{"k": def(keyA)})))
+		assert.False(t, registriesChanged(withA, list("renamed", map[string]dbc.SigningKeyDefinition{"renamed": def(keyA)})),
+			"renaming a definition keeps the key")
+		assert.False(t, registriesChanged(withA, list("k", map[string]dbc.SigningKeyDefinition{"k": def(keyA), "unused": def(keyB)})),
+			"a definition that no registry names does not change the resolution")
+		assert.True(t, registriesChanged(withA, list("k", map[string]dbc.SigningKeyDefinition{"k": def(keyB)})),
+			"replacing the key of a definition changes the resolution")
+		assert.True(t, registriesChanged(withA, list(nil, nil)), "the Columnar key instead of a custom key")
+		assert.True(t, registriesChanged(withA, list(false, nil)), "unsigned instead of a custom key")
+		assert.True(t, registriesChanged(list(nil, nil), list(false, nil)), "unsigned instead of the Columnar key")
+		assert.True(t, registriesChanged(withA, list("missing", nil)), "an invalid config is treated as changed")
+	})
+
 	t.Run("identical lists compare equal", func(t *testing.T) {
 		a := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
 		b := DriversList{Registries: []dbc.RegistryEntry{{URL: "https://a.example.com"}}}
@@ -316,4 +343,15 @@ func TestDriversListRegistries(t *testing.T) {
 		require.NoError(t, toml.Unmarshal([]byte(content), &list))
 		assert.Equal(t, new(true), list.ExcludeBuiltinRegistries)
 	})
+}
+
+func armoredTestKey(t *testing.T, name string) string {
+	t.Helper()
+	key, err := crypto.PGP().KeyGeneration().AddUserId(name, name+"@example.invalid").New().GenerateKey()
+	require.NoError(t, err)
+	pub, err := key.ToPublic()
+	require.NoError(t, err)
+	armored, err := pub.Armor()
+	require.NoError(t, err)
+	return armored
 }

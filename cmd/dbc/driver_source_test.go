@@ -428,15 +428,24 @@ func (suite *SubcommandTestSuite) TestInstallFromARegistryReplacesTheSameVersion
 }
 
 // TestIsSelectionError covers the hint for an error that only an explicit
-// registry avoids.
-//
-// TODO: test a signer conflict end to end through add, install, lock and
-// sync once registries can name their own signing key; until then every
-// registry has the same signer and no conflict can occur in the CLI.
+// registry avoids. signer_conflict_test.go tests these errors end to end.
 func TestIsSelectionError(t *testing.T) {
 	conflict := &dbc.SignerConflictError{Name: "x"}
 	assert.True(t, isSelectionError(fmt.Errorf("wrapped: %w", conflict)))
 	assert.True(t, isSelectionError(fmt.Errorf("wrapped: %w", dbc.ErrIncompleteIndex)))
 	assert.False(t, isSelectionError(dbc.ErrPackageMiss))
 	assert.False(t, isSelectionError(errors.New("driver `x` not found")))
+}
+
+// TestNormalizeRegistryURL pins what dbc add's check for a concurrent change
+// of a registry treats as the same URL.
+func TestNormalizeRegistryURL(t *testing.T) {
+	assert.Equal(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL("HTTPS://R.example.com:443/m/#frag"))
+	assert.Equal(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL("https://r.example.com/%6d"))
+	assert.Equal(t, normalizeRegistryURL("https://r.example.com/a%3Ab"), normalizeRegistryURL("https://r.example.com/a%3ab"))
+	// A reserved character keeps its spelling.
+	assert.NotEqual(t, normalizeRegistryURL("https://r.example.com/a%3Ab"), normalizeRegistryURL("https://r.example.com/a:b"))
+	for _, other := range []string{"https://r.example.com:8443/m", "https://r.example.com/m?tenant=a", "https://u@r.example.com/m", "http://r.example.com/m"} {
+		assert.NotEqual(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL(other), other)
+	}
 }

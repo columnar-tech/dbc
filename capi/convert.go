@@ -17,6 +17,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -55,9 +56,10 @@ func clientConfig(keys, values []string) (api.ClientConfig, error) {
 	var cfg api.ClientConfig
 	var cred api.Credential
 	type registryOption struct {
-		registry api.Registry
-		urlSet   bool
-		nameSet  bool
+		registry      api.Registry
+		urlSet        bool
+		nameSet       bool
+		signingKeySet bool
 	}
 	var registries map[int]registryOption
 	registryCount := -1
@@ -97,20 +99,26 @@ func clientConfig(keys, values []string) (api.ClientConfig, error) {
 			}
 			number, field, ok := strings.Cut(suffix, ".")
 			index, err := strconv.Atoi(number)
-			if !ok || err != nil || index < 0 || strconv.Itoa(index) != number || (field != "url" && field != "name") {
+			if !ok || err != nil || index < 0 || strconv.Itoa(index) != number || (field != "url" && field != "name" && field != "signing_key") {
 				return api.ClientConfig{}, fmt.Errorf("dbc: invalid registry option %q", key)
 			}
 			entry := registries[index]
-			if field == "url" {
+			switch field {
+			case "url":
 				if entry.urlSet {
 					return api.ClientConfig{}, fmt.Errorf("dbc: duplicate client option %q", key)
 				}
 				entry.registry.URL, entry.urlSet = value, true
-			} else {
+			case "name":
 				if entry.nameSet {
 					return api.ClientConfig{}, fmt.Errorf("dbc: duplicate client option %q", key)
 				}
 				entry.registry.Name, entry.nameSet = value, true
+			default:
+				if entry.signingKeySet {
+					return api.ClientConfig{}, fmt.Errorf("dbc: duplicate client option %q", key)
+				}
+				entry.registry.SigningKey, entry.signingKeySet = signingKeyOption(value), true
 			}
 			if registries == nil {
 				registries = make(map[int]registryOption)
@@ -135,6 +143,17 @@ func clientConfig(keys, values []string) (api.ClientConfig, error) {
 		cfg.Credential = &cred
 	}
 	return cfg, nil
+}
+
+// signingKeyOption maps a registry.<n>.signing_key value onto the JSON form
+// of api.Registry.SigningKey: "false" for an unsigned registry, and anything
+// else as the armored public key text.
+func signingKeyOption(value string) json.RawMessage {
+	if value == "false" {
+		return json.RawMessage("false")
+	}
+	data, _ := json.Marshal(value)
+	return data
 }
 
 // installOptions maps dbc_install_flags onto api.InstallOptions, rejecting

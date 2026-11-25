@@ -34,17 +34,16 @@ import (
 type clientConfig struct {
 	httpClient *http.Client
 	// registries holds the current registry list as options are applied.
-	// WithRegistries overwrites this; WithGlobalConfig/WithProjectRegistries
+	// WithRegistries overwrites this; WithGlobalConfig/WithProjectConfig
 	// consult it as the "defaults" slice in the merge, which means callers
 	// who pass WithRegistries retain full control over that baseline.
-	registries            []Registry
-	userAgent             string
-	userAgentSuffix       string
-	baseURL               string
-	credentialResolver    func(*url.URL) (*auth.Credential, error)
-	globalConfig          *GlobalConfig
-	projectRegistries     []RegistryEntry
-	projectExcludeBuiltin bool
+	registries         []Registry
+	userAgent          string
+	userAgentSuffix    string
+	baseURL            string
+	credentialResolver func(*url.URL) (*auth.Credential, error)
+	globalConfig       *GlobalConfig
+	project            *ProjectConfig
 	// explicitRegistries tracks whether the caller passed WithRegistries.
 	// When true, registry-config options (global/project) are ignored so
 	// the caller's explicit registry set is used as-is.
@@ -162,22 +161,36 @@ func NewClient(opts ...Option) (*Client, error) {
 	} else if cfg.explicitRegistries {
 		// WithRegistries was passed — use the caller's list verbatim and
 		// do not merge with global/project configuration.
-	} else if cfg.globalConfig != nil || cfg.projectRegistries != nil || cfg.projectExcludeBuiltin {
-		if err := validateRegistryEntries(cfg.projectRegistries); err != nil {
-			return nil, err
+		for _, r := range cfg.registries {
+			if err := r.Signing.validate(); err != nil {
+				return nil, fmt.Errorf("registry %s: %w", r.BaseURL, err)
+			}
 		}
-		var globalRegs []RegistryEntry
+	} else if cfg.globalConfig != nil || cfg.project != nil {
+		var projectRegs []Registry
 		// A project can exclude the built-in registries but cannot bring
 		// back ones that the global config excludes.
-		excludeBuiltin := cfg.projectExcludeBuiltin
-		if cfg.globalConfig != nil {
-			if err := validateRegistryEntries(cfg.globalConfig.Registries); err != nil {
+		var excludeBuiltin bool
+		if cfg.project != nil {
+			projectRegs, err = registriesFromEntries(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
+			if err != nil {
 				return nil, err
 			}
-			globalRegs = cfg.globalConfig.Registries
-			excludeBuiltin = excludeBuiltin || cfg.globalConfig.ExcludeBuiltinRegistries
+			excludeBuiltin = cfg.project.ExcludeBuiltinRegistries
 		}
-		merged := mergeRegistries(cfg.projectRegistries, globalRegs, excludeBuiltin, cfg.registries)
+		var globalRegs []Registry
+		var globalExclude bool
+		if cfg.globalConfig != nil {
+			globalRegs, err = registriesFromEntries(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
+			if err != nil {
+				return nil, err
+			}
+			globalExclude = cfg.globalConfig.ExcludeBuiltinRegistries
+		}
+		if err := checkProjectRedeclarations(projectRegs, globalRegs, globalExclude, cfg.registries); err != nil {
+			return nil, err
+		}
+		merged := mergeRegistries(projectRegs, globalRegs, excludeBuiltin || globalExclude, cfg.registries)
 		if len(merged) == 0 {
 			return nil, fmt.Errorf("registry configuration produced an empty registry list; exclude_builtin_registries requires at least one [[registries]] entry")
 		}
@@ -246,8 +259,11 @@ func WithCredentialResolver(resolver func(*url.URL) (*auth.Credential, error)) O
 }
 
 // WithRegistries sets the driver registries to use. When passed, this takes
-// precedence over any WithGlobalConfig / WithProjectRegistries options: the
+// precedence over any WithGlobalConfig / WithProjectConfig options: the
 // caller's explicit list is used as-is, not merged with configuration files.
+// Set Registry.Signing to verify a registry's packages with a key other than
+// the Columnar key; NewClient rejects an invalid policy such as
+// SignWith(nil).
 func WithRegistries(r []Registry) Option {
 	return func(cfg *clientConfig) {
 		cfg.registries = append([]Registry(nil), r...)

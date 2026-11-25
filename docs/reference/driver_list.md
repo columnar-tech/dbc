@@ -124,7 +124,7 @@ version = '>=1.0.0'
 
 ### `url`
 
-Required. The base URL of the registry. Must be an `http` or `https` URL with a host.
+Required. The base URL of the registry. Must be an `http` or `https` URL with a host, whose path has no empty, `.` or `..` segments and no escaped `/` (`%2F`).
 
 ### `name`
 
@@ -137,7 +137,7 @@ Optional. A short name for the registry, which must be unique within the driver 
 Optional, per driver. The only registry the driver is resolved from, as an inline table with `type = "registry"` and exactly one of:
 
 - `name`: the `name` of a `[[registries]]` entry in the same driver list. A driver list cannot refer to a name from the user `config.toml`.
-- `url`: the URL of a configured registry (from the driver list, the user `config.toml` or the built-in registries), without user information, query or fragment. A trailing `/` and the case of the scheme and host do not matter.
+- `url`: the URL of a configured registry (from the driver list, the user `config.toml` or the built-in registries), without user information, query or fragment. A trailing `/`, the case of the scheme and host, and the default port of the scheme do not matter.
 
 ```toml
 [[registries]]

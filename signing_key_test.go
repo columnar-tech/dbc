@@ -16,10 +16,15 @@ package dbc
 
 import (
 	"bytes"
+	"encoding/base64"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
+	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,9 +68,9 @@ func TestSigningKeyVerifiesOnlyItsOwnSignatures(t *testing.T) {
 	a, b := generateTestKey(t, "a"), generateTestKey(t, "b")
 	sig := detachedSign(t, a, data)
 
-	keyA, err := newSigningKey(publicArmored(t, a))
+	keyA, err := NewArmoredSigningKey(publicArmored(t, a))
 	require.NoError(t, err)
-	keyB, err := newSigningKey(publicArmored(t, b))
+	keyB, err := NewArmoredSigningKey(publicArmored(t, b))
 	require.NoError(t, err)
 
 	assert.Equal(t, a.GetFingerprint(), keyA.Fingerprint())
@@ -86,7 +91,7 @@ func TestSigningKeySubkeySignature(t *testing.T) {
 	sig, err := os.ReadFile(filepath.Join(dir, "payload.txt.sig"))
 	require.NoError(t, err)
 
-	key, err := newSigningKey(string(armored))
+	key, err := NewArmoredSigningKey(string(armored))
 	require.NoError(t, err)
 	assert.Equal(t, "9b96d38c4b87a17f1f4b1fa7e0ff4c99f17a9538", key.Fingerprint())
 	assert.NoError(t, key.Verify(bytes.NewReader(payload), bytes.NewReader(sig)))
@@ -95,9 +100,148 @@ func TestSigningKeySubkeySignature(t *testing.T) {
 func TestNewSigningKeyRejectsPrivateKey(t *testing.T) {
 	private, err := generateTestKey(t, "private").Armor()
 	require.NoError(t, err)
-	_, err = newSigningKey(private)
+	_, err = NewArmoredSigningKey(private)
 	assert.ErrorContains(t, err, "private")
 
-	_, err = newSigningKey("not a key")
+	_, err = NewArmoredSigningKey("not a key")
 	assert.Error(t, err)
+}
+
+func publicBinary(t *testing.T, key *crypto.Key) []byte {
+	t.Helper()
+	pub, err := key.GetPublicKey()
+	require.NoError(t, err)
+	return pub
+}
+
+// splitPackets returns the raw bytes of each OpenPGP packet in data.
+func splitPackets(t *testing.T, data []byte) [][]byte {
+	t.Helper()
+	r := bytes.NewReader(data)
+	var out [][]byte
+	for r.Len() > 0 {
+		start := len(data) - r.Len()
+		_, err := packet.Read(r)
+		require.NoError(t, err)
+		out = append(out, data[start:len(data)-r.Len()])
+	}
+	return out
+}
+
+func armorPublic(t *testing.T, payload []byte) string {
+	t.Helper()
+	var buf bytes.Buffer
+	w, err := armor.Encode(&buf, "PGP PUBLIC KEY BLOCK", nil)
+	require.NoError(t, err)
+	_, err = w.Write(payload)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	return buf.String()
+}
+
+func TestNewSigningKeyAcceptsArmoredAndBinary(t *testing.T) {
+	key := generateTestKey(t, "both")
+	fromArmor, err := NewSigningKey([]byte("\n  " + publicArmored(t, key) + "\n\n"))
+	require.NoError(t, err)
+	fromBinary, err := NewSigningKey(publicBinary(t, key))
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), fromArmor.Fingerprint())
+	assert.Equal(t, key.GetFingerprint(), fromBinary.Fingerprint())
+
+	data := []byte("driver library bytes")
+	assert.NoError(t, fromBinary.Verify(bytes.NewReader(data), bytes.NewReader(detachedSign(t, key, data))))
+}
+
+func TestNewSigningKeyRejectsAmbiguousInput(t *testing.T) {
+	a, b := generateTestKey(t, "a"), generateTestKey(t, "b")
+	binA, binB := publicBinary(t, a), publicBinary(t, b)
+	armoredA := publicArmored(t, a)
+
+	privateBinary, err := a.Serialize()
+	require.NoError(t, err)
+	// A certificate whose subkey packet carries secret key material: the
+	// public packets of the primary key followed by the private subkey and
+	// its binding signature.
+	pubPackets, privPackets := splitPackets(t, binA), splitPackets(t, privateBinary)
+	require.Len(t, pubPackets, len(privPackets))
+	var secretSubkey []byte
+	for _, p := range pubPackets[:len(pubPackets)-2] {
+		secretSubkey = append(secretSubkey, p...)
+	}
+	for _, p := range privPackets[len(privPackets)-2:] {
+		secretSubkey = append(secretSubkey, p...)
+	}
+	marker := []byte{0xca, 0x03, 'P', 'G', 'P'}
+
+	tests := []struct {
+		name  string
+		input []byte
+		want  string
+	}{
+		{"two certificates", append(slices.Clone(binA), binB...), "more than one"},
+		{"two armored blocks", []byte(armoredA + publicArmored(t, b)), "exactly one armored block"},
+		{"text before the armor", []byte("comment\n" + armoredA), "armored PGP PUBLIC KEY BLOCK"},
+		{"text after the armor", []byte(armoredA + "trailing\n"), "after the end"},
+		{"private key", privateBinary, "private"},
+		{"private armored key", []byte(mustArmor(t, a)), "private"},
+		{"private subkey", secretSubkey, "private"},
+		{"unknown packet", append(slices.Clone(binA), marker...), "unexpected OpenPGP packet"},
+		{"armored unknown packet", []byte(armorPublic(t, append(slices.Clone(binA), marker...))), "unexpected OpenPGP packet"},
+		{"truncated", binA[:len(binA)-1], "invalid OpenPGP public key"},
+		{"trailing byte", append(slices.Clone(binA), 0x00), "invalid OpenPGP public key"},
+		{"subkey only", slices.Concat(pubPackets[len(pubPackets)-2:]...), "start with a primary public key"},
+		{"data after the checksum", []byte(strings.Replace(armorPublic(t, binA), "-----END", "=AAAA\nextra\n-----END", 1)), "after the checksum"},
+		{"malformed checksum", []byte(withChecksum(armorPublic(t, binA), "=!!!!")), "malformed armor checksum"},
+		{"wrong checksum", []byte(withChecksum(armorPublic(t, binA), "=AAAA")), "does not match its armor checksum"},
+		{"truncated padding packet", append(slices.Clone(binA), 0xd5, 0x05, 0x00, 0x00), "unexpected EOF"},
+		{"partial body length", append(slices.Clone(binA), 0xd5, 0xe1, 0x00), "partial body length"},
+		{"length beyond int32", append(slices.Clone(binA), 0xd5, 0xff, 0xff, 0xff, 0xff, 0xff), "unexpected EOF"},
+		{"legacy length beyond int32", append(slices.Clone(binA), 0x8a, 0xff, 0xff, 0xff, 0xff), "unexpected EOF"},
+		{"empty", nil, "does not contain a public key"},
+		{"too large", bytes.Repeat([]byte{' '}, maxSigningKeySize+1), "larger than"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewSigningKey(tt.input)
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
+}
+
+// withChecksum replaces or adds the checksum line of an armored block.
+func withChecksum(armored, checksum string) string {
+	lines := strings.Split(strings.TrimSpace(armored), "\n")
+	end := len(lines) - 1
+	if strings.HasPrefix(lines[end-1], "=") {
+		lines = slices.Delete(lines, end-1, end)
+		end--
+	}
+	lines = slices.Insert(lines, end, checksum)
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func TestArmoredSigningKeyChecksum(t *testing.T) {
+	key := generateTestKey(t, "crc")
+	bin := publicBinary(t, key)
+	got := crc24(bin)
+	sum := base64.StdEncoding.EncodeToString([]byte{byte(got >> 16), byte(got >> 8), byte(got)})
+	parsed, err := NewSigningKey([]byte(withChecksum(armorPublic(t, bin), "="+sum)))
+	require.NoError(t, err)
+	assert.Equal(t, key.GetFingerprint(), parsed.Fingerprint())
+
+	// The checksum of the Columnar key, made by another implementation.
+	_, err = ColumnarSigningKey()
+	assert.NoError(t, err)
+}
+
+func mustArmor(t *testing.T, key *crypto.Key) string {
+	t.Helper()
+	armored, err := key.Armor()
+	require.NoError(t, err)
+	return armored
+}
+
+func TestArmoredSigningKeyRejectsBinary(t *testing.T) {
+	_, err := NewArmoredSigningKey(string(publicBinary(t, generateTestKey(t, "binary"))))
+	assert.ErrorContains(t, err, "ASCII-armored")
 }

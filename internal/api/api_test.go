@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ProtonMail/gopenpgp/v3/crypto"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/auth"
 	"github.com/columnar-tech/dbc/config"
@@ -1063,4 +1064,50 @@ func TestNewClientEmptyExplicitRegistriesIgnoreConfig(t *testing.T) {
 	_, err = api.NewClient(cfg, nil)
 	require.ErrorContains(t, err, "baseURL")
 	assert.ErrorContains(t, err, "registries")
+}
+
+func testArmoredKey(t *testing.T) (string, string) {
+	t.Helper()
+	key, err := crypto.PGP().KeyGeneration().AddUserId("acme", "acme@example.invalid").New().GenerateKey()
+	require.NoError(t, err)
+	pub, err := key.ToPublic()
+	require.NoError(t, err)
+	armored, err := pub.Armor()
+	require.NoError(t, err)
+	return armored, key.GetFingerprint()
+}
+
+func TestNewClientExplicitRegistrySigningKey(t *testing.T) {
+	isolateUserState(t)
+	armored, fingerprint := testArmoredKey(t)
+	quoted, err := json.Marshal(armored)
+	require.NoError(t, err)
+
+	var cfg api.ClientConfig
+	require.NoError(t, json.Unmarshal([]byte(`{"registries": [
+		{"url": "https://columnar.test"},
+		{"url": "https://acme.test", "signingKey": `+string(quoted)+`},
+		{"url": "https://unsigned.test", "signingKey": false}
+	]}`), &cfg))
+	c, err := api.NewClient(cfg, nil)
+	require.NoError(t, err)
+	regs := c.Registries()
+
+	key, err := regs[0].ResolveSigningKey()
+	require.NoError(t, err)
+	columnar, err := dbc.ColumnarSigningKey()
+	require.NoError(t, err)
+	assert.Same(t, columnar, key)
+	key, err = regs[1].ResolveSigningKey()
+	require.NoError(t, err)
+	assert.Equal(t, fingerprint, key.Fingerprint())
+	assert.True(t, regs[2].Signing.IsUnsigned())
+
+	for _, value := range []string{`true`, `null`, `""`, `1`, `{"secret": "do not echo"}`, `"not a key"`} {
+		_, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{
+			{URL: "https://acme.test", SigningKey: json.RawMessage(value)},
+		}}, nil)
+		assert.ErrorContains(t, err, "registries[0].signingKey", value)
+		assert.NotContains(t, err.Error(), "do not echo")
+	}
 }
