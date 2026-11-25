@@ -214,7 +214,7 @@ func TestLoadProjectConfigMissingFile(t *testing.T) {
 // entryRegistries converts entries without signing keys to registries.
 func entryRegistries(t *testing.T, entries []RegistryEntry) []Registry {
 	t.Helper()
-	registries, err := registriesFromEntries(entries, nil, "", false)
+	registries, err := registriesFromEntries(entries, nil)
 	require.NoError(t, err)
 	return registries
 }

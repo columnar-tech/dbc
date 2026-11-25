@@ -142,12 +142,14 @@ func newDBCClient(project *dbc.ProjectConfig) (*dbc.Client, error) {
 	if globalRegistryConfig != nil {
 		opts = append(opts, dbc.WithGlobalConfig(globalRegistryConfig))
 	}
+	// DBC_BASE_URL replaces the registries, including the project's, but
+	// the project's signing key definitions still apply to its other
+	// sources.
+	if project != nil {
+		opts = append(opts, dbc.WithProjectConfig(project))
+	}
 	if val := os.Getenv("DBC_BASE_URL"); val != "" {
 		opts = append(opts, dbc.WithBaseURL(val))
-	} else {
-		if project != nil {
-			opts = append(opts, dbc.WithProjectConfig(project))
-		}
 	}
 
 	if userAgentSuffix != "" {

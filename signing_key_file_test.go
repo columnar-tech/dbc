@@ -314,3 +314,62 @@ func TestSigningOperationReadsAKeyFileOnce(t *testing.T) {
 	var conflict *SignerConflictError
 	require.ErrorAs(t, err, &conflict)
 }
+
+// TestProjectSigningPolicy pins that a source of the project other than a
+// registry gets the policy of a project definition by name, shared with the
+// project's registries, so one operation reads the key file once for both;
+// also when the registries are replaced, and never from the global config.
+func TestProjectSigningPolicy(t *testing.T) {
+	key := generateTestKey(t, "acme")
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "acme.asc")
+	require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, key)), 0o600))
+	cfg, err := LoadProjectConfig(keyFileProject(t, dir, "acme.asc"))
+	require.NoError(t, err)
+
+	t.Run("shared with the registries", func(t *testing.T) {
+		c, err := NewClient(WithProjectConfig(cfg))
+		require.NoError(t, err)
+		policy, err := c.ProjectSigningPolicy("acme")
+		require.NoError(t, err)
+
+		var op SigningOperation
+		first, err := op.ResolveKey(c.Registries()[0].Signing)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, generateTestKey(t, "replaced"))), 0o600))
+		t.Cleanup(func() { require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, key)), 0o600)) })
+		second, err := op.ResolveKey(policy)
+		require.NoError(t, err)
+		assert.Same(t, first, second, "the registry and the other source read the file once")
+	})
+
+	t.Run("with replaced registries", func(t *testing.T) {
+		c, err := NewClient(WithProjectConfig(cfg), WithBaseURL("https://override.example.com"))
+		require.NoError(t, err)
+		require.Len(t, c.Registries(), 1)
+		assert.True(t, c.Registries()[0].Signing.Equal(SigningPolicy{}), "the replacement registry uses the Columnar key")
+		policy, err := c.ProjectSigningPolicy("acme")
+		require.NoError(t, err)
+		got, err := policy.ResolveKey()
+		require.NoError(t, err)
+		assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
+	})
+
+	t.Run("not from the global config", func(t *testing.T) {
+		armored := publicArmored(t, generateTestKey(t, "other"))
+		global := &GlobalConfig{SigningKeys: map[string]SigningKeyDefinition{
+			"other": {Type: SigningKeyTypeOpenPGP, PublicKey: &armored},
+		}}
+		c, err := NewClient(WithGlobalConfig(global), WithProjectConfig(cfg))
+		require.NoError(t, err)
+		_, err = c.ProjectSigningPolicy("other")
+		assert.ErrorContains(t, err, `signing_key "other" is not defined in [signing_keys] of the project`)
+	})
+
+	t.Run("without a project", func(t *testing.T) {
+		c, err := NewClient()
+		require.NoError(t, err)
+		_, err = c.ProjectSigningPolicy("acme")
+		assert.Error(t, err)
+	})
+}

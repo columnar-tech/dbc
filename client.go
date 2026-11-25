@@ -66,6 +66,9 @@ type Client struct {
 	setupOnce          sync.Once
 	credentialResolver func(*url.URL) (*auth.Credential, error)
 	router             *urlRouter
+	// projectSigning holds the policies of the [signing_keys] definitions of
+	// the project configuration, by name.
+	projectSigning map[string]SigningPolicy
 }
 
 type redirectOrigin struct {
@@ -156,6 +159,18 @@ func NewClient(opts ...Option) (*Client, error) {
 		}
 	}
 
+	// The project's signing key definitions also serve sources other than
+	// registries, so they are parsed even when the registries are replaced.
+	// Its registries use the same policies as ProjectSigningPolicy returns.
+	var projectRegs []Registry
+	var projectSigning map[string]SigningPolicy
+	if cfg.project != nil {
+		projectRegs, projectSigning, err = parseRegistryConfig(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if cfg.baseURL != "" {
 		cfg.registries = []Registry{{BaseURL: mustParseURL(cfg.baseURL)}}
 	} else if cfg.explicitRegistries {
@@ -167,21 +182,16 @@ func NewClient(opts ...Option) (*Client, error) {
 			}
 		}
 	} else if cfg.globalConfig != nil || cfg.project != nil {
-		var projectRegs []Registry
 		// A project can exclude the built-in registries but cannot bring
 		// back ones that the global config excludes.
 		var excludeBuiltin bool
 		if cfg.project != nil {
-			projectRegs, err = registriesFromEntries(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
-			if err != nil {
-				return nil, err
-			}
 			excludeBuiltin = cfg.project.ExcludeBuiltinRegistries
 		}
 		var globalRegs []Registry
 		var globalExclude bool
 		if cfg.globalConfig != nil {
-			globalRegs, err = registriesFromEntries(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
+			globalRegs, _, err = parseRegistryConfig(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
 			if err != nil {
 				return nil, err
 			}
@@ -208,6 +218,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		userAgent:          cfg.userAgent,
 		credentialResolver: credResolver,
 		router:             router,
+		projectSigning:     projectSigning,
 	}, nil
 }
 
@@ -242,6 +253,21 @@ func (c *Client) HTTPClient() *http.Client { return c.httpClient }
 
 // Registries returns the list of driver registries configured for this client.
 func (c *Client) Registries() []Registry { return c.registries }
+
+// ProjectSigningPolicy returns the policy of the [signing_keys] definition
+// name of the project configuration (see WithProjectConfig), for a source
+// of the project that names it, such as an HTTP source in dbc.toml. A name
+// is looked up only in the project, never in the global config, and also
+// when WithBaseURL or WithRegistries replaces the registries. The project's
+// registries that name the same definition share the policy, so a
+// SigningOperation reads its key file once for both.
+func (c *Client) ProjectSigningPolicy(name string) (SigningPolicy, error) {
+	policy, ok := c.projectSigning[name]
+	if !ok {
+		return SigningPolicy{}, fmt.Errorf("signing_key %q is not defined in [signing_keys] of the project", name)
+	}
+	return policy, nil
+}
 
 // UserAgent returns the user agent string used by this client.
 func (c *Client) UserAgent() string { return c.userAgent }
