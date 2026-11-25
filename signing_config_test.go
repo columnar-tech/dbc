@@ -170,6 +170,8 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 		global  *GlobalConfig
 		project *ProjectConfig
 		wantErr bool
+		// wantMsg is the expected error, if not a rejected redeclaration.
+		wantMsg string
 	}{
 		{
 			name:    "project omits the key of a user registry",
@@ -276,6 +278,24 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// Requests clean the path, so these spellings fetch the same
+			// index; they are rejected rather than told apart, also when
+			// the project excludes the defaults.
+			name: "another spelling of the path is rejected",
+			project: &ProjectConfig{
+				Registries:               []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech/.", SigningKey: false}},
+				ExcludeBuiltinRegistries: true,
+			},
+			wantErr: true,
+			wantMsg: `must not contain empty, "." or ".." segments`,
+		},
+		{
+			name:    "an escaped dot segment is rejected",
+			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://acme.example.com/a/%2E%2E", SigningKey: false}}},
+			wantErr: true,
+			wantMsg: `must not contain empty, "." or ".." segments`,
+		},
+		{
 			name:    "project declares the default registry with the Columnar key",
 			project: &ProjectConfig{Registries: []RegistryEntry{{URL: "https://dbc-cdn.columnar.tech"}}},
 		},
@@ -306,7 +326,11 @@ func TestProjectCannotChangeTheSigningPolicyOfATrustedRegistry(t *testing.T) {
 			}
 			_, err := NewClient(opts...)
 			if tt.wantErr {
-				assert.ErrorContains(t, err, "a project cannot change how that registry is verified")
+				want := tt.wantMsg
+				if want == "" {
+					want = "a project cannot change how that registry is verified"
+				}
+				assert.ErrorContains(t, err, want)
 			} else {
 				assert.NoError(t, err)
 			}

@@ -52,3 +52,26 @@ func Authority(u *url.URL) (scheme, host string) {
 	}
 	return scheme, host
 }
+
+// CheckPath rejects a registry URL whose path does not name one location
+// unambiguously: an empty segment (as in a//b), a segment that is "." or ".."
+// once decoded, or an escaped "/" inside a segment. Requests resolve such a
+// path to another one (url.URL.JoinPath cleans it), so two spellings of one
+// registry would otherwise have different identities. A trailing slash is
+// allowed.
+func CheckPath(u *url.URL) error {
+	p := strings.TrimSuffix(u.EscapedPath(), "/")
+	if p == "" {
+		return nil
+	}
+	for _, seg := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
+		decoded, err := url.PathUnescape(seg)
+		if err != nil {
+			return fmt.Errorf("path %q: %w", u.EscapedPath(), err)
+		}
+		if decoded == "" || decoded == "." || decoded == ".." || strings.Contains(decoded, "/") {
+			return fmt.Errorf("path %q must not contain empty, \".\" or \"..\" segments or an escaped \"/\"", u.EscapedPath())
+		}
+	}
+	return nil
+}

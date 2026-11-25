@@ -41,3 +41,19 @@ func TestAuthority(t *testing.T) {
 		assert.Equal(t, tt.host, host, tt.in)
 	}
 }
+
+func TestCheckPath(t *testing.T) {
+	for _, ok := range []string{"https://h", "https://h/", "https://h/m", "https://h/m/", "https://h/a/b", "https://h/a%20b", "https://h/v1.0/..x"} {
+		u, err := url.Parse(ok)
+		require.NoError(t, err)
+		assert.NoError(t, CheckPath(u), ok)
+	}
+	for _, bad := range []string{"https://h/.", "https://h/a/..", "https://h/a/../b", "https://h/./a", "https://h//a", "https://h/a//b", "https://h/a//",
+		"https://h/%2e", "https://h/a/%2E%2e", "https://h/a%2fb", "https://h/%zz"} {
+		u, err := url.Parse(bad)
+		if err != nil {
+			continue
+		}
+		assert.Error(t, CheckPath(u), bad)
+	}
+}

@@ -44,7 +44,7 @@ The global `config.toml` lives in your user config directory:
 - macOS: `~/Library/Application Support/Columnar/dbc/config.toml`
 - Windows: `%AppData%\Columnar\dbc\config.toml`
 
-Both files use the same `[[registries]]` syntax. Each entry requires a `url` (which must be an `http` or `https` URL) and may include an optional `name`, unique within the file, that is shown as a `[name]` tag in `dbc search` output:
+Both files use the same `[[registries]]` syntax. Each entry requires a `url` (which must be an `http` or `https` URL whose path has no empty, `.` or `..` segments) and may include an optional `name`, unique within the file, that is shown as a `[name]` tag in `dbc search` output:
 
 ```toml
 [[registries]]

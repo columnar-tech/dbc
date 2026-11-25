@@ -296,6 +296,11 @@ func parseRegistryEntryURL(e RegistryEntry) (*url.URL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid registry URL %w", err)
 	}
+	// Another spelling of the path of a registry that the user or dbc
+	// trusts must not get past the check of its signing policy.
+	if err := registryurl.CheckPath(u); err != nil {
+		return nil, fmt.Errorf("invalid registry URL %q: %w", registryURLForMessage(u), err)
+	}
 	return u, nil
 }
 
