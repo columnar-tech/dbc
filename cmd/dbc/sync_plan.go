@@ -303,10 +303,9 @@ func (p *syncPlanner) v1Proof(name string, info lockInfo, pinned bool) (proof, w
 // relock) and dbc sync --locked (checkLockedReplay) start from it; they
 // differ only in what they do with its problems and a missing host artifact.
 type lockReplay struct {
-	entry   lockedDriver
-	version *semver.Version
-	bound   boundRegistry
-	signer  packageSigner
+	entry  lockedDriver
+	bound  boundRegistry
+	signer packageSigner
 	// host is the artifact of the entry for this platform, or nil.
 	host *lockedArtifact
 	// pkg is the package of host, or, without host, the driver and version
@@ -350,7 +349,7 @@ func (p *syncPlanner) replayLock(name string, d lockedDriver, v *semver.Version)
 	if err != nil {
 		return lockReplay{}, err
 	}
-	r := lockReplay{entry: d, version: v, pkg: dbc.PkgInfo{Driver: dbc.Driver{Title: name, Path: name}, Version: v}}
+	r := lockReplay{entry: d, pkg: dbc.PkgInfo{Driver: dbc.Driver{Title: name, Path: name}, Version: v}}
 	if i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host }); i >= 0 {
 		r.host = &d.Artifacts[i]
 	}
