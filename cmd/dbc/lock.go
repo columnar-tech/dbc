@@ -88,14 +88,15 @@ func (m lockModel) Init() tea.Cmd {
 	return func() tea.Msg {
 		// The project lock is only needed while resolving.
 		defer m.projectLock.release()
-		// TODO: allow locking a selected version without a host artifact.
-		// The shared planner still requires one even when lock installs nothing.
+		// Nothing is installed, so a version without a build for this
+		// platform can be locked too.
 		items, warnings, err := driverListResolution{
 			path:              m.Path,
 			ctx:               m.ctx,
 			projectLock:       m.projectLock,
 			base:              m.baseModel,
 			allowSourceChange: true,
+			hostOptional:      true,
 		}.resolve(m.fetch)
 		for _, warning := range warnings {
 			fmt.Fprintln(os.Stderr, warning)
@@ -112,14 +113,18 @@ func (m lockModel) Init() tea.Cmd {
 }
 
 // fetch records the archive evidence of a planned driver without installing
-// it. An archive is downloaded only when the registry published no hash for
-// the current target or when a v1 library proof has to be checked. The
-// download is verified like the one of dbc sync, and unless NoVerify is set
-// its signature is checked with the key the lock pins before its hash is
-// recorded. The download is always removed again.
+// it. Archives of declared platforms without a published hash are measured
+// first (see measureDeclared). The host archive is downloaded only when the
+// registry published no hash for it or a v1 library proof has to be checked,
+// and never when there is no host package. Downloads are verified like the
+// one of dbc sync, their signature is checked with the pinned key unless
+// NoVerify is set, and they are always removed again.
 func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, Package: pd.Package, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
-	if pd.Package.ArchiveSHA256 != "" && pd.LibrarySHA256 == "" {
+	if err := measureDeclared(m.ctx, m.baseModel, pd, m.NoVerify); err != nil {
+		return item, err
+	}
+	if !pd.hasHostPackage() || (pd.Package.ArchiveSHA256 != "" && pd.LibrarySHA256 == "") {
 		return item, nil
 	}
 	target, err := resolution.TargetFromPlatformTuple(pd.Package.PlatformTuple)

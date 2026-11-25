@@ -210,15 +210,17 @@ func TestResolveSelectedRegistry(t *testing.T) {
 			c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{primary, selected}}, &http.Client{})
 			require.NoError(t, err)
 			result, err := api.Resolve(t.Context(), c, "shared", host)
+			if badHash {
+				// Only a missing eligible version still reports the versions.
+				require.ErrorContains(t, err, "invalid archive hash")
+				_, err = api.Install(t.Context(), c, "shared", api.Target{Location: t.TempDir()}, api.InstallOptions{})
+				require.ErrorContains(t, err, "invalid archive hash")
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, "shared", result.Path)
 			assert.Equal(t, []string{"1.0.0"}, result.Versions)
 			installed, err := api.Install(t.Context(), c, "shared", api.Target{Location: t.TempDir()}, api.InstallOptions{})
-			if badHash {
-				assert.Nil(t, result.Latest)
-				require.ErrorContains(t, err, "invalid archive hash")
-				return
-			}
 			require.NoError(t, err)
 			require.NotNil(t, result.Latest)
 			assert.Equal(t, selected.URL+"/driver.tar.gz", result.Latest.URL)
@@ -231,11 +233,10 @@ func TestResolveSelectedRegistry(t *testing.T) {
 		fallback := serve(fmt.Sprintf("    - version: 2.0.0\n      packages: [{platform: %s}]\n", host))
 		c, err := api.NewClient(api.ClientConfig{Registries: []api.Registry{selected, fallback}}, &http.Client{})
 		require.NoError(t, err)
-		result, err := api.Resolve(t.Context(), c, "shared", host)
-		require.NoError(t, err)
-		assert.Equal(t, "shared", result.Path)
-		assert.Equal(t, []string{"1.0.0"}, result.Versions)
-		assert.Nil(t, result.Latest)
+		// Invalid metadata in the selected registry is an error, not a
+		// fallback, and no longer a result without a latest version.
+		_, err = api.Resolve(t.Context(), c, "shared", host)
+		require.ErrorContains(t, err, "missing version")
 	})
 }
 

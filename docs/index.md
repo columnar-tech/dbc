@@ -1089,6 +1089,98 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         let mut driver = ManagedDriver::load_from_name("mariadb", ... )
         ```
 
+=== "MotherDuck"
+
+    ```console
+    $ dbc install --pre motherduck
+    ```
+
+    <br/><span class="quickstart-step-number">3</span> [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "motherduck", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("motherduck");
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "motherduck", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "motherduck");
+        ```
+
+    === "JS/TS"
+
+        ```javascript
+        import { AdbcDatabase } from "@apache-arrow/adbc-driver-manager";
+
+        const db = new AdbcDatabase({driver: "motherduck", ... });
+        ```
+
+        !!! note
+
+            The JavaScript/TypeScript ADBC driver manager is for server-side runtimes like Node.js, Deno, and Bun. It does not run in the browser.
+
+    === "Kotlin"
+
+        ```kotlin
+        import org.apache.arrow.adbc.driver.jni.JniDriver
+
+        JniDriver.PARAM_DRIVER.set(params, "motherduck")
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="motherduck", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("motherduck")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "motherduck")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("motherduck", ... )
+        ```
+
 === "SQL Server"
 
     ```console
@@ -1276,12 +1368,8 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
 === "Oracle"
 
     ```console
-    $ dbc install oracle
+    $ dbc install --pre oracle
     ```
-
-    !!! note
-
-        Oracle is currently available as a private driver. Before installing and using it, run `dbc auth login` and start a trial license in Columnar Console. See [Private Drivers](./guides/private_drivers.md) for details.
 
     <br/><span class="quickstart-step-number">3</span> [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
 

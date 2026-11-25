@@ -217,8 +217,9 @@ func fetchRegistryIndex(r dbc.Registry) ([]dbc.Driver, error) {
 	if startupRegistryConfigErr != nil {
 		return nil, startupRegistryConfigErr
 	}
-	// Keep everything the configuration says about the registry, only not
-	// the drivers of an earlier fetch.
+	// Keep everything the configuration says about the registry, such as how
+	// its packages are verified once a registry can name its signing key,
+	// only not the drivers of an earlier fetch.
 	r.Drivers = nil
 	opts := []dbc.Option{dbc.WithRegistries([]dbc.Registry{r})}
 	if globalRegistryConfig != nil {

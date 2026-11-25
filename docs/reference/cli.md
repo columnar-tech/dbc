@@ -305,13 +305,16 @@ dbc sync --file dbc.toml
 
 {{ since_version('v0.4.0') }}
 
-Create or update the `dbc.lock` file next to a [driver list](../concepts/driver_list.md) without installing any driver.
-This resolves the driver list exactly like [sync](#sync) does: versions and archive hashes already recorded in an existing `dbc.lock` are kept where they still satisfy the driver list, and a version 1 lock file is upgraded to version 2.
-No installed driver or [config level](config_level.md) is touched.
-An archive is downloaded only when the registry does not publish its hash for the current platform or when an existing version 1 lock file is upgraded and its recorded driver library checksum must be compared with the downloaded archive. The download is verified, its signature is checked with the key the lock file pins for the driver before its hash is recorded (unless `--no-verify` is set), and it is removed again. A pinned key that the configuration of the driver's registry does not select is an error even with `--no-verify`.
-Otherwise the hash published by the registry is recorded as is: that archive is neither downloaded nor checked for its signature until [sync](#sync) installs it.
-The lock file is written only after every driver succeeded; on error, an existing lock file stays unchanged.
-See [Lockfile](../guides/driver_list.md#lockfile).
+Create or update `dbc.lock` next to the [driver list](../concepts/driver_list.md) without installing drivers or changing their configuration.
+
+- **Without `platforms`**, version selection ignores the current platform. If the selected version has a build for the current platform, its artifact is required. Otherwise, `dbc lock` can create an entry using published hashes for other platforms and fails if none can be recorded. [`dbc sync`](#sync) fails on a platform without a build for the selected version and keeps the selected version and registry.
+- **With [`platforms`](driver_list.md#platforms)**, version selection requires a build for every listed platform, regardless of the current platform. Every listed artifact is required. Missing builds do not trigger registry fallback.
+
+For a new required artifact, `dbc lock` records the published hash when available. Otherwise, it downloads the archive, applies the same extraction checks as installation, verifies the signature with the pinned key, records the measured hash, and removes the download. `--no-verify` skips signature verification. A pinned key that the configuration of the driver's registry does not select is an error even with that flag. Other artifacts with recordable published hashes are included without downloading or verifying their signatures during lock.
+
+Existing entries are reused where they still satisfy the driver list. When the [platform list](driver_list.md#platforms) changes, dbc keeps existing archives when it can complete the entry from the locked version and registry. When upgrading a v1 lockfile, `dbc lock` downloads the current platform's archive to check any library checksum that still applies, even if an archive hash is published. The upgrade fails if that checksum cannot be checked.
+
+`dbc lock` writes the lockfile only after all drivers succeed. See [Lockfile](../guides/driver_list.md#lockfile).
 
 <h3>Usage</h3>
 

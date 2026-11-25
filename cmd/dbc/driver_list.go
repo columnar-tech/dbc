@@ -40,7 +40,12 @@ type DriversList struct {
 	ExcludeBuiltinRegistries *bool `toml:"exclude_builtin_registries,omitempty"`
 	// SigningKeys are the keys that Registries can name in signing_key.
 	SigningKeys map[string]dbc.SigningKeyDefinition `toml:"signing_keys,omitempty"`
-	Drivers     map[string]driverSpec               `toml:"drivers" comment:"dbc driver list"`
+	// Platforms are the platform tuples that drivers are resolved for: the
+	// version of a driver must have a build for each of them, and the lock
+	// file records each of them. nil resolves drivers without regard to
+	// platforms; an empty list is an error.
+	Platforms []string              `toml:"platforms,omitempty"`
+	Drivers   map[string]driverSpec `toml:"drivers" comment:"dbc driver list"`
 	// Network is decoded only to reject it: network settings are read from
 	// the user config, never from a project's dbc.toml.
 	Network map[string]any `toml:"network,omitempty"`
@@ -344,7 +349,8 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+		// indexFor already fails on an incomplete index.
+		pkg, err := dbc.ResolvePackage(drivers, nil, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 			if spec.Version != nil {
 				return candidate.GetWithConstraint(spec.Version, config.PlatformTuple())
 			}
