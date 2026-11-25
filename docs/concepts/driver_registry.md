@@ -60,9 +60,9 @@ dbc uses the registries in this order, highest priority first:
 2. Global registries (`config.toml`)
 3. Built-in registries
 
-A URL that appears more than once is used only once, at its highest-priority position. When more than one registry publishes a driver with the same name, dbc installs it from the highest-priority registry that has a version matching the request. This fallback only happens between registries whose packages are verified with the same signing key: if registries with different keys publish the same driver name, whatever their versions, dbc reports an error instead of choosing one, so adding a registry cannot silently change who signs a driver.
+A URL that appears more than once is used only once, at its highest-priority position. When more than one registry publishes a driver with the same name, dbc installs it from the highest-priority registry that has a version matching the request. This fallback only happens between registries whose packages are verified with the same signing key: if registries with different keys publish the same driver name, whatever their versions, dbc reports an error instead of choosing one, so adding a registry cannot silently change who signs a driver. Two keys are the same only when their certificates are identical, and every [unsigned](#signing-keys) registry counts as a signer of its own.
 
-To choose where a driver comes from, dbc compares every registry that might publish the driver. A registry whose index cannot be fetched or read (for example because access is denied, it is not found, the request times out or the server fails) is skipped when its packages are verified with the same signing key as those of the registries that publish the driver, since it could not change who signs it. Otherwise, [`dbc add`](../reference/cli.md#add), [`dbc install`](../reference/cli.md#install), [`dbc lock`](../reference/cli.md#lock) and [`dbc sync`](../reference/cli.md#sync) stop with an error that names the registry instead of resolving from the others. This does not apply to a lock entry that still satisfies the driver list, which is used without fetching every index, nor to drivers with a source and installs with `--registry`, which only need their registry. [`dbc search`](../reference/cli.md#search) still lists the drivers of the registries it could reach.
+To choose where a driver comes from, dbc compares every registry that might publish the driver. A registry whose index cannot be fetched or read (for example because access is denied, it is not found, the request times out or the server fails) is skipped when its packages are verified with the same signing key as those of the registries that publish the driver, since it could not change who signs it. Otherwise, [`dbc add`](../reference/cli.md#add), [`dbc install`](../reference/cli.md#install), [`dbc lock`](../reference/cli.md#lock) and [`dbc sync`](../reference/cli.md#sync) stop with an error that names the registry instead of resolving from the others. For example, while an unsigned registry, or one with a key that the registries publishing the driver do not share, cannot be reached, drivers without a source cannot be resolved anew. This does not apply to a lock entry that still satisfies the driver list, which is used without fetching every index, nor to drivers with a source and installs with `--registry`, which only need their registry. [`dbc search`](../reference/cli.md#search) still lists the drivers of the registries it could reach.
 
 To take a driver from one registry only, set its [`source`](../reference/driver_list.md#source) in the driver list, or pass `--registry` to [`dbc add`](../reference/cli.md#add) or [`dbc install`](../reference/cli.md#install). A `name` in `[[registries]]` lets a source refer to the registry; it is also shown as the registry's `[name]` tag in `dbc search` output, taking precedence over the name the registry's index gives itself.
 
@@ -224,15 +224,19 @@ public_key_file = "keys/example.asc"
 that its registry is unsigned. If you later point a registry at a different key
 or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
 `--no-verify`; delete `dbc.lock` and run `dbc lock` again to accept the new key.
+`dbc.lock` records the fingerprint of the primary key, so an updated
+certificate of the same key, for example with a new subkey or a revocation,
+keeps the pin valid; signatures are then verified with the updated
+certificate.
 
 ### What a signing key does not cover
 
 - A key is trusted for every driver its registry serves, not for particular
-  driver names. A registry with its own key, or unsigned, can also serve a
-  driver under the same name as a default registry, and the first registry
-  that has a suitable version is used, so adding a registry trusts it for any
-  driver name. `dbc.lock` then pins each driver to the registry it was resolved
-  from.
+  driver names. If another registry lists the same driver under a different
+  signer, dbc stops instead of choosing one (see
+  [Priority and conflicts](#priority-and-conflicts)); use the driver's
+  `source` or `--registry` to choose. `dbc.lock` then pins each driver to the
+  registry it was resolved from.
 - The signature covers only the driver library. The manifest and the other
   files in the archive, which are installed next to the library, are covered
   only by the archive hash. Until `dbc.lock` records that hash, it is the hash
