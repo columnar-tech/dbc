@@ -159,7 +159,9 @@ dbc does not fall back to another registry when the selected registry does not h
 
 {{ since_version('v0.4.0') }}
 
-A driver that is not in a registry can name the URL of its package with `type = "http"`. The package must be a dbc package archive (`.tar.gz` with a `MANIFEST`), and `version` must be one exact version.
+Use `type = "http"` to download a driver directly. The download must be a dbc
+package archive (`.tar.gz` with a `MANIFEST`). Set `version` to an exact version
+with a single `=`.
 
 ```toml
 [drivers.iceberg]
@@ -171,13 +173,35 @@ url = "https://github.com/tokoko/adbc-iceberg/releases/download/v{version}/icebe
 signing_key = false
 ```
 
-- `url`: required. An `http` or `https` URL without user information, query or fragment. In its path, `{version}` is the full version, and `{os}` and `{arch}` are the operating system and architecture of each [platform](supported_platforms.md) as dbc spells them (for example `linux` and `amd64`).
-- `checksum_url`: optional. A file with the SHA-256 of the archives, either one hash or lines as `sha256sum` writes them, matched by the file name of each archive URL. It takes the same variables and must use `https` when `url` does.
-- `signing_key`: the name of a `[signing_keys]` definition in the same driver list, omitted for the key built into dbc, or `false` for unsigned packages, as for [registries](../concepts/driver_registry.md#signing-keys).
+- `url`: required. An HTTP(S) URL without user information, a query, or a
+  fragment. Its path can contain `{version}` (including build metadata), `{os}`,
+  and `{arch}`. The OS and architecture use dbc's
+  [platform spellings](supported_platforms.md), such as `linux` and `amd64`.
+- `checksum_url`: optional. An HTTP(S) URL with the same rules and variables
+  as `url`. It must use HTTPS when `url` does. The file can contain a single
+  SHA-256 hash if it serves one archive, or `sha256sum` lines matched by the
+  filename in each archive URL.
+- `signing_key`: a name from `[signing_keys]` in the same `dbc.toml`. Omit it
+  to use dbc's built-in key, or set it to `false` for an unsigned package.
 
-Other keys are an error. `dbc lock` and `dbc sync` record an archive for each [listed platform](#platforms), or for the current platform without `platforms`. With `checksum_url`, the hash is read from it and no archive is downloaded until `dbc sync` installs one. Without it, each archive is downloaded, unpacked, checked for the exact version in its `MANIFEST` and its signature before its hash and size are recorded, so `--no-verify` is refused then. For `signing_key = false`, the first download is trusted as it is. dbc warns when a recorded hash was read over plain HTTP.
+Unknown source keys are errors. `dbc lock` and `dbc sync` record archives for
+the [listed platforms](#platforms), or for the current platform if
+`platforms` is omitted.
 
-Archives are downloaded without registry credentials. [URL replacements](../concepts/driver_registry.md#mirrors) from the user `config.toml` apply, but never turn `https` into `http`, and neither does a redirect. `DBC_BASE_URL` does not affect HTTP sources.
+With `checksum_url`, dbc can record the hash without downloading the archive.
+It downloads the archive when needed for installation or to check a v1
+lockfile's library checksum. Without `checksum_url`, dbc downloads and unpacks
+each new archive, checks the exact version in its `MANIFEST`, and verifies the
+signature before recording its hash and size. For signed packages, this
+measurement requires signature verification, so `--no-verify` is rejected.
+For unsigned packages measured this way, dbc trusts the first download after
+checking the archive and version. dbc warns when a new hash comes from a
+plain HTTP URL declared in the driver list.
+
+Archive and checksum downloads use no registry credentials.
+[URL replacements](../concepts/driver_registry.md#mirrors) from the user
+`config.toml` apply. Replacements and redirects from HTTPS to HTTP are
+rejected. `DBC_BASE_URL` does not affect HTTP sources.
 
 ### `exclude_builtin_registries`
 

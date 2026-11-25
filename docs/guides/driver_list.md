@@ -160,7 +160,12 @@ The top-level `version = 2` is the version of the lockfile format. Each `[[drive
 
 - `version`: the exact version of the driver.
 - `signer`: the key that the driver's packages must be signed with.
-- `source`: the registry the driver comes from, or, for an [HTTP source](../reference/driver_list.md#http-source), `type = 'http'` with the digest of its URL template. Later runs of `dbc sync` keep using that source, and stop if the template no longer gives the recorded URLs.
+- `source`: the registry the driver comes from, or `type = 'http'` with the
+  URL template digest in `template_sha256` for an
+  [HTTP source](../reference/driver_list.md#http-source). `dbc sync` stops if
+  the template changes or no longer produces the recorded archive URLs.
+  Removing the HTTP source declaration stops both `dbc sync` and `dbc lock`
+  without searching registries for that driver.
 - `artifacts`: the SHA-256 hash and location of the archive for each platform.
 
 The `signer` is the key that the driver's registry is configured with: the key built into dbc for the default registries, or the registry's `signing_key` (see [Signing keys](../concepts/driver_registry.md#signing-keys)). For a registry declared unsigned with `signing_key = false`, it is:
