@@ -29,15 +29,18 @@ func GetUserConfigPath() (string, error) {
 		return "", fmt.Errorf("failed to get user config directory %v", err)
 	}
 
-	// Capitalize Columnar on Windows and macOS for consistent style
-	dirname := "columnar"
-	if platform := storageHostOS(); platform == "windows" || platform == "darwin" {
-		dirname = "Columnar"
-	}
-
-	finalDir := filepath.Join(userdir, dirname, "dbc")
+	finalDir := filepath.Join(userdir, userDirName(), "dbc")
 
 	return finalDir, nil
+}
+
+// userDirName is the vendor directory under a user base directory.
+// Capitalize Columnar on Windows and macOS for consistent style.
+func userDirName() string {
+	if platform := storageHostOS(); platform == "windows" || platform == "darwin" {
+		return "Columnar"
+	}
+	return "columnar"
 }
 
 // Directory for dbc credentials. This dir is distinct from GetUserConfigPath
