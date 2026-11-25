@@ -174,3 +174,46 @@ func (suite *SubcommandTestSuite) TestSameKeyToleratesAMissingIndex() {
 	suite.Contains(out, `"signature_verified":true`)
 	suite.Equal(firstRegistryURL, suite.lockedDriverEntry("test-driver-no-sig").Source.URL)
 }
+
+// TestSyncVerifiesWithTheCertificateOfTheSignerCheck replaces the key file
+// after the signer check of two registries read it, before the package is
+// downloaded: the package signed by the original key still verifies and the
+// lock file pins it, while the next operation reads the new key.
+func (suite *SubcommandTestSuite) TestSyncVerifiesWithTheCertificateOfTheSignerCheck() {
+	regs, key, armored := suite.newSignerRegistries()
+	keyPath := filepath.Join(suite.T().TempDir(), "acme.asc")
+	suite.Require().NoError(os.WriteFile(keyPath, []byte(armored), 0o600))
+	client, err := dbc.NewClient(dbc.WithGlobalConfig(&dbc.GlobalConfig{
+		Registries: []dbc.RegistryEntry{
+			{URL: firstRegistryURL, SigningKey: "acme"},
+			{URL: secondRegistryURL, SigningKey: "acme"},
+		},
+		SigningKeys:              map[string]dbc.SigningKeyDefinition{"acme": {Type: dbc.SigningKeyTypeOpenPGP, PublicKeyFile: &keyPath}},
+		ExcludeBuiltinRegistries: true,
+	}))
+	suite.Require().NoError(err)
+	configured := client.Registries()
+	suite.Require().Len(configured, 2)
+	regs.first, regs.second = configured[0], configured[1]
+
+	_, replacement, replacementArmored := suite.signedArchive()
+	base := regs.base()
+	download := base.downloadPkg
+	base.downloadPkg = func(pkg dbc.PkgInfo) (*os.File, error) {
+		suite.Require().NoError(os.WriteFile(keyPath, []byte(replacementArmored), 0o600))
+		return download(pkg)
+	}
+
+	listPath := suite.writeList("[drivers]\n[drivers.test-driver-no-sig]\n")
+	out := suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, Json: true}.GetModelCustom(base))
+	suite.Contains(out, `"signature_verified":true`)
+	suite.Equal(key.Fingerprint(), suite.lockedDriverEntry("test-driver-no-sig").Signer.Fingerprint)
+
+	// The next operation reads the file again and pins the new key. The
+	// package is signed by the old one, so its signature check is skipped.
+	suite.Require().NoError(os.Remove(suite.lockPath()))
+	out = suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(regs.base()))
+	suite.Contains(out, "signature")
+	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(regs.base()))
+	suite.Equal(replacement.Fingerprint(), suite.lockedDriverEntry("test-driver-no-sig").Signer.Fingerprint)
+}
