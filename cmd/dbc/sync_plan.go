@@ -317,9 +317,14 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 		return plannedDriver{}, err
 	}
 	for _, a := range d.Artifacts {
-		if a.Target == target {
-			return p.replayArtifact(d, bound, signer, a, v)
+		if a.Target != target {
+			continue
 		}
+		pkg, err := p.lockedPackage(name, bound, a, v)
+		if err != nil {
+			return plannedDriver{}, err
+		}
+		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
 	}
 
 	// The lock has no artifact for this target. A platform that the driver
@@ -360,16 +365,6 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	}
 	d.Artifacts = append(slices.Clone(d.Artifacts), art)
 	return plannedDriver{Name: name, Entry: d, Package: pkg, Signer: signer}, nil
-}
-
-// replayArtifact plans the driver of lock entry d from its recorded artifact
-// a for the current target, keeping the entry as it is.
-func (p *syncPlanner) replayArtifact(d lockedDriver, bound boundRegistry, signer *dbc.SigningKey, a lockedArtifact, v *semver.Version) (plannedDriver, error) {
-	pkg, err := p.lockedPackage(d.Name, bound, a, v)
-	if err != nil {
-		return plannedDriver{}, err
-	}
-	return plannedDriver{Name: d.Name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
 }
 
 // undeclaredHostError reports that the current platform is not among the

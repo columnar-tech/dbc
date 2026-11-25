@@ -213,6 +213,48 @@ func TestPlanLocked(t *testing.T) {
 		assert.Contains(t, lockedErr.trust[1], "driver gamma")
 	})
 
+	t.Run("an untrusted signer does not hide an invalid artifact location", func(t *testing.T) {
+		f := newPlanFixture(t)
+		d := lockedAlpha("1.0.0", lockedArtifact{
+			Target:   testSyncTarget(t, planTarget),
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: "bogus", Value: "alpha.tar.gz"},
+			Hash:     lockHashPrefix + planHashA,
+		})
+		d.Signer.Fingerprint = "0000000000000000000000000000000000000000"
+		_, err := planLocked(&f.planner, listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d).V2)
+		var lockedErr *lockedSyncError
+		require.ErrorAs(t, err, &lockedErr)
+		require.Len(t, lockedErr.trust, 1)
+		assert.Contains(t, lockedErr.trust[0], "driver alpha")
+		require.Len(t, lockedErr.mismatches, 1)
+		assert.Contains(t, lockedErr.mismatches[0], "unsupported location kind")
+	})
+
+	t.Run("an unconfigured registry leaves the artifact location unchecked", func(t *testing.T) {
+		f := newPlanFixture(t)
+		d := lockedAlpha("1.0.0", lockedArtifact{
+			Target:   testSyncTarget(t, planTarget),
+			Format:   "tar.gz",
+			Location: resolution.ArtifactLocation{Kind: "bogus", Value: "alpha.tar.gz"},
+			Hash:     lockHashPrefix + planHashA,
+		})
+		d.Source.URL = "https://unknown.example.com"
+		_, err := planLocked(&f.planner, listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d).V2)
+		var lockedErr *lockedSyncError
+		require.ErrorAs(t, err, &lockedErr)
+		assert.Len(t, lockedErr.trust, 1)
+		assert.Empty(t, lockedErr.mismatches, "the location needs the registry")
+	})
+
+	t.Run("an invalid locked version is an error, not a problem", func(t *testing.T) {
+		f := newPlanFixture(t)
+		_, err := planLocked(&f.planner, listOf(map[string]driverSpec{"alpha": {}}), v2Lock(lockedAlpha("not-a-version", linux)).V2)
+		require.Error(t, err)
+		var lockedErr *lockedSyncError
+		assert.False(t, errors.As(err, &lockedErr))
+	})
+
 	t.Run("an undeclared host is reported with the mismatches", func(t *testing.T) {
 		f := newPlanFixture(t)
 		list := DriversList{Platforms: []string{"macos_arm64"}, Drivers: map[string]driverSpec{"alpha": {Version: constraint(t, ">=2")}}}

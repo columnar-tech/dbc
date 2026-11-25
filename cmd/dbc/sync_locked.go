@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/resolution"
 )
 
@@ -29,7 +30,8 @@ import (
 // match the driver list, one message per difference, ordered by driver name.
 // It reads nothing but the two files: no registry configuration and no
 // index. An empty result means that dbc lock would keep every entry as it
-// is. The error is about the driver list itself, such as invalid platforms.
+// is. The error is about invalid input, such as invalid platforms in the
+// driver list; lock must be valid, as readLockFile returns it.
 func lockMismatches(list DriversList, lock lockFileV2) ([]string, error) {
 	declared, err := list.targetPlatforms()
 	if err != nil {
@@ -78,8 +80,7 @@ func lockMismatches(list DriversList, lock lockFileV2) ([]string, error) {
 		}
 		v, err := semver.NewVersion(d.Version)
 		if err != nil {
-			mismatches = append(mismatches, fmt.Sprintf("driver %s: invalid locked version: %v", name, err))
-			continue
+			return nil, fmt.Errorf("driver %s: invalid locked version: %w", name, err)
 		}
 		if !lockSatisfies(spec, v) {
 			mismatches = append(mismatches, versionMismatch(name, spec, v))
@@ -156,98 +157,110 @@ func writeItems(b *strings.Builder, items []string) {
 var errLockedNoLockFile = errors.New("dbc sync --locked needs a lock file; run `dbc lock` to create it")
 
 // planLocked plans every driver of the driver list from its lock entry, for
-// dbc sync --locked. It never fetches an index and never changes an entry:
-// each driver must have an artifact for this platform in the lock file. All
-// drivers are checked before anything is downloaded, and every problem is
-// reported at once. Entries of drivers that the driver list does not have
-// are skipped; lockMismatches reports them.
-func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDriver, error) {
-	platforms, err := list.targetPlatforms()
+// dbc sync --locked. It never fetches an index and never changes an entry.
+// Every problem that lockMismatches and checkLockedReplay find is reported
+// at once, and nothing is planned unless there is none.
+func planLocked(p *syncPlanner, list DriversList, lock lockFileV2) ([]plannedDriver, error) {
+	mismatches, err := lockMismatches(list, lock)
 	if err != nil {
 		return nil, err
+	}
+	replays, problems, err := p.checkLockedReplay(list, lock)
+	if err != nil {
+		return nil, err
+	}
+	problems.mismatches = append(mismatches, problems.mismatches...)
+	if len(problems.mismatches) > 0 || len(problems.trust) > 0 {
+		return nil, &problems
+	}
+	planned := make([]plannedDriver, len(replays))
+	for i, r := range replays {
+		planned[i] = plannedDriver{Name: r.entry.Name, Entry: r.entry, ArchiveSize: r.size, Signer: r.signer, Package: r.pkg}
+	}
+	return planned, nil
+}
+
+// lockedReplay is what checkLockedReplay found to install a driver from its
+// lock entry.
+type lockedReplay struct {
+	entry  lockedDriver
+	pkg    dbc.PkgInfo
+	size   *int64
+	signer *dbc.SigningKey
+}
+
+// checkLockedReplay checks that the lock entry of every driver of the driver
+// list can be installed on this platform as it is: the platform is declared,
+// the entry has an artifact for it, its registry is configured and its signer
+// is trusted. Each check runs whenever what it needs is there, so one
+// problem never hides another; only the artifact URL needs the registry. It
+// returns the replays only when it found no problem. Entries of drivers that
+// the driver list does not have are left to lockMismatches.
+//
+// lock must be valid, as readLockFile returns it; an invalid locked version
+// is an error, not a problem.
+func (p *syncPlanner) checkLockedReplay(list DriversList, lock lockFileV2) ([]lockedReplay, lockedSyncError, error) {
+	var problems lockedSyncError
+	platforms, err := list.targetPlatforms()
+	if err != nil {
+		return nil, problems, err
 	}
 	p.platforms = platforms
 	host, err := resolution.TargetFromPlatformTuple(p.target)
 	if err != nil {
-		return nil, err
+		return nil, problems, err
 	}
-
-	var (
-		planned []plannedDriver
-		failed  lockedSyncError
-	)
-	// The trust of every entry is checked even when nothing can be
-	// installed here, so that all problems are reported at once.
+	// An undeclared platform is one problem of the project; no driver is
+	// reported for lacking an artifact for it.
 	hostDeclared := platforms == nil || p.hostDeclared()
 	if !hostDeclared {
-		failed.mismatches = append(failed.mismatches, undeclaredHostError(p.target, platforms).Error())
+		problems.mismatches = append(problems.mismatches, undeclaredHostError(p.target, platforms).Error())
 	}
+
+	var replays []lockedReplay
 	drivers := slices.Clone(lock.Drivers)
 	slices.SortFunc(drivers, func(a, b lockedDriver) int { return strings.Compare(a.Name, b.Name) })
 	for _, d := range drivers {
 		if _, ok := list.Drivers[d.Name]; !ok {
-			// lockMismatches reports the entry; there is nothing to plan.
 			continue
 		}
 		v, err := semver.NewVersion(d.Version)
 		if err != nil {
-			failed.mismatches = append(failed.mismatches, fmt.Sprintf("driver %s: invalid locked version: %v", d.Name, err))
-			continue
+			return nil, problems, fmt.Errorf("driver %s: invalid locked version: %w", d.Name, err)
 		}
-		signer, signerErr := trustedSigner(d.Name, d.Signer)
-		if signerErr != nil {
-			failed.trust = append(failed.trust, signerErr.Error())
+		before := len(problems.mismatches) + len(problems.trust)
+
+		signer, err := trustedSigner(d.Name, d.Signer)
+		if err != nil {
+			problems.trust = append(problems.trust, err.Error())
 		}
-		bound, bindErr := p.bind(d.Name, d.Source.URL)
-		if bindErr != nil {
-			failed.trust = append(failed.trust, bindErr.Error())
+		bound, err := p.bind(d.Name, d.Source.URL)
+		bindOK := err == nil
+		if !bindOK {
+			problems.trust = append(problems.trust, err.Error())
 		}
 		if !hostDeclared {
 			continue
 		}
 		i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host })
 		if i < 0 {
-			failed.mismatches = append(failed.mismatches, fmt.Sprintf("driver %s %s has no artifact for this platform (%s) in the lock file",
+			problems.mismatches = append(problems.mismatches, fmt.Sprintf("driver %s %s has no artifact for this platform (%s) in the lock file",
 				d.Name, d.Version, p.target))
 			continue
 		}
-		if signerErr != nil || bindErr != nil {
+		if !bindOK {
 			continue
 		}
-		pd, err := p.replayArtifact(d, bound, signer, d.Artifacts[i], v)
+		pkg, err := p.lockedPackage(d.Name, bound, d.Artifacts[i], v)
 		if err != nil {
-			failed.mismatches = append(failed.mismatches, err.Error())
-			continue
+			problems.mismatches = append(problems.mismatches, err.Error())
 		}
-		planned = append(planned, pd)
+		if len(problems.mismatches)+len(problems.trust) == before {
+			replays = append(replays, lockedReplay{entry: d, pkg: pkg, size: d.Artifacts[i].Size, signer: signer})
+		}
 	}
-	if len(failed.mismatches) > 0 || len(failed.trust) > 0 {
-		return nil, &failed
+	if len(problems.mismatches) > 0 || len(problems.trust) > 0 {
+		return nil, problems, nil
 	}
-	return planned, nil
-}
-
-// planLocked checks that lock matches list and plans every driver from it;
-// see lockMismatches and syncPlanner.planLocked. Mismatches and the
-// problems of the plan are reported together.
-func planLocked(p *syncPlanner, list DriversList, lock lockFileV2) ([]plannedDriver, error) {
-	mismatches, err := lockMismatches(list, lock)
-	if err != nil {
-		return nil, err
-	}
-	planned, err := p.planLocked(list, lock)
-	if len(mismatches) == 0 {
-		return planned, err
-	}
-	// Report the problems of the plan together with the mismatches.
-	failed := lockedSyncError{mismatches: mismatches}
-	var planErr *lockedSyncError
-	switch {
-	case errors.As(err, &planErr):
-		failed.mismatches = append(failed.mismatches, planErr.mismatches...)
-		failed.trust = planErr.trust
-	case err != nil:
-		failed.mismatches = append(failed.mismatches, err.Error())
-	}
-	return nil, &failed
+	return replays, problems, nil
 }
