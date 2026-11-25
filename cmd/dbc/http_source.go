@@ -177,17 +177,32 @@ func parseURLTemplate(field, raw string) (urlTemplate, error) {
 	if strings.ContainsAny(rest, "{}") {
 		return urlTemplate{}, fmt.Errorf("%s has an unmatched { or }", field)
 	}
-	// The scheme and host do not depend on their case; the path is kept as
-	// written, since it is sent as it is, and so is the zone of an IPv6
-	// address, which may name an interface whose name has a case.
-	if !strings.Contains(authority, "%") {
-		authority = strings.ToLower(authority)
-	}
-	t := urlTemplate{raw: scheme + "://" + authority + p, scheme: scheme}
+	t := urlTemplate{raw: scheme + "://" + lowerHost(authority) + p, scheme: scheme}
 	if _, err := t.expand(semver.MustParse("1.0.0"), resolution.Target{OS: "linux", Arch: "amd64"}); err != nil {
 		return urlTemplate{}, fmt.Errorf("%s: %w", field, err)
 	}
 	return t, nil
+}
+
+// lowerHost returns an authority (a host and an optional port) with the case
+// of its host removed, which does not matter for where a request goes, so
+// that it does not change the source identity. The zone of an IPv6 address
+// ("[fe80::1%25en0]") keeps its case, since it may name an interface whose
+// name has one. The path of a template is kept as written: it is sent as it
+// is.
+func lowerHost(authority string) string {
+	if !strings.HasPrefix(authority, "[") {
+		return strings.ToLower(authority)
+	}
+	end := strings.IndexByte(authority, ']')
+	if end < 0 {
+		return authority // url.Parse rejects it when the template is expanded
+	}
+	address, zone, found := strings.Cut(authority[1:end], "%")
+	if found {
+		zone = "%" + zone
+	}
+	return "[" + strings.ToLower(address) + zone + "]" + authority[end+1:]
 }
 
 // expand returns the URL of the file of version v for target t.

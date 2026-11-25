@@ -80,13 +80,16 @@ func TestHTTPSourceIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, src.identity(), other.identity(), "the path is kept as written")
 
-	zoned, zonedUpper := "http://[fe80::1%25en0]/drv.tar.gz", "http://[fe80::1%25EN0]/drv.tar.gz"
-	a, err := driverSource{Type: sourceTypeHTTP, URL: &zoned}.http()
-	require.NoError(t, err)
-	b, err := driverSource{Type: sourceTypeHTTP, URL: &zonedUpper}.http()
-	require.NoError(t, err)
-	assert.Equal(t, zonedUpper, b.url.raw, "an IPv6 zone keeps its case")
-	assert.NotEqual(t, a.identity(), b.identity())
+	identity := func(raw string) string {
+		src, err := driverSource{Type: sourceTypeHTTP, URL: &raw}.http()
+		require.NoError(t, err, raw)
+		return src.identity()
+	}
+	assert.Equal(t, identity("http://[fe80::1%25en0]:8080/drv.tar.gz"), identity("HTTP://[FE80::1%25en0]:8080/drv.tar.gz"),
+		"the case of an IPv6 address does not matter")
+	assert.NotEqual(t, identity("http://[fe80::1%25en0]/drv.tar.gz"), identity("http://[fe80::1%25EN0]/drv.tar.gz"),
+		"an IPv6 zone keeps its case")
+	assert.Equal(t, identity("http://[fe80::1]/drv.tar.gz"), identity("http://[FE80::1]/drv.tar.gz"))
 
 	checksum := "https://example.com/SHA256SUMS"
 	withChecksum, err := driverSource{Type: sourceTypeHTTP, URL: &raw, ChecksumURL: &checksum, SigningKey: false}.http()
