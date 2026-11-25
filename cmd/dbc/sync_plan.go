@@ -298,43 +298,90 @@ func (p *syncPlanner) v1Proof(name string, info lockInfo, pinned bool) (proof, w
 	return "", fmt.Sprintf("warning: ignoring the checksum in the lock file for driver %s (recorded platform: %s): %s", name, recorded, reason)
 }
 
-// fromLock plans a driver whose locked version is still wanted.
-func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (plannedDriver, error) {
-	target, err := resolution.TargetFromPlatformTuple(p.target)
-	if err != nil {
-		return plannedDriver{}, err
-	}
-	bound, err := p.bind(name, d.Source.URL)
-	if err != nil {
-		return plannedDriver{}, err
-	}
-	// Check the pinned key before anything else: a pin that the
-	// configuration does not select fails here, before any index is fetched,
-	// archive is downloaded or lock file is written, and never falls back to
-	// another key or registry.
-	signer, err := p.trustedSigner(name, d.Signer, bound)
-	if err != nil {
-		return plannedDriver{}, err
-	}
-	for _, a := range d.Artifacts {
-		if a.Target != target {
-			continue
-		}
-		pkg, err := p.lockedPackage(name, bound, a, v)
-		if err != nil {
-			return plannedDriver{}, err
-		}
-		return plannedDriver{Name: name, Entry: d, ArchiveSize: a.Size, Signer: signer, Package: pkg}, nil
-	}
+// lockReplay is what the lock entry of a driver gives to install it on this
+// platform as recorded, without any index. Both the normal plan (fromLock,
+// relock) and dbc sync --locked (checkLockedReplay) start from it; they
+// differ only in what they do with its problems and a missing host artifact.
+type lockReplay struct {
+	entry   lockedDriver
+	version *semver.Version
+	bound   boundRegistry
+	signer  packageSigner
+	// host is the artifact of the entry for this platform, or nil.
+	host *lockedArtifact
+	// pkg is the package of host, or, without host, the driver and version
+	// alone. It is only valid when err returns nil.
+	pkg dbc.PkgInfo
+	// trustErr is why the configuration does not accept the entry: its
+	// registry is not configured, or the registry selects another signer
+	// than the pinned one. The signer can only be checked once the registry
+	// is bound, since its configuration selects the key.
+	trustErr error
+	// artifactErr is why the location of host cannot be resolved. It needs
+	// the registry, so it is only checked once the registry is bound.
+	artifactErr error
+}
 
+// err returns the first problem of the replay, or nil.
+func (r lockReplay) err() error {
+	if r.trustErr != nil {
+		return r.trustErr
+	}
+	return r.artifactErr
+}
+
+// planned returns the planned driver of a replay without problems.
+func (r lockReplay) planned() plannedDriver {
+	pd := plannedDriver{Name: r.entry.Name, Entry: r.entry, Signer: r.signer, Package: r.pkg}
+	if r.host != nil {
+		pd.ArchiveSize = r.host.Size
+	}
+	return pd
+}
+
+// replayLock checks the lock entry d of version v against the configuration
+// and finds its artifact for this platform. It fetches nothing: the pinned
+// key is checked before any index is fetched, archive is downloaded or lock
+// file is written, and never falls back to another key or registry. Each
+// check runs whenever what it needs is there, and its problem is recorded in
+// the replay; the error is only about this platform's target.
+func (p *syncPlanner) replayLock(name string, d lockedDriver, v *semver.Version) (lockReplay, error) {
+	host, err := resolution.TargetFromPlatformTuple(p.target)
+	if err != nil {
+		return lockReplay{}, err
+	}
+	r := lockReplay{entry: d, version: v, pkg: dbc.PkgInfo{Driver: dbc.Driver{Title: name, Path: name}, Version: v}}
+	if i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host }); i >= 0 {
+		r.host = &d.Artifacts[i]
+	}
+	r.bound, r.trustErr = p.bind(name, d.Source.URL)
+	if r.trustErr != nil {
+		return r, nil
+	}
+	r.signer, r.trustErr = p.trustedSigner(name, d.Signer, r.bound)
+	if r.host != nil {
+		r.pkg, r.artifactErr = p.lockedPackage(name, r.bound, *r.host, v)
+	}
+	return r, nil
+}
+
+// fromLock plans a driver whose locked version is still wanted. Without an
+// artifact for this platform, it completes the entry from the index of its
+// registry.
+func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (plannedDriver, error) {
+	r, err := p.replayLock(name, d, v)
+	if err != nil {
+		return plannedDriver{}, err
+	}
+	if err := r.err(); err != nil {
+		return plannedDriver{}, err
+	}
 	// The lock has no artifact for this target. A platform that the driver
 	// list does not declare is not added: only dbc lock gets here.
-	if p.platforms != nil && !p.hostDeclared() {
-		return plannedDriver{Name: name, Entry: d, Signer: signer, Package: dbc.PkgInfo{
-			Driver:  dbc.Driver{Title: name, Path: name},
-			Version: v,
-		}}, nil
+	if r.host != nil || (p.platforms != nil && !p.hostDeclared()) {
+		return r.planned(), nil
 	}
+	bound, signer := r.bound, r.signer
 	// Add it from the bound registry.
 	if bound.HasQuery {
 		return plannedDriver{}, queryCompletionError(name, p.target, d.Source.URL)
@@ -350,10 +397,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	}
 	if p.hostOptional && hostBuildMissing(drv, v, p.target) {
 		// Nothing to add: the entry is kept as it is.
-		return plannedDriver{Name: name, Entry: d, Signer: signer, Package: dbc.PkgInfo{
-			Driver:  dbc.Driver{Title: name, Path: name},
-			Version: v,
-		}}, nil
+		return r.planned(), nil
 	}
 	pkg, err := withExactVersion(drv, v).GetPackage(v, p.target, true)
 	if err != nil {
@@ -405,15 +449,16 @@ func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd
 		pd, err := p.fromLock(name, d, v)
 		return pd, nil, err
 	}
-	bound, err := p.bind(name, d.Source.URL)
+	// As in fromLock, check the pinned key before any index is fetched. The
+	// artifact for this platform is only used once the others are found.
+	r, err := p.replayLock(name, d, v)
 	if err != nil {
 		return plannedDriver{}, nil, err
 	}
-	// As in fromLock, check the pinned key before any index is fetched.
-	signer, err := p.trustedSigner(name, d.Signer, bound)
-	if err != nil {
-		return plannedDriver{}, nil, err
+	if r.trustErr != nil {
+		return plannedDriver{}, nil, r.trustErr
 	}
+	bound, signer := r.bound, r.signer
 	if bound.HasQuery {
 		return plannedDriver{}, nil, queryCompletionError(name, platformList(missing), d.Source.URL)
 	}
@@ -433,17 +478,16 @@ func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd
 	current := dbc.PkgInfo{Driver: dbc.Driver{Title: name, Path: name}, Version: v}
 	var size *int64
 	if p.hostDeclared() {
-		host, err := resolution.TargetFromPlatformTuple(p.target)
-		if err != nil {
-			return plannedDriver{}, nil, err
-		}
-		if i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host }); i >= 0 {
-			current, err = p.lockedPackage(name, bound, d.Artifacts[i], v)
+		if r.host != nil {
+			if r.artifactErr != nil {
+				return plannedDriver{}, nil, r.artifactErr
+			}
+			current, size = r.pkg, r.host.Size
+		} else {
+			host, err := resolution.TargetFromPlatformTuple(p.target)
 			if err != nil {
 				return plannedDriver{}, nil, err
 			}
-			size = d.Artifacts[i].Size
-		} else {
 			entry, err := platformPackage(drv, v, host)
 			if err != nil {
 				return plannedDriver{}, nil, err

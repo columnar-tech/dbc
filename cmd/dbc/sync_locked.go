@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/internal/resolution"
 )
 
@@ -175,41 +174,29 @@ func planLocked(p *syncPlanner, list DriversList, lock lockFileV2) ([]plannedDri
 	}
 	planned := make([]plannedDriver, len(replays))
 	for i, r := range replays {
-		planned[i] = plannedDriver{Name: r.entry.Name, Entry: r.entry, ArchiveSize: r.size, Signer: r.signer, Package: r.pkg}
+		planned[i] = r.planned()
 	}
 	return planned, nil
 }
 
-// lockedReplay is what checkLockedReplay found to install a driver from its
-// lock entry.
-type lockedReplay struct {
-	entry  lockedDriver
-	pkg    dbc.PkgInfo
-	size   *int64
-	signer *dbc.SigningKey
-}
-
-// checkLockedReplay checks that the lock entry of every driver of the driver
-// list can be installed on this platform as it is: the platform is declared,
-// the entry has an artifact for it, its registry is configured and its signer
-// is trusted. Each check runs whenever what it needs is there, so one
-// problem never hides another; only the artifact URL needs the registry. It
-// returns the replays only when it found no problem. Entries of drivers that
-// the driver list does not have are left to lockMismatches.
+// checkLockedReplay replays the lock entry of every driver of the driver
+// list with replayLock and collects all of their problems, instead of
+// stopping at the first one or completing an entry from an index as the
+// normal plan does: the platform must be declared and every entry must have
+// an artifact for it, a configured registry and the signer that the
+// registry selects. It returns the replays only when it found no problem.
+// Entries of drivers that the driver list does not have are left to
+// lockMismatches.
 //
 // lock must be valid, as readLockFile returns it; an invalid locked version
 // is an error, not a problem.
-func (p *syncPlanner) checkLockedReplay(list DriversList, lock lockFileV2) ([]lockedReplay, lockedSyncError, error) {
+func (p *syncPlanner) checkLockedReplay(list DriversList, lock lockFileV2) ([]lockReplay, lockedSyncError, error) {
 	var problems lockedSyncError
 	platforms, err := list.targetPlatforms()
 	if err != nil {
 		return nil, problems, err
 	}
 	p.platforms = platforms
-	host, err := resolution.TargetFromPlatformTuple(p.target)
-	if err != nil {
-		return nil, problems, err
-	}
 	// An undeclared platform is one problem of the project; no driver is
 	// reported for lacking an artifact for it.
 	hostDeclared := platforms == nil || p.hostDeclared()
@@ -217,7 +204,7 @@ func (p *syncPlanner) checkLockedReplay(list DriversList, lock lockFileV2) ([]lo
 		problems.mismatches = append(problems.mismatches, undeclaredHostError(p.target, platforms).Error())
 	}
 
-	var replays []lockedReplay
+	var replays []lockReplay
 	drivers := slices.Clone(lock.Drivers)
 	slices.SortFunc(drivers, func(a, b lockedDriver) int { return strings.Compare(a.Name, b.Name) })
 	for _, d := range drivers {
@@ -228,35 +215,22 @@ func (p *syncPlanner) checkLockedReplay(list DriversList, lock lockFileV2) ([]lo
 		if err != nil {
 			return nil, problems, fmt.Errorf("driver %s: invalid locked version: %w", d.Name, err)
 		}
-		before := len(problems.mismatches) + len(problems.trust)
-
-		signer, err := trustedSigner(d.Name, d.Signer)
+		r, err := p.replayLock(d.Name, d, v)
 		if err != nil {
-			problems.trust = append(problems.trust, err.Error())
+			return nil, problems, err
 		}
-		bound, err := p.bind(d.Name, d.Source.URL)
-		bindOK := err == nil
-		if !bindOK {
-			problems.trust = append(problems.trust, err.Error())
+		if r.trustErr != nil {
+			problems.trust = append(problems.trust, r.trustErr.Error())
 		}
-		if !hostDeclared {
-			continue
-		}
-		i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host })
-		if i < 0 {
+		switch {
+		case !hostDeclared:
+		case r.host == nil:
 			problems.mismatches = append(problems.mismatches, fmt.Sprintf("driver %s %s has no artifact for this platform (%s) in the lock file",
 				d.Name, d.Version, p.target))
-			continue
-		}
-		if !bindOK {
-			continue
-		}
-		pkg, err := p.lockedPackage(d.Name, bound, d.Artifacts[i], v)
-		if err != nil {
-			problems.mismatches = append(problems.mismatches, err.Error())
-		}
-		if len(problems.mismatches)+len(problems.trust) == before {
-			replays = append(replays, lockedReplay{entry: d, pkg: pkg, size: d.Artifacts[i].Size, signer: signer})
+		case r.artifactErr != nil:
+			problems.mismatches = append(problems.mismatches, r.artifactErr.Error())
+		default:
+			replays = append(replays, r)
 		}
 	}
 	if len(problems.mismatches) > 0 || len(problems.trust) > 0 {
