@@ -20,9 +20,11 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -574,46 +576,42 @@ func (suite *SubcommandTestSuite) TestInstallExplicitPrereleaseWithoutPreFlag() 
 	suite.driverIsInstalled("test-driver-only-pre", false)
 }
 
+// TestInstallPartialRegistryFailure pins that a failed registry with the
+// same signer does not stop dbc install, while a failure that cannot be
+// attributed to a registry with a known signer does, unless --registry
+// chooses a reachable registry.
 func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailure() {
-	// Test that install command handles partial registry failure gracefully
-	// (one registry succeeds, another fails - returns both drivers and error)
-	partialFailingRegistry := func() ([]dbc.Driver, error) {
-		// Get drivers from the test registry (simulating one successful registry)
-		drivers, _ := getTestDriverRegistry()
-		// But also return an error (simulating another registry that failed)
-		return drivers, fmt.Errorf("registry https://secondary-registry.example.com: failed to fetch driver registry: network error")
+	base := func(registryErr error) baseModel {
+		return withRegistries(baseModel{
+			getDriverRegistry: func() ([]dbc.Driver, error) {
+				drivers, _ := getTestDriverRegistry()
+				return drivers, registryErr
+			},
+			downloadPkg: downloadTestPkg,
+		})
 	}
+	failedRegistry := &dbc.RegistryIndexError{Registry: &dbc.Registry{BaseURL: must(url.Parse("https://secondary-registry.example.com"))}, Err: errors.New("network error")}
 
-	// Should succeed if the requested driver is found in the available drivers
-	m := InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.
-		GetModelCustom(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
-	out := suite.runCmd(m)
+	out := suite.runCmdErr(InstallCmd{Driver: "nonexistent-driver", Level: suite.configLevel}.GetModelCustom(base(failedRegistry)))
+	suite.Contains(out, "could not find driver")
+	suite.Contains(out, "Note: Some driver registries were unavailable")
+	suite.Contains(out, "registry https://secondary-registry.example.com: network error")
 
-	// Should install successfully without printing the registry error
+	unattributed := errors.New("registry unavailable: network error")
+	out = suite.runCmdErr(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(base(unattributed)))
+	suite.Contains(out, dbc.ErrIncompleteIndex.Error())
+	suite.Contains(out, "network error")
+	suite.Contains(out, "pass --registry")
+	suite.driverIsNotInstalled("test-driver-1")
+
+	out = suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel}.GetModelCustom(base(failedRegistry)))
 	suite.Contains(out, "Installed test-driver-1 1.1.0")
 	suite.driverIsInstalled("test-driver-1", true)
-}
 
-func (suite *SubcommandTestSuite) TestInstallPartialRegistryFailureDriverNotFound() {
-	// Test that install command shows registry errors when the requested driver is not found
-	partialFailingRegistry := func() ([]dbc.Driver, error) {
-		// Get drivers from the test registry (simulating one successful registry)
-		drivers, _ := getTestDriverRegistry()
-		// But also return an error (simulating another registry that failed)
-		return drivers, fmt.Errorf("registry https://secondary-registry.example.com: failed to fetch driver registry: network error")
-	}
-
-	// Should fail with enhanced error message if the requested driver is not found
-	m := InstallCmd{Driver: "nonexistent-driver", Level: suite.configLevel}.
-		GetModelCustom(baseModel{getDriverRegistry: partialFailingRegistry, downloadPkg: downloadTestPkg})
-	out := suite.runCmdErr(m)
-
-	// Should show the driver not found error AND the registry error
-	suite.Contains(out, "could not find driver")
-	suite.Contains(out, "nonexistent-driver")
-	suite.Contains(out, "Note: Some driver registries were unavailable")
-	suite.Contains(out, "failed to fetch driver registry")
-	suite.Contains(out, "network error")
+	// --registry installs again from the chosen registry.
+	out = suite.runCmd(InstallCmd{Driver: "test-driver-1", Level: suite.configLevel, Registry: testRegistry.BaseURL.String()}.GetModelCustom(base(unattributed)))
+	suite.Contains(out, "Installed test-driver-1 1.1.0")
+	suite.driverIsInstalled("test-driver-1", true)
 }
 
 func (suite *SubcommandTestSuite) TestInstallCompleteRegistryFailure() {

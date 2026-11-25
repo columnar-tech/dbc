@@ -150,9 +150,19 @@ func Resolve(ctx context.Context, c *dbc.Client, name, platform string) (Resolve
 	if searchErr != nil && allRegistriesFailed(c, searchErr) {
 		return ResolveResult{}, searchErr
 	}
-	pkg, err := dbc.ResolvePackage(drivers, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
+	// A failed registry is an error only if it might list the driver with
+	// another signer; see dbc.ResolvePackage.
+	pkg, err := dbc.ResolvePackage(drivers, searchErr, name, func(candidate *dbc.Driver) (dbc.PkgInfo, error) {
 		return candidate.GetLatestPackage(platform, false)
 	})
+	var conflict *dbc.SignerConflictError
+	switch {
+	case errors.Is(err, dbc.ErrIncompleteIndex), errors.As(err, &conflict):
+		return ResolveResult{}, err
+	case err != nil && pkg.Driver.Path != "" && !errors.Is(err, dbc.ErrPackageMiss):
+		return ResolveResult{}, err
+	}
+	// Without an eligible version the driver's versions are still reported.
 	if pkg.Driver.Path != "" {
 		out := ResolveResult{Path: pkg.Driver.Path, Platform: platform, Versions: []string{}}
 		for _, v := range pkg.Driver.Versions(platform) {

@@ -292,12 +292,13 @@ func TestPlanUnknownDriverReportsRegistryErrors(t *testing.T) {
 	inner := f.planner.index
 	f.planner.index = func() ([]dbc.Driver, error) {
 		drivers, _ := inner()
-		return drivers, errors.New("registry https://backup.example.com: timeout")
+		return drivers, &dbc.RegistryIndexError{Registry: &dbc.Registry{BaseURL: must(url.Parse("https://backup.example.com"))}, Err: errors.New("timeout")}
 	}
 	_, _, err := f.planner.plan(listOf(map[string]driverSpec{"missing": {}}), parsedLockFile{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "driver `missing` not found")
 	assert.Contains(t, err.Error(), "Some driver registries were unavailable")
+	assert.Contains(t, err.Error(), "registry https://backup.example.com: timeout")
 }
 
 func TestPlanReplaysLockWithoutRegistryIndex(t *testing.T) {
