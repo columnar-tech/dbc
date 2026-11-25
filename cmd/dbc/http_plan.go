@@ -42,9 +42,6 @@ type httpPending struct {
 	archive *url.URL
 	// checksum is the URL of the checksum file, or nil to measure the hash.
 	checksum *url.URL
-	// single is whether no other target of the driver uses the same
-	// checksum URL, which a checksum file of a hash alone requires.
-	single bool
 }
 
 // measured reports whether the hash of the artifact is measured from its
@@ -124,7 +121,6 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 		return plannedDriver{}, err
 	}
 	var plan httpPlan
-	checksumUsers := map[string]int{}
 	for _, t := range targets {
 		if slices.ContainsFunc(artifacts, func(a lockedArtifact) bool { return a.Target == t }) {
 			continue
@@ -138,7 +134,6 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 			if pending.checksum, err = src.checksum.expand(v, t); err != nil {
 				return plannedDriver{}, fmt.Errorf("driver %s: checksum_url: %w", name, err)
 			}
-			checksumUsers[pending.checksum.String()]++
 		}
 		plan.pending = append(plan.pending, pending)
 		artifacts = append(artifacts, lockedArtifact{
@@ -147,12 +142,6 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: u.String()},
 		})
 	}
-	for i := range plan.pending {
-		if c := plan.pending[i].checksum; c != nil {
-			plan.pending[i].single = checksumUsers[c.String()] == 1
-		}
-	}
-
 	entry := lockedDriver{Name: name, Version: v.String(), Signer: signer.locked(), Source: source, Artifacts: artifacts}
 	if old != nil && !replay {
 		if err := checkSourceContinuity(name, *old, entry); err != nil {
@@ -239,6 +228,24 @@ func plaintextWarnings(planned []plannedDriver) []string {
 // Unmeasured. A checksum file that cannot be read or lacks an archive is an
 // error and never falls back to measuring.
 func fetchHTTPChecksums(ctx context.Context, base baseModel, planned []plannedDriver) error {
+	// A checksum file of a hash alone can only serve one archive, of
+	// whichever driver; count the archives of each checksum URL over all.
+	archives := map[string]map[string]bool{}
+	for _, pd := range planned {
+		if pd.http == nil {
+			continue
+		}
+		for _, pending := range pd.http.pending {
+			if pending.checksum == nil {
+				continue
+			}
+			key := pending.checksum.String()
+			if archives[key] == nil {
+				archives[key] = map[string]bool{}
+			}
+			archives[key][pending.archive.String()] = true
+		}
+	}
 	files := map[string][]byte{}
 	for i := range planned {
 		pd := &planned[i]
@@ -279,7 +286,7 @@ func fetchHTTPChecksums(ctx context.Context, base baseModel, planned []plannedDr
 				}
 				files[key] = body
 			}
-			hash, err := checksumFor(body, pending.archive, pending.single)
+			hash, err := checksumFor(body, pending.archive, len(archives[key]) == 1)
 			if err != nil {
 				return fmt.Errorf("driver %s: checksum file %s: %w", pd.Name, pending.checksum, err)
 			}

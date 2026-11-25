@@ -442,3 +442,19 @@ func (suite *SubcommandTestSuite) TestHTTPSourceDeclaration() {
 	}
 	suite.Zero(f.total())
 }
+
+// A checksum file of a hash alone serves one archive only, also when two
+// drivers name it.
+func (suite *SubcommandTestSuite) TestLockHTTPSourcesShareAChecksumFile() {
+	suite.skipUnlessLinuxAMD64()
+	f := newHTTPFiles(suite.T())
+	f.files["/SHA256SUM"] = []byte(strings.Repeat("a", 64) + "\n")
+	driver := func(name string) string {
+		return "[drivers." + name + "]\nversion = '=1.0.0'\n[drivers." + name + ".source]\ntype = 'http'\n" +
+			"url = '" + f.URL + "/" + name + "_{os}_{arch}.tar.gz'\nchecksum_url = '" + f.URL + "/SHA256SUM'\nsigning_key = false\n"
+	}
+	listPath := suite.writeList(driver("one") + driver("two"))
+	out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
+	suite.Contains(out, "a checksum file with a hash alone must hold one hash and serve one archive")
+	suite.NoFileExists(suite.lockPath())
+}
