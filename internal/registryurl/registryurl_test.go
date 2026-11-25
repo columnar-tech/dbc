@@ -73,7 +73,7 @@ func TestEscapedPath(t *testing.T) {
 		{"https://h/a@b", "/a@b"},
 		{"https://h/a%2fb", "/a%2Fb"},
 		{"https://h/a%20b", "/a%20b"},
-		{"https://h/caf%c3%a9", "/caf%C3%A9"},
+		{"https://h/x%c3%a9", "/x%C3%A9"},
 		// Nothing is decoded twice.
 		{"https://h/a%2564", "/a%2564"},
 		{"https://h", ""},
