@@ -196,7 +196,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		var globalRegs []Registry
 		var globalExclude bool
 		if cfg.globalConfig != nil {
-			globalRegs, _, err = parseRegistryConfig(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
+			globalRegs, err = parseRegistryConfig(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
 			if err != nil {
 				return nil, err
 			}
@@ -263,9 +263,11 @@ func (c *Client) Registries() []Registry { return c.registries }
 // name of the project configuration (see WithProjectConfig), for a source
 // of the project that names it, such as an HTTP source in dbc.toml. A name
 // is looked up only in the project, never in the global config, and also
-// when WithBaseURL or WithRegistries replaces the registries. The project's
-// registries that name the same definition share the policy, so a
-// SigningOperation reads its key file once for both.
+// when WithBaseURL or WithRegistries replaces the registries; a name that
+// the project does not define is an error. It does not read a key file.
+// The project's registries that name the same definition share the policy,
+// so within one SigningOperation the first key read from that definition
+// serves both.
 func (c *Client) ProjectSigningPolicy(name string) (SigningPolicy, error) {
 	policy, ok := c.projectSigning[name]
 	if !ok {
@@ -290,8 +292,9 @@ func WithCredentialResolver(resolver func(*url.URL) (*auth.Credential, error)) O
 }
 
 // WithRegistries sets the driver registries to use. When passed, this takes
-// precedence over any WithGlobalConfig / WithProjectConfig options: the
-// caller's explicit list is used as-is, not merged with configuration files.
+// precedence over the registries of any WithGlobalConfig / WithProjectConfig
+// options: the caller's explicit list is used as-is, not merged with
+// configuration files.
 // Set Registry.Signing to verify a registry's packages with a key other than
 // the Columnar key; NewClient rejects an invalid policy such as
 // SignWith(nil).

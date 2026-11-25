@@ -88,20 +88,17 @@ rather than `dbc.ErrUnauthorized`. The deprecated package-level functions use
 
 ## Explicit registry overrides
 
-`dbc.WithRegistries([]dbc.Registry{...})` replaces the entire registry list,
-ignoring both global and project configuration options regardless of option
-order. It preserves the supplied order and duplicates rather than merging or
-deduplicating entries. An explicit empty slice (or `nil`) configures zero
-registries; omitting `WithRegistries` leaves normal default/configuration
-behavior in place.
+`dbc.WithRegistries([]dbc.Registry{...})` replaces the default and configured
+registries regardless of option order. It preserves the supplied order and
+duplicates. An explicit empty slice (or `nil`) configures zero registries.
 
 ```go
 client, err := dbc.NewClient(dbc.WithRegistries([]dbc.Registry{}))
 ```
 
-A nonempty `dbc.WithBaseURL("https://registry.example.com")` selects one
-registry and takes precedence over `WithRegistries`, `WithGlobalConfig`, and
-`WithProjectConfig`. An empty base URL does not override the registry list.
+A nonempty `dbc.WithBaseURL("https://registry.example.com")` replaces the
+registry list with a single registry, taking precedence over `WithRegistries`
+and any configured registries. An empty base URL leaves the list unchanged.
 
 Unlike configuration-file entries, the root Go client's explicit
 `WithRegistries` entries are not URL-validated by `NewClient`. Callers must
@@ -110,10 +107,12 @@ client construction and panics if URL parsing fails; it does not enforce the
 configuration loaders' host and HTTP(S) checks. Do not assume invalid explicit
 URLs produce a `NewClient` error.
 
-Explicit options bypass validation and merging of the configuration objects
-passed to `NewClient`; they cannot skip loader calls your application already
-made. If you want explicit options to avoid file reads, do not call the loaders
-on that path.
+With an explicit registry list or a nonempty base URL, `NewClient` skips
+validation and merging of registry entries from the global and project
+configuration. It still validates the `[signing_keys]` definitions passed
+through `WithProjectConfig` and returns an error for an invalid definition.
+`Client.ProjectSigningPolicy` makes these policies available to other project
+sources. To avoid loading configuration files, skip the loader calls.
 
 ## Signing keys
 

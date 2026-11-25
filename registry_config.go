@@ -110,7 +110,7 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	// here, because a project's dbc.toml may supply the entries at NewClient
 	// time. The "zero resulting registries" case is enforced after merging in
 	// NewClient so both library and CLI callers share the same semantics.
-	if _, _, err := parseRegistryConfig(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
+	if _, err := parseRegistryConfig(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
 		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
 
@@ -158,7 +158,7 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		SigningKeys:              cfg.SigningKeys,
 		Path:                     absPath(path),
 	}
-	if _, _, err := parseRegistryConfig(project.Registries, project.SigningKeys, project.Path, true); err != nil {
+	if _, err := parseRegistryConfig(project.Registries, project.SigningKeys, project.Path, true); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return project, nil
@@ -182,30 +182,23 @@ func absPath(path string) string {
 // project on their own, without merging them with other configuration or
 // reading key files.
 func (c *ProjectConfig) Validate() error {
-	_, _, err := parseRegistryConfig(c.Registries, c.SigningKeys, c.Path, true)
+	_, err := parseRegistryConfig(c.Registries, c.SigningKeys, c.Path, true)
 	return err
 }
 
 // parseRegistryConfig validates the registry entries and signing key
 // definitions of one configuration file, and returns the registries with
-// their signing policies and the policy of every definition, by name. Every
-// definition is checked, including ones that no registry names; a
-// signing_key name is looked up only in keys, the definitions of the same
-// file. A registry and the returned definitions share the policy of a
-// definition, so that one SigningOperation reads its key file once. path is
-// the file the configuration was read from, or empty when it was built in
-// memory. project is true for a project's dbc.toml, whose key files must be
-// inside the project directory.
-func parseRegistryConfig(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, map[string]SigningPolicy, error) {
+// their signing policies. Every definition is checked, including ones that
+// no registry names; a signing_key name is looked up only in keys, the
+// definitions of the same file. path is the file the configuration was read
+// from, or empty when it was built in memory. project is true for a
+// project's dbc.toml, whose key files must be inside the project directory.
+func parseRegistryConfig(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, error) {
 	policies, err := signingPoliciesFromDefinitions(keys, path, project)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	registries, err := registriesFromEntries(entries, policies)
-	if err != nil {
-		return nil, nil, err
-	}
-	return registries, policies, nil
+	return registriesFromEntries(entries, policies)
 }
 
 // signingPoliciesFromDefinitions checks the [signing_keys] definitions of one
@@ -479,8 +472,9 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 //
 // WithBaseURL and WithRegistries take precedence over this option's
 // registries — when set, project registries are ignored. Its signing key
-// definitions still apply to the project's other sources; see
-// Client.ProjectSigningPolicy.
+// definitions still apply to the project's other sources (see
+// Client.ProjectSigningPolicy), so an invalid definition is a NewClient
+// error also then.
 func WithProjectConfig(cfg *ProjectConfig) Option {
 	var cp *ProjectConfig
 	if cfg != nil {
