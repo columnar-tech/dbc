@@ -354,13 +354,10 @@ func (m searchModel) FinalOutput() string {
 		if output == "" {
 			// Some matched drivers exist but all are pre-release and --pre wasn't passed.
 			if !m.pre && len(m.finalDrivers) > 0 {
-				var preCmd string
 				if m.pattern != nil {
-					preCmd = "dbc search --pre " + m.pattern.String()
-				} else {
-					preCmd = "dbc search --pre"
+					return fmt.Sprintf("Only one or more pre-release drivers matched your pattern `%s`. To include them, use: dbc search --pre %s", m.pattern.String(), m.pattern.String())
 				}
-				return fmt.Sprintf("Only one or more pre-release drivers matched your pattern `%s`. To include them, use: %s", m.pattern.String(), preCmd)
+				return "Only pre-release drivers were found. To include them, use: dbc search --pre"
 			}
 			if m.pattern != nil {
 				return "No drivers matched your pattern `" + m.pattern.String() + "`."
