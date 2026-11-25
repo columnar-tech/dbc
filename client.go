@@ -160,12 +160,12 @@ func NewClient(opts ...Option) (*Client, error) {
 	}
 
 	// The project's signing key definitions also serve sources other than
-	// registries, so they are parsed even when the registries are replaced.
-	// Its registries use the same policies as ProjectSigningPolicy returns.
-	var projectRegs []Registry
+	// registries, so they are parsed even when the registries are replaced;
+	// its registry entries are only parsed when they are merged. Its
+	// registries use the same policies as ProjectSigningPolicy returns.
 	var projectSigning map[string]SigningPolicy
 	if cfg.project != nil {
-		projectRegs, projectSigning, err = parseRegistryConfig(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
+		projectSigning, err = signingPoliciesFromDefinitions(cfg.project.SigningKeys, cfg.project.Path, true)
 		if err != nil {
 			return nil, err
 		}
@@ -184,8 +184,13 @@ func NewClient(opts ...Option) (*Client, error) {
 	} else if cfg.globalConfig != nil || cfg.project != nil {
 		// A project can exclude the built-in registries but cannot bring
 		// back ones that the global config excludes.
+		var projectRegs []Registry
 		var excludeBuiltin bool
 		if cfg.project != nil {
+			projectRegs, err = registriesFromEntries(cfg.project.Registries, projectSigning)
+			if err != nil {
+				return nil, err
+			}
 			excludeBuiltin = cfg.project.ExcludeBuiltinRegistries
 		}
 		var globalRegs []Registry

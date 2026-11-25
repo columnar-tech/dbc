@@ -373,3 +373,32 @@ func TestProjectSigningPolicy(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// Replaced registries are not parsed, so an invalid registry entry of the
+// project does not stop a client whose registries are replaced, while its
+// signing key definitions are still checked.
+func TestProjectSigningPolicyWithInvalidReplacedRegistries(t *testing.T) {
+	armored := publicArmored(t, generateTestKey(t, "acme"))
+	cfg := &ProjectConfig{
+		Registries:  []RegistryEntry{{URL: "not a url"}},
+		SigningKeys: map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP, PublicKey: &armored}},
+	}
+	for name, opt := range map[string]Option{
+		"WithBaseURL":    WithBaseURL("https://override.example.com"),
+		"WithRegistries": WithRegistries([]Registry{{BaseURL: mustParseURL("https://explicit.example.com")}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, err := NewClient(WithProjectConfig(cfg), opt)
+			require.NoError(t, err)
+			_, err = c.ProjectSigningPolicy("acme")
+			require.NoError(t, err)
+
+			bad := *cfg
+			bad.SigningKeys = map[string]SigningKeyDefinition{"acme": {Type: SigningKeyTypeOpenPGP}}
+			_, err = NewClient(WithProjectConfig(&bad), opt)
+			assert.ErrorContains(t, err, `signing key "acme"`)
+		})
+	}
+	_, err := NewClient(WithProjectConfig(cfg))
+	assert.Error(t, err, "merged registries are still checked")
+}

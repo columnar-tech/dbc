@@ -197,19 +197,30 @@ func (c *ProjectConfig) Validate() error {
 // memory. project is true for a project's dbc.toml, whose key files must be
 // inside the project directory.
 func parseRegistryConfig(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, map[string]SigningPolicy, error) {
-	policies := make(map[string]SigningPolicy, len(keys))
-	for _, name := range slices.Sorted(maps.Keys(keys)) {
-		policy, err := signingPolicyFromDefinition(name, keys[name], path, project)
-		if err != nil {
-			return nil, nil, fmt.Errorf("signing key %q: %w", name, err)
-		}
-		policies[name] = policy
+	policies, err := signingPoliciesFromDefinitions(keys, path, project)
+	if err != nil {
+		return nil, nil, err
 	}
 	registries, err := registriesFromEntries(entries, policies)
 	if err != nil {
 		return nil, nil, err
 	}
 	return registries, policies, nil
+}
+
+// signingPoliciesFromDefinitions checks the [signing_keys] definitions of one
+// configuration file and returns their policies by name; path and project
+// are as for parseRegistryConfig.
+func signingPoliciesFromDefinitions(keys map[string]SigningKeyDefinition, path string, project bool) (map[string]SigningPolicy, error) {
+	policies := make(map[string]SigningPolicy, len(keys))
+	for _, name := range slices.Sorted(maps.Keys(keys)) {
+		policy, err := signingPolicyFromDefinition(name, keys[name], path, project)
+		if err != nil {
+			return nil, fmt.Errorf("signing key %q: %w", name, err)
+		}
+		policies[name] = policy
+	}
+	return policies, nil
 }
 
 // registriesFromEntries returns the registries of entries with the signing
