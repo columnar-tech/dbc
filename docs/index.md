@@ -629,6 +629,102 @@ dbc is the command-line tool for installing and managing [ADBC](https://arrow.ap
         let mut driver = ManagedDriver::load_from_name("datafusion", ... )
         ```
 
+=== "Db2"
+
+    ```console
+    $ dbc install --pre db2
+    ```
+
+    !!! note
+
+        This driver requires the [IBM Data Server Driver for ODBC and CLI](https://public.dhe.ibm.com/ibmdl/export/pub/software/data/db2/drivers/odbc_cli/). Download it, extract the `clidriver` directory, and then add `clidriver/lib` to `LD_LIBRARY_PATH` (Linux), add `clidriver\bin` to `PATH` (Windows), or move `clidriver` into the directory where dbc installed the driver (macOS).
+
+    <br/><span class="quickstart-step-number">3</span> [Install a driver manager](./guides/driver_manager.md) and load drivers in any supported language:
+
+    === "C++"
+
+        ```cpp
+        #include <arrow-adbc/adbc.h>
+
+        AdbcDatabaseSetOption(&database, "driver", "db2", &error)
+        ```
+
+    === "C#"
+
+        ```csharp
+        using Apache.Arrow.Adbc.DriverManager;
+
+        using var driver = AdbcDriverManager.FindLoadDriver("db2");
+        ```
+
+    === "Go"
+
+        ```go
+        import . "github.com/apache/arrow-adbc/go/adbc/drivermgr"
+
+        db, _ := Driver{}.NewDatabase(map[string]string{"driver": "db2", ... })
+        ```
+
+    === "Java"
+
+        ```java
+        import org.apache.arrow.adbc.driver.jni.JniDriver;
+
+        JniDriver.PARAM_DRIVER.set(params, "db2");
+        ```
+
+    === "JS/TS"
+
+        ```javascript
+        import { AdbcDatabase } from "@apache-arrow/adbc-driver-manager";
+
+        const db = new AdbcDatabase({driver: "db2", ... });
+        ```
+
+        !!! note
+
+            The JavaScript/TypeScript ADBC driver manager is for server-side runtimes like Node.js, Deno, and Bun. It does not run in the browser.
+
+    === "Kotlin"
+
+        ```kotlin
+        import org.apache.arrow.adbc.driver.jni.JniDriver
+
+        JniDriver.PARAM_DRIVER.set(params, "db2")
+        ```
+
+    ===+ "Python"
+
+        ```python
+        from adbc_driver_manager import dbapi
+
+        con = dbapi.connect(driver="db2", ... )
+        ```
+
+    === "R"
+
+        ```r
+        library(adbcdrivermanager)
+
+        drv <- adbc_driver("db2")
+        ```
+
+    === "Ruby"
+
+        ```ruby
+        require "adbc"
+
+        database.set_option("driver", "db2")
+        ```
+
+    === "Rust"
+
+        ```rust
+        use adbc_driver_manager::ManagedDriver;
+
+        let mut driver = ManagedDriver::load_from_name("db2", ... )
+        ```
+
 === "Druid"
 
     ```console

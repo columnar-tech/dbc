@@ -123,7 +123,8 @@ selectors in sync with the driver picker in docs/index.md. */
   .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
   .md-typeset .tabbed-set > input:nth-child(23):checked ~ .tabbed-labels > :nth-child(23),
   .md-typeset .tabbed-set > input:nth-child(24):checked ~ .tabbed-labels > :nth-child(24),
-  .md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25) {
+  .md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25),
+  .md-typeset .tabbed-set > input:nth-child(26):checked ~ .tabbed-labels > :nth-child(26) {
     color: var(--md-default-fg-color);
   }
 
@@ -132,21 +133,25 @@ selectors in sync with the driver picker in docs/index.md. */
   .md-typeset .no-js .tabbed-set > input:nth-child(23):checked ~ .tabbed-labels > :nth-child(23),
   .md-typeset .no-js .tabbed-set > input:nth-child(24):checked ~ .tabbed-labels > :nth-child(24),
   .md-typeset .no-js .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25),
+  .md-typeset .no-js .tabbed-set > input:nth-child(26):checked ~ .tabbed-labels > :nth-child(26),
   .md-typeset [role="dialog"] .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
   .md-typeset [role="dialog"] .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
   .md-typeset [role="dialog"] .tabbed-set > input:nth-child(23):checked ~ .tabbed-labels > :nth-child(23),
   .md-typeset [role="dialog"] .tabbed-set > input:nth-child(24):checked ~ .tabbed-labels > :nth-child(24),
   .md-typeset [role="dialog"] .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25),
+  .md-typeset [role="dialog"] .tabbed-set > input:nth-child(26):checked ~ .tabbed-labels > :nth-child(26),
   .no-js .md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
   .no-js .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
   .no-js .md-typeset .tabbed-set > input:nth-child(23):checked ~ .tabbed-labels > :nth-child(23),
   .no-js .md-typeset .tabbed-set > input:nth-child(24):checked ~ .tabbed-labels > :nth-child(24),
   .no-js .md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25),
+  .no-js .md-typeset .tabbed-set > input:nth-child(26):checked ~ .tabbed-labels > :nth-child(26),
   [role="dialog"] .md-typeset .tabbed-set > input:nth-child(21):checked ~ .tabbed-labels > :nth-child(21),
   [role="dialog"] .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-labels > :nth-child(22),
   [role="dialog"] .md-typeset .tabbed-set > input:nth-child(23):checked ~ .tabbed-labels > :nth-child(23),
   [role="dialog"] .md-typeset .tabbed-set > input:nth-child(24):checked ~ .tabbed-labels > :nth-child(24),
-  [role="dialog"] .md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25) {
+  [role="dialog"] .md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-labels > :nth-child(25),
+  [role="dialog"] .md-typeset .tabbed-set > input:nth-child(26):checked ~ .tabbed-labels > :nth-child(26) {
     border-color: var(--md-default-fg-color);
   }
 }
@@ -155,7 +160,8 @@ selectors in sync with the driver picker in docs/index.md. */
 .md-typeset .tabbed-set > input:nth-child(22).focus-visible ~ .tabbed-labels > :nth-child(22),
 .md-typeset .tabbed-set > input:nth-child(23).focus-visible ~ .tabbed-labels > :nth-child(23),
 .md-typeset .tabbed-set > input:nth-child(24).focus-visible ~ .tabbed-labels > :nth-child(24),
-.md-typeset .tabbed-set > input:nth-child(25).focus-visible ~ .tabbed-labels > :nth-child(25) {
+.md-typeset .tabbed-set > input:nth-child(25).focus-visible ~ .tabbed-labels > :nth-child(25),
+.md-typeset .tabbed-set > input:nth-child(26).focus-visible ~ .tabbed-labels > :nth-child(26) {
   color: var(--md-accent-fg-color);
 }
 
@@ -163,7 +169,8 @@ selectors in sync with the driver picker in docs/index.md. */
 .md-typeset .tabbed-set > input:nth-child(22):checked ~ .tabbed-content > :nth-child(22),
 .md-typeset .tabbed-set > input:nth-child(23):checked ~ .tabbed-content > :nth-child(23),
 .md-typeset .tabbed-set > input:nth-child(24):checked ~ .tabbed-content > :nth-child(24),
-.md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-content > :nth-child(25) {
+.md-typeset .tabbed-set > input:nth-child(25):checked ~ .tabbed-content > :nth-child(25),
+.md-typeset .tabbed-set > input:nth-child(26):checked ~ .tabbed-content > :nth-child(26) {
   display: block;
 }
 
