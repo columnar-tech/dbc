@@ -43,7 +43,7 @@ func resolveFirstKey(t *testing.T, cfg *ProjectConfig) (*SigningKey, error) {
 	t.Helper()
 	c, err := NewClient(WithProjectConfig(cfg))
 	require.NoError(t, err)
-	return c.Registries()[0].ResolveSigningKey()
+	return c.Registries()[0].Signing.ResolveKey()
 }
 
 func TestPublicKeyFileRelativeToTheConfig(t *testing.T) {
@@ -86,7 +86,7 @@ func TestPublicKeyFileAbsoluteInTheUserConfig(t *testing.T) {
 	require.NoError(t, err)
 	c, err := NewClient(WithGlobalConfig(global))
 	require.NoError(t, err)
-	got, err := c.Registries()[0].ResolveSigningKey()
+	got, err := c.Registries()[0].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
 }
@@ -165,17 +165,17 @@ func TestPublicKeyFileIsReadOnEveryUse(t *testing.T) {
 	c, err := NewClient(WithProjectConfig(cfg))
 	require.NoError(t, err)
 
-	first, err := c.Registries()[0].ResolveSigningKey()
+	first, err := c.Registries()[0].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Equal(t, key.GetFingerprint(), first.Fingerprint())
 
 	require.NoError(t, os.Remove(keyPath))
-	_, err = c.Registries()[0].ResolveSigningKey()
+	_, err = c.Registries()[0].Signing.ResolveKey()
 	assert.ErrorIs(t, err, os.ErrNotExist)
 
 	other := generateTestKey(t, "other")
 	require.NoError(t, os.WriteFile(keyPath, []byte(publicArmored(t, other)), 0o600))
-	second, err := c.Registries()[0].ResolveSigningKey()
+	second, err := c.Registries()[0].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Equal(t, other.GetFingerprint(), second.Fingerprint())
 }
@@ -247,8 +247,8 @@ func TestPublicKeyFilePolicyEqual(t *testing.T) {
 	require.NoError(t, err)
 	b, err := newSigningKeyFile(filepath.Join(dir, "b.asc"), "", false)
 	require.NoError(t, err)
-	policy := func(f *signingKeyFile) RegistrySigningPolicy {
-		return RegistrySigningPolicy{kind: signingFromFile, file: f}
+	policy := func(f *signingKeyFile) SigningPolicy {
+		return SigningPolicy{kind: signingFromFile, file: f}
 	}
 	assert.True(t, policy(a).Equal(policy(a2)))
 	assert.False(t, policy(a).Equal(policy(b)))
@@ -289,7 +289,7 @@ func TestSigningOperationReadsAKeyFileOnce(t *testing.T) {
 		PkgInfo: []pkginfo{{Version: semver.MustParse("1.0.0"), Packages: []pkgEntry{{PlatformTuple: "linux_amd64"}}}}}}
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
 
-	var op RegistrySigningOperation
+	var op SigningOperation
 	_, err = op.ResolvePackage(drivers, nil, "shared", latest)
 	require.NoError(t, err, "the file holds the same certificate as the inline key")
 
@@ -299,15 +299,15 @@ func TestSigningOperationReadsAKeyFileOnce(t *testing.T) {
 	// A copy of the registry, as a single-registry fetch makes, still gets
 	// the certificate that the signer check compared.
 	registryCopy := fromFile
-	got, err := op.ResolveSigningKey(&registryCopy)
+	got, err := op.ResolveKey(registryCopy.Signing)
 	require.NoError(t, err)
 	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
 	_, err = op.ResolvePackage(drivers, nil, "shared", latest)
 	require.NoError(t, err)
 
 	// The next operation reads the file again and sees the new key.
-	var next RegistrySigningOperation
-	got, err = next.ResolveSigningKey(&fromFile)
+	var next SigningOperation
+	got, err = next.ResolveKey(fromFile.Signing)
 	require.NoError(t, err)
 	assert.Equal(t, replaced.GetFingerprint(), got.Fingerprint())
 	_, err = next.ResolvePackage(drivers, nil, "shared", latest)

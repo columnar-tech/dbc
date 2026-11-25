@@ -21,48 +21,51 @@ import (
 	"sync"
 )
 
-// RegistrySigningOperation resolves the signing keys of registries for one
-// operation, such as one install, lock or sync. Within it, the signer check
-// of ResolvePackage, the verification of packages and the key that a lock
-// file pins all use the same certificate of a registry, even when the key is
-// read from a public_key_file that changes meanwhile. A key file is read
-// only when a key is needed, and the key read from it is reused for the rest
-// of the operation; a failed read is not remembered, but every caller stops
-// on it. The next operation reads the file again.
-//
-// It covers the signing policies of registries only. The zero value is ready
-// to use; it must not be copied after first use.
-type RegistrySigningOperation struct {
+// SigningOperation resolves the signing keys of one operation, such as one
+// install, lock or sync. Within it, the signer check of ResolvePackage, the
+// verification of packages and the key that a lock file pins all use the
+// same certificate of a signing key definition, even when the key is read
+// from a public_key_file that changes meanwhile. A key file is read only
+// when a key is needed, and the key read from it is reused for the rest of
+// the operation; a failed read is not remembered and is returned to the
+// caller as an error. The next operation reads the file again. The zero value is ready to
+// use; it must not be copied after first use.
+type SigningOperation struct {
 	mu    sync.Mutex
 	files map[*signingKeyFile]*SigningKey
 }
 
-// ResolveSigningKey returns the key that the driver packages of registry r
-// must be verified with, like Registry.ResolveSigningKey, but reads a key
-// file only once in this operation. A nil registry, as for a driver without
-// one, uses the Columnar key. It returns (nil, nil) only for an Unsigned
-// registry.
-func (o *RegistrySigningOperation) ResolveSigningKey(r *Registry) (*SigningKey, error) {
-	if r == nil {
-		return ColumnarSigningKey()
-	}
-	if r.Signing.kind != signingFromFile || r.Signing.file == nil {
-		return r.ResolveSigningKey()
+// ResolveKey returns the key that packages under policy p must be verified
+// with, like SigningPolicy.ResolveKey, but for a key read from a file it
+// returns the first key that this operation read successfully from the
+// same signing key definition. It returns (nil, nil) only for Unsigned.
+func (o *SigningOperation) ResolveKey(p SigningPolicy) (*SigningKey, error) {
+	if p.kind != signingFromFile || p.file == nil {
+		return p.ResolveKey()
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if key, ok := o.files[r.Signing.file]; ok {
+	if key, ok := o.files[p.file]; ok {
 		return key, nil
 	}
-	key, err := r.ResolveSigningKey()
+	key, err := p.ResolveKey()
 	if err != nil {
 		return nil, err
 	}
 	if o.files == nil {
 		o.files = make(map[*signingKeyFile]*SigningKey)
 	}
-	o.files[r.Signing.file] = key
+	o.files[p.file] = key
 	return key, nil
+}
+
+// registryKey returns the key of registry r in this operation. A nil
+// registry, as for a driver without one, uses the Columnar key.
+func (o *SigningOperation) registryKey(r *Registry) (*SigningKey, error) {
+	if r == nil {
+		return o.ResolveKey(SigningPolicy{})
+	}
+	return o.ResolveKey(r.Signing)
 }
 
 // ResolvePackage chooses the package of a driver that is not pinned yet.
@@ -92,7 +95,9 @@ func (o *RegistrySigningOperation) ResolveSigningKey(r *Registry) (*SigningKey, 
 // driver-not-found error.
 //
 // To resolve from one registry only, pass that registry's index alone.
-func (o *RegistrySigningOperation) ResolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
+// It is for registry indexes only; callers resolve packages from other
+// sources separately.
+func (o *SigningOperation) ResolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error)) (PkgInfo, error) {
 	return resolvePackage(drivers, indexErr, name, selectPackage, o.signerIdentity)
 }
 
@@ -108,7 +113,7 @@ type signerIdentity struct {
 // the whole certificate, since subkeys and revocations change which
 // signatures it accepts; for an unsigned registry, the registry itself, so
 // that two unsigned registries never count as the same signer.
-func (o *RegistrySigningOperation) signerIdentity(r *Registry) (signerIdentity, error) {
+func (o *SigningOperation) signerIdentity(r *Registry) (signerIdentity, error) {
 	if r != nil && r.Signing.IsUnsigned() {
 		if r.BaseURL == nil {
 			return signerIdentity{}, errors.New("unsigned registry has no URL")
@@ -117,7 +122,7 @@ func (o *RegistrySigningOperation) signerIdentity(r *Registry) (signerIdentity, 
 		// select different registries on the same host and path.
 		return signerIdentity{key: "unsigned " + registryURLKey(r.BaseURL), label: "unsigned"}, nil
 	}
-	key, err := o.ResolveSigningKey(r)
+	key, err := o.registryKey(r)
 	if err != nil {
 		return signerIdentity{}, err
 	}

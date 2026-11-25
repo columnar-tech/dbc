@@ -23,7 +23,7 @@ import (
 )
 
 func TestSignerIdentity(t *testing.T) {
-	var op RegistrySigningOperation
+	var op SigningOperation
 	key := func(name string) *SigningKey {
 		t.Helper()
 		k, err := NewArmoredSigningKey(publicArmored(t, generateTestKey(t, name)))
@@ -88,7 +88,7 @@ func TestResolvePackageSigners(t *testing.T) {
 	}
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
 	resolve := func(drivers []Driver, indexErr error) (PkgInfo, error) {
-		var op RegistrySigningOperation
+		var op SigningOperation
 		return op.ResolvePackage(drivers, indexErr, "shared", latest)
 	}
 	failed := func(r *Registry) error { return &RegistryIndexError{Registry: r, Err: ErrUnauthorized} }
@@ -127,4 +127,21 @@ func TestResolvePackageSigners(t *testing.T) {
 	pkg, err = resolve([]Driver{driver(unsignedA, "1.0.0")}, nil)
 	require.NoError(t, err)
 	assert.Same(t, unsignedA, pkg.Driver.Registry)
+}
+
+func TestSigningOperationResolveKey(t *testing.T) {
+	columnar, err := ColumnarSigningKey()
+	require.NoError(t, err)
+	var op SigningOperation
+
+	key, err := op.ResolveKey(SigningPolicy{})
+	require.NoError(t, err)
+	assert.Same(t, columnar, key, "the zero value is the Columnar key")
+
+	key, err = op.ResolveKey(Unsigned())
+	require.NoError(t, err)
+	assert.Nil(t, key, "only Unsigned resolves to no key")
+
+	_, err = op.ResolveKey(SignWith(nil))
+	assert.Error(t, err, "a policy without a key is an error, not unsigned")
 }

@@ -55,7 +55,7 @@ type Registry struct {
 	BaseURL *url.URL
 	// Signing says which key the registry's driver packages are verified
 	// with. The zero value is the built-in Columnar key.
-	Signing RegistrySigningPolicy
+	Signing SigningPolicy
 }
 
 func mustParseURL(u string) *url.URL {
@@ -704,7 +704,7 @@ func (e *RegistryIndexError) Error() string {
 
 func (e *RegistryIndexError) Unwrap() error { return e.Err }
 
-// ErrIncompleteIndex is returned by RegistrySigningOperation.ResolvePackage
+// ErrIncompleteIndex is returned by SigningOperation.ResolvePackage
 // when the index of a registry is missing and that registry might list the
 // driver with another signer than the registries that do list it. Choosing where a driver comes
 // from compares the signers of every registry that lists the driver, so a
@@ -712,7 +712,7 @@ func (e *RegistryIndexError) Unwrap() error { return e.Err }
 // be determined).
 var ErrIncompleteIndex = errors.New("the index of a registry that might list the driver with another signer is missing")
 
-// SignerConflictError is returned by RegistrySigningOperation.ResolvePackage
+// SignerConflictError is returned by SigningOperation.ResolvePackage
 // when registries whose packages are verified with different signers list
 // the same driver name: registries with different certificates, or two
 // unsigned registries. A fallback from one registry to another is only
@@ -752,7 +752,7 @@ func registryLabel(r *Registry) string {
 	return u.String()
 }
 
-// resolvePackage implements RegistrySigningOperation.ResolvePackage with
+// resolvePackage implements SigningOperation.ResolvePackage with
 // signerOf as the source of signer identities.
 func resolvePackage(drivers []Driver, indexErr error, name string, selectPackage func(*Driver) (PkgInfo, error), signerOf func(*Registry) (signerIdentity, error)) (PkgInfo, error) {
 	var (

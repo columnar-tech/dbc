@@ -296,8 +296,8 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	}
 	// The signer check and the verification below use the same keys. A
 	// failed registry is an error only if it might list the driver with
-	// another signer; see RegistrySigningOperation.ResolvePackage.
-	var signing RegistrySigningOperation
+	// another signer; see SigningOperation.ResolvePackage.
+	var signing SigningOperation
 	pkg, err := signing.ResolvePackage(drivers, searchErr, driverName, func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage(config.PlatformTuple(), false) })
 	if err != nil {
 		return nil, fmt.Errorf("failed to get package for driver %s: %w", driverName, err)
@@ -307,7 +307,7 @@ func (c *Client) Install(ctx context.Context, cfg config.Config, driverName stri
 	if !o.allowUnsigned {
 		// The key is selected before the download, so a key that cannot be
 		// loaded fails without fetching the package.
-		key, err := signing.ResolveSigningKey(pkg.Driver.Registry)
+		key, err := signing.registryKey(pkg.Driver.Registry)
 		if err != nil {
 			return nil, fmt.Errorf("driver %s: could not load the signing key of its registry: %w", driverName, err)
 		}

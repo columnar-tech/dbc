@@ -194,7 +194,7 @@ func (c *ProjectConfig) Validate() error {
 // from, or empty when it was built in memory. project is true for a
 // project's dbc.toml, whose key files must be inside the project directory.
 func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, error) {
-	policies := make(map[string]RegistrySigningPolicy, len(keys))
+	policies := make(map[string]SigningPolicy, len(keys))
 	for _, name := range slices.Sorted(maps.Keys(keys)) {
 		policy, err := signingPolicyFromDefinition(name, keys[name], path, project)
 		if err != nil {
@@ -232,59 +232,59 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 // naming it gets. An inline public_key is parsed now; a public_key_file is
 // only read when a registry needs its key. project is as for
 // registriesFromEntries.
-func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path string, project bool) (RegistrySigningPolicy, error) {
+func signingPolicyFromDefinition(name string, def SigningKeyDefinition, path string, project bool) (SigningPolicy, error) {
 	switch {
 	case name == "":
-		return RegistrySigningPolicy{}, errors.New("name must not be empty")
+		return SigningPolicy{}, errors.New("name must not be empty")
 	case name == reservedSigningKeyName:
-		return RegistrySigningPolicy{}, fmt.Errorf("the name %q is reserved for the built-in Columnar key, which is used when signing_key is omitted", name)
+		return SigningPolicy{}, fmt.Errorf("the name %q is reserved for the built-in Columnar key, which is used when signing_key is omitted", name)
 	case def.Type == "":
-		return RegistrySigningPolicy{}, fmt.Errorf("type is required; the supported type is %q", SigningKeyTypeOpenPGP)
+		return SigningPolicy{}, fmt.Errorf("type is required; the supported type is %q", SigningKeyTypeOpenPGP)
 	case def.Type != SigningKeyTypeOpenPGP:
-		return RegistrySigningPolicy{}, fmt.Errorf("unsupported type %q; the supported type is %q", def.Type, SigningKeyTypeOpenPGP)
+		return SigningPolicy{}, fmt.Errorf("unsupported type %q; the supported type is %q", def.Type, SigningKeyTypeOpenPGP)
 	case (def.PublicKey == nil) == (def.PublicKeyFile == nil):
-		return RegistrySigningPolicy{}, errors.New("exactly one of public_key and public_key_file must be set")
+		return SigningPolicy{}, errors.New("exactly one of public_key and public_key_file must be set")
 	case def.PublicKey != nil && *def.PublicKey == "":
-		return RegistrySigningPolicy{}, errors.New("public_key must not be empty")
+		return SigningPolicy{}, errors.New("public_key must not be empty")
 	case def.PublicKeyFile != nil:
 		file, err := newSigningKeyFile(*def.PublicKeyFile, path, project)
 		if err != nil {
-			return RegistrySigningPolicy{}, err
+			return SigningPolicy{}, err
 		}
-		return RegistrySigningPolicy{kind: signingFromFile, file: file, name: name}, nil
+		return SigningPolicy{kind: signingFromFile, file: file, name: name}, nil
 	}
 	key, err := NewArmoredSigningKey(*def.PublicKey)
 	if err != nil {
-		return RegistrySigningPolicy{}, fmt.Errorf("public_key: %w", err)
+		return SigningPolicy{}, fmt.Errorf("public_key: %w", err)
 	}
-	return RegistrySigningPolicy{kind: signingWithKey, key: key, name: name}, nil
+	return SigningPolicy{kind: signingWithKey, key: key, name: name}, nil
 }
 
 // entrySigningPolicy returns the policy that a registry entry's signing_key
 // selects, looking a name up in the policies of the same file.
-func entrySigningPolicy(value any, policies map[string]RegistrySigningPolicy) (RegistrySigningPolicy, error) {
+func entrySigningPolicy(value any, policies map[string]SigningPolicy) (SigningPolicy, error) {
 	switch v := value.(type) {
 	case nil:
-		return RegistrySigningPolicy{}, nil
+		return SigningPolicy{}, nil
 	case bool:
 		if v {
-			return RegistrySigningPolicy{}, errors.New("signing_key = true is not valid; name a [signing_keys] definition, omit signing_key for the Columnar key, or set it to false for an unsigned registry")
+			return SigningPolicy{}, errors.New("signing_key = true is not valid; name a [signing_keys] definition, omit signing_key for the Columnar key, or set it to false for an unsigned registry")
 		}
 		return Unsigned(), nil
 	case string:
 		switch {
 		case v == "":
-			return RegistrySigningPolicy{}, errors.New("signing_key must not be empty")
+			return SigningPolicy{}, errors.New("signing_key must not be empty")
 		case v == reservedSigningKeyName:
-			return RegistrySigningPolicy{}, errors.New(`signing_key = "columnar" is not valid; omit signing_key to use the built-in Columnar key`)
+			return SigningPolicy{}, errors.New(`signing_key = "columnar" is not valid; omit signing_key to use the built-in Columnar key`)
 		}
 		policy, ok := policies[v]
 		if !ok {
-			return RegistrySigningPolicy{}, fmt.Errorf("signing_key %q is not defined in [signing_keys] of the same file", v)
+			return SigningPolicy{}, fmt.Errorf("signing_key %q is not defined in [signing_keys] of the same file", v)
 		}
 		return policy, nil
 	default:
-		return RegistrySigningPolicy{}, fmt.Errorf("signing_key must be the name of a [signing_keys] definition or false, not %T", value)
+		return SigningPolicy{}, fmt.Errorf("signing_key must be the name of a [signing_keys] definition or false, not %T", value)
 	}
 }
 

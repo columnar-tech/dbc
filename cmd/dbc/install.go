@@ -97,7 +97,7 @@ func (c InstallCmd) GetModelCustom(baseModel baseModel) tea.Model {
 		Pre:                c.Pre,
 		registrySource:     registrySourceFlag(c.Registry),
 		insecureNoChecksum: c.InsecureNoChecksum,
-		signing:            &dbc.RegistrySigningOperation{},
+		signing:            &dbc.SigningOperation{},
 		spinner:            s,
 		cfg:                getConfig(c.Level),
 		baseModel:          baseModel,
@@ -223,7 +223,7 @@ type progressiveInstallModel struct {
 	// signing keeps the keys of this install, so that the signer check of
 	// the resolution and the verification use the same certificate. It is
 	// a pointer since the model is copied.
-	signing *dbc.RegistrySigningOperation
+	signing *dbc.SigningOperation
 	// signer is how a package from a registry is verified, selected from
 	// the registry's configuration before the download.
 	signer packageSigner
@@ -491,7 +491,7 @@ func (m progressiveInstallModel) searchForDriver(list []dbc.Driver) (tea.Model, 
 		vers.IncludePrerelease = m.Pre
 	}
 	if m.signing == nil {
-		m.signing = &dbc.RegistrySigningOperation{}
+		m.signing = &dbc.SigningOperation{}
 	}
 	signing := m.signing
 	return m, func() tea.Msg {
@@ -537,15 +537,26 @@ func (m progressiveInstallModel) skipsVerification() bool {
 // registrySigner returns how a package from registry is verified, as its
 // configuration says, with the keys of signing; a driver without a registry
 // uses the Columnar key.
-func registrySigner(signing *dbc.RegistrySigningOperation, registry *dbc.Registry) (packageSigner, error) {
-	if signing == nil {
-		signing = &dbc.RegistrySigningOperation{}
+func registrySigner(signing *dbc.SigningOperation, registry *dbc.Registry) (packageSigner, error) {
+	var policy dbc.SigningPolicy
+	if registry != nil {
+		policy = registry.Signing
 	}
-	key, err := signing.ResolveSigningKey(registry)
+	return policySigner(signing, policy)
+}
+
+// policySigner returns how a package under policy is verified, with the keys
+// of signing, or of a new operation when signing is nil. Only an Unsigned
+// policy resolves to no key.
+func policySigner(signing *dbc.SigningOperation, policy dbc.SigningPolicy) (packageSigner, error) {
+	if signing == nil {
+		signing = &dbc.SigningOperation{}
+	}
+	key, err := signing.ResolveKey(policy)
 	if err != nil {
 		return packageSigner{}, err
 	}
-	return packageSigner{key: key, unsigned: registry != nil && key == nil}, nil
+	return packageSigner{key: key, unsigned: key == nil}, nil
 }
 
 func (m progressiveInstallModel) startDownloading() (tea.Model, tea.Cmd) {

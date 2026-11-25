@@ -69,17 +69,17 @@ url = "https://columnar.example.com"
 	regs := c.Registries()
 	require.GreaterOrEqual(t, len(regs), 3)
 
-	got, err := regs[0].ResolveSigningKey()
+	got, err := regs[0].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Equal(t, key.GetFingerprint(), got.Fingerprint())
 	assert.Equal(t, `signing key "acme"`, regs[0].Signing.String())
 
-	got, err = regs[1].ResolveSigningKey()
+	got, err = regs[1].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Nil(t, got)
 	assert.True(t, regs[1].Signing.IsUnsigned())
 
-	got, err = regs[2].ResolveSigningKey()
+	got, err = regs[2].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Equal(t, columnarFingerprint, got.Fingerprint())
 }
@@ -362,14 +362,14 @@ func TestExplicitRegistrySigningPolicy(t *testing.T) {
 
 	c, err := NewClient(WithRegistries([]Registry{{BaseURL: u, Signing: SignWith(key)}}))
 	require.NoError(t, err)
-	got, err := c.Registries()[0].ResolveSigningKey()
+	got, err := c.Registries()[0].Signing.ResolveKey()
 	require.NoError(t, err)
 	assert.Same(t, key, got)
 
-	for _, policy := range []RegistrySigningPolicy{SignWith(nil), SignWith(&SigningKey{})} {
+	for _, policy := range []SigningPolicy{SignWith(nil), SignWith(&SigningKey{})} {
 		_, err = NewClient(WithRegistries([]Registry{{BaseURL: u, Signing: policy}}))
 		assert.ErrorContains(t, err, "has no key")
-		_, err = Registry{BaseURL: u, Signing: policy}.ResolveSigningKey()
+		_, err = policy.ResolveKey()
 		assert.ErrorContains(t, err, "has no key")
 	}
 }
@@ -379,12 +379,12 @@ func TestSigningPolicyEqual(t *testing.T) {
 	require.NoError(t, err)
 	b, err := NewSigningKey([]byte(publicArmored(t, generateTestKey(t, "b"))))
 	require.NoError(t, err)
-	assert.True(t, RegistrySigningPolicy{}.Equal(RegistrySigningPolicy{}))
+	assert.True(t, SigningPolicy{}.Equal(SigningPolicy{}))
 	assert.True(t, Unsigned().Equal(Unsigned()))
 	assert.True(t, SignWith(a).Equal(SignWith(a)))
 	assert.False(t, SignWith(a).Equal(SignWith(b)))
-	assert.False(t, SignWith(a).Equal(RegistrySigningPolicy{}))
-	assert.False(t, Unsigned().Equal(RegistrySigningPolicy{}))
+	assert.False(t, SignWith(a).Equal(SigningPolicy{}))
+	assert.False(t, Unsigned().Equal(SigningPolicy{}))
 
 	// The same primary key with one more packet, as after adding a subkey or
 	// a revocation, is a different certificate.

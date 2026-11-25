@@ -123,7 +123,7 @@ func registriesChanged(a, b DriversList) bool {
 
 type effectiveRegistry struct {
 	url     string
-	signing dbc.RegistrySigningPolicy
+	signing dbc.SigningPolicy
 }
 
 // effectiveRegistries returns the registries, with normalized URLs, that the
@@ -340,7 +340,7 @@ func GetDriverList(fname string) ([]dbc.PkgInfo, error) {
 		return drivers, nil
 	}
 
-	var signing dbc.RegistrySigningOperation
+	var signing dbc.SigningOperation
 	var pkgs []dbc.PkgInfo
 	for name, spec := range m.Drivers {
 		spec = spec.withPrerelease()

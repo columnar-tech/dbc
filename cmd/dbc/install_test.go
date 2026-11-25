@@ -961,7 +961,7 @@ func (m *installStateObservedModel) View() tea.View {
 
 // registryWithSigning returns a driver registry whose drivers come from a
 // registry with the given signing policy.
-func registryWithSigning(policy dbc.RegistrySigningPolicy) func() ([]dbc.Driver, error) {
+func registryWithSigning(policy dbc.SigningPolicy) func() ([]dbc.Driver, error) {
 	return func() ([]dbc.Driver, error) {
 		drivers, err := getTestDriverRegistry()
 		if err != nil {
@@ -993,7 +993,7 @@ func (suite *SubcommandTestSuite) TestInstallUsesTheKeyOfTheRegistry() {
 func (suite *SubcommandTestSuite) TestInstallFromUnsignedRegistry() {
 	// With the Columnar key, a package without a signature needs --no-verify.
 	m := InstallCmd{Driver: "test-driver-no-sig", Level: suite.configLevel}.
-		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.RegistrySigningPolicy{}), downloadPkg: downloadTestPkg}))
+		GetModelCustom(withRegistries(baseModel{getDriverRegistry: registryWithSigning(dbc.SigningPolicy{}), downloadPkg: downloadTestPkg}))
 	suite.Contains(suite.runCmdErr(m), "signature file")
 	suite.driverIsNotInstalled("test-driver-no-sig")
 

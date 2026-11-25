@@ -715,7 +715,7 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	stable := func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", false)
 	}
-	pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{
+	pkg, err := (&SigningOperation{}).ResolvePackage([]Driver{
 		decode("2.0.0-beta.1"),
 		decode("0.7.0"),
 	}, nil, "shared", stable)
@@ -724,17 +724,17 @@ func TestResolvePackageFirstSuitable(t *testing.T) {
 	prerelease := decode("2.0.0-beta.1")
 	_, err = prerelease.GetLatestPackage("linux_amd64", false)
 	require.ErrorIs(t, err, ErrPackageMiss)
-	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
+	pkg, err = (&SigningOperation{}).ResolvePackage([]Driver{prerelease, decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) {
 		return d.GetLatestPackage("linux_amd64", true)
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0-beta.1", pkg.Version.String())
-	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
+	pkg, err = (&SigningOperation{}).ResolvePackage([]Driver{decode("0.7.0"), decode("1.0.0")}, nil, "shared", stable)
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 	constraint, err := semver.NewConstraint("=0.7.0")
 	require.NoError(t, err)
-	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
+	pkg, err = (&SigningOperation{}).ResolvePackage([]Driver{decode("1.0.0"), decode("0.7.0")}, nil, "shared", func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(constraint, "linux_amd64") })
 	require.NoError(t, err)
 	assert.Equal(t, "0.7.0", pkg.Version.String())
 }
@@ -760,7 +760,7 @@ func TestResolvePackageEmptyPackageInfo(t *testing.T) {
 					var pkg PkgInfo
 					var err error
 					require.NotPanics(t, func() {
-						pkg, err = (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+						pkg, err = (&SigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 							return d.GetLatestPackage("linux_amd64", allowPrerelease)
 						})
 					})
@@ -794,7 +794,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 				func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) },
 				func(d *Driver) (PkgInfo, error) { return d.GetWithConstraint(c, "linux_amd64") },
 			} {
-				pkg, err := (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", selectPackage)
+				pkg, err := (&SigningOperation{}).ResolvePackage(drivers, nil, "shared", selectPackage)
 				require.NoError(t, err)
 				assert.Equal(t, "1.0.0", pkg.Version.String())
 				assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -805,7 +805,7 @@ func TestResolvePackageHostCompatibility(t *testing.T) {
 			assert.Equal(t, "2.0.0", latest.String())
 			exact, err := semver.NewConstraint("=2.0.0")
 			require.NoError(t, err)
-			pkg, err := (&RegistrySigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
+			pkg, err := (&SigningOperation{}).ResolvePackage(drivers, nil, "shared", func(d *Driver) (PkgInfo, error) {
 				return d.GetWithConstraint(exact, "linux_amd64")
 			})
 			require.EqualError(t, err, "no package found for platform 'linux_amd64'")
@@ -836,7 +836,7 @@ func TestResolvePackageMissingVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
+			pkg, err := (&SigningOperation{}).ResolvePackage([]Driver{first, fallback}, nil, "shared", selectPackage)
 			require.EqualError(t, err, "invalid package metadata for driver shared: missing version")
 			assert.NotErrorIs(t, err, ErrPackageMiss)
 			assert.Same(t, first.Registry, pkg.Driver.Registry)
@@ -925,7 +925,7 @@ func TestResolvePackageRequiresTheSameSigner(t *testing.T) {
 	assert.Same(t, first, pkg.Driver.Registry)
 
 	// The built-in identity is the same for every registry.
-	pkg, err = (&RegistrySigningOperation{}).ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
+	pkg, err = (&SigningOperation{}).ResolvePackage([]Driver{driver(first), driver(third, "1.0.0")}, nil, "shared", latest)
 	require.NoError(t, err)
 	assert.Same(t, third, pkg.Driver.Registry)
 }
@@ -946,7 +946,7 @@ func TestResolvePackageMissingIndex(t *testing.T) {
 
 	// The built-in registries share a signer: a failed private registry,
 	// even ranked above the public one, does not block a public driver.
-	pkg, err := (&RegistrySigningOperation{}).ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
+	pkg, err := (&SigningOperation{}).ResolvePackage([]Driver{listed}, errors.Join(failed(private)), "shared", latest)
 	require.NoError(t, err)
 	assert.Same(t, public, pkg.Driver.Registry)
 

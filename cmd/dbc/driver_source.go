@@ -27,7 +27,7 @@ import (
 )
 
 // isSelectionError reports whether err is an error of
-// dbc.RegistrySigningOperation.ResolvePackage that choosing the registry explicitly avoids: a missing index of a
+// dbc.SigningOperation.ResolvePackage that choosing the registry explicitly avoids: a missing index of a
 // registry that might list the driver with another signer, or registries
 // with different signers that list the driver.
 func isSelectionError(err error) bool {
