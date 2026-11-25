@@ -704,19 +704,20 @@ func (e *RegistryIndexError) Error() string {
 
 func (e *RegistryIndexError) Unwrap() error { return e.Err }
 
-// ErrIncompleteIndex is returned by ResolvePackage when the index of a
-// registry is missing and that registry might list the driver with another
-// signer than the registries that do list it. Choosing where a driver comes
+// ErrIncompleteIndex is returned by RegistrySigningOperation.ResolvePackage
+// when the index of a registry is missing and that registry might list the
+// driver with another signer than the registries that do list it. Choosing where a driver comes
 // from compares the signers of every registry that lists the driver, so a
 // missing index only matters when its registry's signer differs (or cannot
 // be determined).
 var ErrIncompleteIndex = errors.New("the index of a registry that might list the driver with another signer is missing")
 
-// SignerConflictError is returned by ResolvePackage when registries whose
-// packages are verified with different signers list the same driver name.
-// A fallback from one registry to another is only allowed between
-// registries with the same signer, so the registry has to be chosen
-// explicitly.
+// SignerConflictError is returned by RegistrySigningOperation.ResolvePackage
+// when registries whose packages are verified with different signers list
+// the same driver name: registries with different certificates, or two
+// unsigned registries. A fallback from one registry to another is only
+// allowed between registries with the same signer, so the registry has to
+// be chosen explicitly.
 type SignerConflictError struct {
 	Name string
 	// Registries are the registries that list the driver, in priority order.

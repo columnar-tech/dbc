@@ -26,8 +26,8 @@ import (
 	"github.com/columnar-tech/dbc/internal/registryurl"
 )
 
-// isSelectionError reports whether err is an error of dbc.ResolvePackage
-// that choosing the registry explicitly avoids: a missing index of a
+// isSelectionError reports whether err is an error of
+// dbc.RegistrySigningOperation.ResolvePackage that choosing the registry explicitly avoids: a missing index of a
 // registry that might list the driver with another signer, or registries
 // with different signers that list the driver.
 func isSelectionError(err error) bool {

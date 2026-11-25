@@ -29,6 +29,13 @@ import (
 // signedArchiveFile writes a package for test-driver-no-sig whose library
 // is signed with a new key, and returns its path and the key.
 func (suite *SubcommandTestSuite) signedArchiveFile() (string, *dbc.SigningKey) {
+	path, key, _ := suite.signedArchive()
+	return path, key
+}
+
+// signedArchive is signedArchiveFile that also returns the armored public
+// key.
+func (suite *SubcommandTestSuite) signedArchive() (string, *dbc.SigningKey, string) {
 	key, err := crypto.PGP().KeyGeneration().AddUserId("acme", "acme@example.invalid").New().GenerateKey()
 	suite.Require().NoError(err)
 	pub, err := key.ToPublic()
@@ -64,7 +71,7 @@ func (suite *SubcommandTestSuite) signedArchiveFile() (string, *dbc.SigningKey) 
 
 	path := filepath.Join(suite.T().TempDir(), "acme.tar.gz")
 	suite.Require().NoError(os.WriteFile(path, buf.Bytes(), 0o600))
-	return path, signingKey
+	return path, signingKey, armored
 }
 
 // signedBase is a base model whose only registry has the given signing

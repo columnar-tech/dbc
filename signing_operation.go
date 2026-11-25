@@ -25,9 +25,10 @@ import (
 // operation, such as one install, lock or sync. Within it, the signer check
 // of ResolvePackage, the verification of packages and the key that a lock
 // file pins all use the same certificate of a registry, even when the key is
-// read from a public_key_file that changes meanwhile. A key file is read at
-// most once per operation, and only when a key is needed; the next operation
-// reads it again.
+// read from a public_key_file that changes meanwhile. A key file is read
+// only when a key is needed, and the key read from it is reused for the rest
+// of the operation; a failed read is not remembered, but every caller stops
+// on it. The next operation reads the file again.
 //
 // It covers the signing policies of registries only. The zero value is ready
 // to use; it must not be copied after first use.
