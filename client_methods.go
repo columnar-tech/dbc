@@ -345,3 +345,60 @@ func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 
 	return nil
 }
+
+// OpenAnonymous opens u with a GET request that carries no registry
+// credentials and no telemetry identifiers, for a file that a driver source
+// other than a registry names, such as an HTTP URL template source in
+// dbc.toml. The client's URL replacements apply as for a registry, but a
+// URL replacement or redirect never turns an HTTPS request into an HTTP one,
+// and a redirect never reaches an origin that a rule replaces. A status
+// other than 200 OK is an error. The caller closes the returned body.
+func (c *Client) OpenAnonymous(ctx context.Context, u *url.URL) (io.ReadCloser, error) {
+	if u == nil || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) {
+		return nil, errors.New("open: an absolute http or https URL is required")
+	}
+	eff, replaced, err := c.router.route(u)
+	if err != nil {
+		return nil, err
+	}
+	if !replaced {
+		eff = u
+	}
+	if strings.EqualFold(u.Scheme, "https") && !strings.EqualFold(eff.Scheme, "https") {
+		// newURLRouter rejects such rules; keep the guarantee here as well.
+		return nil, fmt.Errorf("refusing to replace https://%s%s by an http URL", u.Host, u.EscapedPath())
+	}
+	where := eff.Host + eff.EscapedPath()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, eff.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build request for %s: %w", where, err)
+	}
+	resp, err := c.router.guardRedirects(noDowngrade(c.httpClient), replaced).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request to %s: %w", where, err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("request to %s: %s", where, resp.Status)
+	}
+	return resp.Body, nil
+}
+
+// noDowngrade returns a copy of hc that also refuses HTTPS to HTTP redirects,
+// whatever the redirect policy of hc, which may come from WithHTTPClient.
+func noDowngrade(hc *http.Client) *http.Client {
+	guarded := *hc
+	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
+			return errors.New("refusing HTTPS to HTTP redirect")
+		}
+		if hc.CheckRedirect != nil {
+			return hc.CheckRedirect(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	return &guarded
+}
