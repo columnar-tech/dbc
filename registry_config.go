@@ -307,11 +307,7 @@ func parseRegistryEntryURL(e RegistryEntry) (*url.URL, error) {
 // distinct registries.
 func registryURLKey(u *url.URL) string {
 	cp := *u
-	cp.Scheme = strings.ToLower(cp.Scheme)
-	cp.Host = strings.ToLower(cp.Host)
-	if port := cp.Port(); (cp.Scheme == "https" && port == "443") || (cp.Scheme == "http" && port == "80") {
-		cp.Host = strings.TrimSuffix(cp.Host, ":"+port)
-	}
+	cp.Scheme, cp.Host = registryurl.Authority(u)
 	cp.Path = strings.TrimRight(cp.Path, "/")
 	cp.Fragment = ""
 	cp.RawFragment = ""
@@ -325,11 +321,7 @@ func registryURLKey(u *url.URL) string {
 // registry here, although it is a separate endpoint for merging. The default
 // port of the scheme is also left out.
 func registryTrustKey(u *url.URL) string {
-	scheme := strings.ToLower(u.Scheme)
-	host := strings.ToLower(u.Host)
-	if port := u.Port(); (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
-		host = strings.TrimSuffix(host, ":"+port)
-	}
+	scheme, host := registryurl.Authority(u)
 	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
 }
 

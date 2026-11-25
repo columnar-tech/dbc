@@ -27,6 +27,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
+	"github.com/columnar-tech/dbc/internal/registryurl"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -150,7 +151,8 @@ func effectiveRegistries(list DriversList) ([]effectiveRegistry, error) {
 // normalizeRegistryURL returns a canonical form of a registry URL for
 // equality comparisons. Only truly no-op differences are collapsed:
 //
-//   - scheme and host are lowercased (case-insensitive per RFC 3986)
+//   - scheme and host are lowercased (case-insensitive per RFC 3986), and
+//     the default port of the scheme is dropped (see registryurl.Authority)
 //   - a trailing slash on the path is stripped
 //   - fragments are dropped (not sent on HTTP requests)
 //
@@ -164,8 +166,7 @@ func normalizeRegistryURL(raw string) string {
 	if err != nil {
 		return raw
 	}
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
+	u.Scheme, u.Host = registryurl.Authority(u)
 	u.Path = strings.TrimRight(u.Path, "/")
 	u.Fragment = ""
 	u.RawFragment = ""

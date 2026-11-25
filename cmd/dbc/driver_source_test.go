@@ -436,3 +436,12 @@ func TestIsSelectionError(t *testing.T) {
 	assert.False(t, isSelectionError(dbc.ErrPackageMiss))
 	assert.False(t, isSelectionError(errors.New("driver `x` not found")))
 }
+
+// TestNormalizeRegistryURL pins what dbc add's check for a concurrent change
+// of a registry treats as the same URL.
+func TestNormalizeRegistryURL(t *testing.T) {
+	assert.Equal(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL("HTTPS://R.example.com:443/m/#frag"))
+	for _, other := range []string{"https://r.example.com:8443/m", "https://r.example.com/m?tenant=a", "https://u@r.example.com/m", "http://r.example.com/m"} {
+		assert.NotEqual(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL(other), other)
+	}
+}

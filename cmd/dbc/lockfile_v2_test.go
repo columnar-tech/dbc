@@ -263,6 +263,10 @@ func TestCanonicalRegistryIdentity(t *testing.T) {
 		{"HTTPS://DBC-CDN.Columnar.Tech/", "https://dbc-cdn.columnar.tech"},
 		{"https://host/mount/", "https://host/mount"},
 		{"https://user:pw@host:8443/m?token=x#frag", "https://host:8443/m"},
+		// The default port of the scheme is the same registry.
+		{"https://Host:443/m", "https://host/m"},
+		{"http://host:80", "http://host"},
+		{"http://host:443", "http://host:443"},
 		{"http://host/a/b//", "http://host/a/b"},
 		{"ftp://host", ""},
 		{"https:///path", ""},
@@ -370,6 +374,11 @@ func TestBindLockedRegistry(t *testing.T) {
 		b, err = bindLockedRegistry(id, []dbc.Registry{reg("https://r.example.com/m")})
 		require.NoError(t, err)
 		assert.False(t, b.HasQuery)
+
+		// Adding the default port to the configured URL keeps the binding.
+		b, err = bindLockedRegistry(id, []dbc.Registry{reg("https://r.example.com:443/m")})
+		require.NoError(t, err)
+		assert.Equal(t, "https://r.example.com:443/m", b.BaseURL.String())
 	})
 
 	t.Run("none", func(t *testing.T) {

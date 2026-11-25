@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // Parse parses s and requires an http or https scheme and a non-empty host.
@@ -38,4 +39,16 @@ func Parse(s string) (*url.URL, error) {
 		return nil, fmt.Errorf("%q: scheme must be http or https", s)
 	}
 	return u, nil
+}
+
+// Authority returns the scheme and host of u as they identify a registry:
+// in lower case, and without the default port of the scheme, so that
+// https://example.com and https://EXAMPLE.com:443 are the same registry.
+// Every identity of a registry URL uses it, whatever else it keeps or drops.
+func Authority(u *url.URL) (scheme, host string) {
+	scheme, host = strings.ToLower(u.Scheme), strings.ToLower(u.Host)
+	if port := u.Port(); (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		host = strings.TrimSuffix(host, ":"+port)
+	}
+	return scheme, host
 }
