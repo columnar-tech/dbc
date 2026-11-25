@@ -204,10 +204,15 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 			fromHTTP := d.Source.Type != lockSourceRegistry
 			sourceChanged := fromHTTP || (target != nil && target.identity != d.Source.URL)
 			switch {
+			case fromHTTP && target == nil:
+				// Only a source that the driver list names replaces the
+				// HTTP source; the registries are never searched for it.
+				return nil, nil, fmt.Errorf("driver %s: the lock file has it from an HTTP source, which the driver list no longer declares; "+
+					"declare the source the driver comes from now, or delete the driver's entry from the lock file", name)
 			case sourceChanged && p.allowSourceChange:
 			case fromHTTP:
-				return nil, nil, fmt.Errorf("driver %s: the lock file has it from %s, but the driver list does not declare that source; "+
-					"run `dbc lock` to resolve it again from the registries", name, d.Source)
+				return nil, nil, fmt.Errorf("driver %s: the driver list takes it from %s, but the lock file has it from an HTTP source; "+
+					"run `dbc lock` to resolve it again from %s", name, target.identity, target.identity)
 			case sourceChanged:
 				return nil, nil, fmt.Errorf("driver %s: the driver list takes it from %s, but the lock file has it from %s; "+
 					"run `dbc lock` to resolve it again from %s", name, target.identity, d.Source.URL, target.identity)

@@ -33,6 +33,9 @@ type httpPlan struct {
 	// pending are the artifacts of the lock entry whose hash is not known
 	// yet, in the order of the entry.
 	pending []httpPending
+	// checksumArchives lists, for the checksum URL of each artifact of the
+	// lock entry, recorded or pending, the archive URLs it serves.
+	checksumArchives map[string][]string
 }
 
 // httpPending is an artifact of an HTTP source whose hash is read from its
@@ -142,6 +145,17 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 			Location: resolution.ArtifactLocation{Kind: resolution.ArtifactLocationURL, Value: u.String()},
 		})
 	}
+	if src.checksum != nil {
+		plan.checksumArchives = map[string][]string{}
+		for _, a := range artifacts {
+			c, err := src.checksum.expand(v, a.Target)
+			if err != nil {
+				return plannedDriver{}, fmt.Errorf("driver %s: checksum_url: %w", name, err)
+			}
+			plan.checksumArchives[c.String()] = append(plan.checksumArchives[c.String()], a.Location.Value)
+		}
+	}
+
 	entry := lockedDriver{Name: name, Version: v.String(), Signer: signer.locked(), Source: source, Artifacts: artifacts}
 	if old != nil && !replay {
 		if err := checkSourceContinuity(name, *old, entry); err != nil {
@@ -154,7 +168,9 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 	if err != nil {
 		return plannedDriver{}, err
 	}
-	if i := slices.IndexFunc(artifacts, func(a lockedArtifact) bool { return a.Target == host }); i >= 0 {
+	// A recorded artifact of a platform that is no longer declared is kept,
+	// but not installed.
+	if i := slices.IndexFunc(artifacts, func(a lockedArtifact) bool { return a.Target == host }); i >= 0 && slices.Contains(targets, host) {
 		u, err := url.Parse(artifacts[i].Location.Value)
 		if err != nil {
 			return plannedDriver{}, fmt.Errorf("driver %s: %w", name, err)
@@ -215,7 +231,7 @@ func plaintextWarnings(planned []plannedDriver) []string {
 			}
 			return strings.EqualFold(from.Scheme, "http")
 		}) {
-			warnings = append(warnings, fmt.Sprintf("warning: driver %s: the archive hash recorded in the lock file was read over plain HTTP, which does not protect it in transit", pd.Name))
+			warnings = append(warnings, fmt.Sprintf("warning: driver %s: the archive hash recorded in the lock file comes from a plain http URL of the driver list, which does not protect it in transit", pd.Name))
 		}
 	}
 	return warnings
@@ -228,22 +244,38 @@ func plaintextWarnings(planned []plannedDriver) []string {
 // Unmeasured. A checksum file that cannot be read or lacks an archive is an
 // error and never falls back to measuring.
 func fetchHTTPChecksums(ctx context.Context, base baseModel, planned []plannedDriver) error {
-	// A checksum file of a hash alone can only serve one archive, of
-	// whichever driver; count the archives of each checksum URL over all.
+	// A checksum file of a hash alone can only serve one archive, and a
+	// file name in it one archive URL, of whichever driver and recorded or
+	// not; count the archives of each checksum URL over all.
 	archives := map[string]map[string]bool{}
 	for _, pd := range planned {
 		if pd.http == nil {
 			continue
 		}
-		for _, pending := range pd.http.pending {
-			if pending.checksum == nil {
-				continue
-			}
-			key := pending.checksum.String()
+		for key, urls := range pd.http.checksumArchives {
 			if archives[key] == nil {
 				archives[key] = map[string]bool{}
 			}
-			archives[key][pending.archive.String()] = true
+			for _, u := range urls {
+				archives[key][u] = true
+			}
+		}
+	}
+	for key, urls := range archives {
+		names := map[string]string{}
+		for u := range urls {
+			parsed, err := url.Parse(u)
+			if err != nil {
+				return err
+			}
+			name, err := archiveFileName(parsed)
+			if err != nil {
+				continue // reported when the archive's hash is looked up
+			}
+			if other, ok := names[name]; ok {
+				return fmt.Errorf("the checksum file %s would give one hash for %s and %s, which have the same file name %s", key, other, u, name)
+			}
+			names[name] = u
 		}
 	}
 	files := map[string][]byte{}
@@ -281,7 +313,7 @@ func fetchHTTPChecksums(ctx context.Context, base baseModel, planned []plannedDr
 			body, ok := files[key]
 			if !ok {
 				var err error
-				if body, err = base.fetchHTTP(pending.checksum); err != nil {
+				if body, err = base.fetchHTTP(ctx, pending.checksum); err != nil {
 					return fmt.Errorf("driver %s: could not read the checksum file %s: %w", pd.Name, pending.checksum, err)
 				}
 				files[key] = body

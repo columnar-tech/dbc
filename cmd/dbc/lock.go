@@ -129,7 +129,7 @@ func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	if err != nil {
 		return item, err
 	}
-	f, err := downloadArchive(m.baseModel, pd, target)
+	f, err := downloadArchive(m.ctx, m.baseModel, pd, target)
 	if err != nil {
 		return item, err
 	}

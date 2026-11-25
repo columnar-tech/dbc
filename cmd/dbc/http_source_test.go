@@ -20,7 +20,6 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -71,11 +70,15 @@ func TestParseURLTemplate(t *testing.T) {
 // The identity of an HTTP source is part of every lock file that locks
 // one, so its encoding must never change.
 func TestHTTPSourceIdentity(t *testing.T) {
-	raw := "https://example.com/v{version}/drv_{os}_{arch}.tar.gz"
+	raw := "HTTPS://Example.COM/v{version}/drv_{os}_{arch}.tar.gz"
 	src, err := driverSource{Type: sourceTypeHTTP, URL: &raw}.http()
 	require.NoError(t, err)
-	h := sha256.Sum256([]byte(fmt.Sprintf("18:dbc-http-source-v1;%d:%s;1:0;", len(raw), raw)))
-	assert.Equal(t, "sha256:"+hex.EncodeToString(h[:]), src.identity())
+	assert.Equal(t, "sha256:ce10937abf5df3db72f656f45a34f622939266a03ea6c6a3cf06b87e65d48787", src.identity(),
+		"the digest of https://example.com/v{version}/drv_{os}_{arch}.tar.gz, with the scheme and host in lower case")
+	upper := "https://example.com/V{version}/drv_{os}_{arch}.tar.gz"
+	other, err := driverSource{Type: sourceTypeHTTP, URL: &upper}.http()
+	require.NoError(t, err)
+	assert.NotEqual(t, src.identity(), other.identity(), "the path is kept as written")
 
 	checksum := "https://example.com/SHA256SUMS"
 	withChecksum, err := driverSource{Type: sourceTypeHTTP, URL: &raw, ChecksumURL: &checksum, SigningKey: false}.http()
@@ -121,18 +124,24 @@ func TestChecksumFor(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, a, got, "a hash alone for one archive")
 
-	for want, body := range map[string]string{
-		"does not list":                 b + "  other.tar.gz\n",
-		"more than once":                a + "  drv_linux_amd64.tar.gz\n" + a + "  drv_linux_amd64.tar.gz\n",
-		"does not start with a SHA-256": "SHA256 (drv_linux_amd64.tar.gz) = " + a + "\n",
-		"as sha256sum writes them":      a + "\tdrv_linux_amd64.tar.gz\n",
-		"serve one archive":             a + "\n" + b + "\n",
+	for _, tc := range []struct{ want, body string }{
+		{"does not list", b + "  other.tar.gz\n"},
+		{"more than once", a + "  drv_linux_amd64.tar.gz\n" + a + "  drv_linux_amd64.tar.gz\n"},
+		{"does not start with a SHA-256", "SHA256 (drv_linux_amd64.tar.gz) = " + a + "\n"},
+		{"as sha256sum writes them", a + "\tdrv_linux_amd64.tar.gz\n"},
+		{"as sha256sum writes them", a + " \n"},
+		{"as sha256sum writes them", a + " drv_linux_amd64.tar.gz\n"},
+		{"must hold one hash", a + "\n" + b + "\n"},
+		{"must hold one hash", a + "\n" + b + "  other.tar.gz\n"},
 	} {
-		_, err := checksumFor([]byte(body), archive, true)
-		assert.ErrorContains(t, err, want)
+		_, err := checksumFor([]byte(tc.body), archive, true)
+		assert.ErrorContains(t, err, tc.want, "%q", tc.body)
 	}
 	_, err = checksumFor([]byte(a+"\n"), archive, false)
 	assert.ErrorContains(t, err, "serve one archive", "a hash alone cannot serve several archives")
+	dir, _ := url.Parse("https://example.com/v1/")
+	_, err = checksumFor([]byte(a+"\n"), dir, true)
+	assert.ErrorContains(t, err, "does not end with a file name")
 }
 
 // httpArchive returns a package archive of the given MANIFEST version whose
@@ -255,7 +264,7 @@ func (suite *SubcommandTestSuite) TestSyncHTTPSourceUnsigned() {
 	listPath := suite.httpList(f, "", "signing_key = false\n")
 
 	out := suite.runCmdWithRenderer(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(httpBase()), 0)
-	suite.Contains(out, "read over plain HTTP")
+	suite.Contains(out, "comes from a plain http URL")
 	suite.driverIsInstalledWithVersion("httpdrv", "1.0.0", true)
 	d := suite.lockedDriverEntry("httpdrv")
 	suite.Equal(lockSourceHTTP, d.Source.Type)
@@ -406,7 +415,7 @@ func (suite *SubcommandTestSuite) TestSyncHTTPSourceChecksTheLockFirst() {
 		suite.Require().NoError(os.WriteFile(suite.lockPath(), lock, 0o644))
 		other := suite.writeList("[drivers.httpdrv]\n")
 		out := suite.runCmdErr(SyncCmd{Path: other, Level: suite.configLevel}.GetModelCustom(httpBase()))
-		suite.Contains(out, "does not declare that source")
+		suite.Contains(out, "no longer declares")
 		suite.Equal(lock, suite.readLockBytes())
 	})
 
@@ -456,5 +465,105 @@ func (suite *SubcommandTestSuite) TestLockHTTPSourcesShareAChecksumFile() {
 	listPath := suite.writeList(driver("one") + driver("two"))
 	out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
 	suite.Contains(out, "a checksum file with a hash alone must hold one hash and serve one archive")
+	suite.NoFileExists(suite.lockPath())
+}
+
+func (suite *SubcommandTestSuite) TestHTTPSourceLockChanges() {
+	suite.skipUnlessLinuxAMD64()
+	f := newHTTPFiles(suite.T())
+	linux := httpArchive(suite.T(), "1.0.0", nil)
+	f.files[hostArchive] = linux
+	listPath := suite.httpList(f, "", "signing_key = false\n")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
+	host := suite.lockedDriverEntry("httpdrv").Artifacts[0]
+
+	suite.Run("a declared platform is added without measuring the others again", func() {
+		macos := httpArchive(suite.T(), "1.0.0", nil)
+		f.files["/v1.0.0/drv_macos_arm64.tar.gz"] = macos
+		listPath := suite.httpList(f, "platforms = ['linux_amd64', 'macos_arm64']\n\n", "signing_key = false\n")
+		before := f.count(hostArchive)
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
+		suite.Equal(before, f.count(hostArchive), "the recorded archive is not downloaded again")
+		suite.Equal(1, f.count("/v1.0.0/drv_macos_arm64.tar.gz"))
+		d := suite.lockedDriverEntry("httpdrv")
+		suite.Require().Len(d.Artifacts, 2)
+		suite.Equal(host, d.Artifacts[0])
+		suite.Equal(lockHashPrefix+sha256Hex(macos), d.Artifacts[1].Hash)
+		suite.Require().NotNil(d.Artifacts[1].Size)
+	})
+
+	suite.Run("another version of the same source is locked anew", func() {
+		other := httpArchive(suite.T(), "1.0.0+build.2", nil)
+		f.files["/v1.0.0+build.2/drv_linux_amd64.tar.gz"] = other
+		listPath := suite.writeList("[drivers.httpdrv]\nversion = '=1.0.0+build.2'\n[drivers.httpdrv.source]\ntype = 'http'\n" +
+			"url = '" + f.URL + "/v{version}/drv_{os}_{arch}.tar.gz'\nsigning_key = false\n")
+		suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(httpBase()))
+		d := suite.lockedDriverEntry("httpdrv")
+		suite.Equal("1.0.0+build.2", d.Version)
+		suite.Require().Len(d.Artifacts, 1, "the artifacts of the old version are not kept")
+		suite.Equal(lockHashPrefix+sha256Hex(other), d.Artifacts[0].Hash)
+		suite.driverIsInstalledWithVersion("httpdrv", "1.0.0+build.2", true)
+	})
+
+	suite.Run("no fallback to the registries when the HTTP source is gone", func() {
+		lock := suite.readLockBytes()
+		listPath := suite.writeList("[drivers.httpdrv]\n")
+		for _, cmd := range []commandModel{SyncCmd{Path: listPath, Level: suite.configLevel}, LockCmd{Path: listPath}} {
+			var counters syncCounters
+			out := suite.runCmdErr(cmd.GetModelCustom(counters.counted(httpBase())))
+			suite.Contains(out, "which the driver list no longer declares")
+			suite.Zero(counters.index)
+			suite.Zero(counters.boundIndex)
+			suite.Equal(lock, suite.readLockBytes())
+		}
+	})
+}
+
+func (suite *SubcommandTestSuite) TestSyncHTTPSourceVerifiesBeforeTheLock() {
+	suite.skipUnlessLinuxAMD64()
+	key := generateHTTPTestKey(suite.T(), "acme")
+	armored, err := key.GetArmoredPublicKey()
+	suite.Require().NoError(err)
+	f := newHTTPFiles(suite.T())
+	f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", generateHTTPTestKey(suite.T(), "other"))
+	listPath := suite.httpList(f, "[signing_keys.acme]\ntype = 'openpgp'\npublic_key = '''\n"+armored+"\n'''\n\n", "signing_key = 'acme'\n")
+	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(httpBase()))
+	suite.Contains(out, "signature")
+	suite.NoFileExists(suite.lockPath(), "a hash is never pinned from an unverified archive")
+	suite.driverIsNotInstalled("httpdrv")
+}
+
+// dbc add writes back a driver list with an HTTP source as it was.
+func (suite *SubcommandTestSuite) TestAddKeepsAnHTTPSource() {
+	http := "[drivers.httpdrv]\nversion = '=1.0.0+build.1'\n[drivers.httpdrv.source]\ntype = 'http'\n" +
+		"url = 'https://example.com/v{version}/drv_{os}_{arch}.tar.gz'\nchecksum_url = 'https://example.com/v{version}/SHA256SUMS'\nsigning_key = false\n"
+	listPath := suite.writeList(http)
+	suite.runCmd(AddCmd{Path: listPath, Driver: []string{"test-driver-1"}}.GetModelCustom(testBaseModel()))
+	list, err := openAndDecodeDriverList(listPath)
+	suite.Require().NoError(err)
+	spec := list.Drivers["httpdrv"]
+	suite.Require().True(spec.isHTTP())
+	suite.Equal("1.0.0+build.1", spec.exact.String())
+	suite.Equal("https://example.com/v{version}/drv_{os}_{arch}.tar.gz", *spec.Source.URL)
+	suite.Equal("https://example.com/v{version}/SHA256SUMS", *spec.Source.ChecksumURL)
+	suite.Equal(false, spec.Source.SigningKey)
+
+	out := suite.runCmdErr(AddCmd{Path: listPath, Driver: []string{"httpdrv"}}.GetModelCustom(testBaseModel()))
+	suite.Contains(out, "dbc add does not change")
+}
+
+// A file name of a checksum file names one archive URL only.
+func (suite *SubcommandTestSuite) TestLockHTTPSourcesWithTheSameFileName() {
+	suite.skipUnlessLinuxAMD64()
+	f := newHTTPFiles(suite.T())
+	f.files["/SHA256SUMS"] = []byte(strings.Repeat("a", 64) + "  drv.tar.gz\n")
+	driver := func(name string) string {
+		return "[drivers." + name + "]\nversion = '=1.0.0'\n[drivers." + name + ".source]\ntype = 'http'\n" +
+			"url = '" + f.URL + "/" + name + "/drv.tar.gz'\nchecksum_url = '" + f.URL + "/SHA256SUMS'\nsigning_key = false\n"
+	}
+	listPath := suite.writeList(driver("one") + driver("two"))
+	out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
+	suite.Contains(out, "have the same file name drv.tar.gz")
+	suite.Zero(f.total())
 	suite.NoFileExists(suite.lockPath())
 }

@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -138,7 +137,8 @@ func (s httpSource) lockedSource() lockedSource {
 
 // urlTemplate is the URL of a file of a target and version, where {version},
 // {os} and {arch} in its path stand for the full version and the target's
-// operating system and architecture as dbc spells them (linux, amd64).
+// operating system and architecture as dbc spells them (linux, amd64). raw is
+// the template with its scheme and host in lower case.
 type urlTemplate struct {
 	raw    string
 	scheme string
@@ -177,7 +177,9 @@ func parseURLTemplate(field, raw string) (urlTemplate, error) {
 	if strings.ContainsAny(rest, "{}") {
 		return urlTemplate{}, fmt.Errorf("%s has an unmatched { or }", field)
 	}
-	t := urlTemplate{raw: raw, scheme: scheme}
+	// The scheme and host do not depend on their case; the path is kept as
+	// written, since it is sent as it is.
+	t := urlTemplate{raw: scheme + "://" + strings.ToLower(authority) + p, scheme: scheme}
 	if _, err := t.expand(semver.MustParse("1.0.0"), resolution.Target{OS: "linux", Arch: "amd64"}); err != nil {
 		return urlTemplate{}, fmt.Errorf("%s: %w", field, err)
 	}
@@ -220,21 +222,22 @@ const (
 )
 
 // checksumFor returns the SHA-256 that a checksum file gives for the archive
-// at archive. The file is either a single hash, when only this archive uses
-// it, or lines of a hash and a file name as sha256sum writes them ("<hash>
-// <name>" or "<hash> *<name>"), matched against the last segment of the
-// archive URL.
+// at archive. The file is either a single hash, when it serves only this
+// archive, or lines of a hash and a file name as sha256sum writes them
+// ("<hash>  <name>" or "<hash> *<name>"), matched against the last segment
+// of the archive URL.
 func checksumFor(body []byte, archive *url.URL, single bool) (string, error) {
 	if len(body) > maxChecksumFile {
 		return "", fmt.Errorf("the checksum file is larger than %d bytes", maxChecksumFile)
 	}
-	name, err := url.PathUnescape(path.Base(archive.EscapedPath()))
-	if err != nil || name == "" || name == "/" || strings.ContainsAny(name, "/\\") {
-		return "", fmt.Errorf("the archive URL has no file name to look up in the checksum file")
+	name, err := archiveFileName(archive)
+	if err != nil {
+		return "", err
 	}
 	var (
 		found string
-		bare  []string
+		lines int
+		bare  string
 	)
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 0, maxChecksumLine), maxChecksumLine)
@@ -243,19 +246,21 @@ func checksumFor(body []byte, archive *url.URL, single bool) (string, error) {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		lines++
 		if len(line) < 64 || !isHex(line[:64]) {
 			return "", errors.New("the checksum file has a line that does not start with a SHA-256 hash")
 		}
 		hash, rest := strings.ToLower(line[:64]), line[64:]
 		if rest == "" {
-			bare = append(bare, hash)
+			bare = hash
 			continue
 		}
-		file, ok := strings.CutPrefix(rest, " ")
-		if !ok || (file != "" && file[0] != ' ' && file[0] != '*') {
+		// sha256sum separates the hash and the name with a space and a
+		// mode character: a space for text mode, * for binary mode.
+		if len(rest) < 3 || rest[0] != ' ' || (rest[1] != ' ' && rest[1] != '*') {
 			return "", errors.New("the checksum file has a line that is not a hash and a file name as sha256sum writes them")
 		}
-		if file = file[1:]; file != name {
+		if rest[2:] != name {
 			continue
 		}
 		if found != "" {
@@ -267,14 +272,26 @@ func checksumFor(body []byte, archive *url.URL, single bool) (string, error) {
 		return "", fmt.Errorf("could not read the checksum file: %w", err)
 	}
 	switch {
-	case len(bare) > 0 && (found != "" || len(bare) > 1 || !single):
+	case bare != "" && (lines > 1 || !single):
 		return "", errors.New("a checksum file with a hash alone must hold one hash and serve one archive")
-	case len(bare) == 1:
-		return bare[0], nil
+	case bare != "":
+		return bare, nil
 	case found == "":
 		return "", fmt.Errorf("the checksum file does not list %s", name)
 	}
 	return found, nil
+}
+
+// archiveFileName returns the last path segment of an archive URL, decoded
+// once, which a checksum file names the archive by.
+func archiveFileName(archive *url.URL) (string, error) {
+	p := archive.EscapedPath()
+	segment := p[strings.LastIndexByte(p, '/')+1:]
+	name, err := url.PathUnescape(segment)
+	if err != nil || name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
+		return "", errors.New("the archive URL does not end with a file name to look up in the checksum file")
+	}
+	return name, nil
 }
 
 func isHex(s string) bool {

@@ -130,3 +130,39 @@ func TestOpenAnonymous(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
+
+// An error never shows the URL that a redirect led to, which may carry a
+// token in its query.
+func TestOpenAnonymousErrorsNameTheRequestedURL(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "gone", http.StatusGone)
+	}))
+	t.Cleanup(target.Close)
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/signed?token=secret", http.StatusFound)
+	}))
+	t.Cleanup(redirect.Close)
+	c, err := NewClient()
+	require.NoError(t, err)
+	u, err := url.Parse(redirect.URL + "/a.tar.gz")
+	require.NoError(t, err)
+	_, err = c.OpenAnonymous(context.Background(), u)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), u.Host+"/a.tar.gz")
+	assert.Contains(t, err.Error(), "410 Gone")
+	assert.NotContains(t, err.Error(), "secret")
+
+	target.Close() // a failed request after the redirect
+	_, err = c.OpenAnonymous(context.Background(), u)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "secret")
+	var ue *url.Error
+	assert.ErrorAs(t, err, &ue, "the cause is kept")
+
+	for _, raw := range []string{"https://u:p@example.com/a", "https://example.com/a?x=1", "https:///a", "https:opaque"} {
+		bad, err := url.Parse(raw)
+		require.NoError(t, err)
+		_, err = c.OpenAnonymous(context.Background(), bad)
+		assert.ErrorContains(t, err, "is required", raw)
+	}
+}

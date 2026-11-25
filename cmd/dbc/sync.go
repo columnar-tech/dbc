@@ -491,7 +491,7 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	}
 
 	// The signature is verified when the package is installed.
-	f, err := downloadArchive(s.baseModel, pd, target)
+	f, err := downloadArchive(s.ctx, s.baseModel, pd, target)
 	if err != nil {
 		return item, err
 	}
@@ -501,10 +501,10 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 
 // downloadArchive downloads the archive of a planned driver and checks it with
 // checkDownloadedArchive. The download is removed when a check fails.
-func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target) (*os.File, error) {
+func downloadArchive(ctx context.Context, base baseModel, pd *plannedDriver, target resolution.Target) (*os.File, error) {
 	download := base.downloadPkg
 	if pd.http != nil {
-		download = base.downloadHTTP
+		download = func(pkg dbc.PkgInfo) (*os.File, error) { return base.downloadHTTP(ctx, pkg) }
 	}
 	f, err := download(pd.Package)
 	if err != nil && pd.http != nil {
@@ -540,7 +540,7 @@ func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver) err
 		}
 		// The library proof only applies to the current target.
 		other := plannedDriver{Name: pd.Name, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer, http: pd.http}
-		f, err := downloadArchive(base, &other, target)
+		f, err := downloadArchive(ctx, base, &other, target)
 		if err != nil {
 			return err
 		}

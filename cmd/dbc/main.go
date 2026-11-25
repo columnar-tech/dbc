@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -286,8 +285,8 @@ type baseModel struct {
 	// downloadHTTP downloads the archive of a driver with an HTTP source and
 	// fetchHTTP reads a small file of one, such as a checksum file, both
 	// without registry credentials.
-	downloadHTTP func(dbc.PkgInfo) (*os.File, error)
-	fetchHTTP    func(*url.URL) ([]byte, error)
+	downloadHTTP func(context.Context, dbc.PkgInfo) (*os.File, error)
+	fetchHTTP    func(context.Context, *url.URL) ([]byte, error)
 	// projectSigningPolicy looks up a [signing_keys] definition of the
 	// project's dbc.toml.
 	projectSigningPolicy func(string) (dbc.SigningPolicy, error)
@@ -633,7 +632,7 @@ func newParser(args *cmds) (*arg.Parser, error) {
 
 // downloadHTTPPkg downloads the archive of a driver with an HTTP source into
 // a private temporary directory, without registry credentials.
-func downloadHTTPPkg(p dbc.PkgInfo) (*os.File, error) {
+func downloadHTTPPkg(ctx context.Context, p dbc.PkgInfo) (*os.File, error) {
 	client, err := currentClient()
 	if err != nil {
 		return nil, err
@@ -641,7 +640,7 @@ func downloadHTTPPkg(p dbc.PkgInfo) (*os.File, error) {
 	if p.Path == nil {
 		return nil, fmt.Errorf("cannot download package for %s: no url set", p.Driver.Title)
 	}
-	body, err := client.OpenAnonymous(context.Background(), p.Path)
+	body, err := client.OpenAnonymous(ctx, p.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +649,8 @@ func downloadHTTPPkg(p dbc.PkgInfo) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Create(filepath.Join(dir, path.Base(p.Path.EscapedPath())))
+	// A fixed name: the URL path need not be a usable file name.
+	f, err := os.Create(filepath.Join(dir, "archive.tar.gz"))
 	if err == nil {
 		_, err = io.Copy(f, body)
 	}
@@ -669,13 +669,13 @@ func downloadHTTPPkg(p dbc.PkgInfo) (*os.File, error) {
 
 // fetchHTTPFile reads a small file of an HTTP source, such as a checksum
 // file, without registry credentials.
-func fetchHTTPFile(u *url.URL) ([]byte, error) {
+func fetchHTTPFile(ctx context.Context, u *url.URL) ([]byte, error) {
 	client, err := currentClient()
 	if err != nil {
 		return nil, err
 	}
 	return readHTTPFile(func(u *url.URL) (io.ReadCloser, error) {
-		return client.OpenAnonymous(context.Background(), u)
+		return client.OpenAnonymous(ctx, u)
 	}, u)
 }
 

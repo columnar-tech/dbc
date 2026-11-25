@@ -349,40 +349,66 @@ func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 // OpenAnonymous opens u with a GET request that carries no registry
 // credentials and no telemetry identifiers, for a file that a driver source
 // other than a registry names, such as an HTTP URL template source in
-// dbc.toml. The client's URL replacements apply as for a registry, but a
-// URL replacement or redirect never turns an HTTPS request into an HTTP one,
-// and a redirect never reaches an origin that a rule replaces. A status
-// other than 200 OK is an error. The caller closes the returned body.
+// dbc.toml. u must be an absolute http or https URL without user
+// information, query or fragment. The client's URL replacements apply as for
+// a registry, but a URL replacement or redirect never turns an HTTPS request
+// into an HTTP one, and a redirect never reaches an origin that a rule
+// replaces. A status other than 200 OK is an error. Errors name u, never a
+// URL that a replacement or redirect led to, and unwrap to the cause. The
+// caller closes the returned body.
 func (c *Client) OpenAnonymous(ctx context.Context, u *url.URL) (io.ReadCloser, error) {
-	if u == nil || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) {
-		return nil, errors.New("open: an absolute http or https URL is required")
+	if u == nil || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) ||
+		u.Host == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return nil, errors.New("open: an absolute http or https URL without user information, query or fragment is required")
 	}
+	where := u.Host + u.EscapedPath()
 	eff, replaced, err := c.router.route(u)
 	if err != nil {
-		return nil, err
+		return nil, &openError{where: where, err: err}
 	}
 	if !replaced {
 		eff = u
 	}
 	if strings.EqualFold(u.Scheme, "https") && !strings.EqualFold(eff.Scheme, "https") {
 		// newURLRouter rejects such rules; keep the guarantee here as well.
-		return nil, fmt.Errorf("refusing to replace https://%s%s by an http URL", u.Host, u.EscapedPath())
+		return nil, &openError{where: where, err: errors.New("refusing to replace an https URL by an http one")}
 	}
-	where := eff.Host + eff.EscapedPath()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, eff.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build request for %s: %w", where, err)
+		return nil, &openError{where: where, err: err}
 	}
 	resp, err := c.router.guardRedirects(noDowngrade(c.httpClient), replaced).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request to %s: %w", where, err)
+		return nil, &openError{where: where, err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("request to %s: %s", where, resp.Status)
+		return nil, &openError{where: where, status: resp.StatusCode}
 	}
 	return resp.Body, nil
 }
+
+// openError is a failure of OpenAnonymous. Its text names the requested
+// location only: the *url.Error of net/http names the URL it last tried,
+// which a redirect may have chosen, with a query that may hold a token.
+type openError struct {
+	where  string
+	status int
+	err    error
+}
+
+func (e *openError) Error() string {
+	if e.err == nil {
+		return fmt.Sprintf("request to %s: %d %s", e.where, e.status, http.StatusText(e.status))
+	}
+	cause := e.err
+	if ue, ok := errors.AsType[*url.Error](cause); ok {
+		cause = ue.Err
+	}
+	return fmt.Sprintf("request to %s: %v", e.where, cause)
+}
+
+func (e *openError) Unwrap() error { return e.err }
 
 // noDowngrade returns a copy of hc that also refuses HTTPS to HTTP redirects,
 // whatever the redirect policy of hc, which may come from WithHTTPClient. The
