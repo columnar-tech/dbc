@@ -64,7 +64,7 @@ func CheckPath(u *url.URL) error {
 	if p == "" {
 		return nil
 	}
-	for _, seg := range strings.Split(strings.TrimPrefix(p, "/"), "/") {
+	for seg := range strings.SplitSeq(strings.TrimPrefix(p, "/"), "/") {
 		decoded, err := url.PathUnescape(seg)
 		if err != nil {
 			return fmt.Errorf("path %q: %w", u.EscapedPath(), err)
