@@ -388,17 +388,29 @@ func (c *Client) OpenAnonymous(ctx context.Context, u *url.URL) (io.ReadCloser, 
 // whatever the redirect policy of hc, which may come from WithHTTPClient.
 func noDowngrade(hc *http.Client) *http.Client {
 	guarded := *hc
-	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+	downgrade := func(req *http.Request, via []*http.Request) error {
 		if strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
 			return errors.New("refusing HTTPS to HTTP redirect")
 		}
-		if hc.CheckRedirect != nil {
-			return hc.CheckRedirect(req, via)
-		}
-		if len(via) >= 10 {
-			return errors.New("stopped after 10 redirects")
-		}
 		return nil
+	}
+	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := downgrade(req, via); err != nil {
+			return err
+		}
+		if hc.CheckRedirect == nil {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		if err := hc.CheckRedirect(req, via); err != nil {
+			// Includes http.ErrUseLastResponse, which must reach net/http
+			// unwrapped.
+			return err
+		}
+		// The callback may have changed the URL.
+		return downgrade(req, via)
 	}
 	return &guarded
 }

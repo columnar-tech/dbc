@@ -73,14 +73,14 @@ func TestOpenAnonymous(t *testing.T) {
 	})
 
 	t.Run("url replacements apply", func(t *testing.T) {
-		c, err := NewClient(WithURLReplacements([]URLReplacement{{Prefix: "https://drivers.example.com/acme", Replacement: plain.URL + "/mirror"}}))
+		_, err := NewClient(WithURLReplacements([]URLReplacement{{Prefix: "https://drivers.example.com/acme", Replacement: plain.URL + "/mirror"}}))
 		require.Error(t, err, "an https prefix is never replaced by http")
 		mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			got = r
 			_, _ = io.WriteString(w, "mirrored")
 		}))
 		t.Cleanup(mirror.Close)
-		c, err = NewClient(WithHTTPClient(mirror.Client()), WithURLReplacements([]URLReplacement{{Prefix: "https://drivers.example.com/acme", Replacement: mirror.URL + "/mirror"}}))
+		c, err := NewClient(WithHTTPClient(mirror.Client()), WithURLReplacements([]URLReplacement{{Prefix: "https://drivers.example.com/acme", Replacement: mirror.URL + "/mirror"}}))
 		require.NoError(t, err)
 		data, err := open(t, c, "https://drivers.example.com/acme/v1/a.tar.gz")
 		require.NoError(t, err)
@@ -96,6 +96,24 @@ func TestOpenAnonymous(t *testing.T) {
 		t.Cleanup(secure.Close)
 		hc := secure.Client()
 		hc.CheckRedirect = nil // a caller's client may allow any redirect
+		c, err := NewClient(WithHTTPClient(hc))
+		require.NoError(t, err)
+		_, err = open(t, c, secure.URL+"/a.tar.gz")
+		assert.ErrorContains(t, err, "HTTPS to HTTP")
+		assert.Nil(t, got, "nothing is sent over plain HTTP")
+	})
+
+	t.Run("a redirect callback cannot downgrade", func(t *testing.T) {
+		got = nil
+		secure := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+		}))
+		t.Cleanup(secure.Close)
+		hc := secure.Client()
+		hc.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+			req.URL.Scheme, req.URL.Host = "http", plain.Listener.Addr().String()
+			return nil
+		}
 		c, err := NewClient(WithHTTPClient(hc))
 		require.NoError(t, err)
 		_, err = open(t, c, secure.URL+"/a.tar.gz")
