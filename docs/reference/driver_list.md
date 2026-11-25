@@ -124,7 +124,7 @@ version = '>=1.0.0'
 
 ### `url`
 
-Required. The base URL of the registry. Must be an `http` or `https` URL with a host, whose path has no empty, `.` or `..` segments.
+Required. The base URL of the registry. Must be an `http` or `https` URL with a host, whose path has no empty, `.` or `..` segments and no escaped `/` (`%2F`).
 
 ### `name`
 
