@@ -155,6 +155,30 @@ dbc does not fall back to another registry when the selected registry does not h
 
 `dbc.lock` records the registry a driver was resolved from. If the source then selects another registry, `dbc sync` stops and [`dbc lock`](cli.md#lock) resolves the driver again from the new registry. Naming the same registry another way (by name instead of URL, for example) keeps the lock entry.
 
+### HTTP source
+
+{{ since_version('v0.4.0') }}
+
+A driver that is not in a registry can name the URL of its package with `type = "http"`. The package must be a dbc package archive (`.tar.gz` with a `MANIFEST`), and `version` must be one exact version.
+
+```toml
+[drivers.iceberg]
+version = "=0.1.0"
+
+[drivers.iceberg.source]
+type = "http"
+url = "https://github.com/tokoko/adbc-iceberg/releases/download/v{version}/iceberg_{os}_{arch}_v{version}.tar.gz"
+signing_key = false
+```
+
+- `url`: required. An `http` or `https` URL without user information, query or fragment. In its path, `{version}` is the full version, and `{os}` and `{arch}` are the operating system and architecture of each [platform](supported_platforms.md) as dbc spells them (for example `linux` and `amd64`).
+- `checksum_url`: optional. A file with the SHA-256 of the archives, either one hash or lines as `sha256sum` writes them, matched by the file name of each archive URL. It takes the same variables and must use `https` when `url` does.
+- `signing_key`: the name of a `[signing_keys]` definition in the same driver list, omitted for the key built into dbc, or `false` for unsigned packages, as for [registries](../concepts/driver_registry.md#signing-keys).
+
+Other keys are an error. `dbc lock` and `dbc sync` record an archive for each [listed platform](#platforms), or for the current platform without `platforms`. With `checksum_url`, the hash is read from it and no archive is downloaded until `dbc sync` installs one. Without it, each archive is downloaded, unpacked, checked for the exact version in its `MANIFEST` and its signature before its hash and size are recorded, so `--no-verify` is refused then. For `signing_key = false`, the first download is trusted as it is. dbc warns when a recorded hash was read over plain HTTP.
+
+Archives are downloaded without registry credentials. [URL replacements](../concepts/driver_registry.md#mirrors) from the user `config.toml` apply, but never turn `https` into `http`, and neither does a redirect. `DBC_BASE_URL` does not affect HTTP sources.
+
 ### `exclude_builtin_registries`
 
 Optional. When `true`, dbc's built-in registries are not used; the registries configured in this file and in the global `config.toml` still are. When omitted or `false`, the built-in registries are used unless the global `config.toml` sets `exclude_builtin_registries = true`, which a driver list cannot override. dbc warns when a driver list sets `false` while the global `config.toml` excludes the built-in registries.

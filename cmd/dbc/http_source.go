@@ -178,8 +178,12 @@ func parseURLTemplate(field, raw string) (urlTemplate, error) {
 		return urlTemplate{}, fmt.Errorf("%s has an unmatched { or }", field)
 	}
 	// The scheme and host do not depend on their case; the path is kept as
-	// written, since it is sent as it is.
-	t := urlTemplate{raw: scheme + "://" + strings.ToLower(authority) + p, scheme: scheme}
+	// written, since it is sent as it is, and so is the zone of an IPv6
+	// address, which may name an interface whose name has a case.
+	if !strings.Contains(authority, "%") {
+		authority = strings.ToLower(authority)
+	}
+	t := urlTemplate{raw: scheme + "://" + authority + p, scheme: scheme}
 	if _, err := t.expand(semver.MustParse("1.0.0"), resolution.Target{OS: "linux", Arch: "amd64"}); err != nil {
 		return urlTemplate{}, fmt.Errorf("%s: %w", field, err)
 	}
