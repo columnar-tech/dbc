@@ -196,6 +196,7 @@ func TestPlanLocked(t *testing.T) {
 		untrusted := lockedNamed("beta", "1.0.0", linux)
 		untrusted.Signer.Fingerprint = "0000000000000000000000000000000000000000"
 		noHost := lockedNamed("gamma", "1.0.0", macos)
+		noHost.Source.URL = "https://unknown.example.com"
 		extra := lockedNamed("delta", "1.0.0", macos)
 		lock := v2Lock(lockedAlpha("1.0.0", linux), untrusted, noHost, extra)
 		list := listOf(map[string]driverSpec{"alpha": {Version: constraint(t, ">=2")}, "beta": {}, "gamma": {}})
@@ -207,8 +208,9 @@ func TestPlanLocked(t *testing.T) {
 			"driver delta is in the lock file but not in the driver list",
 			"driver gamma 1.0.0 has no artifact for this platform (linux_amd64) in the lock file",
 		}, lockedErr.mismatches, "delta, which the list lacks, is not planned")
-		require.Len(t, lockedErr.trust, 1)
+		require.Len(t, lockedErr.trust, 2, "gamma's registry is checked although it lacks the host artifact")
 		assert.Contains(t, lockedErr.trust[0], "driver beta")
+		assert.Contains(t, lockedErr.trust[1], "driver gamma")
 	})
 
 	t.Run("an undeclared host is reported with the mismatches", func(t *testing.T) {
@@ -222,18 +224,22 @@ func TestPlanLocked(t *testing.T) {
 		assert.Contains(t, lockedErr.mismatches[1], "this platform (linux_amd64) is not in platforms of the driver list")
 	})
 
-	t.Run("an undeclared host is one error", func(t *testing.T) {
+	t.Run("an undeclared host is one problem among the trust problems", func(t *testing.T) {
 		f := newPlanFixture(t)
+		untrusted := lockedNamed("beta", "1.0.0", macos)
+		untrusted.Signer.Fingerprint = "0000000000000000000000000000000000000000"
 		list := DriversList{Platforms: []string{"macos_arm64"}, Drivers: map[string]driverSpec{"alpha": {}, "beta": {}}}
 		lock := lockFileV2{
 			Platforms: []resolution.Target{testSyncTarget(t, "macos_arm64")},
-			Drivers:   []lockedDriver{lockedAlpha("1.0.0", macos), lockedNamed("beta", "1.0.0", macos)},
+			Drivers:   []lockedDriver{lockedAlpha("1.0.0", macos), untrusted},
 		}
 		_, err := planLocked(&f.planner, list, lock)
-		require.Error(t, err)
 		var lockedErr *lockedSyncError
-		assert.False(t, errors.As(err, &lockedErr))
-		assert.Contains(t, err.Error(), "this platform (linux_amd64) is not in platforms of the driver list")
+		require.ErrorAs(t, err, &lockedErr)
+		require.Len(t, lockedErr.mismatches, 1, "no driver is reported for lacking the undeclared host: %q", lockedErr.mismatches)
+		assert.Contains(t, lockedErr.mismatches[0], "this platform (linux_amd64) is not in platforms of the driver list")
+		require.Len(t, lockedErr.trust, 1)
+		assert.Contains(t, lockedErr.trust[0], "driver beta")
 	})
 }
 

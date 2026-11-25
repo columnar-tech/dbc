@@ -167,9 +167,6 @@ func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDr
 		return nil, err
 	}
 	p.platforms = platforms
-	if platforms != nil && !p.hostDeclared() {
-		return nil, undeclaredHostError(p.target, platforms)
-	}
 	host, err := resolution.TargetFromPlatformTuple(p.target)
 	if err != nil {
 		return nil, err
@@ -179,11 +176,33 @@ func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDr
 		planned []plannedDriver
 		failed  lockedSyncError
 	)
+	// The trust of every entry is checked even when nothing can be
+	// installed here, so that all problems are reported at once.
+	hostDeclared := platforms == nil || p.hostDeclared()
+	if !hostDeclared {
+		failed.mismatches = append(failed.mismatches, undeclaredHostError(p.target, platforms).Error())
+	}
 	drivers := slices.Clone(lock.Drivers)
 	slices.SortFunc(drivers, func(a, b lockedDriver) int { return strings.Compare(a.Name, b.Name) })
 	for _, d := range drivers {
 		if _, ok := list.Drivers[d.Name]; !ok {
 			// lockMismatches reports the entry; there is nothing to plan.
+			continue
+		}
+		v, err := semver.NewVersion(d.Version)
+		if err != nil {
+			failed.mismatches = append(failed.mismatches, fmt.Sprintf("driver %s: invalid locked version: %v", d.Name, err))
+			continue
+		}
+		signer, signerErr := trustedSigner(d.Name, d.Signer)
+		if signerErr != nil {
+			failed.trust = append(failed.trust, signerErr.Error())
+		}
+		bound, bindErr := p.bind(d.Name, d.Source.URL)
+		if bindErr != nil {
+			failed.trust = append(failed.trust, bindErr.Error())
+		}
+		if !hostDeclared {
 			continue
 		}
 		i := slices.IndexFunc(d.Artifacts, func(a lockedArtifact) bool { return a.Target == host })
@@ -192,19 +211,7 @@ func (p *syncPlanner) planLocked(list DriversList, lock lockFileV2) ([]plannedDr
 				d.Name, d.Version, p.target))
 			continue
 		}
-		v, err := semver.NewVersion(d.Version)
-		if err != nil {
-			failed.mismatches = append(failed.mismatches, fmt.Sprintf("driver %s: invalid locked version: %v", d.Name, err))
-			continue
-		}
-		signer, err := trustedSigner(d.Name, d.Signer)
-		if err != nil {
-			failed.trust = append(failed.trust, err.Error())
-			continue
-		}
-		bound, err := p.bind(d.Name, d.Source.URL)
-		if err != nil {
-			failed.trust = append(failed.trust, err.Error())
+		if signerErr != nil || bindErr != nil {
 			continue
 		}
 		pd, err := p.replayArtifact(d, bound, signer, d.Artifacts[i], v)
