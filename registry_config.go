@@ -305,18 +305,14 @@ func parseRegistryEntryURL(e RegistryEntry) (*url.URL, error) {
 }
 
 // registryURLKey returns a canonical form of a registry URL that collapses
-// only truly no-op differences: scheme/host casing, the default port of the
-// scheme, trailing-slash on the path, and fragments. Query, userinfo, and path segments are preserved
-// because they change the effective registry endpoint (tenant selectors,
-// credential-bearing URLs, path-mounted registries) and must be treated as
-// distinct registries.
+// only truly no-op differences (see registryurl.Endpoint): scheme/host
+// casing, the default port of the scheme, the spelling of escapes in the
+// path, a trailing slash on the path, and fragments. Query, userinfo, and
+// path segments are preserved because they change the effective registry
+// endpoint (tenant selectors, credential-bearing URLs, path-mounted
+// registries) and must be treated as distinct registries.
 func registryURLKey(u *url.URL) string {
-	cp := *u
-	cp.Scheme, cp.Host = registryurl.Authority(u)
-	cp.Path = strings.TrimRight(cp.Path, "/")
-	cp.Fragment = ""
-	cp.RawFragment = ""
-	return cp.String()
+	return registryurl.Endpoint(u).String()
 }
 
 // registryTrustKey returns the identity of a registry URL for the signing
@@ -327,7 +323,7 @@ func registryURLKey(u *url.URL) string {
 // port of the scheme is also left out.
 func registryTrustKey(u *url.URL) string {
 	scheme, host := registryurl.Authority(u)
-	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
+	return scheme + "://" + host + strings.TrimRight(registryurl.EscapedPath(u), "/")
 }
 
 // checkProjectRedeclarations rejects a project registry that declares a

@@ -75,3 +75,63 @@ func CheckPath(u *url.URL) error {
 	}
 	return nil
 }
+
+// EscapedPath returns the escaped path of u in the form that identifies a
+// registry, following RFC 3986 section 6.2.2: an escaped unreserved
+// character (a letter, a digit or one of "-._~") is decoded, and the hex
+// digits of every other escape are in upper case. Reserved characters keep
+// the spelling they have, escaped or not, since that can change the meaning
+// of a path. Nothing is decoded twice. Requests keep using the URL as
+// configured; only the comparison of registries uses this form.
+func EscapedPath(u *url.URL) string {
+	p := u.EscapedPath()
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		if p[i] != '%' || i+2 >= len(p) || !isHex(p[i+1]) || !isHex(p[i+2]) {
+			b.WriteByte(p[i])
+			continue
+		}
+		c := unhex(p[i+1])<<4 | unhex(p[i+2])
+		if isUnreserved(c) {
+			b.WriteByte(c)
+		} else {
+			b.WriteByte('%')
+			b.WriteString(strings.ToUpper(p[i+1 : i+3]))
+		}
+		i += 2
+	}
+	return b.String()
+}
+
+func isHex(c byte) bool {
+	return '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
+}
+
+func unhex(c byte) byte {
+	switch {
+	case c <= '9':
+		return c - '0'
+	case c >= 'a':
+		return c - 'a' + 10
+	default:
+		return c - 'A' + 10
+	}
+}
+
+func isUnreserved(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~'
+}
+
+// Endpoint returns a copy of u in the form that identifies the endpoint of a
+// registry: its scheme and host as Authority gives them, its path as
+// EscapedPath gives it without a trailing slash, and no fragment. It keeps
+// the user information and query, which can select another registry.
+func Endpoint(u *url.URL) *url.URL {
+	cp := *u
+	cp.Scheme, cp.Host = Authority(u)
+	cp.RawPath = strings.TrimRight(EscapedPath(u), "/")
+	// The canonical path only decodes valid escapes, so it unescapes.
+	cp.Path, _ = url.PathUnescape(cp.RawPath)
+	cp.Fragment, cp.RawFragment = "", ""
+	return &cp
+}

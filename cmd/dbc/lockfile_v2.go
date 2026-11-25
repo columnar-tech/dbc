@@ -112,7 +112,8 @@ type parsedLockFile struct {
 
 // canonicalRegistryIdentity returns the credential-free identity of a
 // registry base URL: the scheme and host as registryurl.Authority gives
-// them, no userinfo, query or fragment, and no trailing slash.
+// them, the path as registryurl.EscapedPath gives it, no userinfo, query or
+// fragment, and no trailing slash.
 func canonicalRegistryIdentity(u *url.URL) (string, error) {
 	if u == nil {
 		return "", errors.New("registry URL is missing")
@@ -121,7 +122,7 @@ func canonicalRegistryIdentity(u *url.URL) (string, error) {
 	if (scheme != "http" && scheme != "https") || u.Host == "" || u.Opaque != "" {
 		return "", errors.New("registry URL must be an absolute http or https URL with a host")
 	}
-	p := strings.TrimRight(u.EscapedPath(), "/")
+	p := strings.TrimRight(registryurl.EscapedPath(u), "/")
 	return scheme + "://" + host + p, nil
 }
 

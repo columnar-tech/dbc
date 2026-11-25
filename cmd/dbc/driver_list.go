@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/columnar-tech/dbc"
@@ -149,10 +148,12 @@ func effectiveRegistries(list DriversList) ([]effectiveRegistry, error) {
 }
 
 // normalizeRegistryURL returns a canonical form of a registry URL for
-// equality comparisons. Only truly no-op differences are collapsed:
+// equality comparisons. Only truly no-op differences are collapsed (see
+// registryurl.Endpoint):
 //
 //   - scheme and host are lowercased (case-insensitive per RFC 3986), and
-//     the default port of the scheme is dropped (see registryurl.Authority)
+//     the default port of the scheme is dropped
+//   - escapes in the path are spelled as RFC 3986 normalizes them
 //   - a trailing slash on the path is stripped
 //   - fragments are dropped (not sent on HTTP requests)
 //
@@ -166,11 +167,7 @@ func normalizeRegistryURL(raw string) string {
 	if err != nil {
 		return raw
 	}
-	u.Scheme, u.Host = registryurl.Authority(u)
-	u.Path = strings.TrimRight(u.Path, "/")
-	u.Fragment = ""
-	u.RawFragment = ""
-	return u.String()
+	return registryurl.Endpoint(u).String()
 }
 
 // applyProjectRegistries rebuilds the process-wide dbc client with the

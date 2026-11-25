@@ -267,6 +267,9 @@ func TestCanonicalRegistryIdentity(t *testing.T) {
 		{"https://Host:443/m", "https://host/m"},
 		{"http://host:80", "http://host"},
 		{"http://host:443", "http://host:443"},
+		// Escapes are spelled as RFC 3986 normalizes them.
+		{"https://host/%64rivers", "https://host/drivers"},
+		{"https://host/a%3ab", "https://host/a%3Ab"},
 		{"http://host/a/b//", "http://host/a/b"},
 		{"ftp://host", ""},
 		{"https:///path", ""},
@@ -287,6 +290,9 @@ func TestCanonicalRegistryIdentity(t *testing.T) {
 	}
 	_, err := canonicalRegistryIdentity(nil)
 	assert.Error(t, err)
+	// A lock file must use that spelling.
+	assert.Error(t, validateRegistryIdentity("https://host/%64rivers"))
+	assert.Error(t, validateRegistryIdentity("https://host/a%3ab"))
 }
 
 func TestLockedPathValidation(t *testing.T) {
@@ -375,10 +381,16 @@ func TestBindLockedRegistry(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, b.HasQuery)
 
-		// Adding the default port to the configured URL keeps the binding.
-		b, err = bindLockedRegistry(id, []dbc.Registry{reg("https://r.example.com:443/m")})
-		require.NoError(t, err)
-		assert.Equal(t, "https://r.example.com:443/m", b.BaseURL.String())
+		// Adding the default port to the configured URL, or escaping an
+		// unreserved character in its path, keeps the binding.
+		for _, configured := range []string{"https://r.example.com:443/m", "https://r.example.com/%6D"} {
+			b, err = bindLockedRegistry(id, []dbc.Registry{reg(configured)})
+			require.NoError(t, err)
+			assert.Equal(t, configured, b.BaseURL.String())
+		}
+		// An escaped slash is another path.
+		_, err = bindLockedRegistry("https://r.example.com/a%2Fb", []dbc.Registry{reg("https://r.example.com/a/b")})
+		assert.ErrorContains(t, err, "not configured")
 	})
 
 	t.Run("none", func(t *testing.T) {

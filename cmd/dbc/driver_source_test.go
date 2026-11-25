@@ -441,6 +441,10 @@ func TestIsSelectionError(t *testing.T) {
 // of a registry treats as the same URL.
 func TestNormalizeRegistryURL(t *testing.T) {
 	assert.Equal(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL("HTTPS://R.example.com:443/m/#frag"))
+	assert.Equal(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL("https://r.example.com/%6d"))
+	assert.Equal(t, normalizeRegistryURL("https://r.example.com/a%3Ab"), normalizeRegistryURL("https://r.example.com/a%3ab"))
+	// A reserved character keeps its spelling.
+	assert.NotEqual(t, normalizeRegistryURL("https://r.example.com/a%3Ab"), normalizeRegistryURL("https://r.example.com/a:b"))
 	for _, other := range []string{"https://r.example.com:8443/m", "https://r.example.com/m?tenant=a", "https://u@r.example.com/m", "http://r.example.com/m"} {
 		assert.NotEqual(t, normalizeRegistryURL("https://r.example.com/m"), normalizeRegistryURL(other), other)
 	}

@@ -420,3 +420,33 @@ func TestRegistryEntrySigningKeyRoundTrip(t *testing.T) {
 	assert.Contains(t, string(out), "signing_key = 'acme'")
 	assert.Equal(t, 2, strings.Count(string(out), "signing_key"))
 }
+
+// TestRegistryPathEscapes pins that the spelling of escapes in a registry's
+// path, which requests resolve to the same path, does not make it another
+// registry, while a reserved character keeps its meaning.
+func TestRegistryPathEscapes(t *testing.T) {
+	user := &GlobalConfig{Registries: []RegistryEntry{{URL: "https://acme.example.com/drivers", SigningKey: false}}}
+
+	_, err := NewClient(WithGlobalConfig(user), WithProjectConfig(&ProjectConfig{
+		Registries: []RegistryEntry{{URL: "https://acme.example.com/%64rivers"}},
+	}))
+	assert.ErrorContains(t, err, "a project cannot change how that registry is verified")
+
+	c, err := NewClient(WithGlobalConfig(user), WithProjectConfig(&ProjectConfig{
+		Registries: []RegistryEntry{{URL: "https://acme.example.com/DRIV%65RS/", SigningKey: false}, {URL: "https://acme.example.com/%64rivers", SigningKey: false}},
+	}))
+	require.NoError(t, err)
+	var paths []string
+	for _, r := range c.Registries() {
+		if r.BaseURL.Host == "acme.example.com" {
+			paths = append(paths, r.BaseURL.EscapedPath())
+		}
+	}
+	assert.Len(t, paths, 2, "DRIVeRS is another path; %64rivers is the user's drivers: %v", paths)
+
+	// An escaped reserved character is another path.
+	_, err = NewClient(WithGlobalConfig(user), WithProjectConfig(&ProjectConfig{
+		Registries: []RegistryEntry{{URL: "https://acme.example.com/drivers%3A"}, {URL: "https://acme.example.com/drivers:"}},
+	}))
+	assert.NoError(t, err)
+}

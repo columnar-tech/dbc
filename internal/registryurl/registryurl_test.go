@@ -57,3 +57,30 @@ func TestCheckPath(t *testing.T) {
 		assert.Error(t, CheckPath(u), bad)
 	}
 }
+
+func TestEscapedPath(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"https://h/drivers", "/drivers"},
+		// Escaped unreserved characters are decoded.
+		{"https://h/%64rivers", "/drivers"},
+		{"https://h/DRIV%65rs", "/DRIVers"},
+		{"https://h/a%2Db%2E%5Fc%7E", "/a-b._c~"},
+		// Other escapes keep their meaning, with upper-case hex.
+		{"https://h/a%3ab", "/a%3Ab"},
+		{"https://h/a%3Ab", "/a%3Ab"},
+		{"https://h/a:b", "/a:b"},
+		{"https://h/a%40b", "/a%40b"},
+		{"https://h/a@b", "/a@b"},
+		{"https://h/a%2fb", "/a%2Fb"},
+		{"https://h/a%20b", "/a%20b"},
+		{"https://h/caf%c3%a9", "/caf%C3%A9"},
+		// Nothing is decoded twice.
+		{"https://h/a%2564", "/a%2564"},
+		{"https://h", ""},
+	}
+	for _, tt := range tests {
+		u, err := url.Parse(tt.in)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, EscapedPath(u), tt.in)
+	}
+}
