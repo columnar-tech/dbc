@@ -54,13 +54,13 @@ type Registry struct {
 }
 
 // signingPolicy returns the policy that r.SigningKey selects.
-func (r Registry) signingPolicy() (dbc.RegistrySigningPolicy, error) {
+func (r Registry) signingPolicy() (dbc.SigningPolicy, error) {
 	if len(r.SigningKey) == 0 {
-		return dbc.RegistrySigningPolicy{}, nil
+		return dbc.SigningPolicy{}, nil
 	}
 	var value any
 	if err := json.Unmarshal(r.SigningKey, &value); err != nil {
-		return dbc.RegistrySigningPolicy{}, err
+		return dbc.SigningPolicy{}, err
 	}
 	switch v := value.(type) {
 	case bool:
@@ -69,15 +69,15 @@ func (r Registry) signingPolicy() (dbc.RegistrySigningPolicy, error) {
 		}
 	case string:
 		if v == "" {
-			return dbc.RegistrySigningPolicy{}, fmt.Errorf("must not be empty")
+			return dbc.SigningPolicy{}, fmt.Errorf("must not be empty")
 		}
 		key, err := dbc.NewArmoredSigningKey(v)
 		if err != nil {
-			return dbc.RegistrySigningPolicy{}, err
+			return dbc.SigningPolicy{}, err
 		}
 		return dbc.SignWith(key), nil
 	}
-	return dbc.RegistrySigningPolicy{}, fmt.Errorf("must be an ASCII-armored OpenPGP public key or false, not %s", jsonKind(value))
+	return dbc.SigningPolicy{}, fmt.Errorf("must be an ASCII-armored OpenPGP public key or false, not %s", jsonKind(value))
 }
 
 // jsonKind names the kind of a decoded JSON value, without its content.

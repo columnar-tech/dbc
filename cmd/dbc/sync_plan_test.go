@@ -746,7 +746,7 @@ func TestPlanFallbackRegistryReplay(t *testing.T) {
 
 // signedRegistryFixture is a plan fixture whose one registry has the given
 // signing policy.
-func signedRegistryFixture(t *testing.T, policy dbc.RegistrySigningPolicy) *planFixture {
+func signedRegistryFixture(t *testing.T, policy dbc.SigningPolicy) *planFixture {
 	f := newPlanFixture(t)
 	f.registries = []dbc.Registry{{BaseURL: planRegistryURL, Signing: policy}}
 	return f
@@ -792,12 +792,12 @@ func TestPlanUsesTheKeyOfTheRegistry(t *testing.T) {
 	// own: replaying it needs the configuration to select the same signer.
 	for _, tt := range []struct {
 		name           string
-		locked, config dbc.RegistrySigningPolicy
+		locked, config dbc.SigningPolicy
 		want           string
 	}{
 		{"none locked, key configured", dbc.Unsigned(), dbc.SignWith(acme), "pins no signing key (an unsigned registry), but the configuration of its registry selects the signing key " + acme.Fingerprint()},
 		{"key locked, unsigned configured", dbc.SignWith(acme), dbc.Unsigned(), "selects no signing key"},
-		{"custom key locked, Columnar configured", dbc.SignWith(acme), dbc.RegistrySigningPolicy{}, "pins the signing key " + acme.Fingerprint()},
+		{"custom key locked, Columnar configured", dbc.SignWith(acme), dbc.SigningPolicy{}, "pins the signing key " + acme.Fingerprint()},
 		{"key locked, other key configured", dbc.SignWith(acme), dbc.SignWith(testSigningKey(t, "other")), "pins the signing key " + acme.Fingerprint()},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -836,7 +836,7 @@ func TestPlanUsesTheKeyOfTheRegistry(t *testing.T) {
 		project, err := dbc.NewClient(dbc.WithProjectConfig(cfg))
 		require.NoError(t, err)
 		f := signedRegistryFixture(t, project.Registries()[0].Signing)
-		planned, _, err := signedRegistryFixture(t, dbc.RegistrySigningPolicy{}).planner.plan(alpha, parsedLockFile{})
+		planned, _, err := signedRegistryFixture(t, dbc.SigningPolicy{}).planner.plan(alpha, parsedLockFile{})
 		require.NoError(t, err)
 		_, _, err = f.planner.plan(alpha, v2Lock(planned[0].Entry))
 		require.Error(t, err)
@@ -868,10 +868,10 @@ func TestPlanLoadsTheKeyOfARegistryOnce(t *testing.T) {
 	bound, err := f.planner.bind("alpha", "https://registry.example.com")
 	require.NoError(t, err)
 
-	first, err := f.planner.signerFor("alpha", bound)
+	first, err := f.planner.signerFor("alpha", bound.Registry.Signing)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(keyPath, []byte(armoredTestKey(t, "second")), 0o600))
-	second, err := f.planner.signerFor("beta", bound)
+	second, err := f.planner.signerFor("beta", bound.Registry.Signing)
 	require.NoError(t, err)
 	assert.Same(t, first.key, second.key)
 }
@@ -883,7 +883,7 @@ func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
 	acme := testSigningKey(t, "acme")
 	fallbackURL := must(url.Parse("https://fallback.example.com"))
 	alpha := listOf(map[string]driverSpec{"alpha": {}})
-	fixture := func(t *testing.T, first, fallback dbc.RegistrySigningPolicy) *planFixture {
+	fixture := func(t *testing.T, first, fallback dbc.SigningPolicy) *planFixture {
 		f := newPlanFixture(t)
 		f.registries[0].Signing = first
 		f.registries = append(f.registries, dbc.Registry{BaseURL: fallbackURL, Signing: fallback})
@@ -917,14 +917,14 @@ func TestPlanFallbackRegistryUsesItsKey(t *testing.T) {
 	assert.Same(t, acme, replayed[0].Signer.key)
 
 	// With another key on the first registry, the fallback is a conflict.
-	f = fixture(t, dbc.RegistrySigningPolicy{}, dbc.SignWith(acme))
+	f = fixture(t, dbc.SigningPolicy{}, dbc.SignWith(acme))
 	_, _, err = f.planner.plan(alpha, parsedLockFile{})
 	var conflict *dbc.SignerConflictError
 	require.ErrorAs(t, err, &conflict)
 	assert.Contains(t, err.Error(), sourceHint)
 
 	// The key of the first registry does not apply to the fallback one.
-	f = fixture(t, dbc.SignWith(acme), dbc.RegistrySigningPolicy{})
+	f = fixture(t, dbc.SignWith(acme), dbc.SigningPolicy{})
 	_, _, err = f.planner.plan(alpha, v2Lock(planned[0].Entry))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pins the signing key "+acme.Fingerprint())
@@ -941,7 +941,7 @@ func TestPlanKeepsTheUnsignedRegistryOfALockEntry(t *testing.T) {
 	}
 	// fixture configures the lock's registry and another one with policy;
 	// the merged index lists alpha only in the other registry when moved.
-	fixture := func(t *testing.T, policy dbc.RegistrySigningPolicy, moved bool) *planFixture {
+	fixture := func(t *testing.T, policy dbc.SigningPolicy, moved bool) *planFixture {
 		f := newPlanFixture(t)
 		f.registries[0].Signing = policy
 		f.registries = append(f.registries, dbc.Registry{BaseURL: otherURL, Signing: policy})

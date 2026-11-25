@@ -93,7 +93,7 @@ type syncPlanner struct {
 	// signing keeps the keys of this plan: the signer checks of resolution,
 	// the replay of lock entries and the verification of every package use
 	// the same certificate of a registry.
-	signing *dbc.RegistrySigningOperation
+	signing *dbc.SigningOperation
 }
 
 // loadIndex fetches the merged index once. Like the other commands it only
@@ -313,7 +313,7 @@ func (p *syncPlanner) fromLock(name string, d lockedDriver, v *semver.Version) (
 	// configuration does not select fails here, before any index is fetched,
 	// archive is downloaded or lock file is written, and never falls back to
 	// another key or registry.
-	signer, err := p.trustedSigner(name, d.Signer, bound)
+	signer, err := p.trustedSigner(name, d.Signer, bound.Registry.Signing)
 	if err != nil {
 		return plannedDriver{}, err
 	}
@@ -404,7 +404,7 @@ func (p *syncPlanner) relock(name string, d lockedDriver, v *semver.Version) (pd
 		return plannedDriver{}, nil, err
 	}
 	// As in fromLock, check the pinned key before any index is fetched.
-	signer, err := p.trustedSigner(name, d.Signer, bound)
+	signer, err := p.trustedSigner(name, d.Signer, bound.Registry.Signing)
 	if err != nil {
 		return plannedDriver{}, nil, err
 	}
@@ -478,40 +478,40 @@ func (s packageSigner) locked() lockedSigner {
 	return lockedSigner{Type: lockSignerOpenPGP, Fingerprint: s.key.Fingerprint()}
 }
 
-// signerFor returns how the packages of a driver from registry must be
-// verified, as the registry's configuration says: the key it names, the
-// Columnar key when it names none, or no key when it is declared unsigned.
-// A key that cannot be loaded, such as a missing public_key_file, is an
-// error rather than a fallback to another key.
+// signerFor returns how the packages of a driver must be verified under the
+// signing policy of its source, as the configuration says: the key it
+// names, the Columnar key when it names none, or no key when it is declared
+// unsigned. A key that cannot be loaded, such as a missing public_key_file,
+// is an error rather than a fallback to another key.
 //
-// The key of each registry is read once per plan (see signingOperation), so
+// The key of each definition is read once per plan (see signingOperation), so
 // that wherever one sync or lock checks a signer or a signature it uses the
 // same certificate, even when the key is read from a file that changes
 // meanwhile. This does not make dbc lock verify more: it still records a
 // published archive hash without downloading the archive.
-func (p *syncPlanner) signerFor(name string, bound boundRegistry) (packageSigner, error) {
-	key, err := p.signingOperation().ResolveSigningKey(&bound.Registry)
+func (p *syncPlanner) signerFor(name string, policy dbc.SigningPolicy) (packageSigner, error) {
+	signer, err := policySigner(p.signingOperation(), policy)
 	if err != nil {
 		return packageSigner{}, fmt.Errorf("driver %s: could not load the signing key of its registry: %w", name, err)
 	}
-	return packageSigner{key: key, unsigned: key == nil}, nil
+	return signer, nil
 }
 
 // signingOperation returns the keys of this plan.
-func (p *syncPlanner) signingOperation() *dbc.RegistrySigningOperation {
+func (p *syncPlanner) signingOperation() *dbc.SigningOperation {
 	if p.signing == nil {
-		p.signing = &dbc.RegistrySigningOperation{}
+		p.signing = &dbc.SigningOperation{}
 	}
 	return p.signing
 }
 
 // trustedSigner returns how the packages of a driver locked with sig must be
-// verified. The configuration of the bound registry decides which key is
+// verified. The policy of its bound source decides which key is
 // trusted; the lock only says which one was chosen. A pin that the
 // configuration no longer selects is an error, also with --no-verify, and
 // never falls back to another key or registry.
-func (p *syncPlanner) trustedSigner(name string, sig lockedSigner, bound boundRegistry) (packageSigner, error) {
-	signer, err := p.signerFor(name, bound)
+func (p *syncPlanner) trustedSigner(name string, sig lockedSigner, policy dbc.SigningPolicy) (packageSigner, error) {
+	signer, err := p.signerFor(name, policy)
 	if err != nil {
 		return packageSigner{}, err
 	}
@@ -736,7 +736,7 @@ func (p *syncPlanner) resolve(name string, spec driverSpec, pin *semver.Version,
 	// A new resolution has to fetch the index first to learn which
 	// registry the driver comes from; a key that cannot be loaded still
 	// fails before any archive is downloaded or lock file written.
-	signer, err := p.signerFor(name, bound)
+	signer, err := p.signerFor(name, bound.Registry.Signing)
 	if err != nil {
 		return plannedDriver{}, err
 	}

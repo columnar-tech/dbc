@@ -234,7 +234,7 @@ func (m addModel) Init() tea.Cmd {
 
 		// dbc add installs nothing; one operation keeps the signer checks of
 		// all drivers on the same keys.
-		var signing dbc.RegistrySigningOperation
+		var signing dbc.SigningOperation
 		var result string
 		for i, spec := range specs {
 			if i != 0 {

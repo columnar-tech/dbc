@@ -76,7 +76,7 @@ func (suite *SubcommandTestSuite) signedArchive() (string, *dbc.SigningKey, stri
 
 // signedBase is a base model whose only registry has the given signing
 // policy. Every download returns a copy of archive.
-func signedBase(policy dbc.RegistrySigningPolicy, archive string) baseModel {
+func signedBase(policy dbc.SigningPolicy, archive string) baseModel {
 	registry := testRegistry
 	registry.Signing = policy
 	index := func() ([]dbc.Driver, error) {
@@ -112,7 +112,7 @@ func signedBase(policy dbc.RegistrySigningPolicy, archive string) baseModel {
 // assertSignedRoundTrip locks and syncs test-driver-no-sig from a registry
 // with policy, syncs again without downloading, and then checks that the
 // lock is not replayed once the registry is configured with changed.
-func (suite *SubcommandTestSuite) assertSignedRoundTrip(policy, changed dbc.RegistrySigningPolicy, archive string, want lockedSigner) {
+func (suite *SubcommandTestSuite) assertSignedRoundTrip(policy, changed dbc.SigningPolicy, archive string, want lockedSigner) {
 	listPath := suite.writeDriverList("test-driver-no-sig")
 
 	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(signedBase(policy, archive)))
@@ -136,7 +136,7 @@ func (suite *SubcommandTestSuite) assertSignedRoundTrip(policy, changed dbc.Regi
 
 func (suite *SubcommandTestSuite) TestSyncWithCustomSigningKey() {
 	archive, key := suite.signedArchiveFile()
-	suite.assertSignedRoundTrip(dbc.SignWith(key), dbc.RegistrySigningPolicy{}, archive,
+	suite.assertSignedRoundTrip(dbc.SignWith(key), dbc.SigningPolicy{}, archive,
 		lockedSigner{Type: lockSignerOpenPGP, Fingerprint: key.Fingerprint()})
 }
 

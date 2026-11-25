@@ -28,11 +28,11 @@ const (
 	signingFromFile
 )
 
-// RegistrySigningPolicy says how the driver packages of a registry are
-// verified with a detached OpenPGP signature. The zero value verifies them
-// with the built-in Columnar key. Use SignWith for another key and Unsigned
-// for a registry whose packages are not signed.
-type RegistrySigningPolicy struct {
+// SigningPolicy says how the driver packages from a source, such as a
+// registry, are verified with a detached OpenPGP signature. The zero value
+// verifies them with the built-in Columnar key. Use SignWith for another key
+// and Unsigned for a source whose packages are not signed.
+type SigningPolicy struct {
 	kind signingPolicyKind
 	key  *SigningKey
 	file *signingKeyFile
@@ -41,21 +41,21 @@ type RegistrySigningPolicy struct {
 }
 
 // SignWith returns the policy that verifies packages with key.
-func SignWith(key *SigningKey) RegistrySigningPolicy {
-	return RegistrySigningPolicy{kind: signingWithKey, key: key}
+func SignWith(key *SigningKey) SigningPolicy {
+	return SigningPolicy{kind: signingWithKey, key: key}
 }
 
 // Unsigned returns the policy for a registry whose packages are not verified
 // with any key. The archive hash that a registry publishes is still checked.
-func Unsigned() RegistrySigningPolicy {
-	return RegistrySigningPolicy{kind: signingUnsigned}
+func Unsigned() SigningPolicy {
+	return SigningPolicy{kind: signingUnsigned}
 }
 
 // IsUnsigned reports whether the policy is Unsigned.
-func (p RegistrySigningPolicy) IsUnsigned() bool { return p.kind == signingUnsigned }
+func (p SigningPolicy) IsUnsigned() bool { return p.kind == signingUnsigned }
 
 // validate rejects a policy that cannot produce a key, such as SignWith(nil).
-func (p RegistrySigningPolicy) validate() error {
+func (p SigningPolicy) validate() error {
 	if p.kind == signingWithKey && (p.key == nil || p.key.verifier == nil) {
 		return errors.New("signing policy has no key; create the key with NewSigningKey")
 	}
@@ -68,7 +68,7 @@ func (p RegistrySigningPolicy) validate() error {
 // them differ. Two keys read from files are the same when the paths are; the
 // files are not read. The name of the definition a key came from does not
 // matter.
-func (p RegistrySigningPolicy) Equal(q RegistrySigningPolicy) bool {
+func (p SigningPolicy) Equal(q SigningPolicy) bool {
 	if p.kind != q.kind {
 		return false
 	}
@@ -90,18 +90,18 @@ func (p RegistrySigningPolicy) Equal(q RegistrySigningPolicy) bool {
 // certificate, or are both Unsigned, comparing the built-in Columnar key and
 // an inline copy of it as the same. A policy that reads a key file is never
 // the same as another, because the file is not read here.
-func (p RegistrySigningPolicy) sameKeyWithoutFiles(q RegistrySigningPolicy) (bool, error) {
+func (p SigningPolicy) sameKeyWithoutFiles(q SigningPolicy) (bool, error) {
 	if p.kind == signingFromFile || q.kind == signingFromFile {
 		return false, nil
 	}
 	if p.IsUnsigned() || q.IsUnsigned() {
 		return p.IsUnsigned() && q.IsUnsigned(), nil
 	}
-	pk, err := Registry{Signing: p}.ResolveSigningKey()
+	pk, err := p.ResolveKey()
 	if err != nil {
 		return false, err
 	}
-	qk, err := Registry{Signing: q}.ResolveSigningKey()
+	qk, err := q.ResolveKey()
 	if err != nil {
 		return false, err
 	}
@@ -109,7 +109,7 @@ func (p RegistrySigningPolicy) sameKeyWithoutFiles(q RegistrySigningPolicy) (boo
 }
 
 // String describes the policy for messages.
-func (p RegistrySigningPolicy) String() string {
+func (p SigningPolicy) String() string {
 	switch p.kind {
 	case signingUnsigned:
 		return "unsigned"
@@ -125,14 +125,14 @@ func (p RegistrySigningPolicy) String() string {
 	}
 }
 
-// ResolveSigningKey returns the key that the driver packages of the registry
-// must be verified with. It returns (nil, nil) only for an Unsigned registry;
-// any failure to produce a key, such as a public_key_file that cannot be
-// read, is an error, so a caller never falls back to another key or to no
-// verification. A public_key_file is read on every call; a caller that must
-// verify several packages with the same certificate keeps the returned key.
-func (r Registry) ResolveSigningKey() (*SigningKey, error) {
-	p := r.Signing
+// ResolveKey returns the key that packages under the policy must be verified
+// with. The zero value resolves to the built-in Columnar key. It returns
+// (nil, nil) only for Unsigned; any failure to produce a key, such as a
+// public_key_file that cannot be read, is an error, so a caller never falls
+// back to another key or to no verification. A public_key_file is read on
+// every call; to verify several packages with the same certificate, resolve
+// the key through a SigningOperation or keep the returned key.
+func (p SigningPolicy) ResolveKey() (*SigningKey, error) {
 	if err := p.validate(); err != nil {
 		return nil, err
 	}

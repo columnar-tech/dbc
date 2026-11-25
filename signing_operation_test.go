@@ -23,7 +23,7 @@ import (
 )
 
 func TestSignerIdentity(t *testing.T) {
-	var op RegistrySigningOperation
+	var op SigningOperation
 	key := func(name string) *SigningKey {
 		t.Helper()
 		k, err := NewArmoredSigningKey(publicArmored(t, generateTestKey(t, name)))
@@ -88,7 +88,7 @@ func TestResolvePackageSigners(t *testing.T) {
 	}
 	latest := func(d *Driver) (PkgInfo, error) { return d.GetLatestPackage("linux_amd64", false) }
 	resolve := func(drivers []Driver, indexErr error) (PkgInfo, error) {
-		var op RegistrySigningOperation
+		var op SigningOperation
 		return op.ResolvePackage(drivers, indexErr, "shared", latest)
 	}
 	failed := func(r *Registry) error { return &RegistryIndexError{Registry: r, Err: ErrUnauthorized} }
