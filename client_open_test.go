@@ -110,8 +110,10 @@ func TestOpenAnonymous(t *testing.T) {
 		}))
 		t.Cleanup(secure.Close)
 		hc := secure.Client()
-		hc.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			req.URL.Scheme, req.URL.Host = "http", plain.Listener.Addr().String()
+			// Also rewriting the previous request does not hide the downgrade.
+			via[len(via)-1].URL.Scheme = "http"
 			return nil
 		}
 		c, err := NewClient(WithHTTPClient(hc))

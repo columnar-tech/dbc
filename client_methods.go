@@ -385,18 +385,16 @@ func (c *Client) OpenAnonymous(ctx context.Context, u *url.URL) (io.ReadCloser, 
 }
 
 // noDowngrade returns a copy of hc that also refuses HTTPS to HTTP redirects,
-// whatever the redirect policy of hc, which may come from WithHTTPClient.
+// whatever the redirect policy of hc, which may come from WithHTTPClient. The
+// scheme of the previous request is read before that policy runs, since the
+// policy may change the request it is given and the requests before it.
 func noDowngrade(hc *http.Client) *http.Client {
 	guarded := *hc
-	downgrade := func(req *http.Request, via []*http.Request) error {
-		if strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && strings.EqualFold(req.URL.Scheme, "http") {
-			return errors.New("refusing HTTPS to HTTP redirect")
-		}
-		return nil
-	}
 	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if err := downgrade(req, via); err != nil {
-			return err
+		secure := strings.EqualFold(via[len(via)-1].URL.Scheme, "https")
+		downgraded := func() bool { return secure && !strings.EqualFold(req.URL.Scheme, "https") }
+		if downgraded() {
+			return errors.New("refusing HTTPS to HTTP redirect")
 		}
 		if hc.CheckRedirect == nil {
 			if len(via) >= 10 {
@@ -409,8 +407,10 @@ func noDowngrade(hc *http.Client) *http.Client {
 			// unwrapped.
 			return err
 		}
-		// The callback may have changed the URL.
-		return downgrade(req, via)
+		if downgraded() {
+			return errors.New("refusing HTTPS to HTTP redirect")
+		}
+		return nil
 	}
 	return &guarded
 }
