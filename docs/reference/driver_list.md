@@ -160,12 +160,20 @@ dbc does not fall back to another registry when the selected registry does not h
 {{ since_version('v0.4.0') }}
 
 Use `type = "http"` to download a dbc package archive (`.tar.gz` with a
-`MANIFEST`) directly. dbc does not discover available versions from a URL
-template, so set `version` to an exact version with a single `=`.
+`MANIFEST`) directly. A URL template does not tell dbc which versions are
+available. Set `version` to a full semantic version, such as `"1.2.0"` or
+`"=1.2.0"`. An omitted version, a prefix such as `"1.2"`, or a range such as
+`">=1.2.0"` is a configuration error before any download.
+
+In the URL, `{version}` expands to the full version without the optional `=`,
+including any prerelease or build metadata. For example, `"1.2.0-beta.1"`
+expands to `1.2.0-beta.1`. For tags with a leading `v`, write `v{version}` in
+the URL. The version in the archive's `MANIFEST` must match the requested
+version.
 
 ```toml
 [drivers.example]
-version = "=1.2.0"
+version = "1.2.0"
 source = {
   type = "http",
   url = "https://example.com/releases/download/v{version}/example_{os}_{arch}_v{version}.tar.gz",
@@ -175,9 +183,9 @@ source = {
 ```
 
 - `url`: required. An HTTP(S) URL without user information, a query, or a
-  fragment. Its path can contain `{version}` (including build metadata), `{os}`,
-  and `{arch}`. The OS and architecture use dbc's
-  [platform spellings](supported_platforms.md), such as `linux` and `amd64`.
+  fragment. Its path can contain `{version}`, `{os}`, and `{arch}`. The OS and
+  architecture use dbc's [platform spellings](supported_platforms.md), such as
+  `linux` and `amd64`.
 - `checksum_url`: optional. An HTTP(S) URL with the same rules and variables
   as `url`. It must use HTTPS when `url` does. The file can contain a single
   SHA-256 hash if it serves one archive, or `sha256sum` lines matched by the
