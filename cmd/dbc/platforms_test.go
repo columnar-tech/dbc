@@ -450,8 +450,8 @@ func (suite *SubcommandTestSuite) writeDeclaredList() string {
 }
 
 // TestLockMeasuresDeclaredPlatform pins that dbc lock downloads the archive of
-// a declared platform without a published hash, checks it and records its
-// hash, like the archive of the current platform.
+// a declared platform without a published hash and records its hash, like the
+// archive of the current platform.
 func (suite *SubcommandTestSuite) TestLockMeasuresDeclaredPlatform() {
 	listPath := suite.writeDeclaredList()
 	var counters syncCounters
@@ -461,14 +461,13 @@ func (suite *SubcommandTestSuite) TestLockMeasuresDeclaredPlatform() {
 	suite.NoDirExists(counters.downloadDirs[0], "the download is removed")
 	suite.Equal(lockHashPrefix+testArchiveSHA256(suite, "test-driver-1.tar.gz"), artifactTargets(suite.lockedDriverEntry("test-driver-1"))[testSyncTarget(suite.T(), otherTarget)])
 
-	// A signature that does not verify writes no lock file, and --no-verify
-	// still extracts the archive with the safety checks.
-	suite.Require().NoError(os.Remove(suite.lockPath()))
-	out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(declaredOtherBase(suite, "test-driver-tampered.tar.gz")))
-	suite.Contains(out, "signature")
-	suite.NoFileExists(suite.lockPath())
-	suite.runCmdErr(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(declaredOtherBase(suite, "test-driver-invalid-manifest.tar.gz")))
-	suite.NoFileExists(suite.lockPath())
+	// The archive is neither extracted nor verified: that is left to the
+	// installation on its platform.
+	for _, archive := range []string{"test-driver-tampered.tar.gz", "test-driver-invalid-manifest.tar.gz"} {
+		suite.Require().NoError(os.Remove(suite.lockPath()))
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(declaredOtherBase(suite, archive)))
+		suite.Equal(lockHashPrefix+testArchiveSHA256(suite, archive), artifactTargets(suite.lockedDriverEntry("test-driver-1"))[testSyncTarget(suite.T(), otherTarget)], archive)
+	}
 }
 
 // TestSyncMeasuresDeclaredPlatform pins that dbc sync, which writes the lock

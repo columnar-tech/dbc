@@ -104,7 +104,6 @@ complete -f -c dbc -n '__fish_dbc_using_subcommand sync' -l json-stream-progress
 complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -s h -d 'Help'
 complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -l help -d 'Help'
 complete -c dbc -n '__fish_dbc_using_subcommand lock' -l path -s p -r -F -a '*.toml' -d 'Driver list to lock'
-complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -l no-verify -d 'Allow locking drivers without a signature file'
 complete -f -c dbc -n '__fish_dbc_using_subcommand lock' -l json -d 'Print output as JSON instead of plaintext'
 
 # search subcommand

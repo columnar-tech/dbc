@@ -27,9 +27,8 @@ import (
 )
 
 type LockCmd struct {
-	Path     string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to lock"`
-	NoVerify bool   `arg:"--no-verify" help:"Allow locking drivers without a signature file"`
-	Json     bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
+	Path string `arg:"-p" placeholder:"FILE" default:"./dbc.toml" help:"Driver list to lock"`
+	Json bool   `arg:"--json" help:"Print output as JSON instead of plaintext"`
 }
 
 func (c LockCmd) newModel(base baseModel) lockModel {
@@ -41,7 +40,6 @@ func (c LockCmd) newModel(base baseModel) lockModel {
 	return lockModel{
 		baseModel:   base,
 		Path:        c.Path,
-		NoVerify:    c.NoVerify,
 		jsonOutput:  c.Json,
 		ctx:         ctx,
 		cancel:      cancel,
@@ -63,8 +61,7 @@ type lockModel struct {
 	baseModel
 
 	// Path is the driver list path or directory.
-	Path     string
-	NoVerify bool
+	Path string
 
 	jsonOutput bool
 
@@ -116,12 +113,13 @@ func (m lockModel) Init() tea.Cmd {
 // it. Archives of declared platforms without a published hash are measured
 // first (see measureDeclared). The host archive is downloaded only when the
 // registry published no hash for it or a v1 library proof has to be checked,
-// and never when there is no host package. Downloads are verified like the
-// one of dbc sync, their signature is checked with the pinned key unless
-// NoVerify is set, and they are always removed again.
+// and never when there is no host package. Only the archive hash, the locked
+// size and a v1 library proof are checked: the signature, the extraction
+// checks and the version of the package are left to the installation. The
+// downloads are always removed again.
 func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, Package: pd.Package, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
-	if err := measureDeclared(m.ctx, m.baseModel, pd, m.NoVerify); err != nil {
+	if err := measureDeclared(m.ctx, m.baseModel, pd); err != nil {
 		return item, err
 	}
 	if !pd.hasHostPackage() || (pd.Package.ArchiveSHA256 != "" && pd.LibrarySHA256 == "") {
@@ -131,12 +129,7 @@ func (m lockModel) fetch(pd *plannedDriver) (syncItem, error) {
 	if err != nil {
 		return item, err
 	}
-	// Always extract the archive with the install-time safety checks, so an
-	// archive that could not be installed is never pinned, even with NoVerify.
-	f, err := downloadArchive(m.baseModel, pd, target, archiveChecks{
-		extract:   true,
-		signature: signatureVerifier(pd.Signer, m.NoVerify),
-	})
+	f, err := downloadArchive(m.baseModel, pd, target)
 	if err != nil {
 		return item, err
 	}

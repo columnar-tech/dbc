@@ -16,6 +16,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -93,36 +95,25 @@ func (suite *SubcommandTestSuite) TestLockMeasuresUnpublishedHash() {
 	suite.NoDirExists(counters.downloadDirs[0], "the download is removed")
 }
 
-func (suite *SubcommandTestSuite) TestLockSignatureVerification() {
-	listPath := suite.writeDriverList("test-driver-1")
-	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
-	before := suite.readLockBytes()
-
-	listPath = suite.writeDriverList("test-driver-1", "test-driver-no-sig")
+// TestLockPinsArchiveWithoutVerifyingSignature pins that dbc lock records the
+// measured hash of an archive whose signature does not verify, and that the
+// installation of dbc sync rejects it.
+func (suite *SubcommandTestSuite) TestLockPinsArchiveWithoutVerifyingSignature() {
+	listPath := suite.writeDriverList("test-driver-no-sig")
 	var counters syncCounters
-	out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(counters.counted(testBaseModel())))
-	suite.Contains(out, "failed to verify signature")
-	suite.Equal(before, suite.readLockBytes(), "an unverified archive is never pinned")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(counters.counted(testBaseModel())))
+	suite.assertLockedArchive("test-driver-no-sig", "1.1.0", "test-driver-no-sig.tar.gz")
+	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-no-sig").Signer)
+	suite.driverIsNotInstalled("test-driver-no-sig")
 	for _, dir := range counters.downloadDirs {
 		suite.NoDirExists(dir)
 	}
+	lock := suite.readLockBytes()
 
-	out = suite.runCmdErr(LockCmd{Path: listPath, Json: true}.GetModelCustom(testBaseModel()))
-	suite.assertJSONErrorEnvelope(out, "lock_failed", "failed to verify signature")
-	suite.Equal(before, suite.readLockBytes())
-}
-
-func (suite *SubcommandTestSuite) TestLockSignatureFailureWithoutLockWritesNothing() {
-	listPath := suite.writeDriverList("test-driver-no-sig")
-	suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
-	suite.NoFileExists(suite.lockPath())
-}
-
-func (suite *SubcommandTestSuite) TestLockNoVerifyRecordsUnsignedArchive() {
-	listPath := suite.writeDriverList("test-driver-no-sig")
-	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(testBaseModel()))
-	suite.assertLockedArchive("test-driver-no-sig", "1.1.0", "test-driver-no-sig.tar.gz")
+	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(testBaseModel()))
+	suite.Contains(out, "failed to verify signature")
 	suite.driverIsNotInstalled("test-driver-no-sig")
+	suite.Equal(lock, suite.readLockBytes())
 }
 
 func (suite *SubcommandTestSuite) TestLockUpgradesV1Lock() {
@@ -134,6 +125,24 @@ func (suite *SubcommandTestSuite) TestLockUpgradesV1Lock() {
 	suite.Equal(1, counters.downloads, "the library proof needs the archive")
 	suite.assertLockedArchive("test-driver-1", "1.0.0", "test-driver-1.tar.gz")
 	suite.NoDirExists(counters.downloadDirs[0])
+	suite.driverIsNotInstalled("test-driver-1")
+}
+
+// TestLockUpgradesV1LockWithoutVerifyingSignature pins that the v1 library
+// proof is checked without the signature, which the installation verifies.
+func (suite *SubcommandTestSuite) TestLockUpgradesV1LockWithoutVerifyingSignature() {
+	listPath := suite.writeDriverList("test-driver-1")
+	suite.writeV1Lock("1.0.0", config.PlatformTuple(), suite.libraryChecksum("test-driver-tampered.tar.gz"))
+	tampered := testBaseModel()
+	tampered.downloadPkg = func(dbc.PkgInfo) (*os.File, error) {
+		return openTestdataCopy("test-driver-tampered.tar.gz")
+	}
+
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(tampered))
+	suite.assertLockedArchive("test-driver-1", "1.0.0", "test-driver-tampered.tar.gz")
+
+	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(tampered))
+	suite.Contains(out, "failed to verify signature")
 	suite.driverIsNotInstalled("test-driver-1")
 }
 
@@ -170,11 +179,11 @@ func (suite *SubcommandTestSuite) TestLockChecksLockedArchiveSize() {
 	wrong := info.Size() + 1
 	pd := plannedDriver{Name: "test-driver-1", ArchiveSize: &wrong}
 	var sizeErr *archiveSizeMismatchError
-	suite.ErrorAs(checkDownloadedArchive(f, &pd, target, archiveChecks{}), &sizeErr)
+	suite.ErrorAs(checkDownloadedArchive(f, &pd, target), &sizeErr)
 
 	right := info.Size()
 	pd = plannedDriver{Name: "test-driver-1", ArchiveSize: &right, Entry: lockedDriver{Artifacts: []lockedArtifact{{Target: target}}}}
-	suite.Require().NoError(checkDownloadedArchive(f, &pd, target, archiveChecks{}))
+	suite.Require().NoError(checkDownloadedArchive(f, &pd, target))
 	suite.Equal(lockHashPrefix+testArchiveSHA256(suite, "test-driver-1.tar.gz"), pd.Entry.Artifacts[0].Hash)
 }
 
@@ -269,7 +278,9 @@ func (suite *SubcommandTestSuite) TestLockDriverListWithoutDrivers() {
 	suite.NoFileExists(suite.lockPath())
 }
 
-func (suite *SubcommandTestSuite) TestLockNoVerifyRejectsMalformedArchive() {
+// TestLockPinsMalformedArchive pins that dbc lock does not extract a measured
+// archive: the installation of dbc sync rejects what cannot be installed.
+func (suite *SubcommandTestSuite) TestLockPinsMalformedArchive() {
 	listPath := suite.writeDriverList("test-driver-1")
 	base := testBaseModel()
 	base.downloadPkg = func(dbc.PkgInfo) (*os.File, error) {
@@ -283,8 +294,13 @@ func (suite *SubcommandTestSuite) TestLockNoVerifyRejectsMalformedArchive() {
 		}
 		return os.Open(path)
 	}
-	suite.runCmdErr(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(base))
-	suite.NoFileExists(suite.lockPath(), "an archive that cannot be installed is never pinned")
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+	sum := sha256.Sum256([]byte("not a package archive"))
+	suite.Equal(lockHashPrefix+hex.EncodeToString(sum[:]), suite.lockedDriverEntry("test-driver-1").Artifacts[0].Hash)
+
+	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(base))
+	suite.Contains(out, "failed to install driver package")
+	suite.driverIsNotInstalled("test-driver-1")
 }
 
 func (suite *SubcommandTestSuite) TestLockMatchesSyncLock() {
@@ -314,19 +330,15 @@ func (suite *SubcommandTestSuite) TestLockRecordsSigner() {
 	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
 	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-1").Signer)
 
-	listPath = suite.writeDriverList("test-driver-no-sig")
-	suite.Require().NoError(os.Remove(suite.lockPath()))
-	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(testBaseModel()))
-	suite.Equal(testSigner, suite.lockedDriverEntry("test-driver-no-sig").Signer)
 }
 
-func (suite *SubcommandTestSuite) assertLockRejectsUntrustedPin(noVerify bool) {
+func (suite *SubcommandTestSuite) TestLockRejectsUntrustedPinnedSigner() {
 	listPath := suite.writeDriverList("test-driver-1")
 	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(testBaseModel()))
 	lock := suite.pinOtherSigner("test-driver-1")
 
 	var counters syncCounters
-	out := suite.runCmdErr(LockCmd{Path: listPath, NoVerify: noVerify, Json: true}.GetModelCustom(counters.counted(testBaseModel())))
+	out := suite.runCmdErr(LockCmd{Path: listPath, Json: true}.GetModelCustom(counters.counted(testBaseModel())))
 	suite.assertJSONErrorEnvelope(out, "lock_failed", otherFingerprint)
 	suite.Zero(counters.downloads)
 	suite.Zero(counters.index)
@@ -335,15 +347,9 @@ func (suite *SubcommandTestSuite) assertLockRejectsUntrustedPin(noVerify bool) {
 	suite.driverIsNotInstalled("test-driver-1")
 }
 
-func (suite *SubcommandTestSuite) TestLockRejectsUntrustedPinnedSigner() {
-	suite.assertLockRejectsUntrustedPin(false)
-}
-
-func (suite *SubcommandTestSuite) TestLockRejectsUntrustedPinnedSignerWithNoVerify() {
-	suite.assertLockRejectsUntrustedPin(true)
-}
-
-func (suite *SubcommandTestSuite) TestLockVerifiesWithThePlannedKey() {
+// TestLockKeepsThePlannedKey pins that dbc lock records the planned key without
+// verifying anything with it.
+func (suite *SubcommandTestSuite) TestLockKeepsThePlannedKey() {
 	m := LockCmd{Path: suite.writeDriverList("test-driver-1")}.GetModelCustom(testBaseModel()).(lockModel)
 	pd := &plannedDriver{Name: "test-driver-1", Package: dbc.PkgInfo{
 		Driver:        dbc.Driver{Title: "test-driver-1", Path: "test-driver-1"},
@@ -351,11 +357,8 @@ func (suite *SubcommandTestSuite) TestLockVerifiesWithThePlannedKey() {
 		Version:       semver.MustParse("1.1.0"),
 		Path:          testURL(suite.T(), "https://registry.columnar.tech/test-driver-1/1.1.0/test-driver-1.1.tar.gz"),
 	}}
-	_, err := m.fetch(pd)
-	suite.ErrorContains(err, "no signing key", "a driver without a planned key is not verified with another key")
-
-	key, err2 := dbc.ColumnarSigningKey()
-	suite.Require().NoError(err2)
+	key, err := dbc.ColumnarSigningKey()
+	suite.Require().NoError(err)
 	pd.Signer = packageSigner{key: key}
 	item, err := m.fetch(pd)
 	suite.Require().NoError(err)

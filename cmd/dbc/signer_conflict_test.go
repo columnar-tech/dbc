@@ -210,10 +210,10 @@ func (suite *SubcommandTestSuite) TestSyncVerifiesWithTheCertificateOfTheSignerC
 	suite.Equal(key.Fingerprint(), suite.lockedDriverEntry("test-driver-no-sig").Signer.Fingerprint)
 
 	// The next operation reads the file again and pins the new key. The
-	// package is signed by the old one, so its signature check is skipped.
+	// package is signed by the old one, which the installation rejects.
 	suite.Require().NoError(os.Remove(suite.lockPath()))
-	out = suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(regs.base()))
-	suite.Contains(out, "signature")
-	suite.runCmd(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(regs.base()))
+	suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(regs.base()))
 	suite.Equal(replacement.Fingerprint(), suite.lockedDriverEntry("test-driver-no-sig").Signer.Fingerprint)
+	out = suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(regs.base()))
+	suite.Contains(out, "failed to verify signature")
 }

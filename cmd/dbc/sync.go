@@ -443,7 +443,7 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 // for an unpublished hash is recorded in the planned lock entry.
 func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	item := syncItem{Name: pd.Name, LibrarySHA256: pd.LibrarySHA256, Signer: pd.Signer}
-	if err := measureDeclared(s.ctx, s.baseModel, pd, s.NoVerify); err != nil {
+	if err := measureDeclared(s.ctx, s.baseModel, pd); err != nil {
 		return item, err
 	}
 	target, err := resolution.TargetFromPlatformTuple(pd.Package.PlatformTuple)
@@ -471,7 +471,7 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	}
 
 	// The signature is verified when the package is installed.
-	f, err := downloadArchive(s.baseModel, pd, target, archiveChecks{})
+	f, err := downloadArchive(s.baseModel, pd, target)
 	if err != nil {
 		return item, err
 	}
@@ -479,24 +479,14 @@ func (s syncModel) fetch(pd *plannedDriver) (syncItem, error) {
 	return item, nil
 }
 
-// archiveChecks selects the checks of a downloaded archive beyond its locked
-// size, archive hash and v1 library proof.
-type archiveChecks struct {
-	// extract extracts the archive with the install-time safety checks even
-	// when no library proof needs it.
-	extract bool
-	// signature, when set, verifies the extracted package; it implies extract.
-	signature config.PackageVerifier
-}
-
 // downloadArchive downloads the archive of a planned driver and checks it with
 // checkDownloadedArchive. The download is removed when a check fails.
-func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target, checks archiveChecks) (*os.File, error) {
+func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target) (*os.File, error) {
 	f, err := base.downloadPkg(pd.Package)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download driver: %w", redactRegistryError(err, base.getRegistries, pd.Package.Path))
 	}
-	if err := checkDownloadedArchive(f, pd, target, checks); err != nil {
+	if err := checkDownloadedArchive(f, pd, target); err != nil {
 		removeDownload(f)
 		return nil, err
 	}
@@ -504,11 +494,11 @@ func downloadArchive(base baseModel, pd *plannedDriver, target resolution.Target
 }
 
 // measureDeclared downloads the archives of declared platforms other than the
-// current one whose hash the registry does not publish, checks them like the
-// hash-measuring download of dbc lock (extraction with the install-time
-// safety checks and, unless noVerify is set, the signature with the pinned
-// key), records their hash in the lock entry and removes them again.
-func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver, noVerify bool) error {
+// current one whose hash the registry does not publish, records their hash in
+// the lock entry and removes them again. Like the other measured archives,
+// they are neither extracted nor verified: that is left to the installation
+// on their platform.
+func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver) error {
 	for _, pkg := range pd.Unmeasured {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -523,7 +513,7 @@ func measureDeclared(ctx context.Context, base baseModel, pd *plannedDriver, noV
 		}
 		// The library proof only applies to the current target.
 		other := plannedDriver{Name: pd.Name, Package: pkg, ArchiveSize: pd.Entry.Artifacts[i].Size, Signer: pd.Signer}
-		f, err := downloadArchive(base, &other, target, archiveChecks{extract: true, signature: signatureVerifier(pd.Signer, noVerify)})
+		f, err := downloadArchive(base, &other, target)
 		if err != nil {
 			return err
 		}
@@ -555,12 +545,10 @@ func signatureVerifier(signer packageSigner, noVerify bool) config.PackageVerifi
 }
 
 // checkDownloadedArchive checks a downloaded archive against the plan: the
-// locked size, the archive hash and the v1 library proof, plus the extra
-// checks. When the registry published no hash, the measured digest is recorded
-// in the planned package and lock entry. Extra checks run on the extracted
-// package before any digest is recorded. It leaves f positioned at its start
-// and does not close it.
-func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Target, checks archiveChecks) error {
+// locked size, the archive hash and the v1 library proof. When the registry
+// published no hash, the measured digest is recorded in the planned package
+// and lock entry. It leaves f positioned at its start and does not close it.
+func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Target) error {
 	if pd.ArchiveSize != nil {
 		info, err := f.Stat()
 		if err != nil {
@@ -573,14 +561,11 @@ func checkDownloadedArchive(f *os.File, pd *plannedDriver, target resolution.Tar
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("failed to seek downloaded driver archive: %w", err)
 	}
-	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "", checks)
+	digest, library, err := archiveDigests(f, pd.LibrarySHA256 != "")
 	if err == nil {
 		_, err = f.Seek(0, io.SeekStart)
 	}
 	if err != nil {
-		if sigErr, ok := errors.AsType[*signatureVerificationError](err); ok {
-			return fmt.Errorf("failed to verify signature: %w", sigErr.err)
-		}
 		return fmt.Errorf("failed to inspect downloaded driver %s: %w", pd.Name, err)
 	}
 	switch want := pd.Package.ArchiveSHA256; {
@@ -608,16 +593,11 @@ func (e *signatureVerificationError) Error() string { return e.err.Error() }
 func (e *signatureVerificationError) Unwrap() error { return e.err }
 
 // archiveDigests returns the SHA-256 of the archive and, when withLibrary is
-// set, of the driver library inside it. The archive is extracted when the
-// library digest or one of the checks needs it; the checks then fail before
-// any digest is returned.
-func archiveDigests(f *os.File, withLibrary bool, checks archiveChecks) (archive, library string, err error) {
-	if withLibrary || checks.extract || checks.signature != nil {
-		var opts []config.InspectOption
-		if checks.signature != nil {
-			opts = append(opts, config.WithInspectSignatureVerifier(checks.signature))
-		}
-		info, err := config.InspectPackageArchive(f, opts...)
+// set, of the driver library inside it. The archive is extracted with the
+// install-time safety checks only for the library digest.
+func archiveDigests(f *os.File, withLibrary bool) (archive, library string, err error) {
+	if withLibrary {
+		info, err := config.InspectPackageArchive(f)
 		return info.ArchiveSHA256, info.LibrarySHA256, err
 	}
 	archive, err = checksum(f.Name())

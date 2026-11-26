@@ -231,7 +231,7 @@ _dbc_lock_completions() {
     esac
 
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "-h --path -p --no-verify --json" -- "$cur"))
+        COMPREPLY=($(compgen -W "-h --path -p --json" -- "$cur"))
         return 0
     fi
 
