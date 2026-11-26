@@ -402,6 +402,17 @@ func (suite *SubcommandTestSuite) TestLockHTTPSourceWithChecksums() {
 	})
 }
 
+// A project that takes every driver from an HTTP source needs no registry.
+func (suite *SubcommandTestSuite) TestSyncHTTPSourceWithoutRegistries() {
+	suite.skipUnlessLinuxAMD64()
+	f := newHTTPFiles(suite.T())
+	f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", nil)
+	listPath := suite.httpList(f, "exclude_builtin_registries = true\n\n", "signing_key = false\n")
+	suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(httpBase()))
+	suite.driverIsInstalledWithVersion("httpdrv", "1.0.0", true)
+	suite.Empty(dbcClient.Registries())
+}
+
 func (suite *SubcommandTestSuite) TestSyncHTTPSourceChecksTheLockFirst() {
 	suite.skipUnlessLinuxAMD64()
 	f := newHTTPFiles(suite.T())

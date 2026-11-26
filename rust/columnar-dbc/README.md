@@ -231,11 +231,11 @@ Registry precedence is explicit:
   `exclude_builtin_registries = true` in either the global or the project
   file removes the built-in registries, not the global or project entries;
   a project's `false` does not bring back built-in registries that the
-  global file excludes. A
-  file-based configuration that leaves no registries is an error.
+  global file excludes.
 
-An empty registry list means no registries, like Go and TypeScript; search
-returns no drivers. Omit `.registries(...)` to use the default configuration.
+An empty registry list, whether explicit or from configuration files, makes
+search return no drivers. Omit `.registries(...)` to use the default
+configuration.
 To load a project's configuration without the global file:
 
 ```rust,no_run

@@ -564,9 +564,9 @@ func TestNewClientRegistryConfigPrecedence(t *testing.T) {
 			want:        []api.Registry{project},
 		},
 		{
-			name:       "empty exclusion errors",
+			name:       "empty exclusion leaves no registries",
 			globalTOML: excludeBuiltin,
-			wantErr:    "empty registry list",
+			want:       []api.Registry{},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

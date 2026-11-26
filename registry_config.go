@@ -106,10 +106,6 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	}
 	cfg.Path = absPath(configPath)
 
-	// Note: a global exclude_builtin_registries=true with no [[registries]] is NOT rejected
-	// here, because a project's dbc.toml may supply the entries at NewClient
-	// time. The "zero resulting registries" case is enforced after merging in
-	// NewClient so both library and CLI callers share the same semantics.
 	if _, err := parseRegistryConfig(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
 		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
@@ -131,8 +127,7 @@ var ErrProjectNetwork = errors.New("network settings are only read from the user
 // driver specifications to the caller. Missing files and malformed entries
 // are errors.
 //
-// Pass the result to WithProjectConfig. Whether the resulting registry list
-// is empty is checked by NewClient after merging global/project config.
+// Pass the result to WithProjectConfig.
 func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -465,10 +460,10 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 // excludes.
 //
 // NewClient returns an error if any entry or signing key definition is
-// malformed or if the merged registry list ends up empty (e.g.
-// ExcludeBuiltinRegistries=true with no project or global entries).
-// ExcludeBuiltinRegistries=true is valid on its own when a non-empty global
-// config supplies the entries — the post-merge check is what matters.
+// malformed. The merged registry list may be empty (e.g.
+// ExcludeBuiltinRegistries=true with no project or global entries), for a
+// project that takes its drivers from other sources; Search then returns no
+// drivers.
 //
 // WithBaseURL and WithRegistries take precedence over this option's
 // registries — when set, project registries are ignored. Its signing key

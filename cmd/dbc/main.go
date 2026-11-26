@@ -199,12 +199,23 @@ func initDBCClient() error {
 }
 
 // use this so we can override this in tests
-var getDriverRegistry = func() ([]dbc.Driver, error) {
+var getDriverRegistry = defaultGetDriverRegistry
+
+// defaultGetDriverRegistry searches every registry of the process-wide
+// client.
+func defaultGetDriverRegistry() ([]dbc.Driver, error) {
 	if err := initDBCClient(); err != nil {
 		return nil, fmt.Errorf("failed to initialize client: %w", err)
 	}
+	if len(dbcClient.Registries()) == 0 {
+		return nil, errNoRegistries
+	}
 	return dbcClient.Search(context.Background(), "")
 }
+
+// errNoRegistries is returned where a command needs the drivers of the
+// registries but the configuration excludes every one of them.
+var errNoRegistries = errors.New("no driver registries are configured; add a [[registries]] entry or enable the built-in registries")
 
 // configuredRegistries lists the registries the client resolves drivers from.
 func configuredRegistries() ([]dbc.Registry, error) {

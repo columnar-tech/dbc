@@ -576,8 +576,8 @@ func TestStartupEndToEndGlobalExcludeBuiltinWithProjectEntries(t *testing.T) {
 	// helper main() also uses — runStartup covers config load, argv parse,
 	// and subcommand dispatch (including GetModel). If anyone
 	// reintroduces eager initDBCClient() anywhere in that path, dbcClient
-	// would be non-nil here and runStartup would have already failed with
-	// "empty registry list" for this global config.
+	// would be non-nil here, built without the project's registry, which
+	// leaves no registry for this global config.
 	res := runStartup(globalDir, []string{"add", "--path", projectPath, "startup-driver"})
 	require.Equal(t, startupModel, res.kind, "runStartup must reach the model branch without error")
 	require.NotNil(t, res.model)
@@ -987,22 +987,28 @@ func TestRunStartupClearsStaleClientState(t *testing.T) {
 	}
 }
 
-// TestStartupEagerInitRejectsEmptyGlobal pins the invariant that justifies
-// the deferred-init ordering above: if the CLI ever tries to build the
-// default client against a global exclude_builtin_registries=true with no entries
-// and no project overrides, NewClient must fail. This is the scenario
-// non-project commands (search, info, install) will hit, so failing fast
-// with a clear message is the correct behavior.
-func TestStartupEagerInitRejectsEmptyGlobal(t *testing.T) {
+// TestStartupEmptyGlobalLeavesNoRegistries pins what non-project commands
+// (search, info, install) see with a global exclude_builtin_registries=true
+// and no entries: the client has no registry, and a command that needs the
+// drivers of the registries fails with a clear message.
+func TestStartupEmptyGlobalLeavesNoRegistries(t *testing.T) {
 	t.Setenv("DBC_BASE_URL", "")
 
-	savedGlobal := globalRegistryConfig
-	t.Cleanup(func() { globalRegistryConfig = savedGlobal })
+	savedGlobal, savedClient, savedErr, savedOnce, savedGet := globalRegistryConfig, dbcClient, dbcClientErr, dbcClientOnce, getDriverRegistry
+	t.Cleanup(func() {
+		globalRegistryConfig, dbcClient, dbcClientErr, dbcClientOnce, getDriverRegistry = savedGlobal, savedClient, savedErr, savedOnce, savedGet
+	})
 
 	globalRegistryConfig = &dbc.GlobalConfig{ExcludeBuiltinRegistries: true}
 
-	_, err := newDefaultClient()
-	assert.ErrorContains(t, err, "empty registry list")
+	c, err := newDefaultClient()
+	require.NoError(t, err)
+	assert.Empty(t, c.Registries())
+
+	dbcClient, dbcClientErr, dbcClientOnce = c, nil, &sync.Once{}
+	getDriverRegistry = defaultGetDriverRegistry
+	_, err = getDriverRegistry()
+	assert.ErrorIs(t, err, errNoRegistries)
 }
 
 // installRegistryTestSetup centralizes the boilerplate the install + registry
