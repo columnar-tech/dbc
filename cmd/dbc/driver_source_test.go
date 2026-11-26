@@ -188,6 +188,8 @@ func (suite *SubcommandTestSuite) TestSyncRejectsInvalidSources() {
 		"query in url":  {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + query + "' }\n", "must not contain user information, a query or a fragment"},
 		"user in url":   {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'https://u:p@second.example.com' }\n", "must not contain user information"},
 		"fragment":      {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'https://second.example.com#' }\n", "a fragment"},
+		"signing key":   {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + secondRegistryURL + "', signing_key = false }\n", "signing_key is not supported by a registry source"},
+		"checksum url":  {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + secondRegistryURL + "', checksum_url = '' }\n", "checksum_url is only supported by an HTTP source"},
 		"not a url":     {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'second' }\n", "absolute http or https URL"},
 		"not in config": {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'https://third.example.com' }\n", "registry https://third.example.com (https://third.example.com) is not among the configured registries"},
 	} {

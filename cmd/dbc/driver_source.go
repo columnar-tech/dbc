@@ -42,8 +42,8 @@ const (
 	registryHint = "to take the driver from one registry only, pass --registry with the name or URL of that registry"
 )
 
-// sourceTypeRegistry is the only driver source type: a registry that is
-// part of the registry configuration.
+// sourceTypeRegistry is the type of a source that is a registry of the
+// registry configuration.
 const sourceTypeRegistry = "registry"
 
 // driverSource selects where a driver of a driver list comes from. A
@@ -141,6 +141,14 @@ type sourceTarget struct {
 func (s driverSource) target(entries []dbc.RegistryEntry) (sourceTarget, error) {
 	switch s.Type {
 	case sourceTypeRegistry:
+		// A registry's packages are verified with the signing key of its
+		// [[registries]] entry; these fields would be silently ignored.
+		if s.SigningKey != nil {
+			return sourceTarget{}, errors.New("signing_key is not supported by a registry source; set signing_key on the [[registries]] entry instead")
+		}
+		if s.ChecksumURL != nil {
+			return sourceTarget{}, errors.New("checksum_url is only supported by an HTTP source")
+		}
 	case "":
 		return sourceTarget{}, fmt.Errorf("source type is required; use type = %q", sourceTypeRegistry)
 	default:
