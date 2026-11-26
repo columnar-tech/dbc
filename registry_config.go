@@ -110,7 +110,7 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	// here, because a project's dbc.toml may supply the entries at NewClient
 	// time. The "zero resulting registries" case is enforced after merging in
 	// NewClient so both library and CLI callers share the same semantics.
-	if _, err := registriesFromEntries(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
+	if _, err := parseRegistryConfig(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
 		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
 
@@ -158,7 +158,7 @@ func LoadProjectConfig(path string) (*ProjectConfig, error) {
 		SigningKeys:              cfg.SigningKeys,
 		Path:                     absPath(path),
 	}
-	if _, err := registriesFromEntries(project.Registries, project.SigningKeys, project.Path, true); err != nil {
+	if _, err := parseRegistryConfig(project.Registries, project.SigningKeys, project.Path, true); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return project, nil
@@ -182,18 +182,29 @@ func absPath(path string) string {
 // project on their own, without merging them with other configuration or
 // reading key files.
 func (c *ProjectConfig) Validate() error {
-	_, err := registriesFromEntries(c.Registries, c.SigningKeys, c.Path, true)
+	_, err := parseRegistryConfig(c.Registries, c.SigningKeys, c.Path, true)
 	return err
 }
 
-// registriesFromEntries validates the registry entries and signing key
+// parseRegistryConfig validates the registry entries and signing key
 // definitions of one configuration file, and returns the registries with
 // their signing policies. Every definition is checked, including ones that
 // no registry names; a signing_key name is looked up only in keys, the
 // definitions of the same file. path is the file the configuration was read
 // from, or empty when it was built in memory. project is true for a
 // project's dbc.toml, whose key files must be inside the project directory.
-func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, error) {
+func parseRegistryConfig(entries []RegistryEntry, keys map[string]SigningKeyDefinition, path string, project bool) ([]Registry, error) {
+	policies, err := signingPoliciesFromDefinitions(keys, path, project)
+	if err != nil {
+		return nil, err
+	}
+	return registriesFromEntries(entries, policies)
+}
+
+// signingPoliciesFromDefinitions checks the [signing_keys] definitions of one
+// configuration file and returns their policies by name; path and project
+// are as for parseRegistryConfig.
+func signingPoliciesFromDefinitions(keys map[string]SigningKeyDefinition, path string, project bool) (map[string]SigningPolicy, error) {
 	policies := make(map[string]SigningPolicy, len(keys))
 	for _, name := range slices.Sorted(maps.Keys(keys)) {
 		policy, err := signingPolicyFromDefinition(name, keys[name], path, project)
@@ -202,7 +213,12 @@ func registriesFromEntries(entries []RegistryEntry, keys map[string]SigningKeyDe
 		}
 		policies[name] = policy
 	}
+	return policies, nil
+}
 
+// registriesFromEntries returns the registries of entries with the signing
+// policies that their signing_key selects among policies.
+func registriesFromEntries(entries []RegistryEntry, policies map[string]SigningPolicy) ([]Registry, error) {
 	registries := make([]Registry, 0, len(entries))
 	// A name identifies a registry within its file, so it must not repeat
 	// there; the same name in the user config and in a project is allowed.
@@ -454,8 +470,11 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 // ExcludeBuiltinRegistries=true is valid on its own when a non-empty global
 // config supplies the entries — the post-merge check is what matters.
 //
-// WithBaseURL takes precedence over this option — when set, project
-// registries are ignored.
+// WithBaseURL and WithRegistries take precedence over this option's
+// registries — when set, project registries are ignored. Its signing key
+// definitions still apply to the project's other sources (see
+// Client.ProjectSigningPolicy), so an invalid definition is a NewClient
+// error also then.
 func WithProjectConfig(cfg *ProjectConfig) Option {
 	var cp *ProjectConfig
 	if cfg != nil {

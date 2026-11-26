@@ -66,6 +66,9 @@ type Client struct {
 	setupOnce          sync.Once
 	credentialResolver func(*url.URL) (*auth.Credential, error)
 	router             *urlRouter
+	// projectSigning holds the policies of the [signing_keys] definitions of
+	// the project configuration, by name.
+	projectSigning map[string]SigningPolicy
 }
 
 type redirectOrigin struct {
@@ -156,6 +159,18 @@ func NewClient(opts ...Option) (*Client, error) {
 		}
 	}
 
+	// The project's signing key definitions also serve sources other than
+	// registries, so they are parsed even when the registries are replaced;
+	// its registry entries are only parsed when they are merged. Its
+	// registries use the same policies as ProjectSigningPolicy returns.
+	var projectSigning map[string]SigningPolicy
+	if cfg.project != nil {
+		projectSigning, err = signingPoliciesFromDefinitions(cfg.project.SigningKeys, cfg.project.Path, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if cfg.baseURL != "" {
 		cfg.registries = []Registry{{BaseURL: mustParseURL(cfg.baseURL)}}
 	} else if cfg.explicitRegistries {
@@ -167,12 +182,12 @@ func NewClient(opts ...Option) (*Client, error) {
 			}
 		}
 	} else if cfg.globalConfig != nil || cfg.project != nil {
-		var projectRegs []Registry
 		// A project can exclude the built-in registries but cannot bring
 		// back ones that the global config excludes.
+		var projectRegs []Registry
 		var excludeBuiltin bool
 		if cfg.project != nil {
-			projectRegs, err = registriesFromEntries(cfg.project.Registries, cfg.project.SigningKeys, cfg.project.Path, true)
+			projectRegs, err = registriesFromEntries(cfg.project.Registries, projectSigning)
 			if err != nil {
 				return nil, err
 			}
@@ -181,7 +196,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		var globalRegs []Registry
 		var globalExclude bool
 		if cfg.globalConfig != nil {
-			globalRegs, err = registriesFromEntries(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
+			globalRegs, err = parseRegistryConfig(cfg.globalConfig.Registries, cfg.globalConfig.SigningKeys, cfg.globalConfig.Path, false)
 			if err != nil {
 				return nil, err
 			}
@@ -208,6 +223,7 @@ func NewClient(opts ...Option) (*Client, error) {
 		userAgent:          cfg.userAgent,
 		credentialResolver: credResolver,
 		router:             router,
+		projectSigning:     projectSigning,
 	}, nil
 }
 
@@ -243,6 +259,23 @@ func (c *Client) HTTPClient() *http.Client { return c.httpClient }
 // Registries returns the list of driver registries configured for this client.
 func (c *Client) Registries() []Registry { return c.registries }
 
+// ProjectSigningPolicy returns the policy of the [signing_keys] definition
+// name of the project configuration (see WithProjectConfig), for a source
+// of the project that names it, such as an HTTP source in dbc.toml. A name
+// is looked up only in the project, never in the global config, and also
+// when WithBaseURL or WithRegistries replaces the registries; a name that
+// the project does not define is an error. It does not read a key file.
+// The project's registries that name the same definition share the policy,
+// so within one SigningOperation the first key read from that definition
+// serves both.
+func (c *Client) ProjectSigningPolicy(name string) (SigningPolicy, error) {
+	policy, ok := c.projectSigning[name]
+	if !ok {
+		return SigningPolicy{}, fmt.Errorf("signing_key %q is not defined in [signing_keys] of the project", name)
+	}
+	return policy, nil
+}
+
 // UserAgent returns the user agent string used by this client.
 func (c *Client) UserAgent() string { return c.userAgent }
 
@@ -259,8 +292,9 @@ func WithCredentialResolver(resolver func(*url.URL) (*auth.Credential, error)) O
 }
 
 // WithRegistries sets the driver registries to use. When passed, this takes
-// precedence over any WithGlobalConfig / WithProjectConfig options: the
-// caller's explicit list is used as-is, not merged with configuration files.
+// precedence over the registries of any WithGlobalConfig / WithProjectConfig
+// options: the caller's explicit list is used as-is, not merged with
+// configuration files.
 // Set Registry.Signing to verify a registry's packages with a key other than
 // the Columnar key; NewClient rejects an invalid policy such as
 // SignWith(nil).
