@@ -164,12 +164,13 @@ package archive (`.tar.gz` with a `MANIFEST`). Set `version` to an exact version
 with a single `=`.
 
 ```toml
-[drivers.iceberg]
-version = "=0.1.0"
+[drivers.example]
+version = "=1.2.0"
 
-[drivers.iceberg.source]
+[drivers.example.source]
 type = "http"
-url = "https://github.com/tokoko/adbc-iceberg/releases/download/v{version}/iceberg_{os}_{arch}_v{version}.tar.gz"
+url = "https://example.com/releases/download/v{version}/example_{os}_{arch}_v{version}.tar.gz"
+checksum_url = "https://example.com/releases/download/v{version}/SHA256SUMS"
 signing_key = false
 ```
 
