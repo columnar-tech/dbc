@@ -205,11 +205,9 @@ func NewClient(opts ...Option) (*Client, error) {
 		if err := checkProjectRedeclarations(projectRegs, globalRegs, globalExclude, cfg.registries); err != nil {
 			return nil, err
 		}
-		merged := mergeRegistries(projectRegs, globalRegs, excludeBuiltin || globalExclude, cfg.registries)
-		if len(merged) == 0 {
-			return nil, fmt.Errorf("registry configuration produced an empty registry list; exclude_builtin_registries requires at least one [[registries]] entry")
-		}
-		cfg.registries = merged
+		// The merge may leave no registries: a project can take every driver
+		// from another source, such as an HTTP source.
+		cfg.registries = mergeRegistries(projectRegs, globalRegs, excludeBuiltin || globalExclude, cfg.registries)
 	}
 
 	credResolver := cfg.credentialResolver

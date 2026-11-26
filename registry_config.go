@@ -465,10 +465,10 @@ func WithGlobalConfig(cfg *GlobalConfig) Option {
 // excludes.
 //
 // NewClient returns an error if any entry or signing key definition is
-// malformed or if the merged registry list ends up empty (e.g.
-// ExcludeBuiltinRegistries=true with no project or global entries).
-// ExcludeBuiltinRegistries=true is valid on its own when a non-empty global
-// config supplies the entries — the post-merge check is what matters.
+// malformed. The merged registry list may be empty (e.g.
+// ExcludeBuiltinRegistries=true with no project or global entries), for a
+// project that takes its drivers from other sources; Search then returns no
+// drivers.
 //
 // WithBaseURL and WithRegistries take precedence over this option's
 // registries — when set, project registries are ignored. Its signing key

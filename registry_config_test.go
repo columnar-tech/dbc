@@ -441,6 +441,8 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 		// wantBuiltin, when set, asserts whether the built-in registries
 		// are in the list.
 		wantBuiltin *bool
+		// wantEmpty asserts that no registry is left.
+		wantEmpty bool
 	}{
 		{
 			name:        "WithProjectConfig merges with defaults",
@@ -520,14 +522,21 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			wantBuiltin: new(true),
 		},
 		{
-			name:    "global true + project false with no entries → empty merge rejected",
-			opts:    []Option{WithGlobalConfig(emptyExcludeGlobal), WithProjectConfig(&ProjectConfig{Registries: nil})},
-			wantErr: "empty registry list",
+			// A project may take every driver from another source, such as
+			// an HTTP source.
+			name:      "an empty merge leaves no registries",
+			opts:      []Option{WithGlobalConfig(emptyExcludeGlobal), WithProjectConfig(&ProjectConfig{Registries: nil})},
+			wantEmpty: true,
 		},
 		{
-			name:    "global exclude_builtin_registries=true + no project entries → empty merge rejected",
-			opts:    []Option{WithGlobalConfig(emptyExcludeGlobal)},
-			wantErr: "empty registry list",
+			name:      "global exclude_builtin_registries=true + no entries → no registries",
+			opts:      []Option{WithGlobalConfig(emptyExcludeGlobal)},
+			wantEmpty: true,
+		},
+		{
+			name:      "project exclude_builtin_registries=true + no entries → no registries",
+			opts:      []Option{WithProjectConfig(&ProjectConfig{Registries: nil, ExcludeBuiltinRegistries: true})},
+			wantEmpty: true,
 		},
 		{
 			name: "global exclude_builtin_registries=true + project supplies entries → accepted",
@@ -547,11 +556,6 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			name:    "WithProjectConfig rejects non-http scheme",
 			opts:    []Option{WithProjectConfig(&ProjectConfig{Registries: []RegistryEntry{{URL: "ftp://example.com"}}})},
 			wantErr: "scheme must be http or https",
-		},
-		{
-			name:    "WithProjectConfig rejects truly-empty merge",
-			opts:    []Option{WithProjectConfig(&ProjectConfig{Registries: nil, ExcludeBuiltinRegistries: true})},
-			wantErr: "empty registry list",
 		},
 		{
 			name: "WithProjectConfig rejects a repeated name",
@@ -591,6 +595,10 @@ func TestNewClientWithRegistryOptions(t *testing.T) {
 			}
 			require.NoError(t, err)
 			regs := c.Registries()
+			if tc.wantEmpty {
+				assert.Empty(t, regs)
+				return
+			}
 			require.NotEmpty(t, regs)
 			if tc.wantCount > 0 {
 				require.Len(t, regs, tc.wantCount)
