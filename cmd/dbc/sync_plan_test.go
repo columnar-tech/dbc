@@ -668,7 +668,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), otherFingerprint)
-		assert.Contains(t, err.Error(), "the configuration of its registry selects the signing key "+columnar.Fingerprint())
+		assert.Contains(t, err.Error(), "the configuration of its source selects the signing key "+columnar.Fingerprint())
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 		assert.Zero(t, f.indexCalls)
 		assert.Empty(t, f.boundIndexed)
@@ -685,7 +685,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		// is resolved again and would switch to the Columnar key.
 		assert.Contains(t, err.Error(), otherFingerprint)
 		assert.Contains(t, err.Error(), "would now be verified with the signing key "+columnar.Fingerprint())
-		assert.NotContains(t, err.Error(), "configuration of its registry selects")
+		assert.NotContains(t, err.Error(), "configuration of its source selects")
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 	})
 }
@@ -795,7 +795,7 @@ func TestPlanUsesTheKeyOfTheRegistry(t *testing.T) {
 		locked, config dbc.SigningPolicy
 		want           string
 	}{
-		{"none locked, key configured", dbc.Unsigned(), dbc.SignWith(acme), "pins no signing key (an unsigned registry), but the configuration of its registry selects the signing key " + acme.Fingerprint()},
+		{"none locked, key configured", dbc.Unsigned(), dbc.SignWith(acme), "pins no signing key (an unsigned source), but the configuration of its source selects the signing key " + acme.Fingerprint()},
 		{"key locked, unsigned configured", dbc.SignWith(acme), dbc.Unsigned(), "selects no signing key"},
 		{"custom key locked, Columnar configured", dbc.SignWith(acme), dbc.SigningPolicy{}, "pins the signing key " + acme.Fingerprint()},
 		{"key locked, other key configured", dbc.SignWith(acme), dbc.SignWith(testSigningKey(t, "other")), "pins the signing key " + acme.Fingerprint()},

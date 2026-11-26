@@ -115,7 +115,7 @@ type lockedSigner struct {
 // String describes the signer for messages.
 func (s lockedSigner) String() string {
 	if s.Type == lockSignerNone {
-		return "no signing key (an unsigned registry)"
+		return "no signing key (an unsigned source)"
 	}
 	return "the signing key " + s.Fingerprint
 }

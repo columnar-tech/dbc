@@ -200,7 +200,7 @@ func (p *syncPlanner) plan(list DriversList, lock parsedLockFile) ([]plannedDriv
 			if err != nil {
 				return nil, nil, fmt.Errorf("driver %s: invalid locked version: %w", name, err)
 			}
-			fromHTTP := d.Source.Type != lockSourceRegistry
+			fromHTTP := d.Source.Type == lockSourceHTTP
 			sourceChanged := fromHTTP || (target != nil && target.identity != d.Source.URL)
 			switch {
 			case fromHTTP && target == nil:
@@ -530,7 +530,7 @@ func (s packageSigner) locked() lockedSigner {
 func (p *syncPlanner) signerFor(name string, policy dbc.SigningPolicy) (packageSigner, error) {
 	signer, err := policySigner(p.signingOperation(), policy)
 	if err != nil {
-		return packageSigner{}, fmt.Errorf("driver %s: could not load the signing key of its registry: %w", name, err)
+		return packageSigner{}, fmt.Errorf("driver %s: could not load the signing key of its source: %w", name, err)
 	}
 	return signer, nil
 }
@@ -554,7 +554,7 @@ func (p *syncPlanner) trustedSigner(name string, sig lockedSigner, policy dbc.Si
 		return packageSigner{}, err
 	}
 	if signer.locked() != sig {
-		return packageSigner{}, fmt.Errorf("driver %s: the lock file pins %s, but the configuration of its registry selects %s; %s",
+		return packageSigner{}, fmt.Errorf("driver %s: the lock file pins %s, but the configuration of its source selects %s; %s",
 			name, sig, signer.locked(), signerChangeHint)
 	}
 	return signer, nil
