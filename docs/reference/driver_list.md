@@ -153,7 +153,7 @@ source = { type = "registry", url = "https://dbc-cdn.columnar.tech" }
 
 dbc does not fall back to another registry when the selected registry does not have the driver, has no matching version or cannot be reached; each of these is an error. The source must select exactly one configured registry: registries that differ only in user information or query cannot be told apart in `dbc.lock`, so a source that matches more than one of them is an error. [`dbc add --registry`](cli.md#add) records a source.
 
-`dbc.lock` records the source a driver was resolved from. If you then switch a locked driver to another registry, or between a registry and an [HTTP source](#http-source), `dbc sync` stops; run [`dbc lock`](cli.md#lock) to resolve it again from the new source. The new source must use a signing key with the primary key fingerprint recorded in `dbc.lock`, and each unsigned source counts as a signer of its own. Naming the same registry another way (by name instead of URL, for example) keeps the lock entry.
+`dbc.lock` records the source a driver was resolved from. See [Lockfile](../guides/driver_list.md#lockfile) for when dbc keeps it and how to move a driver to another registry or to an [HTTP source](#http-source). Naming the same registry another way (by name instead of URL, for example) keeps the lock entry.
 
 ### HTTP source
 
