@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"slices"
 	"strings"
@@ -279,6 +280,14 @@ type baseModel struct {
 	getRegistries func() ([]dbc.Registry, error)
 	// getRegistryIndex fetches the index of a single registry.
 	getRegistryIndex func(dbc.Registry) ([]dbc.Driver, error)
+	// downloadHTTP downloads the archive of a driver with an HTTP source and
+	// fetchHTTP reads a small file of one, such as a checksum file, both
+	// without registry credentials.
+	downloadHTTP func(context.Context, dbc.PkgInfo) (*os.File, error)
+	fetchHTTP    func(context.Context, *url.URL) ([]byte, error)
+	// projectSigningPolicy looks up a [signing_keys] definition of the
+	// project's dbc.toml.
+	projectSigningPolicy func(string) (dbc.SigningPolicy, error)
 
 	status int
 	err    error
@@ -617,4 +626,30 @@ func main() {
 
 func newParser(args *cmds) (*arg.Parser, error) {
 	return arg.NewParser(arg.Config{Program: "dbc", EnvPrefix: "DBC_"}, args)
+}
+
+// projectSigningPolicy looks up a [signing_keys] definition of the project
+// whose registries the process-wide client was built with.
+func projectSigningPolicy(name string) (dbc.SigningPolicy, error) {
+	client, err := currentClient()
+	if err != nil {
+		return dbc.SigningPolicy{}, err
+	}
+	return client.ProjectSigningPolicy(name)
+}
+
+// currentClient returns the process-wide client, building the default one
+// when there is none yet.
+func currentClient() (*dbc.Client, error) {
+	if err := initDBCClient(); err != nil {
+		return nil, fmt.Errorf("failed to initialize client: %w", err)
+	}
+	if dbcClient == nil {
+		c, err := newDefaultClient()
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize client: %w", err)
+		}
+		setDBCClient(c)
+	}
+	return dbcClient, nil
 }

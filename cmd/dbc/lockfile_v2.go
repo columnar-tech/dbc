@@ -36,7 +36,10 @@ import (
 const (
 	lockFileVersionV2  = 2
 	lockSourceRegistry = "registry"
-	lockSignerOpenPGP  = "openpgp"
+	// lockSourceHTTP records a driver from an HTTP URL template source of the
+	// driver list. Its identity is the digest of the declared templates.
+	lockSourceHTTP    = "http"
+	lockSignerOpenPGP = "openpgp"
 	// lockSignerNone records a driver from a registry that the
 	// configuration declares unsigned (signing_key = false).
 	lockSignerNone     = "none"
@@ -54,7 +57,7 @@ const (
 // file with any other non-empty tag is rejected by checkLockTags before it
 // is decoded strictly, since a newer tag may come with fields of its own.
 var (
-	knownLockSourceTypes = []string{lockSourceRegistry}
+	knownLockSourceTypes = []string{lockSourceRegistry, lockSourceHTTP}
 	knownLockSignerTypes = []string{lockSignerOpenPGP, lockSignerNone}
 	// knownLockLocationKinds includes the path kind, which is known but not
 	// supported in lock files; validate rejects it.
@@ -71,9 +74,25 @@ var (
 	lockFingerprintRE = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 )
 
+// lockedSource identifies where a locked driver comes from: a registry by its
+// canonical URL, or an HTTP URL template source by TemplateSHA256, the digest
+// of its declared templates (see httpSource.identity).
 type lockedSource struct {
-	Type string `toml:"type"`
-	URL  string `toml:"url"`
+	Type           string `toml:"type"`
+	URL            string `toml:"url,omitempty"`
+	TemplateSHA256 string `toml:"template_sha256,omitempty"`
+}
+
+// sameSource reports whether two lock entries come from the same source: the
+// same type and identity.
+func (s lockedSource) sameSource(o lockedSource) bool { return s == o }
+
+// String describes the source for messages.
+func (s lockedSource) String() string {
+	if s.Type == lockSourceHTTP {
+		return "HTTP source"
+	}
+	return "registry " + s.URL
 }
 
 // lockedArtifact describes a typed archive in a lockfile snapshot.
@@ -96,7 +115,7 @@ type lockedSigner struct {
 // String describes the signer for messages.
 func (s lockedSigner) String() string {
 	if s.Type == lockSignerNone {
-		return "no signing key (an unsigned registry)"
+		return "no signing key (an unsigned source)"
 	}
 	return "the signing key " + s.Fingerprint
 }
@@ -283,11 +302,23 @@ func (lf lockFileV2) validate() error {
 		default:
 			return fmt.Errorf("driver %q has unknown signer type %q", d.Name, d.Signer.Type)
 		}
-		if !slices.Contains(knownLockSourceTypes, d.Source.Type) {
+		switch d.Source.Type {
+		case lockSourceRegistry:
+			if err := validateRegistryIdentity(d.Source.URL); err != nil {
+				return fmt.Errorf("driver %q: source url: %w", d.Name, err)
+			}
+			if d.Source.TemplateSHA256 != "" {
+				return fmt.Errorf("driver %q: a registry source has no template_sha256", d.Name)
+			}
+		case lockSourceHTTP:
+			if d.Source.URL != "" {
+				return fmt.Errorf("driver %q: an HTTP source has no url; its identity is template_sha256", d.Name)
+			}
+			if !validSHA256(d.Source.TemplateSHA256) {
+				return fmt.Errorf("driver %q: an HTTP source needs a template_sha256 of %s followed by 64 lowercase hex characters", d.Name, lockHashPrefix)
+			}
+		default:
 			return fmt.Errorf("driver %q has unknown source type %q", d.Name, d.Source.Type)
-		}
-		if err := validateRegistryIdentity(d.Source.URL); err != nil {
-			return fmt.Errorf("driver %q: source url: %w", d.Name, err)
 		}
 		if len(d.Artifacts) == 0 {
 			return fmt.Errorf("driver %q has no artifacts", d.Name)
@@ -312,11 +343,20 @@ func (lf lockFileV2) validate() error {
 			}
 			switch a.Location.Kind {
 			case resolution.ArtifactLocationRegistryPath:
+				if d.Source.Type == lockSourceHTTP {
+					return fmt.Errorf("driver %q target %+v: an HTTP source records absolute URLs only", d.Name, a.Target)
+				}
 				if err := validateLockedPath(a.Location.Value); err != nil {
 					return fmt.Errorf("driver %q target %+v: %w", d.Name, a.Target, err)
 				}
 			case resolution.ArtifactLocationURL:
-				if err := validateLockedArtifactURL(a.Location.Value, d.Source.URL); err != nil {
+				var err error
+				if d.Source.Type == lockSourceHTTP {
+					err = validateLockedURL(a.Location.Value)
+				} else {
+					err = validateLockedArtifactURL(a.Location.Value, d.Source.URL)
+				}
+				if err != nil {
 					return fmt.Errorf("driver %q target %+v: %w", d.Name, a.Target, err)
 				}
 			case resolution.ArtifactLocationPath:

@@ -273,7 +273,7 @@ $ dbc remove <DRIVER>
 
 Install drivers from a [driver list](../concepts/driver_list.md).
 Also creates a `dbc.lock` file next to the [driver list](../concepts/driver_list.md).
-If `dbc.lock` exists, the versions and archive hashes recorded in it are used when this subcommand is run.
+If `dbc.lock` exists, the versions, sources and archive hashes recorded in it are used as long as they still satisfy the driver list; see [Lockfile](../guides/driver_list.md#lockfile).
 Drivers are installed to the same location as [install](#install), replacing any other installed version of the same driver. See [Lockfile](../guides/driver_list.md#lockfile) for how to isolate drivers per project.
 
 <h3>Usage</h3>
@@ -310,7 +310,7 @@ Create or update `dbc.lock` next to the [driver list](../concepts/driver_list.md
 - **Without `platforms`**, version selection ignores the current platform. If the selected version has a build for the current platform, its artifact is required. Otherwise, `dbc lock` can create an entry using published hashes for other platforms and fails if none can be recorded. [`dbc sync`](#sync) fails on a platform without a build for the selected version and keeps the selected version and registry.
 - **With [`platforms`](driver_list.md#platforms)**, version selection requires a build for every listed platform, regardless of the current platform. Every listed artifact is required. Missing builds do not trigger registry fallback.
 
-For a new required artifact, `dbc lock` records the published hash when available. Otherwise, it computes the hash from the downloaded archive, without extracting it, and removes the download. This pins the archive's bytes: [`dbc sync`](#sync) checks the archive during extraction and verifies the driver library's signature with the pinned key when signature verification is enabled. A malformed archive or one with an invalid signature can therefore be locked and fail to install. `dbc lock` never verifies signatures, and fails before downloading any archives if the configuration of the driver's registry no longer selects the pinned key.
+For a new required artifact, `dbc lock` records the published hash when available. Otherwise, it computes the hash from the downloaded archive, without extracting it, and removes the download. This pins the archive's bytes: [`dbc sync`](#sync) checks the archive during extraction and verifies the driver library's signature with the pinned key when signature verification is enabled. A malformed archive or one with an invalid signature can therefore be locked and fail to install. `dbc lock` never verifies signatures, and fails before downloading any archives if the configuration of the driver's source no longer selects the pinned key.
 
 Existing entries are reused where they still satisfy the driver list. When the [platform list](driver_list.md#platforms) changes, dbc keeps existing archives when it can complete the entry from the locked version and registry. When upgrading a v1 lockfile, `dbc lock` downloads the current platform's archive to check any library checksum that still applies, even if an archive hash is published. It extracts that archive with the same safety checks as installation. The upgrade fails if that checksum cannot be checked.
 

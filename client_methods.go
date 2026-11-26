@@ -345,3 +345,99 @@ func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 
 	return nil
 }
+
+// OpenAnonymous opens u with a GET request that carries no registry
+// credentials and no telemetry identifiers, for a file that a driver source
+// other than a registry names, such as an HTTP URL template source in
+// dbc.toml. u must be an absolute http or https URL without user
+// information, query or fragment. The client's URL replacements apply as for
+// a registry, but a URL replacement or redirect never turns an HTTPS request
+// into an HTTP one, and a redirect never reaches an origin that a rule
+// replaces. In Wasm, the browser's fetch follows redirects internally, so
+// these redirect checks cannot be applied there. A status other than 200 OK
+// is an error. Errors name u, never a URL that a replacement or redirect led
+// to, and unwrap to the cause. The caller closes the returned body.
+func (c *Client) OpenAnonymous(ctx context.Context, u *url.URL) (io.ReadCloser, error) {
+	if u == nil || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) ||
+		u.Host == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return nil, errors.New("open: an absolute http or https URL without user information, query or fragment is required")
+	}
+	where := u.Host + u.EscapedPath()
+	eff, replaced, err := c.router.route(u)
+	if err != nil {
+		return nil, &openError{where: where, err: err}
+	}
+	if !replaced {
+		eff = u
+	}
+	if strings.EqualFold(u.Scheme, "https") && !strings.EqualFold(eff.Scheme, "https") {
+		// newURLRouter rejects such rules; keep the guarantee here as well.
+		return nil, &openError{where: where, err: errors.New("refusing to replace an https URL by an http one")}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, eff.String(), nil)
+	if err != nil {
+		return nil, &openError{where: where, err: err}
+	}
+	resp, err := c.router.guardRedirects(noDowngrade(c.httpClient), replaced).Do(req)
+	if err != nil {
+		return nil, &openError{where: where, err: err}
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, &openError{where: where, status: resp.StatusCode}
+	}
+	return resp.Body, nil
+}
+
+// openError is a failure of OpenAnonymous. Its text names the requested
+// location only: the *url.Error of net/http names the URL it last tried,
+// which a redirect may have chosen, with a query that may hold a token.
+type openError struct {
+	where  string
+	status int
+	err    error
+}
+
+func (e *openError) Error() string {
+	if e.err == nil {
+		return fmt.Sprintf("request to %s: %d %s", e.where, e.status, http.StatusText(e.status))
+	}
+	cause := e.err
+	if urlErr, ok := errors.AsType[*url.Error](cause); ok {
+		cause = urlErr.Err
+	}
+	return fmt.Sprintf("request to %s: %v", e.where, cause)
+}
+
+func (e *openError) Unwrap() error { return e.err }
+
+// noDowngrade returns a copy of hc that also refuses HTTPS to HTTP redirects,
+// whatever the redirect policy of hc, which may come from WithHTTPClient. The
+// scheme of the previous request is read before that policy runs, since the
+// policy may change the request it is given and the requests before it.
+func noDowngrade(hc *http.Client) *http.Client {
+	guarded := *hc
+	guarded.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		secure := strings.EqualFold(via[len(via)-1].URL.Scheme, "https")
+		downgraded := func() bool { return secure && !strings.EqualFold(req.URL.Scheme, "https") }
+		if downgraded() {
+			return errors.New("refusing HTTPS to HTTP redirect")
+		}
+		if hc.CheckRedirect == nil {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			return nil
+		}
+		if err := hc.CheckRedirect(req, via); err != nil {
+			// Includes http.ErrUseLastResponse, which must reach net/http
+			// unwrapped.
+			return err
+		}
+		if downgraded() {
+			return errors.New("refusing HTTPS to HTTP redirect")
+		}
+		return nil
+	}
+	return &guarded
+}

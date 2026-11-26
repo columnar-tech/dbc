@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -41,8 +42,8 @@ const (
 	registryHint = "to take the driver from one registry only, pass --registry with the name or URL of that registry"
 )
 
-// sourceTypeRegistry is the only driver source type: a registry that is
-// part of the registry configuration.
+// sourceTypeRegistry is the type of a source that is a registry of the
+// registry configuration.
 const sourceTypeRegistry = "registry"
 
 // driverSource selects where a driver of a driver list comes from. A
@@ -52,7 +53,11 @@ const sourceTypeRegistry = "registry"
 type driverSource struct {
 	Type string  `toml:"type"`
 	Name *string `toml:"name,omitempty"`
-	URL  *string `toml:"url,omitempty"`
+	// URL is the URL of a registry, or the URL template of an HTTP source.
+	URL *string `toml:"url,omitempty"`
+	// ChecksumURL and SigningKey belong to an HTTP source; see httpSource.
+	ChecksumURL *string `toml:"checksum_url,omitempty"`
+	SigningKey  any     `toml:"signing_key,omitempty"`
 }
 
 // registrySourceFlag parses the value of a --registry option: a value with
@@ -70,6 +75,9 @@ func registrySourceFlag(v string) *driverSource {
 // String describes the source for messages. A URL source is shown by its
 // registry identity, so credentials never appear.
 func (s driverSource) String() string {
+	if s.Type == sourceTypeHTTP {
+		return "the HTTP source"
+	}
 	if s.Name != nil {
 		return fmt.Sprintf("registry %q", *s.Name)
 	}
@@ -94,7 +102,7 @@ func (s *driverSource) equal(o *driverSource) bool {
 		}
 		return *a == *b
 	}
-	return s.Type == o.Type && eq(s.Name, o.Name) && eq(s.URL, o.URL)
+	return s.Type == o.Type && eq(s.Name, o.Name) && eq(s.URL, o.URL) && eq(s.ChecksumURL, o.ChecksumURL) && reflect.DeepEqual(s.SigningKey, o.SigningKey)
 }
 
 // validateDriverSources checks the source of every driver of list against
@@ -103,6 +111,12 @@ func validateDriverSources(list DriversList) error {
 	for _, name := range slices.Sorted(maps.Keys(list.Drivers)) {
 		src := list.Drivers[name].Source
 		if src == nil {
+			continue
+		}
+		if src.Type == sourceTypeHTTP {
+			if _, err := src.http(); err != nil {
+				return fmt.Errorf("driver %s: %w", name, err)
+			}
 			continue
 		}
 		if _, err := src.target(list.Registries); err != nil {
@@ -127,10 +141,18 @@ type sourceTarget struct {
 func (s driverSource) target(entries []dbc.RegistryEntry) (sourceTarget, error) {
 	switch s.Type {
 	case sourceTypeRegistry:
+		// A registry's packages are verified with the signing key of its
+		// [[registries]] entry; these fields would be silently ignored.
+		if s.SigningKey != nil {
+			return sourceTarget{}, errors.New("signing_key is not supported by a registry source; set signing_key on the [[registries]] entry instead")
+		}
+		if s.ChecksumURL != nil {
+			return sourceTarget{}, errors.New("checksum_url is only supported by an HTTP source")
+		}
 	case "":
 		return sourceTarget{}, fmt.Errorf("source type is required; use type = %q", sourceTypeRegistry)
 	default:
-		return sourceTarget{}, fmt.Errorf("source type %q is not supported by this version of dbc, which supports type = %q; a newer version of dbc may be required", s.Type, sourceTypeRegistry)
+		return sourceTarget{}, fmt.Errorf("source type %q is not supported by this version of dbc, which supports type = %q and type = %q; a newer version of dbc may be required", s.Type, sourceTypeRegistry, sourceTypeHTTP)
 	}
 	var (
 		u        *url.URL

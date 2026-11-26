@@ -623,6 +623,58 @@ func TestPlanFailsWhenNoRegistryDelivers(t *testing.T) {
 	assert.Contains(t, err.Error(), "connection refused")
 }
 
+// TestCheckSourceContinuity pins that the signer, not the type of the source,
+// decides whether a locked driver may move to another source: an explicit
+// change of source keeps the same key, and every unsigned source is a signer
+// of its own.
+func TestCheckSourceContinuity(t *testing.T) {
+	registry := lockedSource{Type: lockSourceRegistry, URL: "https://registry.example.com"}
+	http := lockedSource{Type: lockSourceHTTP, TemplateSHA256: planHashA}
+	key := testSigner
+	other := lockedSigner{Type: lockSignerOpenPGP, Fingerprint: otherFingerprint}
+	none := lockedSigner{Type: lockSignerNone}
+
+	for _, dir := range []struct {
+		name     string
+		from, to lockedSource
+	}{
+		{"http to registry", http, registry},
+		{"registry to http", registry, http},
+	} {
+		for _, tc := range []struct {
+			name      string
+			from, to  lockedSigner
+			wantError string
+		}{
+			{"same key", key, key, ""},
+			{"another key", key, other, "would now be verified with the signing key " + otherFingerprint},
+			{"signed to unsigned", key, none, "would now be verified with no signing key"},
+			{"unsigned to signed", none, key, "the lock file pins no signing key"},
+			{"unsigned to unsigned", none, none, "which is another signer"},
+		} {
+			t.Run(dir.name+"/"+tc.name, func(t *testing.T) {
+				old := lockedDriver{Name: "drv", Signer: tc.from, Source: dir.from}
+				now := lockedDriver{Name: "drv", Signer: tc.to, Source: dir.to}
+				err := checkSourceContinuity("drv", old, now)
+				if tc.wantError == "" {
+					assert.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantError)
+				assert.Contains(t, err.Error(), signerChangeHint)
+			})
+		}
+	}
+
+	t.Run("the same unsigned source", func(t *testing.T) {
+		for _, src := range []lockedSource{registry, http} {
+			d := lockedDriver{Name: "drv", Signer: none, Source: src}
+			assert.NoError(t, checkSourceContinuity("drv", d, d))
+		}
+	})
+}
+
 func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 	columnar, err := dbc.ColumnarSigningKey()
 	require.NoError(t, err)
@@ -668,7 +720,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		_, _, err := f.planner.plan(listOf(map[string]driverSpec{"alpha": {}}), v2Lock(d))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), otherFingerprint)
-		assert.Contains(t, err.Error(), "the configuration of its registry selects the signing key "+columnar.Fingerprint())
+		assert.Contains(t, err.Error(), "the configuration of its source selects the signing key "+columnar.Fingerprint())
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 		assert.Zero(t, f.indexCalls)
 		assert.Empty(t, f.boundIndexed)
@@ -685,7 +737,7 @@ func TestPlanRecordsAndPinsTheSigner(t *testing.T) {
 		// is resolved again and would switch to the Columnar key.
 		assert.Contains(t, err.Error(), otherFingerprint)
 		assert.Contains(t, err.Error(), "would now be verified with the signing key "+columnar.Fingerprint())
-		assert.NotContains(t, err.Error(), "configuration of its registry selects")
+		assert.NotContains(t, err.Error(), "configuration of its source selects")
 		assert.Contains(t, err.Error(), "run `dbc lock`")
 	})
 }
@@ -795,7 +847,7 @@ func TestPlanUsesTheKeyOfTheRegistry(t *testing.T) {
 		locked, config dbc.SigningPolicy
 		want           string
 	}{
-		{"none locked, key configured", dbc.Unsigned(), dbc.SignWith(acme), "pins no signing key (an unsigned registry), but the configuration of its registry selects the signing key " + acme.Fingerprint()},
+		{"none locked, key configured", dbc.Unsigned(), dbc.SignWith(acme), "pins no signing key (an unsigned source), but the configuration of its source selects the signing key " + acme.Fingerprint()},
 		{"key locked, unsigned configured", dbc.SignWith(acme), dbc.Unsigned(), "selects no signing key"},
 		{"custom key locked, Columnar configured", dbc.SignWith(acme), dbc.SigningPolicy{}, "pins the signing key " + acme.Fingerprint()},
 		{"key locked, other key configured", dbc.SignWith(acme), dbc.SignWith(testSigningKey(t, "other")), "pins the signing key " + acme.Fingerprint()},

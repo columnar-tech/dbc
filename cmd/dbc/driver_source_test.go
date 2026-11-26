@@ -181,13 +181,15 @@ func (suite *SubcommandTestSuite) TestSyncRejectsInvalidSources() {
 	for name, tc := range map[string]struct{ list, want string }{
 		"name and url":  {secondByName + "[drivers.test-driver-1]\nsource = { type = 'registry', name = 'second', url = '" + secondRegistryURL + "' }\n", "either name or url, not both"},
 		"neither":       {"[drivers.test-driver-1]\nsource = { type = 'registry' }\n", "must have name or url"},
-		"unknown type":  {"[drivers.test-driver-1]\nsource = { type = 'http', url = 'https://x.example.com' }\n", `source type "http" is not supported by this version of dbc, which supports type = "registry"; a newer version of dbc may be required`},
+		"unknown type":  {"[drivers.test-driver-1]\nsource = { type = 'packslip', url = 'https://x.example.com' }\n", `source type "packslip" is not supported by this version of dbc, which supports type = "registry" and type = "http"; a newer version of dbc may be required`},
 		"no type":       {"[drivers.test-driver-1]\nsource = { url = '" + secondRegistryURL + "' }\n", `source type is required`},
 		"unknown name":  {"[drivers.test-driver-1]\nsource = { type = 'registry', name = 'second' }\n", `registry "second", which [[registries]] in the same file does not declare`},
 		"empty name":    {secondByName + "[drivers.test-driver-1]\nsource = { type = 'registry', name = '' }\n", `registry "", which`},
 		"query in url":  {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + query + "' }\n", "must not contain user information, a query or a fragment"},
 		"user in url":   {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'https://u:p@second.example.com' }\n", "must not contain user information"},
 		"fragment":      {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'https://second.example.com#' }\n", "a fragment"},
+		"signing key":   {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + secondRegistryURL + "', signing_key = false }\n", "signing_key is not supported by a registry source"},
+		"checksum url":  {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + secondRegistryURL + "', checksum_url = '' }\n", "checksum_url is only supported by an HTTP source"},
 		"not a url":     {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'second' }\n", "absolute http or https URL"},
 		"not in config": {"[drivers.test-driver-1]\nsource = { type = 'registry', url = 'https://third.example.com' }\n", "registry https://third.example.com (https://third.example.com) is not among the configured registries"},
 	} {

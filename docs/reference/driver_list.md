@@ -153,7 +153,62 @@ source = { type = "registry", url = "https://dbc-cdn.columnar.tech" }
 
 dbc does not fall back to another registry when the selected registry does not have the driver, has no matching version or cannot be reached; each of these is an error. The source must select exactly one configured registry: registries that differ only in user information or query cannot be told apart in `dbc.lock`, so a source that matches more than one of them is an error. [`dbc add --registry`](cli.md#add) records a source.
 
-`dbc.lock` records the registry a driver was resolved from. If the source then selects another registry, `dbc sync` stops and [`dbc lock`](cli.md#lock) resolves the driver again from the new registry. Naming the same registry another way (by name instead of URL, for example) keeps the lock entry.
+`dbc.lock` records the source a driver was resolved from. See [Lockfile](../guides/driver_list.md#lockfile) for when dbc keeps it and how to move a driver to another registry or to an [HTTP source](#http-source). Naming the same registry another way (by name instead of URL, for example) keeps the lock entry.
+
+### HTTP source
+
+{{ since_version('v0.4.0') }}
+
+Use `type = "http"` to download a dbc package archive (`.tar.gz` with a
+`MANIFEST`) directly. A URL template does not tell dbc which versions are
+available. Set `version` to a full semantic version, such as `"1.2.0"` or
+`"=1.2.0"`. An omitted version, a prefix such as `"1.2"`, or a range such as
+`">=1.2.0"` is a configuration error before any download.
+
+In the URL, `{version}` expands to the full version without the optional `=`,
+including any prerelease or build metadata. For example, `"1.2.0-beta.1"`
+expands to `1.2.0-beta.1`. For tags with a leading `v`, write `v{version}` in
+the URL. At installation, the archive's `MANIFEST` version must match the
+requested version.
+
+```toml
+[drivers.example]
+version = "1.2.0"
+source = {
+  type = "http",
+  url = "https://example.com/releases/download/v{version}/example_{os}_{arch}_v{version}.tar.gz",
+  checksum_url = "https://example.com/releases/download/v{version}/SHA256SUMS",
+  signing_key = false,
+}
+```
+
+- `url`: required. An HTTP(S) URL without user information, a query, or a
+  fragment. Its path can contain `{version}`, `{os}`, and `{arch}`. The OS and
+  architecture use dbc's [platform spellings](supported_platforms.md), such as
+  `linux` and `amd64`.
+- `checksum_url`: optional. An HTTP(S) URL with the same rules and variables
+  as `url`. It must use HTTPS when `url` does. The file can contain a single
+  SHA-256 hash if it serves one archive, or `sha256sum` lines matched by the
+  filename in each archive URL.
+- `signing_key`: a name from `[signing_keys]` in the same `dbc.toml`. Omit it
+  to use dbc's built-in key, or set it to `false` for an unsigned package.
+
+Unknown source keys are errors. `dbc lock` and `dbc sync` record archives for
+the [listed platforms](#platforms), or for the current platform if
+`platforms` is omitted.
+
+For archives without a recorded hash, dbc reads the hash from `checksum_url`
+if set. Otherwise, it pins the first download by recording its SHA-256 hash
+and size. dbc extracts archives during installation or to check an applicable
+v1 library checksum for the current platform. For signed packages, `dbc sync`
+verifies the driver library's signature during installation and reuse unless
+you pass `--no-verify`. dbc warns when a new hash comes from a plain HTTP URL
+declared in the driver list.
+
+Archive and checksum downloads use no registry credentials.
+[URL replacements](../concepts/driver_registry.md#mirrors) from the user
+`config.toml` apply. Replacements and redirects from HTTPS to HTTP are
+rejected. `DBC_BASE_URL` does not affect HTTP sources.
 
 ### `exclude_builtin_registries`
 
