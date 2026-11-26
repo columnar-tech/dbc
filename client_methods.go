@@ -403,8 +403,8 @@ func (e *openError) Error() string {
 		return fmt.Sprintf("request to %s: %d %s", e.where, e.status, http.StatusText(e.status))
 	}
 	cause := e.err
-	if ue, ok := errors.AsType[*url.Error](cause); ok {
-		cause = ue.Err
+	if urlErr, ok := errors.AsType[*url.Error](cause); ok {
+		cause = urlErr.Err
 	}
 	return fmt.Sprintf("request to %s: %v", e.where, cause)
 }

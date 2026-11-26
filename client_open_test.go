@@ -156,8 +156,8 @@ func TestOpenAnonymousErrorsNameTheRequestedURL(t *testing.T) {
 	_, err = c.OpenAnonymous(context.Background(), u)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "secret")
-	var ue *url.Error
-	assert.ErrorAs(t, err, &ue, "the cause is kept")
+	var urlErr *url.Error
+	assert.ErrorAs(t, err, &urlErr, "the cause is kept")
 
 	for _, raw := range []string{"https://u:p@example.com/a", "https://example.com/a?x=1", "https:///a", "https:opaque"} {
 		bad, err := url.Parse(raw)
