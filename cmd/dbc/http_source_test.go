@@ -531,6 +531,7 @@ func (suite *SubcommandTestSuite) TestHTTPSourceLockChanges() {
 			var counters syncCounters
 			out := suite.runCmdErr(cmd.GetModelCustom(counters.counted(httpBase())))
 			suite.Contains(out, "which the driver list no longer declares")
+			suite.Contains(out, "set the driver's source to a registry and run `dbc lock`")
 			suite.Zero(counters.index)
 			suite.Zero(counters.boundIndex)
 			suite.Equal(lock, suite.readLockBytes())
