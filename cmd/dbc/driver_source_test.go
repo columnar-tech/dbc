@@ -181,8 +181,8 @@ func (suite *SubcommandTestSuite) TestSyncRejectsInvalidSources() {
 	for name, tc := range map[string]struct{ list, want string }{
 		"name and url":  {secondByName + "[drivers.test-driver-1]\nsource = { type = 'registry', name = 'second', url = '" + secondRegistryURL + "' }\n", "either name or url, not both"},
 		"neither":       {"[drivers.test-driver-1]\nsource = { type = 'registry' }\n", "must have name or url"},
-		"unknown type":  {"[drivers.test-driver-1]\nsource = { type = 'http', url = 'https://x.example.com' }\n", `source type "http" is not supported`},
-		"no type":       {"[drivers.test-driver-1]\nsource = { url = '" + secondRegistryURL + "' }\n", `source type "" is not supported`},
+		"unknown type":  {"[drivers.test-driver-1]\nsource = { type = 'http', url = 'https://x.example.com' }\n", `source type "http" is not supported by this version of dbc, which supports type = "registry"; a newer version of dbc may be required`},
+		"no type":       {"[drivers.test-driver-1]\nsource = { url = '" + secondRegistryURL + "' }\n", `source type is required`},
 		"unknown name":  {"[drivers.test-driver-1]\nsource = { type = 'registry', name = 'second' }\n", `registry "second", which [[registries]] in the same file does not declare`},
 		"empty name":    {secondByName + "[drivers.test-driver-1]\nsource = { type = 'registry', name = '' }\n", `registry "", which`},
 		"query in url":  {"[drivers.test-driver-1]\nsource = { type = 'registry', url = '" + query + "' }\n", "must not contain user information, a query or a fragment"},

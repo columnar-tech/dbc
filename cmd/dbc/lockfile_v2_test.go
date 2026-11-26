@@ -221,6 +221,73 @@ func TestReadLockFileVersions(t *testing.T) {
 	assert.True(t, errors.Is(err, fs.ErrNotExist))
 }
 
+// A lock file written by a newer dbc, with a tag that this version does not
+// know, is rejected with a hint to update, also when the new tag comes with
+// fields of its own, before any of them is reported as unknown.
+func TestReadLockFileV2NewerTags(t *testing.T) {
+	const hdr = "version = 2\n"
+	drv := func(signer, source, artifact, extra string) string {
+		return hdr + "[[drivers]]\nname = 'd'\nversion = '1.0.0'\n" +
+			"[drivers.signer]\n" + signer + "\n[drivers.source]\n" + source + "\n" +
+			"[[drivers.artifacts]]\nformat = 'tar.gz'\nhash = '" + testHashA + "'\n" +
+			"target = { os = 'linux', arch = 'amd64', libc = 'gnu' }\n" + artifact + "\n" + extra
+	}
+	const (
+		openpgp  = "type = 'openpgp'\nfingerprint = '" + "ab7766e9c2db9c5e3dbd5b3fba3e41ab62e8c1d0" + "'"
+		registry = "type = 'registry'\nurl = 'https://r.example.com'"
+		regPath  = "location = { kind = 'registry-path', value = 'a' }"
+	)
+	tests := map[string]struct{ contents, want string }{
+		"source type": {drv(openpgp, "type = 'packslip'\nmanifest = 'https://e.com/slip'", regPath, ""),
+			`driver "d" has unknown source type "packslip"`},
+		"signer type": {drv("type = 'keyless'\nidentity = 'https://e.com'", registry, regPath, ""),
+			`driver "d" has unknown signer type "keyless"`},
+		"artifact location kind": {drv(openpgp, registry, "location = { kind = 'oci', value = 'r/a', digest = 'x' }", ""),
+			`driver "d" has unknown artifact location kind "oci"`},
+		"evidence kind": {drv(openpgp, registry, regPath, "[[drivers.evidence]]\nkind = 'packslip'\nhash = '"+testHashA+"'\nlocation = { kind = 'url', value = 'https://e.com/s' }\nsigner = 'x'\n"),
+			`driver "d" has unknown evidence kind "packslip"`},
+		"evidence location kind": {drv(openpgp, registry, regPath, "[[drivers.evidence]]\nkind = 'release-index'\nhash = '"+testHashA+"'\nlocation = { kind = 'oci', value = 'r/i' }\n"),
+			`driver "d" has unknown evidence location kind "oci"`},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "dbc.lock")
+			require.NoError(t, os.WriteFile(p, []byte(tt.contents), 0o644))
+			_, err := readLockFile(p)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Contains(t, err.Error(), lockNewerDbcHint)
+			assert.NotContains(t, err.Error(), "strict mode")
+		})
+	}
+
+	t.Run("unknown field of a known tag", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "dbc.lock")
+		require.NoError(t, os.WriteFile(p, []byte(drv(openpgp, registry+"\nmirror = 'https://m.example.com'", regPath, "")), 0o644))
+		_, err := readLockFile(p)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mirror")
+		assert.Contains(t, err.Error(), lockNewerDbcHint)
+	})
+
+	t.Run("an invalid known value has no hint", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "dbc.lock")
+		require.NoError(t, os.WriteFile(p, []byte(drv("type = 'openpgp'\nfingerprint = 'short'", registry, regPath, "")), 0o644))
+		_, err := readLockFile(p)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "malformed signer fingerprint")
+		assert.NotContains(t, err.Error(), lockNewerDbcHint)
+	})
+
+	t.Run("a tag of the wrong type is not a newer tag", func(t *testing.T) {
+		p := filepath.Join(t.TempDir(), "dbc.lock")
+		require.NoError(t, os.WriteFile(p, []byte(drv(openpgp, "type = 3\nurl = 'https://r.example.com'", regPath, "")), 0o644))
+		_, err := readLockFile(p)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "unknown source type")
+	})
+}
+
 // A v6 OpenPGP key has a 64 character fingerprint.
 func TestLockFileV2AcceptsV6Fingerprint(t *testing.T) {
 	lf := validV2()

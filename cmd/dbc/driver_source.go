@@ -125,8 +125,12 @@ type sourceTarget struct {
 // target validates the source and returns the registry it selects. A name
 // refers to entries, the registries declared in the same file.
 func (s driverSource) target(entries []dbc.RegistryEntry) (sourceTarget, error) {
-	if s.Type != sourceTypeRegistry {
-		return sourceTarget{}, fmt.Errorf("source type %q is not supported; use type = %q", s.Type, sourceTypeRegistry)
+	switch s.Type {
+	case sourceTypeRegistry:
+	case "":
+		return sourceTarget{}, fmt.Errorf("source type is required; use type = %q", sourceTypeRegistry)
+	default:
+		return sourceTarget{}, fmt.Errorf("source type %q is not supported by this version of dbc, which supports type = %q; a newer version of dbc may be required", s.Type, sourceTypeRegistry)
 	}
 	var (
 		u        *url.URL
