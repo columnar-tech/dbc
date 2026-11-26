@@ -106,10 +106,6 @@ func LoadGlobalConfig(configDir string) (*GlobalConfig, error) {
 	}
 	cfg.Path = absPath(configPath)
 
-	// Note: a global exclude_builtin_registries=true with no [[registries]] is NOT rejected
-	// here, because a project's dbc.toml may supply the entries at NewClient
-	// time. The "zero resulting registries" case is enforced after merging in
-	// NewClient so both library and CLI callers share the same semantics.
 	if _, err := parseRegistryConfig(cfg.Registries, cfg.SigningKeys, cfg.Path, false); err != nil {
 		return nil, fmt.Errorf("%s: %w", configPath, err)
 	}
@@ -131,8 +127,7 @@ var ErrProjectNetwork = errors.New("network settings are only read from the user
 // driver specifications to the caller. Missing files and malformed entries
 // are errors.
 //
-// Pass the result to WithProjectConfig. Whether the resulting registry list
-// is empty is checked by NewClient after merging global/project config.
+// Pass the result to WithProjectConfig.
 func LoadProjectConfig(path string) (*ProjectConfig, error) {
 	f, err := os.Open(path)
 	if err != nil {

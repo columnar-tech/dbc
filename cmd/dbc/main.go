@@ -215,7 +215,7 @@ func defaultGetDriverRegistry() ([]dbc.Driver, error) {
 
 // errNoRegistries is returned where a command needs the drivers of the
 // registries but the configuration excludes every one of them.
-var errNoRegistries = errors.New("no driver registry is configured: exclude_builtin_registries = true is set and no [[registries]] entry is declared")
+var errNoRegistries = errors.New("no driver registries are configured; add a [[registries]] entry or enable the built-in registries")
 
 // configuredRegistries lists the registries the client resolves drivers from.
 func configuredRegistries() ([]dbc.Registry, error) {
