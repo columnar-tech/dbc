@@ -30,9 +30,11 @@ duckdb               An ADBC driver for DuckDB developed by the DuckDB Foundatio
 exasol               An ADBC driver for Exasol developed by Exasol Labs
 firebolt             An ADBC driver for Firebolt
 flightsql            An ADBC driver for Apache Arrow Flight SQL developed under the Apache Software Foundation
+kinetica             An ADBC driver for Kinetica developed by Kinetica DB, Inc.
 mariadb              An ADBC Driver for MariaDB developed by the ADBC Driver Foundry
 mssql                An ADBC driver for Microsoft SQL Server developed by Columnar
 mysql                An ADBC Driver for MySQL developed by the ADBC Driver Foundry
+oracle               An ADBC driver for Oracle Database developed by the ADBC Driver Foundry
 postgresql           An ADBC driver for PostgreSQL developed under the Apache Software Foundation
 quack                An ADBC driver for remote DuckDB via Quack
 redshift             An ADBC driver for Amazon Redshift developed by Columnar
@@ -139,7 +141,8 @@ $ dbc search --verbose
     ├── 0.25.0
     ├── 0.26.0
     ├── 0.27.0
-    ╰── 0.28.0
+    ├── 0.28.0
+    ╰── 0.29.0
 • duckdb
    Title: DuckDB Driver
    Description: An ADBC driver for DuckDB developed by the DuckDB Foundation
@@ -174,7 +177,8 @@ $ dbc search --verbose
     ├── 0.13.0
     ├── 0.16.0
     ├── 0.31.0
-    ╰── 0.32.0
+    ├── 0.32.0
+    ╰── 0.34.2
 • firebolt
    Title: firebolt
    Description: An ADBC driver for Firebolt
@@ -196,6 +200,12 @@ $ dbc search --verbose
     ├── 1.12.2
     ├── 1.13.0
     ╰── 1.13.1
+• kinetica
+   Title: Kinetica ADBC Driver
+   Description: An ADBC driver for Kinetica developed by Kinetica DB, Inc.
+   License: Apache-2.0
+   Available Versions:
+    ╰── 7.2.1
 • mariadb
    Title: ADBC Driver Foundry Driver for MariaDB
    Description: An ADBC Driver for MariaDB developed by the ADBC Driver Foundry
@@ -237,6 +247,12 @@ $ dbc search --verbose
     ├── 0.7.0
     ├── 0.7.1
     ╰── 0.8.0
+• oracle
+   Title: ADBC Driver Foundry Driver for Oracle Database
+   Description: An ADBC driver for Oracle Database developed by the ADBC Driver Foundry
+   License: UPL-1.0 OR Apache-2.0
+   Available Versions:
+    ╰── 0.7.1
 • postgresql
    Title: ASF PostgreSQL Driver
    Description: An ADBC driver for PostgreSQL developed under the Apache Software Foundation
