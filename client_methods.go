@@ -353,9 +353,10 @@ func (c *Client) Uninstall(cfg config.Config, driverName string) error {
 // information, query or fragment. The client's URL replacements apply as for
 // a registry, but a URL replacement or redirect never turns an HTTPS request
 // into an HTTP one, and a redirect never reaches an origin that a rule
-// replaces. A status other than 200 OK is an error. Errors name u, never a
-// URL that a replacement or redirect led to, and unwrap to the cause. The
-// caller closes the returned body.
+// replaces. In Wasm, the browser's fetch follows redirects internally, so
+// these redirect checks cannot be applied there. A status other than 200 OK
+// is an error. Errors name u, never a URL that a replacement or redirect led
+// to, and unwrap to the cause. The caller closes the returned body.
 func (c *Client) OpenAnonymous(ctx context.Context, u *url.URL) (io.ReadCloser, error) {
 	if u == nil || (!strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https")) ||
 		u.Host == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
