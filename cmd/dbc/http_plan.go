@@ -16,9 +16,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"slices"
 	"strings"
@@ -183,21 +181,6 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 	return pd, nil
 }
 
-// checkSourceContinuity checks that resolving a locked driver again, from
-// the same source or another one, keeps its signer. Every unsigned source is
-// a signer of its own, so a driver pinned to one cannot move to another,
-// whatever its type.
-func checkSourceContinuity(name string, old, now lockedDriver) error {
-	if now.Signer != old.Signer {
-		return signerChangedError(name, old.Signer, now.Signer)
-	}
-	if old.Signer.Type == lockSignerNone && !now.Source.sameSource(old.Source) {
-		return fmt.Errorf("driver %s: the lock file has it from the unsigned %s, but it would now come from the unsigned %s, which is another signer; %s",
-			name, old.Source, now.Source, signerChangeHint)
-	}
-	return nil
-}
-
 // checkHTTPNoVerify refuses --no-verify when an archive of a signed HTTP
 // source would be measured: its hash would be pinned from bytes whose
 // signature was never checked.
@@ -329,22 +312,4 @@ func fetchHTTPChecksums(ctx context.Context, base baseModel, planned []plannedDr
 		}
 	}
 	return nil
-}
-
-// readHTTPFile reads a small file of an HTTP source, such as a checksum file,
-// with open, up to maxChecksumFile bytes.
-func readHTTPFile(open func(*url.URL) (io.ReadCloser, error), u *url.URL) ([]byte, error) {
-	body, err := open(u)
-	if err != nil {
-		return nil, err
-	}
-	defer body.Close()
-	data, err := io.ReadAll(io.LimitReader(body, maxChecksumFile+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxChecksumFile {
-		return nil, errors.New("the file is too large")
-	}
-	return data, nil
 }

@@ -842,3 +842,18 @@ func redactURLSecrets(err error, secrets []string) error {
 	}
 	return redactedError{msg: msg, err: err}
 }
+
+// checkSourceContinuity checks that resolving a locked driver again, from
+// the same source or another one, keeps its signer. Every unsigned source is
+// a signer of its own, so a driver pinned to one cannot move to another,
+// whatever its type.
+func checkSourceContinuity(name string, old, now lockedDriver) error {
+	if now.Signer != old.Signer {
+		return signerChangedError(name, old.Signer, now.Signer)
+	}
+	if old.Signer.Type == lockSignerNone && !now.Source.sameSource(old.Source) {
+		return fmt.Errorf("driver %s: the lock file has it from the unsigned %s, but it would now come from the unsigned %s, which is another signer; %s",
+			name, old.Source, now.Source, signerChangeHint)
+	}
+	return nil
+}
