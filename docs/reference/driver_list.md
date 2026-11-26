@@ -168,8 +168,8 @@ available. Set `version` to a full semantic version, such as `"1.2.0"` or
 In the URL, `{version}` expands to the full version without the optional `=`,
 including any prerelease or build metadata. For example, `"1.2.0-beta.1"`
 expands to `1.2.0-beta.1`. For tags with a leading `v`, write `v{version}` in
-the URL. The version in the archive's `MANIFEST` must match the requested
-version.
+the URL. At installation, the archive's `MANIFEST` version must match the
+requested version.
 
 ```toml
 [drivers.example]
@@ -197,15 +197,13 @@ Unknown source keys are errors. `dbc lock` and `dbc sync` record archives for
 the [listed platforms](#platforms), or for the current platform if
 `platforms` is omitted.
 
-With `checksum_url`, dbc can record the hash without downloading the archive.
-It downloads the archive when needed for installation or to check a v1
-lockfile's library checksum. Without `checksum_url`, dbc downloads and unpacks
-each new archive, checks the exact version in its `MANIFEST`, and verifies the
-signature before recording its hash and size. For signed packages, this
-measurement requires signature verification, so `--no-verify` is rejected.
-For unsigned packages measured this way, dbc trusts the first download after
-checking the archive and version. dbc warns when a new hash comes from a
-plain HTTP URL declared in the driver list.
+For archives without a recorded hash, dbc reads the hash from `checksum_url`
+if set. Otherwise, it pins the first download by recording its SHA-256 hash
+and size. dbc extracts archives during installation or to check an applicable
+v1 library checksum for the current platform. For signed packages, `dbc sync`
+verifies the driver library's signature during installation and reuse unless
+you pass `--no-verify`. dbc warns when a new hash comes from a plain HTTP URL
+declared in the driver list.
 
 Archive and checksum downloads use no registry credentials.
 [URL replacements](../concepts/driver_registry.md#mirrors) from the user
