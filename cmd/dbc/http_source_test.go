@@ -114,10 +114,12 @@ func TestHTTPSourceValidation(t *testing.T) {
 }
 
 func TestExactHTTPVersion(t *testing.T) {
-	v, err := exactHTTPVersion("=1.2.3+build.4")
-	require.NoError(t, err)
-	assert.Equal(t, "1.2.3+build.4", v.String())
-	for _, raw := range []any{"1.2.3", ">=1.2.3", "==1.2.3", "=v1.2.3", "=1.2", "= 1.2.3", "=1.2.3 || =1.2.4", nil, 3} {
+	for _, raw := range []string{"=1.2.3+build.4", "1.2.3+build.4"} {
+		v, err := exactHTTPVersion(raw)
+		require.NoError(t, err, raw)
+		assert.Equal(t, "1.2.3+build.4", v.String())
+	}
+	for _, raw := range []any{"1.2", "v1.2.3", ">=1.2.3", "==1.2.3", "=v1.2.3", "=1.2", "= 1.2.3", " 1.2.3", "=1.2.3 || =1.2.4", "latest", "", nil, 3} {
 		_, err := exactHTTPVersion(raw)
 		assert.Error(t, err, "%v", raw)
 	}
@@ -546,21 +548,28 @@ func (suite *SubcommandTestSuite) TestSyncHTTPSourceVerifiesBeforeTheLock() {
 
 // dbc add writes back a driver list with an HTTP source as it was.
 func (suite *SubcommandTestSuite) TestAddKeepsAnHTTPSource() {
-	http := "[drivers.httpdrv]\nversion = '=1.0.0+build.1'\n[drivers.httpdrv.source]\ntype = 'http'\n" +
-		"url = 'https://example.com/v{version}/drv_{os}_{arch}.tar.gz'\nchecksum_url = 'https://example.com/v{version}/SHA256SUMS'\nsigning_key = false\n"
-	listPath := suite.writeList(http)
-	suite.runCmd(AddCmd{Path: listPath, Driver: []string{"test-driver-1"}}.GetModelCustom(testBaseModel()))
-	list, err := openAndDecodeDriverList(listPath)
-	suite.Require().NoError(err)
-	spec := list.Drivers["httpdrv"]
-	suite.Require().True(spec.isHTTP())
-	suite.Equal("1.0.0+build.1", spec.exact.String())
-	suite.Equal("https://example.com/v{version}/drv_{os}_{arch}.tar.gz", *spec.Source.URL)
-	suite.Equal("https://example.com/v{version}/SHA256SUMS", *spec.Source.ChecksumURL)
-	suite.Equal(false, spec.Source.SigningKey)
+	for _, version := range []string{"=1.0.0+build.1", "1.0.0+build.1"} {
+		suite.Run(version, func() {
+			http := "[drivers.httpdrv]\nversion = '" + version + "'\n[drivers.httpdrv.source]\ntype = 'http'\n" +
+				"url = 'https://example.com/v{version}/drv_{os}_{arch}.tar.gz'\nchecksum_url = 'https://example.com/v{version}/SHA256SUMS'\nsigning_key = false\n"
+			listPath := suite.writeList(http)
+			suite.runCmd(AddCmd{Path: listPath, Driver: []string{"test-driver-1"}}.GetModelCustom(testBaseModel()))
+			data, err := os.ReadFile(listPath)
+			suite.Require().NoError(err)
+			suite.Contains(string(data), "version = '"+version+"'")
+			list, err := openAndDecodeDriverList(listPath)
+			suite.Require().NoError(err)
+			spec := list.Drivers["httpdrv"]
+			suite.Require().True(spec.isHTTP())
+			suite.Equal("1.0.0+build.1", spec.exact.String())
+			suite.Equal("https://example.com/v{version}/drv_{os}_{arch}.tar.gz", *spec.Source.URL)
+			suite.Equal("https://example.com/v{version}/SHA256SUMS", *spec.Source.ChecksumURL)
+			suite.Equal(false, spec.Source.SigningKey)
 
-	out := suite.runCmdErr(AddCmd{Path: listPath, Driver: []string{"httpdrv"}}.GetModelCustom(testBaseModel()))
-	suite.Contains(out, "dbc add does not change")
+			out := suite.runCmdErr(AddCmd{Path: listPath, Driver: []string{"httpdrv"}}.GetModelCustom(testBaseModel()))
+			suite.Contains(out, "dbc add does not change")
+		})
+	}
 }
 
 // A file name of a checksum file names one archive URL only.

@@ -215,20 +215,21 @@ func (t urlTemplate) expand(v *semver.Version, target resolution.Target) (*url.U
 }
 
 // exactHTTPVersion returns the version that the version requirement of an
-// HTTP source pins: a single "=" followed by a full semantic version, as
-// written in dbc.toml, so that build metadata is kept.
+// HTTP source pins: a full semantic version, optionally after a single "=",
+// as written in dbc.toml, so that build metadata is kept. Like a version
+// constraint, "1.2.3" means "=1.2.3"; "1.2" would be a range.
 func exactHTTPVersion(raw any) (*semver.Version, error) {
 	s, ok := raw.(string)
 	if !ok {
-		return nil, errors.New(`a driver with an HTTP source needs an exact version, such as version = "=1.2.3"`)
+		return nil, errors.New(`a driver with an HTTP source needs an exact version, such as version = "1.2.3"`)
 	}
-	exact, ok := strings.CutPrefix(s, "=")
-	if !ok || strings.HasPrefix(exact, "=") {
-		return nil, fmt.Errorf(`a driver with an HTTP source needs an exact version, such as version = "=1.2.3", not %q`, s)
+	exact, _ := strings.CutPrefix(s, "=")
+	if strings.HasPrefix(exact, "=") {
+		return nil, fmt.Errorf(`a driver with an HTTP source needs an exact version, such as version = "1.2.3", not %q`, s)
 	}
 	v, err := semver.StrictNewVersion(exact)
 	if err != nil {
-		return nil, fmt.Errorf(`a driver with an HTTP source needs an exact version, such as version = "=1.2.3", not %q: %w`, s, err)
+		return nil, fmt.Errorf(`a driver with an HTTP source needs an exact version, such as version = "1.2.3", not %q: %w`, s, err)
 	}
 	return v, nil
 }
