@@ -147,7 +147,6 @@ function _dbc_lock_completions {
         '(-h)--help[Help]' \
         '(-p)--path[driver list to lock]: :_files -g \*.toml' \
         '(--path)-p[driver list to lock]: :_files -g \*.toml' \
-        '--no-verify[do not verify the driver signature]' \
         '--json[Print output as JSON instead of plaintext]'
 }
 
