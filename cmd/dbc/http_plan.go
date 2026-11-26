@@ -181,24 +181,6 @@ func (p *syncPlanner) planHTTP(name string, spec driverSpec, old *lockedDriver) 
 	return pd, nil
 }
 
-// checkHTTPNoVerify refuses --no-verify when an archive of a signed HTTP
-// source would be measured: its hash would be pinned from bytes whose
-// signature was never checked.
-func checkHTTPNoVerify(planned []plannedDriver, noVerify bool) error {
-	if !noVerify {
-		return nil
-	}
-	for _, pd := range planned {
-		if pd.http == nil || pd.Signer.unsigned {
-			continue
-		}
-		if slices.ContainsFunc(pd.http.pending, httpPending.measured) {
-			return fmt.Errorf("driver %s: --no-verify cannot be used while the hash of an archive of its HTTP source is measured, since the hash would be pinned without checking the signature; run without --no-verify, or set checksum_url", pd.Name)
-		}
-	}
-	return nil
-}
-
 // plaintextWarnings warns, once per driver, when a new hash of an HTTP
 // source is pinned from what was read over plain HTTP.
 func plaintextWarnings(planned []plannedDriver) []string {

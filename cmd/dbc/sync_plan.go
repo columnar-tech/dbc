@@ -53,8 +53,7 @@ type plannedDriver struct {
 	// are downloaded to measure it (see measureDeclared).
 	Unmeasured []dbc.PkgInfo
 	// http is set for a driver with an HTTP source: its archives are
-	// downloaded without registry credentials, checked like a measured
-	// archive whenever their hash is measured, and pending lists the
+	// downloaded without registry credentials, and pending lists the
 	// artifacts whose hash is not known yet.
 	http *httpPlan
 }

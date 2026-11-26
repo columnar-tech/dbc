@@ -307,7 +307,7 @@ func (suite *SubcommandTestSuite) TestLockHTTPSourceSigned() {
 	suite.Require().NoError(err)
 	keys := "[signing_keys.acme]\ntype = 'openpgp'\npublic_key = '''\n" + armored + "\n'''\n\n"
 
-	suite.Run("verified before the hash is pinned", func() {
+	suite.Run("the key is pinned", func() {
 		f := newHTTPFiles(suite.T())
 		f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", key)
 		listPath := suite.httpList(f, keys, "signing_key = 'acme'\n")
@@ -318,32 +318,36 @@ func (suite *SubcommandTestSuite) TestLockHTTPSourceSigned() {
 		suite.Require().NoError(os.Remove(suite.lockPath()))
 	})
 
-	suite.Run("another signer pins nothing", func() {
+	// dbc lock pins the archive without checking it; dbc sync then rejects
+	// what it cannot install.
+	for name, archive := range map[string][]byte{
+		"another signer is pinned and fails to install":           httpArchive(suite.T(), "1.0.0", generateHTTPTestKey(suite.T(), "other")),
+		"another MANIFEST version is pinned and fails to install": httpArchive(suite.T(), "1.0.1", key),
+	} {
+		suite.Run(name, func() {
+			f := newHTTPFiles(suite.T())
+			f.files[hostArchive] = archive
+			listPath := suite.httpList(f, keys, "signing_key = 'acme'\n")
+			suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
+			suite.Equal(lockHashPrefix+sha256Hex(archive), suite.lockedDriverEntry("httpdrv").Artifacts[0].Hash)
+			lock := suite.readLockBytes()
+			out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(httpBase()))
+			suite.Contains(out, map[bool]string{true: "signature", false: "1.0.1"}[strings.HasPrefix(name, "another signer")])
+			suite.driverIsNotInstalled("httpdrv")
+			suite.Equal(lock, suite.readLockBytes())
+			suite.Require().NoError(os.Remove(suite.lockPath()))
+		})
+	}
+
+	suite.Run("sync --no-verify skips only the signature", func() {
 		f := newHTTPFiles(suite.T())
 		f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", generateHTTPTestKey(suite.T(), "other"))
 		listPath := suite.httpList(f, keys, "signing_key = 'acme'\n")
-		out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
-		suite.Contains(out, "signature")
-		suite.NoFileExists(suite.lockPath())
-	})
-
-	suite.Run("another MANIFEST version pins nothing", func() {
-		f := newHTTPFiles(suite.T())
-		f.files[hostArchive] = httpArchive(suite.T(), "1.0.1", key)
-		listPath := suite.httpList(f, keys, "signing_key = 'acme'\n")
-		out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(httpBase()))
-		suite.Contains(out, "1.0.1")
-		suite.NoFileExists(suite.lockPath())
-	})
-
-	suite.Run("--no-verify is refused before any request", func() {
-		f := newHTTPFiles(suite.T())
-		f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", key)
-		listPath := suite.httpList(f, keys, "signing_key = 'acme'\n")
-		out := suite.runCmdErr(LockCmd{Path: listPath, NoVerify: true}.GetModelCustom(httpBase()))
-		suite.Contains(out, "--no-verify cannot be used")
-		suite.Zero(f.total())
-		suite.NoFileExists(suite.lockPath())
+		out := suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, NoVerify: true, Json: true}.GetModelCustom(httpBase()))
+		suite.Contains(out, `"signature_verified":false`)
+		suite.Equal(lockedSigner{Type: lockSignerOpenPGP, Fingerprint: key.GetFingerprint()}, suite.lockedDriverEntry("httpdrv").Signer)
+		suite.driverIsInstalled("httpdrv", false)
+		suite.Require().NoError(os.Remove(suite.lockPath()))
 	})
 
 	suite.Run("a key of the user config is not looked up", func() {
@@ -532,7 +536,10 @@ func (suite *SubcommandTestSuite) TestHTTPSourceLockChanges() {
 	})
 }
 
-func (suite *SubcommandTestSuite) TestSyncHTTPSourceVerifiesBeforeTheLock() {
+// TestSyncHTTPSourceVerifiesWhenInstalling pins that dbc sync pins a measured
+// archive before installing it, like dbc lock, so an archive whose signature
+// does not verify is pinned but not installed.
+func (suite *SubcommandTestSuite) TestSyncHTTPSourceVerifiesWhenInstalling() {
 	suite.skipUnlessLinuxAMD64()
 	key := generateHTTPTestKey(suite.T(), "acme")
 	armored, err := key.GetArmoredPublicKey()
@@ -541,8 +548,8 @@ func (suite *SubcommandTestSuite) TestSyncHTTPSourceVerifiesBeforeTheLock() {
 	f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", generateHTTPTestKey(suite.T(), "other"))
 	listPath := suite.httpList(f, "[signing_keys.acme]\ntype = 'openpgp'\npublic_key = '''\n"+armored+"\n'''\n\n", "signing_key = 'acme'\n")
 	out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(httpBase()))
-	suite.Contains(out, "signature")
-	suite.NoFileExists(suite.lockPath(), "a hash is never pinned from an unverified archive")
+	suite.Contains(out, "failed to verify signature")
+	suite.Equal(lockHashPrefix+sha256Hex(f.files[hostArchive]), suite.lockedDriverEntry("httpdrv").Artifacts[0].Hash)
 	suite.driverIsNotInstalled("httpdrv")
 }
 

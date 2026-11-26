@@ -307,7 +307,6 @@ func (s syncModel) prepareWithWarnings() (items []syncItem, warnings []string, e
 		ctx:         s.ctx,
 		projectLock: s.projectLock,
 		base:        s.baseModel,
-		noVerify:    s.NoVerify,
 	}.resolve(s.fetch)
 }
 
@@ -341,9 +340,6 @@ type driverListResolution struct {
 	// hostOptional plans drivers whose locked version has no build for this
 	// platform; see syncPlanner.hostOptional.
 	hostOptional bool
-	// noVerify is the --no-verify flag, which an HTTP source refuses while
-	// the hash of one of its archives is measured.
-	noVerify bool
 }
 
 // resolve plans every driver, runs fetch for each planned driver and writes
@@ -429,9 +425,6 @@ func (r driverListResolution) resolve(fetch func(*plannedDriver) (syncItem, erro
 	}
 	// Only now that every driver is planned, with its source, signer and
 	// recorded URLs checked, is anything of an HTTP source fetched.
-	if err := checkHTTPNoVerify(planned, r.noVerify); err != nil {
-		return nil, warnings, err
-	}
 	warnings = append(warnings, plaintextWarnings(planned)...)
 	if err := fetchHTTPChecksums(r.ctx, r.base, planned); err != nil {
 		return nil, warnings, err
