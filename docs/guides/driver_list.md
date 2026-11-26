@@ -168,14 +168,14 @@ The top-level `version = 2` is the version of the lockfile format. Each `[[drive
   without searching registries for that driver.
 - `artifacts`: the SHA-256 hash and location of the archive for each platform.
 
-The `signer` is the key that the driver's registry is configured with: the key built into dbc for the default registries, or the registry's `signing_key` (see [Signing keys](../concepts/driver_registry.md#signing-keys)). For a registry declared unsigned with `signing_key = false`, it is:
+The `signer` is the key that the driver's source is configured with: the key built into dbc for the default registries, or the `signing_key` of the registry (see [Signing keys](../concepts/driver_registry.md#signing-keys)) or [HTTP source](../reference/driver_list.md#http-source). For a source declared unsigned with `signing_key = false`, it is:
 
 ```toml
 [drivers.signer]
 type = 'none'
 ```
 
-`dbc lock` records this key. `dbc sync` uses it to verify the driver library's signature when it installs or reuses a package, unless `--no-verify` is set. If the configuration of the registry no longer selects the recorded key, both commands fail before downloading any archives, even with `dbc sync --no-verify`. To accept the new key, delete the lockfile and run `dbc lock` again; this may also select newer versions of the other drivers.
+`dbc lock` records this key. `dbc sync` uses it to verify the driver library's signature when it installs or reuses a package, unless `--no-verify` is set. If the configuration of the driver's source no longer selects the recorded key, both commands fail before downloading any archives, even with `dbc sync --no-verify`. To accept the new key, delete the lockfile and run `dbc lock` again; this may also select newer versions of the other drivers.
 
 The signature only covers the driver library file; other contents of the archive, such as the manifest, are covered only by the archive hash.
 
