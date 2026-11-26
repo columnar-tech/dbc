@@ -222,8 +222,9 @@ public_key_file = "keys/example.asc"
 
 `dbc lock` records in `dbc.lock` which key each driver must be signed with, or
 that its registry is unsigned. If you later point a registry at a different key
-or make it unsigned, `dbc sync` and `dbc lock` stop with an error, also with
-`--no-verify`; delete `dbc.lock` and run `dbc lock` again to accept the new key.
+or make it unsigned, `dbc lock` and `dbc sync` fail before downloading any
+archives, even with `dbc sync --no-verify`; delete `dbc.lock` and run `dbc lock`
+again to accept the new key.
 Since every unsigned registry is a signer of its own, a driver locked from one
 is not resolved again from another either, also when its `source` changes.
 `dbc.lock` records the fingerprint of the primary key, so an updated
