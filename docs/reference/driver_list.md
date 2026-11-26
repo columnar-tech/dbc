@@ -159,19 +159,19 @@ dbc does not fall back to another registry when the selected registry does not h
 
 {{ since_version('v0.4.0') }}
 
-Use `type = "http"` to download a driver directly. The download must be a dbc
-package archive (`.tar.gz` with a `MANIFEST`). Set `version` to an exact version
-with a single `=`.
+Use `type = "http"` to download a dbc package archive (`.tar.gz` with a
+`MANIFEST`) directly. dbc does not discover available versions from a URL
+template, so set `version` to an exact version with a single `=`.
 
 ```toml
 [drivers.example]
 version = "=1.2.0"
-
-[drivers.example.source]
-type = "http"
-url = "https://example.com/releases/download/v{version}/example_{os}_{arch}_v{version}.tar.gz"
-checksum_url = "https://example.com/releases/download/v{version}/SHA256SUMS"
-signing_key = false
+source = {
+  type = "http",
+  url = "https://example.com/releases/download/v{version}/example_{os}_{arch}_v{version}.tar.gz",
+  checksum_url = "https://example.com/releases/download/v{version}/SHA256SUMS",
+  signing_key = false,
+}
 ```
 
 - `url`: required. An HTTP(S) URL without user information, a query, or a
