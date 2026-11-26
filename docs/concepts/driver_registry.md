@@ -80,7 +80,7 @@ name = "my-registry"
 
 - The built-in registries are excluded when either the global `config.toml` or the project's `dbc.toml` sets `exclude_builtin_registries = true`. A project cannot bring them back with `false` once the global config excludes them; commands that read the project's `dbc.toml` then print a warning that its `false` has no effect.
 - Only the built-in registries are removed. Global and project `[[registries]]` entries stay, including an entry that names a built-in registry's URL.
-- dbc reports an error if no registry is left, for example when `exclude_builtin_registries = true` is set and neither file has a `[[registries]]` entry.
+- An empty registry list is valid. In a project with no registries, drivers must use [HTTP sources](../reference/driver_list.md#http-source). Commands that need a registry, such as `dbc search`, report an error.
 
 ### Which commands use which registries
 

@@ -70,9 +70,8 @@ Both loaders validate registry URLs: each must be nonempty, have a host, and
 use `http` or `https`. They also check the signing key settings of the file
 (see [Signing keys](#signing-keys)). `dbc.NewClient` also validates entries
 supplied directly through `dbc.WithGlobalConfig` and `dbc.WithProjectConfig`
-when those options apply. It returns an error if the merged configuration produces no
-registries. The loaders do not reject `exclude_builtin_registries = true` with no entries
-on its own, because the other configuration layer may supply entries.
+when those options apply. If the merged list is empty, `Client.Search`
+returns no drivers and no error.
 
 ## URL replacements
 
