@@ -20,6 +20,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ProtonMail/gopenpgp/v3/crypto"
+	"github.com/columnar-tech/dbc"
 	"github.com/columnar-tech/dbc/config"
 	"github.com/columnar-tech/dbc/internal/resolution"
 	"github.com/stretchr/testify/assert"
@@ -533,6 +535,143 @@ func (suite *SubcommandTestSuite) TestHTTPSourceLockChanges() {
 			suite.Zero(counters.boundIndex)
 			suite.Equal(lock, suite.readLockBytes())
 		}
+	})
+}
+
+// TestSourceSwitchBetweenHTTPAndRegistry pins that a driver moves between an
+// HTTP source and an explicitly chosen registry only through dbc lock, and
+// only when both sources have the same signer. A registry that serves the
+// driver too is never used while the driver list names the HTTP source.
+func (suite *SubcommandTestSuite) TestSourceSwitchBetweenHTTPAndRegistry() {
+	suite.skipUnlessLinuxAMD64()
+	key := generateHTTPTestKey(suite.T(), "acme")
+	armored, err := key.GetArmoredPublicKey()
+	suite.Require().NoError(err)
+	registryKey, err := dbc.NewSigningKey([]byte(armored))
+	suite.Require().NoError(err)
+	otherKey := generateHTTPTestKey(suite.T(), "other")
+	otherArmored, err := otherKey.GetArmoredPublicKey()
+	suite.Require().NoError(err)
+	keys := "[signing_keys.acme]\ntype = 'openpgp'\npublic_key = '''\n" + armored + "\n'''\n\n" +
+		"[signing_keys.other]\ntype = 'openpgp'\npublic_key = '''\n" + otherArmored + "\n'''\n\n"
+	signedWith := func(k *crypto.Key) lockedSigner {
+		return lockedSigner{Type: lockSignerOpenPGP, Fingerprint: k.GetFingerprint()}
+	}
+
+	const driver = "test-driver-1"
+	setup := func(policy dbc.SigningPolicy) (*httpFiles, *syncCounters, baseModel) {
+		if err := os.Remove(suite.lockPath()); !errors.Is(err, os.ErrNotExist) {
+			suite.Require().NoError(err)
+		}
+		f := newHTTPFiles(suite.T())
+		regs := newTwoRegistries()
+		regs.second.Signing = policy
+		var counters syncCounters
+		base := counters.counted(regs.base())
+		base.downloadHTTP = downloadHTTPPkg
+		base.fetchHTTP = fetchHTTPFile
+		base.projectSigningPolicy = projectSigningPolicy
+		return f, &counters, base
+	}
+	httpSource := func(f *httpFiles, signingKey string) string {
+		return suite.writeList(keys + "[drivers." + driver + "]\nversion = '=1.0.0'\n[drivers." + driver + ".source]\ntype = 'http'\n" +
+			"url = '" + f.URL + "/v{version}/drv_{os}_{arch}.tar.gz'\nsigning_key = " + signingKey + "\n")
+	}
+	registrySource := func(version string) string {
+		return suite.writeList(keys + "[drivers." + driver + "]\nversion = '" + version + "'\n" +
+			"source = { type = 'registry', url = '" + secondRegistryURL + "' }\n")
+	}
+
+	suite.Run("from HTTP to a registry with the same key", func() {
+		f, counters, base := setup(dbc.SignWith(registryKey))
+		f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", key)
+		listPath := httpSource(f, "'acme'")
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+		old := suite.lockedDriverEntry(driver)
+		suite.Equal(lockSourceHTTP, old.Source.Type)
+		suite.Zero(counters.index+counters.boundIndex, "the registries are not searched for a driver of an HTTP source")
+		lock := suite.readLockBytes()
+		requests := f.total()
+
+		registrySource(">=1.0, <2.0")
+		out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(base))
+		suite.Contains(out, "the lock file has it from an HTTP source; run `dbc lock` to resolve it again from "+secondRegistryURL)
+		suite.Zero(counters.index + counters.boundIndex + counters.downloads)
+		suite.Equal(lock, suite.readLockBytes())
+		suite.driverIsNotInstalled(driver)
+
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+		d := suite.lockedDriverEntry(driver)
+		suite.Equal(lockedSource{Type: lockSourceRegistry, URL: secondRegistryURL}, d.Source)
+		suite.Equal("1.1.0", d.Version, "the version is resolved again from the registry")
+		suite.Equal(signedWith(key), d.Signer)
+		suite.Require().Len(d.Artifacts, 1)
+		suite.Equal(resolution.ArtifactLocationRegistryPath, d.Artifacts[0].Location.Kind)
+		suite.NotEqual(old.Artifacts[0].Hash, d.Artifacts[0].Hash)
+		suite.Zero(counters.index, "only the chosen registry is read")
+		suite.Equal(requests, f.total(), "the HTTP source is not read again")
+	})
+
+	suite.Run("from a registry to HTTP with the same key", func() {
+		f, counters, base := setup(dbc.SignWith(registryKey))
+		archive := httpArchive(suite.T(), "1.0.0", key)
+		f.files[hostArchive] = archive
+		listPath := registrySource("=1.0.0")
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+		old := suite.lockedDriverEntry(driver)
+		suite.Equal(secondRegistryURL, old.Source.URL)
+		lock := suite.readLockBytes()
+
+		httpSource(f, "'acme'")
+		reads := counters.index + counters.boundIndex
+		out := suite.runCmdErr(SyncCmd{Path: listPath, Level: suite.configLevel}.GetModelCustom(base))
+		suite.Contains(out, "the lock file has it from registry "+secondRegistryURL+"; run `dbc lock` to lock it again")
+		suite.Zero(f.total())
+		suite.Equal(lock, suite.readLockBytes())
+		suite.driverIsNotInstalled(driver)
+
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+		d := suite.lockedDriverEntry(driver)
+		suite.Equal(lockSourceHTTP, d.Source.Type)
+		suite.NotEmpty(d.Source.TemplateSHA256)
+		suite.Equal(old.Version, d.Version)
+		suite.Equal(signedWith(key), d.Signer)
+		suite.Require().Len(d.Artifacts, 1)
+		suite.Equal(f.URL+hostArchive, d.Artifacts[0].Location.Value, "the same version now comes from the HTTP source")
+		suite.Equal(lockHashPrefix+sha256Hex(archive), d.Artifacts[0].Hash)
+		suite.Equal(reads, counters.index+counters.boundIndex, "the registries are not read")
+
+		out = suite.runCmd(SyncCmd{Path: listPath, Level: suite.configLevel, Json: true}.GetModelCustom(base))
+		suite.Contains(out, `"signature_verified":true`)
+		suite.driverIsInstalledWithVersion(driver, "1.0.0", true)
+	})
+
+	suite.Run("from an unsigned HTTP source to an unsigned registry", func() {
+		f, counters, base := setup(dbc.Unsigned())
+		f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", nil)
+		listPath := httpSource(f, "false")
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+		lock := suite.readLockBytes()
+
+		registrySource(">=1.0, <2.0")
+		out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(base))
+		suite.Contains(out, "the lock file has it from the unsigned HTTP source, but it would now come from the unsigned registry "+secondRegistryURL+", which is another signer")
+		suite.Zero(counters.downloads)
+		suite.Equal(lock, suite.readLockBytes())
+	})
+
+	suite.Run("from a signed registry to HTTP with another key", func() {
+		f, _, base := setup(dbc.SignWith(registryKey))
+		f.files[hostArchive] = httpArchive(suite.T(), "1.0.0", otherKey)
+		listPath := registrySource("=1.0.0")
+		suite.runCmd(LockCmd{Path: listPath}.GetModelCustom(base))
+		lock := suite.readLockBytes()
+
+		httpSource(f, "'other'")
+		out := suite.runCmdErr(LockCmd{Path: listPath}.GetModelCustom(base))
+		suite.Contains(out, "the lock file pins the signing key "+key.GetFingerprint()+", but its packages would now be verified with the signing key "+otherKey.GetFingerprint())
+		suite.Zero(f.total())
+		suite.Equal(lock, suite.readLockBytes())
 	})
 }
 
